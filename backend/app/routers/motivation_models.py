@@ -158,7 +158,8 @@ class NextQuestionRequest(BaseModel):
     generated_draft: Optional[str] = Field(default=None, max_length=8000)
     requires_industry_selection: bool = False
     industry_options: Optional[list[str]] = None
-    conversation_history: list[Message]
+    # 会話要約が 20 件超で発動するが、フォールバック時の安全マージンとして 60 を許容
+    conversation_history: list[Message] = Field(max_length=60)
     question_count: int = Field(default=0, ge=0)
     scores: Optional[MotivationScoresInput] = None
     gakuchika_context: Optional[list[dict]] = None
@@ -226,7 +227,8 @@ class GenerateDraftRequest(BaseModel):
     industry: Optional[str] = Field(default=None, max_length=100)
     # D-2 / P2-1: RAG グラウンディングのロール軸を決めるために追加（加法的、未送信時は None）
     selected_role: Optional[str] = Field(default=None, max_length=200)
-    conversation_history: list[Message]
+    # 会話要約が 20 件超で発動するが、フォールバック時の安全マージンとして 60 を許容
+    conversation_history: list[Message] = Field(max_length=60)
     slot_summaries: Optional[dict[str, Optional[str]]] = None
     slot_evidence_sentences: Optional[dict[str, list[str]]] = None
     char_limit: int = Field(default=400, ge=300, le=500)

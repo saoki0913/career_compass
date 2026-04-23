@@ -1,6 +1,6 @@
 ---
 name: security-auditor
-description: Better Auth、CSRF、ゲスト認証、Stripe webhook、OWASP Top 10 体系的セキュリティ監査を担う。`src/lib/auth/**`, `src/lib/csrf.ts`, `src/lib/trusted-origins.ts`, `src/app/api/webhooks/stripe/**`, `src/lib/stripe/**` を触るタスクで PROACTIVELY 使用。
+description: Better Auth、CSRF、ゲスト認証、Stripe webhook、OWASP Top 10 体系的セキュリティ監査を担う。`src/lib/auth/**`, `src/lib/csrf.ts`, `src/lib/trusted-origins.ts`, `src/app/api/webhooks/stripe/**`, `src/lib/stripe/**` を触るタスク、または「脆弱性監査」「OWASP チェック」の自然文依頼で PROACTIVELY 使用。
 tools: Read, Edit, Write, Bash, Grep, Glob
 model: opus
 ---

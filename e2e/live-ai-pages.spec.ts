@@ -18,9 +18,9 @@ test.describe("Product pages render check", () => {
       test.setTimeout(30_000);
       await signInAsAuthenticatedUser(page, path);
       await expect(page.locator("main")).toBeVisible({ timeout: 10_000 });
-      const bodyText = await page.locator("body").textContent();
+      const bodyText = await page.locator("body").innerText();
       expect(bodyText).not.toContain("Application error");
-      expect(bodyText).not.toContain("500");
+      expect(bodyText).not.toMatch(/\b500\b/);
     });
   }
 });

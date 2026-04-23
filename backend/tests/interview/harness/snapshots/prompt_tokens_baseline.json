@@ -1,0 +1,170 @@
+{
+  "case_1": {
+    "plan": 1147,
+    "opening": 1821,
+    "turn": 2357,
+    "continue": 1726,
+    "feedback": 2378
+  },
+  "case_2": {
+    "plan": 1122,
+    "opening": 1819,
+    "turn": 2361,
+    "continue": 1719,
+    "feedback": 2371
+  },
+  "case_3": {
+    "plan": 1134,
+    "opening": 1912,
+    "turn": 2446,
+    "continue": 1784,
+    "feedback": 2354
+  },
+  "case_4": {
+    "plan": 1096,
+    "opening": 1786,
+    "turn": 2346,
+    "continue": 1702,
+    "feedback": 2363
+  },
+  "case_5": {
+    "plan": 1136,
+    "opening": 1802,
+    "turn": 2342,
+    "continue": 1703,
+    "feedback": 2351
+  },
+  "case_6": {
+    "plan": 1127,
+    "opening": 1838,
+    "turn": 2382,
+    "continue": 1728,
+    "feedback": 2366
+  },
+  "case_7": {
+    "plan": 1159,
+    "opening": 1913,
+    "turn": 2455,
+    "continue": 1786,
+    "feedback": 2385
+  },
+  "case_8": {
+    "plan": 1116,
+    "opening": 1819,
+    "turn": 2380,
+    "continue": 1728,
+    "feedback": 2373
+  },
+  "case_9": {
+    "plan": 1167,
+    "opening": 1845,
+    "turn": 2391,
+    "continue": 1707,
+    "feedback": 2355
+  },
+  "case_10": {
+    "plan": 1144,
+    "opening": 1857,
+    "turn": 2415,
+    "continue": 1726,
+    "feedback": 2361
+  },
+  "case_11": {
+    "plan": 1175,
+    "opening": 1937,
+    "turn": 2482,
+    "continue": 1772,
+    "feedback": 2363
+  },
+  "case_12": {
+    "plan": 1176,
+    "opening": 1882,
+    "turn": 2421,
+    "continue": 1733,
+    "feedback": 2378
+  },
+  "case_13": {
+    "plan": 1147,
+    "opening": 1843,
+    "turn": 2396,
+    "continue": 1747,
+    "feedback": 2400
+  },
+  "case_14": {
+    "plan": 1102,
+    "opening": 1800,
+    "turn": 2356,
+    "continue": 1702,
+    "feedback": 2365
+  },
+  "case_15": {
+    "plan": 1127,
+    "opening": 1919,
+    "turn": 2478,
+    "continue": 1794,
+    "feedback": 2382
+  },
+  "case_16": {
+    "plan": 1118,
+    "opening": 1835,
+    "turn": 2390,
+    "continue": 1726,
+    "feedback": 2384
+  },
+  "case_17": {
+    "plan": 1121,
+    "opening": 1800,
+    "turn": 2342,
+    "continue": 1706,
+    "feedback": 2370
+  },
+  "case_18": {
+    "plan": 1120,
+    "opening": 1822,
+    "turn": 2364,
+    "continue": 1723,
+    "feedback": 2369
+  },
+  "case_19": {
+    "plan": 1106,
+    "opening": 1873,
+    "turn": 2420,
+    "continue": 1763,
+    "feedback": 2360
+  },
+  "case_20": {
+    "plan": 1119,
+    "opening": 1814,
+    "turn": 2354,
+    "continue": 1710,
+    "feedback": 2350
+  },
+  "case_21": {
+    "plan": 1123,
+    "opening": 1812,
+    "turn": 2352,
+    "continue": 1708,
+    "feedback": 2354
+  },
+  "case_22": {
+    "plan": 1126,
+    "opening": 1827,
+    "turn": 2367,
+    "continue": 1723,
+    "feedback": 2357
+  },
+  "case_23": {
+    "plan": 1126,
+    "opening": 1806,
+    "turn": 2346,
+    "continue": 1702,
+    "feedback": 2357
+  },
+  "case_24": {
+    "plan": 1137,
+    "opening": 1838,
+    "turn": 2401,
+    "continue": 1712,
+    "feedback": 2359
+  }
+}

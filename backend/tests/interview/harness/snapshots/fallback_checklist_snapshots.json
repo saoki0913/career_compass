@@ -1,0 +1,455 @@
+{
+  "case_1": {
+    "motivation_fit": [
+      "core_reason",
+      "company_reason"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values"
+    ]
+  },
+  "case_2": {
+    "motivation_fit": [
+      "core_reason",
+      "company_reason",
+      "experience_link",
+      "practical_skill"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "practical_skill"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values",
+      "action_result_link",
+      "practical_skill"
+    ]
+  },
+  "case_3": {
+    "motivation_fit": [
+      "core_reason",
+      "company_reason",
+      "experience_link",
+      "company_compare",
+      "decision_axis",
+      "commitment",
+      "consistency_check",
+      "career_vision"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "consistency_check",
+      "career_vision"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values",
+      "action_result_link",
+      "consistency_check",
+      "career_vision"
+    ]
+  },
+  "case_4": {
+    "motivation_fit": [
+      "core_reason",
+      "company_reason",
+      "experience_link"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values",
+      "action_result_link"
+    ]
+  },
+  "case_5": {
+    "motivation_fit": [
+      "structure",
+      "hypothesis",
+      "practical_skill"
+    ],
+    "technical_depth": [
+      "structure",
+      "hypothesis",
+      "practical_skill"
+    ],
+    "life_narrative_core": [
+      "structure",
+      "hypothesis",
+      "practical_skill"
+    ]
+  },
+  "case_6": {
+    "motivation_fit": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "career_vision"
+    ],
+    "technical_depth": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "career_vision"
+    ],
+    "life_narrative_core": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "career_vision"
+    ]
+  },
+  "case_7": {
+    "motivation_fit": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "company_compare",
+      "decision_axis",
+      "commitment",
+      "consistency_check"
+    ],
+    "technical_depth": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "consistency_check"
+    ],
+    "life_narrative_core": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "consistency_check"
+    ]
+  },
+  "case_8": {
+    "motivation_fit": [
+      "structure",
+      "hypothesis",
+      "prioritization"
+    ],
+    "technical_depth": [
+      "structure",
+      "hypothesis",
+      "prioritization"
+    ],
+    "life_narrative_core": [
+      "structure",
+      "hypothesis",
+      "prioritization"
+    ]
+  },
+  "case_9": {
+    "motivation_fit": [
+      "decision_reason",
+      "tradeoff",
+      "practical_skill"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "practical_skill"
+    ],
+    "life_narrative_core": [
+      "decision_reason",
+      "tradeoff",
+      "practical_skill"
+    ]
+  },
+  "case_10": {
+    "motivation_fit": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "career_vision"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "career_vision"
+    ],
+    "life_narrative_core": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "career_vision"
+    ]
+  },
+  "case_11": {
+    "motivation_fit": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "company_compare",
+      "decision_axis",
+      "commitment",
+      "consistency_check"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "consistency_check"
+    ],
+    "life_narrative_core": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "consistency_check"
+    ]
+  },
+  "case_12": {
+    "motivation_fit": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility"
+    ],
+    "life_narrative_core": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility"
+    ]
+  },
+  "case_13": {
+    "motivation_fit": [
+      "turning_point",
+      "values",
+      "career_vision"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "career_vision"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values",
+      "career_vision"
+    ]
+  },
+  "case_14": {
+    "motivation_fit": [
+      "turning_point",
+      "values",
+      "action_result_link"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values",
+      "action_result_link"
+    ]
+  },
+  "case_15": {
+    "motivation_fit": [
+      "turning_point",
+      "values",
+      "action_result_link",
+      "company_compare",
+      "decision_axis",
+      "commitment",
+      "consistency_check"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "consistency_check"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values",
+      "action_result_link",
+      "consistency_check"
+    ]
+  },
+  "case_16": {
+    "motivation_fit": [
+      "turning_point",
+      "values",
+      "action_result_link",
+      "practical_skill"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "practical_skill"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values",
+      "action_result_link",
+      "practical_skill"
+    ]
+  },
+  "case_17": {
+    "motivation_fit": [
+      "core_reason",
+      "company_reason"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values"
+    ]
+  },
+  "case_18": {
+    "motivation_fit": [
+      "core_reason",
+      "company_reason",
+      "experience_link"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values",
+      "action_result_link"
+    ]
+  },
+  "case_19": {
+    "motivation_fit": [
+      "core_reason",
+      "company_reason",
+      "experience_link",
+      "consistency_check"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "consistency_check"
+    ],
+    "life_narrative_core": [
+      "turning_point",
+      "values",
+      "action_result_link",
+      "consistency_check"
+    ]
+  },
+  "case_20": {
+    "motivation_fit": [
+      "structure",
+      "hypothesis",
+      "prioritization"
+    ],
+    "technical_depth": [
+      "structure",
+      "hypothesis",
+      "prioritization"
+    ],
+    "life_narrative_core": [
+      "structure",
+      "hypothesis",
+      "prioritization"
+    ]
+  },
+  "case_21": {
+    "motivation_fit": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "practical_skill"
+    ],
+    "technical_depth": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "practical_skill"
+    ],
+    "life_narrative_core": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "practical_skill"
+    ]
+  },
+  "case_22": {
+    "motivation_fit": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "career_vision"
+    ],
+    "technical_depth": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "career_vision"
+    ],
+    "life_narrative_core": [
+      "structure",
+      "hypothesis",
+      "prioritization",
+      "career_vision"
+    ]
+  },
+  "case_23": {
+    "motivation_fit": [
+      "structure",
+      "hypothesis",
+      "prioritization"
+    ],
+    "technical_depth": [
+      "structure",
+      "hypothesis",
+      "prioritization"
+    ],
+    "life_narrative_core": [
+      "structure",
+      "hypothesis",
+      "prioritization"
+    ]
+  },
+  "case_24": {
+    "motivation_fit": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "practical_skill"
+    ],
+    "technical_depth": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "practical_skill"
+    ],
+    "life_narrative_core": [
+      "decision_reason",
+      "tradeoff",
+      "reproducibility",
+      "practical_skill"
+    ]
+  }
+}

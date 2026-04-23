@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "changedFiles": [],
+  "generatedAt": "2026-04-21T15:32:47.674Z",
+  "routes": [],
+  "features": [],
+  "authMode": "none",
+  "hasUiChange": false,
+  "unresolved": [],
+  "checks": [
+    {
+      "id": "tsc:noemit",
+      "kind": "typescript",
+      "command": "npx tsc --noEmit",
+      "required": true,
+      "status": "not_run"
+    }
+  ],
+  "stale": false,
+  "staleReason": null,
+  "sessionId": null,
+  "updatedAt": "2026-04-21T15:33:04.718Z"
+}

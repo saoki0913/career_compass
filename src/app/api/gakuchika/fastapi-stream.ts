@@ -251,6 +251,8 @@ export async function getQuestionFromFastAPI(
               resolved_focuses: conversationState.resolvedFocuses,
               deferred_focuses: conversationState.deferredFocuses,
               blocked_focuses: conversationState.blockedFocuses,
+              recent_question_texts: conversationState.recentQuestionTexts,
+              loop_blocked_focuses: conversationState.loopBlockedFocuses,
               focus_attempt_counts: conversationState.focusAttemptCounts,
               last_question_signature: conversationState.lastQuestionSignature,
               extended_deep_dive_round: conversationState.extendedDeepDiveRound,

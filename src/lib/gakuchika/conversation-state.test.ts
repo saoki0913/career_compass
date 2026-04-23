@@ -33,6 +33,8 @@ function baseState(overrides: Partial<ConversationState> = {}): ConversationStat
     resolvedFocuses: [],
     deferredFocuses: [],
     blockedFocuses: [],
+    recentQuestionTexts: [],
+    loopBlockedFocuses: [],
     focusAttemptCounts: {},
     lastQuestionSignature: null,
     extendedDeepDiveRound: 0,
@@ -114,6 +116,35 @@ describe("conversation-state adapters", () => {
     expect(patched.focusKey).toBe("task");
     expect(patched.askedFocuses).toEqual(["context", "task"]);
     expect(patched.blockedFocuses).toEqual(["future"]);
+  });
+
+  it("round-trips recent question loop fields through serialize and parse", () => {
+    const state = baseState({
+      recentQuestionTexts: ["そのときの課題は何でしたか？", "なぜそう判断しましたか？"],
+      loopBlockedFocuses: ["task", "challenge"],
+    });
+
+    const parsed = safeParseConversationState(serializeConversationState(state));
+
+    expect(parsed.recentQuestionTexts).toEqual(state.recentQuestionTexts);
+    expect(parsed.loopBlockedFocuses).toEqual(state.loopBlockedFocuses);
+  });
+
+  it("keeps loop fields when patch does not mention them and replaces them when present", () => {
+    const patched = buildConversationStatePatch(
+      baseState({
+        recentQuestionTexts: ["状況はどうでしたか？"],
+        loopBlockedFocuses: ["context"],
+      }),
+      {
+        focusKey: "task",
+        recentQuestionTexts: ["課題は何でしたか？"],
+      },
+    );
+
+    expect(patched.focusKey).toBe("task");
+    expect(patched.recentQuestionTexts).toEqual(["課題は何でしたか？"]);
+    expect(patched.loopBlockedFocuses).toEqual(["context"]);
   });
 });
 

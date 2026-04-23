@@ -2,10 +2,12 @@
 topic: harness
 plan_date: 2026-04-14
 based_on_review: harness/2026-04-12-harness-strict-review.md
-status: 進行中
+status: 完了
 implementation_level: 手順書レベル
-last_progress: 2026-04-17
+last_progress: 2026-04-18
 ---
+
+> **v4 以降の改善** は本計画書ではなく `.claude/plans/harness-improvement-plan-md-web-askuserq-stateless-avalanche.md` で追跡する。permissions.deny 追加、件数ドリフト detector、AI_HARNESS.md §7.4 stale 是正と §8 ハーネス観測性 新設が v4 のスコープ。
 
 ## 進捗スナップショット (2026-04-17)
 
@@ -678,3 +680,18 @@ git checkout -- .claude/settings.json docs/ops/AI_HARNESS.md
 | **opus / sonnet** | Claude のモデルグレード。opus は高精度・高コスト、sonnet は標準精度・低コスト |
 | **sync-pipeline** | `.agents/` から `.claude/`, `.cursor/`, `.codex/` へスキルや設定を同期するスクリプト |
 | **blast radius** | 変更が影響する範囲。低 = 開発環境のみ、高 = 本番ユーザーに影響 |
+
+---
+
+## 9. v4 次アクション（2026-04-18 完了）
+
+v3 完了後の監査で発見された残課題を v4 として実装済み。詳細は `.claude/plans/harness-improvement-plan-md-web-askuserq-stateless-avalanche.md`。
+
+- **H4-1**: `.claude/settings.json` に project-root anchored な `permissions.deny` を 10 件追加（Claude Code 公式 deny で hook と二重化）
+- **H4-2**: `.codex/config.toml` `deny_patterns` を 8 件に拡張（`codex-company/.secrets/**` 等を追加し `.cursorignore` と意味論を一致）
+- **H4-4**: `sync-pipeline.test.mjs` に件数ドリフト detector（agent / hook / skill / Context7 coverage / model 配分 / 壊れた symlink）を追加
+- **H4-5**: `docs/ops/AI_HARNESS.md` §4.1 / §7.4 の stale 数値を実測に更新、§8「ハーネス観測性」を新設
+- **H4-6**: `release-engineer` / `security-auditor` agent の自然文同義語を補強
+- **H4-7**: 本ドキュメントを `status: 完了` にクローズ
+
+v5 以降の候補（対象外）: OpenTelemetry 連携、gitleaks CI job、skill canonicalization、MCP サーバー権限の granular scoping。

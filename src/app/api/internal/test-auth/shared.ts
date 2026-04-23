@@ -2,13 +2,20 @@ import { randomUUID, timingSafeEqual } from "crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  calendarEvents,
+  calendarSettings,
+  calendarSyncJobs,
   companies,
   creditTransactions,
   credits,
+  deadlines,
   gakuchikaContents,
   interviewConversations,
   interviewFeedbackHistories,
   motivationConversations,
+  notificationSettings,
+  notifications,
+  tasks,
   userProfiles,
   users,
 } from "@/lib/db/schema";
@@ -33,6 +40,13 @@ export type CiE2ELiveStateResetResult = {
   userId: string;
   creditBalance: number;
   deletedCounts: {
+    calendarEvents: number;
+    calendarSyncJobs: number;
+    calendarSettings: number;
+    notifications: number;
+    notificationSettings: number;
+    tasks: number;
+    deadlines: number;
     companies: number;
     gakuchikaContents: number;
     motivationConversationsDeleted: number;
@@ -180,7 +194,11 @@ export async function ensureCiE2ETestUserWithTx(
 }
 
 function isAiLiveCompanyName(name: string) {
-  return name.includes("_live-ai-conversations-") || name.startsWith("AI添削会社_live-es-");
+  return (
+    name.includes("_live-ai-conversations-") ||
+    name.startsWith("AI添削会社_live-es-") ||
+    name.includes("_live-crud-")
+  );
 }
 
 export async function resetCiE2ELiveState(userId: string): Promise<CiE2ELiveStateResetResult> {
@@ -192,6 +210,45 @@ export async function resetCiE2ELiveState(userId: string): Promise<CiE2ELiveStat
       .from(companies)
       .where(eq(companies.userId, userId));
     const liveCompanyIds = ownedCompanies.filter((company) => isAiLiveCompanyName(company.name)).map((company) => company.id);
+
+    // --- CRUD entity cleanup (before conversation cleanup) ---
+    const deletedCalendarEvents = await tx
+      .delete(calendarEvents)
+      .where(eq(calendarEvents.userId, userId))
+      .returning({ id: calendarEvents.id });
+
+    const deletedCalendarSyncJobs = await tx
+      .delete(calendarSyncJobs)
+      .where(eq(calendarSyncJobs.userId, userId))
+      .returning({ id: calendarSyncJobs.id });
+
+    const deletedCalendarSettings = await tx
+      .delete(calendarSettings)
+      .where(eq(calendarSettings.userId, userId))
+      .returning({ id: calendarSettings.id });
+
+    const deletedNotifications = await tx
+      .delete(notifications)
+      .where(eq(notifications.userId, userId))
+      .returning({ id: notifications.id });
+
+    const deletedNotificationSettings = await tx
+      .delete(notificationSettings)
+      .where(eq(notificationSettings.userId, userId))
+      .returning({ id: notificationSettings.id });
+
+    const deletedTasks = await tx
+      .delete(tasks)
+      .where(eq(tasks.userId, userId))
+      .returning({ id: tasks.id });
+
+    const deletedDeadlines =
+      liveCompanyIds.length > 0
+        ? await tx
+            .delete(deadlines)
+            .where(inArray(deadlines.companyId, liveCompanyIds))
+            .returning({ id: deadlines.id })
+        : [];
 
     const motivationRows = await tx
       .select({ id: motivationConversations.id, companyId: motivationConversations.companyId })
@@ -366,6 +423,13 @@ export async function resetCiE2ELiveState(userId: string): Promise<CiE2ELiveStat
       userId,
       creditBalance: CI_E2E_LIVE_SEED_CREDITS,
       deletedCounts: {
+        calendarEvents: deletedCalendarEvents.length,
+        calendarSyncJobs: deletedCalendarSyncJobs.length,
+        calendarSettings: deletedCalendarSettings.length,
+        notifications: deletedNotifications.length,
+        notificationSettings: deletedNotificationSettings.length,
+        tasks: deletedTasks.length,
+        deadlines: deletedDeadlines.length,
         companies: deletedCompanies.length,
         gakuchikaContents: deletedGakuchikaContents.length,
         motivationConversationsDeleted: deletedMotivationConversations.length,

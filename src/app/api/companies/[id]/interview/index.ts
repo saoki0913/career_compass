@@ -9,7 +9,7 @@ export {
   normalizeInterviewPlanValue,
   validateInterviewMessages,
   validateInterviewTurnState,
-} from "./serialization";
+} from "@/lib/interview/read-model";
 
 export { buildInterviewContext } from "@/lib/interview/context-builder";
 

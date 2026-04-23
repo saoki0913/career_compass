@@ -1,0 +1,194 @@
+{
+  "case_1": {
+    "topic": "role_understanding",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "role_fit",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_2": {
+    "topic": "role_understanding",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "specificity",
+    "followup_style": "technical_difficulty_check",
+    "should_move_next": false
+  },
+  "case_3": {
+    "topic": "role_understanding",
+    "turn_action": "deepen",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "credibility",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_4": {
+    "topic": "role_understanding",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "consistency",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_5": {
+    "topic": "case_fit",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "specificity",
+    "followup_style": "specificity_check",
+    "should_move_next": false
+  },
+  "case_6": {
+    "topic": "case_fit",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "credibility",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_7": {
+    "topic": "case_fit",
+    "turn_action": "deepen",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "consistency",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_8": {
+    "topic": "case_fit",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "logic",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_9": {
+    "topic": "tradeoff",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "specificity",
+    "followup_style": "specificity_check",
+    "should_move_next": false
+  },
+  "case_10": {
+    "topic": "tradeoff",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "credibility",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_11": {
+    "topic": "tradeoff",
+    "turn_action": "deepen",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "consistency",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_12": {
+    "topic": "tradeoff",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "logic",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_13": {
+    "topic": "turning_point_values",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "credibility",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_14": {
+    "topic": "turning_point_values",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "consistency",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_15": {
+    "topic": "turning_point_values",
+    "turn_action": "deepen",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "logic",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_16": {
+    "topic": "turning_point_values",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "specificity",
+    "followup_style": "specificity_check",
+    "should_move_next": false
+  },
+  "case_17": {
+    "topic": "role_understanding",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "role_fit",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_18": {
+    "topic": "role_understanding",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "role_fit",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_19": {
+    "topic": "role_understanding",
+    "turn_action": "deepen",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "role_fit",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_20": {
+    "topic": "case_fit",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "logic",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_21": {
+    "topic": "case_fit",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "specificity",
+    "followup_style": "specificity_check",
+    "should_move_next": false
+  },
+  "case_22": {
+    "topic": "case_fit",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "credibility",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_23": {
+    "topic": "case_fit",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "consistency",
+    "followup_style": "reason_check",
+    "should_move_next": false
+  },
+  "case_24": {
+    "topic": "tradeoff",
+    "turn_action": "shift",
+    "focus_reason": "面接計画の優先論点に沿って確認するため",
+    "depth_focus": "specificity",
+    "followup_style": "specificity_check",
+    "should_move_next": false
+  }
+}

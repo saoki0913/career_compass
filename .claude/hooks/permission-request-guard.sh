@@ -35,6 +35,11 @@ if [ "$TOOL" = "Bash" ]; then
     exit 0
   fi
 
+  if [ -n "$CMD" ] && echo "$CMD" | grep -qE '(^|[;&|])\s*rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|-r\s+-f|-f\s+-r)'; then
+    deny "rm -rf 系はホワイトリスト外の対象に対して禁止です。node_modules, .next, dist 等のビルド成果物のみ許可されています。"
+    exit 0
+  fi
+
   if [ -n "$CMD" ] && echo "$CMD" | grep -qE '(^|[^a-zA-Z_])(cat|head|tail|less|more|bat|sed|awk|grep|rg)([[:space:]].*)?codex-company/\.secrets/'; then
     deny "codex-company/.secrets/ を読むコマンドは許可していません。sync-career-compass-secrets.sh --check を使ってください。"
     exit 0

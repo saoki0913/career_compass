@@ -20,6 +20,33 @@
     ],
     "日本HP": [
       "hp"
+    ],
+    "AGC": [
+      "agc"
+    ],
+    "TDK": [
+      "tdk"
+    ],
+    "NEC": [
+      "nec"
+    ],
+    "IHI": [
+      "ihi"
+    ],
+    "DIC": [
+      "dic"
+    ],
+    "YKK": [
+      "ykk"
+    ],
+    "JCB": [
+      "jcb"
+    ],
+    "NTT": [
+      "ntt"
+    ],
+    "CBC": [
+      "cbc"
     ]
   },
   "mappings": {
@@ -614,7 +641,8 @@
       "parent": "東京海上ホールディングス"
     },
     "三井住友海上火災保険": [
-      "ms-ins"
+      "ms-ins",
+      "ms-ins.com"
     ],
     "損害保険ジャパン": [
       "sompo-japan.co.jp",
@@ -708,7 +736,8 @@
       "parent": "三井住友トラスト・ホールディングス"
     },
     "日本政策投資銀行": [
-      "dbj"
+      "dbj",
+      "dbj.jp"
     ],
     "国際協力銀行": [
       "jbic"
@@ -717,7 +746,8 @@
       "nochubank"
     ],
     "日本政策金融公庫": [
-      "jfc"
+      "jfc",
+      "jfc.go.jp"
     ],
     "_subsection_02d": "--- 証券（追加） ---",
     "三菱UFJモルガン・スタンレー証券": [
@@ -736,7 +766,8 @@
     },
     "_subsection_02e": "--- カード・リース ---",
     "JCB": [
-      "jcb"
+      "jcb",
+      "jcb.co.jp"
     ],
     "三井住友カード": [
       "smcc",
@@ -749,7 +780,8 @@
       "saisoncard"
     ],
     "オリックス": [
-      "orix"
+      "orix",
+      "orix.co.jp"
     ],
     "三井住友ファイナンス&リース": [
       "smfl"
@@ -1390,7 +1422,8 @@
       "parent": "NTT"
     },
     "KDDI": [
-      "kddi"
+      "kddi",
+      "kddi.com"
     ],
     "ソフトバンク": [
       "softbank"
@@ -1406,7 +1439,8 @@
       "cyberagent"
     ],
     "DeNA": [
-      "dena"
+      "dena",
+      "dena.com"
     ],
     "グリー": [
       "gree"
@@ -1415,7 +1449,9 @@
       "mercari"
     ],
     "LINE": [
-      "linecorp"
+      "linecorp",
+      "lycorp.co.jp",
+      "linecorp.com"
     ],
     "ヤフー": [
       "yahoo"
@@ -1447,11 +1483,13 @@
       "fujitsu"
     ],
     "NEC": [
-      "nec"
+      "nec",
+      "nec.com"
     ],
     "_subsection_04b": "--- SIer ---",
     "SCSK": [
-      "scsk"
+      "scsk",
+      "scsk.jp"
     ],
     "TIS": [
       "tis"
@@ -1560,7 +1598,8 @@
     },
     "_subsection_04d": "--- 外資系IT ---",
     "日本IBM": [
-      "ibm"
+      "ibm",
+      "ibm.com"
     ],
     "日本オラクル": [
       "oracle"
@@ -1599,7 +1638,8 @@
       "paypay"
     ],
     "ZOZO": [
-      "zozo"
+      "zozo",
+      "zozo.com"
     ],
     "freee": [
       "freee"
@@ -2709,13 +2749,16 @@
       "khi"
     ],
     "IHI": [
-      "ihi"
+      "ihi",
+      "ihi.co.jp"
     ],
     "日本製鉄": [
       "nipponsteel"
     ],
     "JFEスチール": [
-      "jfe"
+      "jfe",
+      "jfe-steel",
+      "jfe-steel.co.jp"
     ],
     "住友金属鉱山": [
       "smm.co.jp"
@@ -2748,13 +2791,15 @@
       "nipponpapergroup"
     ],
     "AGC": [
-      "agc"
+      "agc",
+      "agc.com"
     ],
     "日本ガイシ": [
       "ngk"
     ],
     "TOTO": [
-      "toto"
+      "toto",
+      "toto.co.jp"
     ],
     "LIXIL": [
       "lixil"
@@ -2772,7 +2817,8 @@
       "murata"
     ],
     "TDK": [
-      "tdk"
+      "tdk",
+      "tdk.com"
     ],
     "京セラ": [
       "kyocera"
@@ -3214,7 +3260,8 @@
       "nipponpaint"
     ],
     "DIC": [
-      "dic"
+      "dic",
+      "dic-global.com"
     ],
     "日東電工": [
       "nitto"
@@ -3909,7 +3956,8 @@
     ],
     "_subsection_05zc": "--- 工作機械・機械メーカー ---",
     "DMG森精機": [
-      "dmgmori"
+      "dmgmori",
+      "dmgmori.co.jp"
     ],
     "オークマ": [
       "okuma"
@@ -4034,7 +4082,9 @@
       "kao"
     ],
     "資生堂": [
-      "shiseido"
+      "shiseido",
+      "shiseido.com",
+      "shiseido.co.jp"
     ],
     "コーセー": [
       "kose",
@@ -4056,7 +4106,8 @@
       "unicharm"
     ],
     "P&G": [
-      "pg"
+      "pg",
+      "pg.com"
     ],
     "ユニリーバ": [
       "unilever"
@@ -4437,7 +4488,8 @@
       "nhk"
     ],
     "読売新聞": [
-      "yomiuri"
+      "yomiuri",
+      "yomiuri.co.jp"
     ],
     "朝日新聞": [
       "asahi"
@@ -5240,7 +5292,9 @@
     ],
     "_section_09": "=== 小売・流通 ===",
     "ユニクロ": [
-      "uniqlo"
+      "uniqlo",
+      "fastretailing.com",
+      "uniqlo.com"
     ],
     "ファーストリテイリング": [
       "fastretailing"
@@ -5563,7 +5617,8 @@
       "osakagas"
     ],
     "ENEOS": [
-      "eneos"
+      "eneos",
+      "eneos.co.jp"
     ],
     "出光興産": [
       "idemitsu"
@@ -5572,7 +5627,8 @@
       "cosmo-oil"
     ],
     "INPEX": [
-      "inpex"
+      "inpex",
+      "inpex.co.jp"
     ],
     "JERA": [
       "jera"
@@ -5606,7 +5662,9 @@
       "nittsu"
     ],
     "SGホールディングス": [
-      "sg-hldgs"
+      "sg-hldgs",
+      "sagawa-exp",
+      "sg-hldgs.co.jp"
     ],
     "セイノー": [
       "seino"
@@ -6402,7 +6460,8 @@
     ],
     "凸版印刷": [
       "toppan",
-      "toppan.co.jp"
+      "toppan.co.jp",
+      "toppan.com"
     ],
     "トッパン・フォームズ": {
       "domains": [
@@ -6535,7 +6594,8 @@
     ],
     "九電工": [
       "kyudenko",
-      "kraftia"
+      "kraftia",
+      "kyudenko.co.jp"
     ],
     "中電工": [
       "chudenko"
@@ -7088,6 +7148,11 @@
         "nissan-carlease"
       ],
       "parent": "日産自動車"
-    }
+    },
+    "YKK": [
+      "ykk",
+      "ykkap.co.jp",
+      "ykk.co.jp"
+    ]
   }
 }

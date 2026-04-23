@@ -12,6 +12,7 @@ ES添削は、設問ごとに改善案と出典を段階的に流し、最後の
 | Next.js API | `POST /api/documents/[id]/review/stream`                |
 | FastAPI API | `POST /api/es/review/stream`                            |
 | 出力          | `progress`, `string_chunk`, `array_item_complete`, `complete`（`review_meta` を含む） |
+| 集客 LP     | `src/app/(marketing)/es-tensaku-ai/page.tsx`（ES添削 AI）、`src/app/(marketing)/entry-sheet-ai/page.tsx`（エントリーシート AI ロングテール）、`src/app/(marketing)/es-ai-guide/page.tsx`（ES AI 選び方） |
 
 ## 品質基盤
 
@@ -330,6 +331,57 @@ quality hints では全標準モデルに共通で次を要求する。
 ### 出典カードの遷移
 
 - 内部リンク (`/profile`, `/gakuchika`, `/es/{document_id}`) を含む出典カードも新しいタブで開く。
+
+## Phase 10 補足: 散文品質の誘導
+
+Phase 10 は validation を変えず、**プロンプト層**のみで「冒頭が長い / 企業名を本文で繰り返す / 固有名詞が繰り返される / self_pr が数値なしで終わる / gakuchika が羅列的になる」5 課題に対処する。検証レポートは `docs/review/feature/es_review_quality_audit_20260417.md`。
+
+### 冒頭 1 文の 20〜45 字ルール
+
+- 対象: rewrite / fallback rewrite / draft（fallback 経路）
+- 参照: `backend/app/prompts/es_templates.py` の `build_template_rewrite_prompt` / `build_template_fallback_rewrite_prompt` の `<constraints>`、および `_GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK` 先頭行
+- 参考 ES ヒント側: `backend/app/prompts/reference_es.py` で 9 テンプレ全ての 1 番目のヒントを 20〜45 字に統一
+- 効果: Live smoke で冒頭字数 median 60-80 → **37 字** に短縮（20260417 レポート）
+
+### 企業名本文言及の 3-way ポリシー
+
+`effective_company_grounding` に合わせて `company_mention_rule` を動的に切り替える。
+
+| 実効ポリシー | 企業名本文言及 | 敬称 |
+|---|---|---|
+| `none`（grounding_mode=="none"） | 禁止 | 禁止 |
+| `assistive` | 本文全体で **2 回まで** | 禁止 |
+| `required` / `deep` | 本文中 **1 回まで**（冒頭のみ）、以降は敬称（`貴社` / 業界別） | 以降は敬称 |
+
+参照: `build_template_rewrite_prompt` / `build_template_fallback_rewrite_prompt` の `company_mention_rule` 算出箇所。reference_es.py 側では 5 企業系テンプレ（company_motivation / role_course_reason / post_join_goals / intern_reason / intern_goals）の NG 行に「企業名を 3 回以上書く」禁止を配置。
+
+### intern / role の固有名詞汎用語置換
+
+- 対象: `template_type in {intern_reason, intern_goals}`（`intern_name` が渡された場合）、および `role_course_reason`（`role_name` 指定時）
+- 参照: `backend/app/prompts/es_templates.py:_format_proper_noun_policy`
+- ルール: 冒頭 1 回のみ使用、2 回目以降は `本インターンシップ` / `本プログラム` / `本コース` / `当該職種` 等の汎用語に置換
+- reference_es.py: intern_reason / intern_goals / role_course_reason の該当ヒントを同文言に統一
+
+### self_pr / work_values の数値・行動動詞必須化
+
+- 参照: `backend/app/prompts/es_templates.py` の `_STYLE_RULES` に `applicable_templates={"self_pr", "work_values"}` で 2 ルール追加
+- プロンプト側: 「強みや価値観は抽象ラベル（〜力・〜姿勢）だけで終わらせず、人数・期間・件数・比率などの数値を最低 1 つ、具体的な行動動詞を最低 1 組入れて再現性を示す」
+- reference_es.py: self_pr / work_values の既存ヒントと NG を数値・行動動詞要件に沿って置換
+- retry mapping: `retry_guidance` に `quantify` キー追加（Phase 11 で retry focus mode mapping と接続予定）
+
+### gakuchika 複数施策のナンバリング
+
+- 参照: `backend/app/prompts/es_templates.py` の `_STYLE_RULES` に `applicable_templates={"gakuchika"}` で 1 ルール追加
+- プロンプト側: 「複数の施策や工夫を書くときは `(1)(2)` または `まず / 次に` で順序を明示し、`また / さらに` の羅列にしない」
+- gakuchika playbook (`_format_required_template_playbook` 経由) にも構造指示を拡張
+- retry mapping: `retry_guidance` に `structure` キー追加（Phase 11 予定）
+
+### Phase 10 スコープ外
+
+- `build_template_draft_generation_prompt()` は Phase 10 対象外。`_GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK` 経由でのみ 10-A-2 が反映される
+- `retry focus mode mapping`（`es_review_retry.py`）の `quantify` / `structure` への対応は Phase 11
+- Notion 管理プロンプト（`es_review.global_conclusion_first_rules` 等）の同期は別タスク
+- validation 層での企業名回数カウント検出は追加しない（プロンプト指示の効果を見てから判断）
 
 ## 主要 `review_meta`
 

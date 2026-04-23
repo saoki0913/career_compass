@@ -94,12 +94,12 @@ class SearchTestConfig:
     # Sampling
     company_source: str = "curated"
     sample_seed: int = 15
-    sample_size: int = 350
+    sample_size: int = 50
     per_industry_min: int = 1
     companies_override: Optional[str] = None
 
     # Search modes
-    modes: list[str] = field(default_factory=lambda: ["hybrid", "legacy"])
+    modes: list[str] = field(default_factory=lambda: ["hybrid"])
 
     # Search parameters
     max_results: int = 5
@@ -115,8 +115,8 @@ class SearchTestConfig:
     rerank_top_k: int = 30
 
     # Rate limiting
-    tokens_per_second: float = 1.0
-    max_tokens: float = 1.0
+    tokens_per_second: float = 10.0
+    max_tokens: float = 4.0
 
     # Snapshot cache
     snapshot_mode: str = "live_only"
@@ -165,7 +165,7 @@ class SearchTestConfig:
         else:
             company_source = "random"
 
-        modes_str = _env_str("LIVE_SEARCH_MODES", "hybrid,legacy")
+        modes_str = _env_str("LIVE_SEARCH_MODES", "hybrid")
         modes = [
             m.strip().lower()
             for m in modes_str.split(",")
@@ -181,7 +181,7 @@ class SearchTestConfig:
         return cls(
             company_source=company_source,
             sample_seed=_env_int("LIVE_SEARCH_SAMPLE_SEED", 15),
-            sample_size=_env_int("LIVE_SEARCH_SAMPLE_SIZE", 350),
+            sample_size=_env_int("LIVE_SEARCH_SAMPLE_SIZE", 50),
             per_industry_min=_env_int("LIVE_SEARCH_PER_INDUSTRY_MIN", 1),
             companies_override=override_str,
             modes=modes,
@@ -227,8 +227,8 @@ class SearchTestConfig:
                     30,
                 ),
             ),
-            tokens_per_second=_env_float("LIVE_SEARCH_TOKENS_PER_SECOND", 1.0),
-            max_tokens=_env_float("LIVE_SEARCH_MAX_TOKENS", 1.0),
+            tokens_per_second=_env_float("LIVE_SEARCH_TOKENS_PER_SECOND", 10.0),
+            max_tokens=_env_float("LIVE_SEARCH_MAX_TOKENS", 4.0),
             snapshot_mode=os.getenv("SNAPSHOT_MODE", "live_only"),
             snapshot_db=os.getenv("SNAPSHOT_DB", ""),
             baseline_path=os.getenv("BASELINE_PATH"),

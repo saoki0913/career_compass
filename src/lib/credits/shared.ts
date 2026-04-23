@@ -21,6 +21,7 @@ export type TransactionType =
   | "gakuchika_draft"
   | "motivation"
   | "motivation_draft"
+  | "motivation_resume_deepdive"
   | "interview"
   | "interview_feedback"
   | "refund";

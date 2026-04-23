@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -195,6 +196,33 @@ export async function POST(
         creditsUsed: 0,
         telemetry: null,
       });
+
+      if (response.status === 422) {
+        return NextResponse.json(
+          createApiErrorResponse(request, {
+            status: 422,
+            code: "CONVERSATION_TOO_LONG",
+            userMessage: "会話が長すぎます。新しい会話を開始してください。",
+            action: "会話をリセットしてやり直してください。",
+          }),
+          { status: 422 }
+        );
+      }
+
+      if (response.status === 409) {
+        const detail = (errorData as { detail?: { error?: string; failure_codes?: string[] } }).detail;
+        return NextResponse.json(
+          createApiErrorResponse(request, {
+            status: 409,
+            code: "DRAFT_QUALITY_FAILED",
+            userMessage: detail?.error || "志望動機の品質基準を満たす下書きを生成できませんでした。",
+            action: "もう一度お試しください。会話を続けて情報を補足すると改善されることがあります。",
+            retryable: true,
+          }),
+          { status: 409 }
+        );
+      }
+
       const detailMsg = messageFromFastApiDetail((errorData as { detail?: unknown }).detail);
       return NextResponse.json(
         { error: detailMsg || "ES生成に失敗しました" },

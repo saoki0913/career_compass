@@ -103,3 +103,33 @@ skill_touch_flag() {
   [ -z "$file" ] && return 1
   : > "$file"
 }
+
+# ─── Codex delegation judgment helpers ─────────────────────────────
+
+# codex_delegation_dir — handoff state dir を mkdir & 出力
+codex_delegation_dir() {
+  local dir="${CLAUDE_PROJECT_DIR:-$(pwd)}/.claude/state/codex-handoffs"
+  mkdir -p "$dir"
+  printf '%s\n' "$dir"
+}
+
+# is_codex_post_review_candidate <total_files> <total_lines> <hotspot_hit>
+# post_review 推奨条件: files >= 10 or lines >= 500 or hotspot 変更あり
+is_codex_post_review_candidate() {
+  local total_files="${1:-0}"
+  local total_lines="${2:-0}"
+  local hotspot_hit="${3:-}"
+  [ "$total_files" -ge 10 ] && return 0
+  [ "$total_lines" -ge 500 ] && return 0
+  [ -n "$hotspot_hit" ] && return 0
+  return 1
+}
+
+# latest_codex_handoff_result — 最新の result.md パスを出力（なければ空）
+latest_codex_handoff_result() {
+  local dir
+  dir="$(codex_delegation_dir)"
+  local latest
+  latest=$(ls -td "$dir"/*/result.md 2>/dev/null | head -1)
+  printf '%s\n' "${latest:-}"
+}

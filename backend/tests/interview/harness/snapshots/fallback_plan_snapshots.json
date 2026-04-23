@@ -1,0 +1,646 @@
+{
+  "case_1": {
+    "interview_type": "new_grad_behavioral",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "role_understanding",
+      "company_fit"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit"
+    ],
+    "risk_topics": [
+      "credibility_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "志望動機",
+      "具体例",
+      "締め"
+    ]
+  },
+  "case_2": {
+    "interview_type": "new_grad_behavioral",
+    "priority_topics": [
+      "work_understanding",
+      "technical_depth",
+      "motivation_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "work_understanding"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "志望動機",
+      "具体例",
+      "締め"
+    ]
+  },
+  "case_3": {
+    "interview_type": "new_grad_behavioral",
+    "priority_topics": [
+      "career_alignment",
+      "company_compare_check",
+      "motivation_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "company_compare_check",
+      "career_alignment"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check",
+      "pressure_followup",
+      "consistency_risk_direct",
+      "over_claim"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "志望動機",
+      "具体例",
+      "締め"
+    ]
+  },
+  "case_4": {
+    "interview_type": "new_grad_behavioral",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "role_understanding",
+      "company_fit"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "technical_depth",
+      "design_decision"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "志望動機",
+      "具体例",
+      "締め"
+    ]
+  },
+  "case_5": {
+    "interview_type": "new_grad_case",
+    "priority_topics": [
+      "work_understanding",
+      "technical_depth",
+      "case_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "case_fit",
+    "must_cover_topics": [
+      "case_fit",
+      "role_understanding",
+      "company_fit"
+    ],
+    "risk_topics": [
+      "credibility_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "ケース設定",
+      "仮説と検証",
+      "締め"
+    ]
+  },
+  "case_6": {
+    "interview_type": "new_grad_case",
+    "priority_topics": [
+      "career_alignment",
+      "company_compare_check",
+      "case_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "case_fit",
+    "must_cover_topics": [
+      "case_fit",
+      "role_understanding",
+      "company_fit",
+      "analytical_approach",
+      "data_handling"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "ケース設定",
+      "仮説と検証",
+      "締め"
+    ]
+  },
+  "case_7": {
+    "interview_type": "new_grad_case",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "case_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "case_fit",
+    "must_cover_topics": [
+      "case_fit",
+      "role_understanding",
+      "company_fit",
+      "company_compare_check",
+      "career_alignment"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check",
+      "pressure_followup",
+      "consistency_risk_direct",
+      "over_claim"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "ケース設定",
+      "仮説と検証",
+      "締め"
+    ]
+  },
+  "case_8": {
+    "interview_type": "new_grad_case",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "case_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "case_fit",
+    "must_cover_topics": [
+      "case_fit",
+      "role_understanding",
+      "company_fit",
+      "technical_depth",
+      "design_decision"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "ケース設定",
+      "仮説と検証",
+      "締め"
+    ]
+  },
+  "case_9": {
+    "interview_type": "new_grad_technical",
+    "priority_topics": [
+      "work_understanding",
+      "technical_depth",
+      "motivation_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "technical_depth",
+      "design_decision"
+    ],
+    "risk_topics": [
+      "credibility_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "技術判断",
+      "前提とトレードオフ",
+      "締め"
+    ]
+  },
+  "case_10": {
+    "interview_type": "new_grad_technical",
+    "priority_topics": [
+      "career_alignment",
+      "company_compare_check",
+      "motivation_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "technical_depth",
+      "design_decision"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "技術判断",
+      "前提とトレードオフ",
+      "締め"
+    ]
+  },
+  "case_11": {
+    "interview_type": "new_grad_technical",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "role_understanding",
+      "company_fit"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "company_compare_check",
+      "career_alignment",
+      "work_understanding"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check",
+      "pressure_followup",
+      "consistency_risk_direct",
+      "over_claim"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "技術判断",
+      "前提とトレードオフ",
+      "締め"
+    ]
+  },
+  "case_12": {
+    "interview_type": "new_grad_technical",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "role_understanding",
+      "company_fit"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "technical_depth",
+      "design_decision"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "技術判断",
+      "前提とトレードオフ",
+      "締め"
+    ]
+  },
+  "case_13": {
+    "interview_type": "new_grad_life_history",
+    "priority_topics": [
+      "career_alignment",
+      "company_compare_check",
+      "life_narrative_core",
+      "turning_point_values"
+    ],
+    "opening_topic": "life_narrative_core",
+    "must_cover_topics": [
+      "life_narrative_core",
+      "turning_point_values",
+      "motivation_bridge",
+      "role_understanding"
+    ],
+    "risk_topics": [
+      "credibility_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "転機と価値観",
+      "行動の根拠",
+      "締め"
+    ]
+  },
+  "case_14": {
+    "interview_type": "new_grad_life_history",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "life_narrative_core",
+      "turning_point_values"
+    ],
+    "opening_topic": "life_narrative_core",
+    "must_cover_topics": [
+      "life_narrative_core",
+      "turning_point_values",
+      "motivation_bridge",
+      "role_understanding"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "転機と価値観",
+      "行動の根拠",
+      "締め"
+    ]
+  },
+  "case_15": {
+    "interview_type": "new_grad_life_history",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "life_narrative_core",
+      "turning_point_values"
+    ],
+    "opening_topic": "life_narrative_core",
+    "must_cover_topics": [
+      "life_narrative_core",
+      "turning_point_values",
+      "motivation_bridge",
+      "role_understanding",
+      "company_compare_check",
+      "career_alignment",
+      "work_understanding"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check",
+      "pressure_followup",
+      "consistency_risk_direct",
+      "over_claim"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "転機と価値観",
+      "行動の根拠",
+      "締め"
+    ]
+  },
+  "case_16": {
+    "interview_type": "new_grad_life_history",
+    "priority_topics": [
+      "work_understanding",
+      "technical_depth",
+      "life_narrative_core",
+      "turning_point_values"
+    ],
+    "opening_topic": "life_narrative_core",
+    "must_cover_topics": [
+      "life_narrative_core",
+      "turning_point_values",
+      "motivation_bridge",
+      "role_understanding",
+      "analytical_approach",
+      "data_handling"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "転機と価値観",
+      "行動の根拠",
+      "締め"
+    ]
+  },
+  "case_17": {
+    "interview_type": "new_grad_behavioral",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "role_understanding",
+      "company_fit"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "work_understanding"
+    ],
+    "risk_topics": [
+      "credibility_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "志望動機",
+      "具体例",
+      "締め"
+    ]
+  },
+  "case_18": {
+    "interview_type": "new_grad_behavioral",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "role_understanding",
+      "company_fit"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "work_understanding"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "志望動機",
+      "具体例",
+      "締め"
+    ]
+  },
+  "case_19": {
+    "interview_type": "new_grad_behavioral",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "role_understanding",
+      "company_fit"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "work_understanding"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check",
+      "pressure_followup",
+      "consistency_risk_direct",
+      "over_claim"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "志望動機",
+      "具体例",
+      "締め"
+    ]
+  },
+  "case_20": {
+    "interview_type": "new_grad_case",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "case_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "case_fit",
+    "must_cover_topics": [
+      "case_fit",
+      "role_understanding",
+      "company_fit"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "ケース設定",
+      "仮説と検証",
+      "締め"
+    ]
+  },
+  "case_21": {
+    "interview_type": "new_grad_case",
+    "priority_topics": [
+      "work_understanding",
+      "technical_depth",
+      "case_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "case_fit",
+    "must_cover_topics": [
+      "case_fit",
+      "role_understanding",
+      "company_fit"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "ケース設定",
+      "仮説と検証",
+      "締め"
+    ]
+  },
+  "case_22": {
+    "interview_type": "new_grad_case",
+    "priority_topics": [
+      "career_alignment",
+      "company_compare_check",
+      "case_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "case_fit",
+    "must_cover_topics": [
+      "case_fit",
+      "role_understanding",
+      "company_fit"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "ケース設定",
+      "仮説と検証",
+      "締め"
+    ]
+  },
+  "case_23": {
+    "interview_type": "new_grad_case",
+    "priority_topics": [
+      "motivation_fit",
+      "personality",
+      "case_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "case_fit",
+    "must_cover_topics": [
+      "case_fit",
+      "role_understanding",
+      "company_fit"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "ケース設定",
+      "仮説と検証",
+      "締め"
+    ]
+  },
+  "case_24": {
+    "interview_type": "new_grad_technical",
+    "priority_topics": [
+      "work_understanding",
+      "technical_depth",
+      "motivation_fit",
+      "role_understanding"
+    ],
+    "opening_topic": "motivation_fit",
+    "must_cover_topics": [
+      "motivation_fit",
+      "role_understanding",
+      "company_fit",
+      "technical_depth",
+      "design_decision"
+    ],
+    "risk_topics": [
+      "credibility_check",
+      "consistency_check"
+    ],
+    "suggested_timeflow": [
+      "導入",
+      "技術判断",
+      "前提とトレードオフ",
+      "締め"
+    ]
+  }
+}

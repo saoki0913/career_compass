@@ -1,0 +1,2 @@
+ALTER TABLE "company_info_monthly_usage" ADD COLUMN "rag_html_free_units" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "company_info_monthly_usage" ADD COLUMN "rag_pdf_free_units" integer DEFAULT 0 NOT NULL;

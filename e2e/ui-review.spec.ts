@@ -522,6 +522,25 @@ async function prepareAuthForRoute(
   page: Parameters<typeof test>[0]["page"],
   routePath: string,
 ) {
+  if (authMode === "real") {
+    if (!process.env.PLAYWRIGHT_AUTH_STATE) {
+      throw new Error("PLAYWRIGHT_AUTH_STATE is required when --auth=real");
+    }
+
+    const sessionResponse = await page.context().request.get("/api/auth/get-session");
+    const sessionBody = await sessionResponse.json().catch(() => null);
+    if (!sessionBody?.user?.id) {
+      throw new Error(
+        [
+          "PLAYWRIGHT_AUTH_STATE is present but does not contain an authenticated localhost session.",
+          `route=${routePath}`,
+          `sessionStatus=${sessionResponse.status()}`,
+        ].join(" | "),
+      );
+    }
+    return;
+  }
+
   if (authMode === "guest") {
     await loginAsGuest(page);
     await ensureGuestSession(page);

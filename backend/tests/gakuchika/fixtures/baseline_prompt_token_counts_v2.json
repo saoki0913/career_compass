@@ -31,9 +31,10 @@
       "system_chars": 2527,
       "user_chars": 272,
       "total_chars": 2799,
-      "approx_tokens": 1399,
+      "approx_tokens": 1666,
       "budget": 200,
-      "fixture_id": "学園祭_char400_5expressions"
+      "fixture_id": "学園祭_char400_5expressions",
+      "_updated": "2026-04-20: +267 tokens from Phase 7-F/7-G (fact preservation + PII anonymization rules)"
     }
   }
 }

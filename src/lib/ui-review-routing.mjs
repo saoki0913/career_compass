@@ -67,12 +67,20 @@ const MOCK_AUTH_ROUTES = new Set([
   "/profile",
   "/search",
 ]);
+const REAL_AUTH_ROUTE_PATTERNS = [
+  /^\/companies\/[^/]+\/motivation$/u,
+  /^\/companies\/[^/]+\/interview$/u,
+  /^\/gakuchika\/[^/]+$/u,
+  /^\/profile$/u,
+  /^\/settings$/u,
+];
 const COMPONENT_ROUTE_OVERRIDES = [
   { pattern: /^src\/components\/calendar\//, route: "/calendar", kind: "product" },
   { pattern: /^src\/components\/companies\//, route: "/companies", kind: "product" },
   { pattern: /^src\/components\/dashboard\//, route: "/dashboard", kind: "product" },
   { pattern: /^src\/components\/es\//, route: "/es", kind: "product" },
   { pattern: /^src\/components\/gakuchika\//, route: "/gakuchika", kind: "product" },
+  { pattern: /^src\/components\/interview\//, route: "/companies/ui-review-company/interview", kind: "product" },
   { pattern: /^src\/components\/notifications\//, route: "/notifications", kind: "product" },
   { pattern: /^src\/components\/profile\//, route: "/profile", kind: "product" },
   { pattern: /^src\/components\/search\//, route: "/search", kind: "product" },
@@ -153,6 +161,27 @@ export function classifyUiReviewAuthMode(routes) {
   }
 
   return hasProductRoute ? "guest" : "none";
+}
+
+export function getPreferredLocalUiReviewAuthMode(routes) {
+  const normalizedRoutes = uniqueStrings(routes.map(normalizeReviewRoute));
+  if (normalizedRoutes.length === 0) {
+    return "none";
+  }
+
+  const allRoutesSupportMock = normalizedRoutes.every(
+    (route) => MOCK_AUTH_ROUTES.has(route) || MOCK_AUTH_ROUTE_PREFIXES.some((prefix) => route.startsWith(prefix)),
+  );
+  if (allRoutesSupportMock) {
+    return "mock";
+  }
+
+  if (normalizedRoutes.every((route) => REAL_AUTH_ROUTE_PATTERNS.some((pattern) => pattern.test(route)))) {
+    return "real";
+  }
+
+  const classified = classifyUiReviewAuthMode(normalizedRoutes);
+  return classified || "none";
 }
 
 export function resolveUiReviewRoutes({

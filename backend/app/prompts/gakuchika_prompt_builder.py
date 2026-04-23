@@ -44,7 +44,7 @@ from app.prompts.gakuchika_prompts import (
     STAR_EVALUATE_USER_MESSAGE,
     question_few_shot_for,
 )
-from app.utils.llm import sanitize_prompt_input
+from app.utils.llm_prompt_safety import sanitize_prompt_input
 
 INITIAL_QUESTION_MAX_TOKENS = 220
 
@@ -157,6 +157,7 @@ def build_deepdive_prompt_text(
     credibility_risk_tags: list[str],
     asked_focuses: list[str] | None = None,
     blocked_focuses: list[str] | None = None,
+    coverage_summary: str = "",
 ) -> tuple[str, str]:
     """Render the STAR-evaluation / deep-dive question prompt as (system, user).
 
@@ -192,6 +193,8 @@ def build_deepdive_prompt_text(
             empty_label="ブロックされた要素はありません",
         ),
     )
+    if coverage_summary:
+        user_message = f"{user_message}\n\n{coverage_summary}"
     if extended_deep_dive_round > 0:
         user_message = (
             f"{user_message}\n\n"

@@ -29,4 +29,39 @@ export default async function globalSetup(_config: FullConfig) {
   } finally {
     clearTimeout(timer);
   }
+
+  // FastAPI health check: only needed when company-info / AI live tests will run.
+  // Gate on LIVE_COMPANY_INFO_TARGET_ENV or LIVE_AI_CONVERSATION_TARGET_ENV so
+  // unrelated suites (UI review, auth, release E2E) don't require FastAPI.
+  const needsFastapi =
+    process.env.LIVE_COMPANY_INFO_TARGET_ENV === "local" ||
+    process.env.LIVE_AI_CONVERSATION_TARGET_ENV === "local";
+
+  if (needsFastapi) {
+    const fastapiBase =
+      process.env.FASTAPI_INTERNAL_URL?.trim() || "http://localhost:8000";
+    const fastapiController = new AbortController();
+    const fastapiTimer = setTimeout(() => fastapiController.abort(), 8000);
+    try {
+      const response = await fetch(`${fastapiBase}/health`, {
+        method: "GET",
+        signal: fastapiController.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`FastAPI /health returned HTTP ${response.status}`);
+      }
+    } catch (err) {
+      throw new Error(
+        [
+          "Playwright: FastAPI バックエンドに接続できませんでした。",
+          `  URL: ${fastapiBase}/health`,
+          "  company-info-search / company-info-rag テストは FastAPI が必須です。",
+          "  別ターミナルで `cd backend && uvicorn app.main:app --port 8000` を起動してから再実行してください。",
+          `  原因: ${err instanceof Error ? err.message : String(err)}`,
+        ].join("\n"),
+      );
+    } finally {
+      clearTimeout(fastapiTimer);
+    }
+  }
 }

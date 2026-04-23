@@ -12,14 +12,6 @@ if echo "$FILE_PATH" | grep -qE '(^|/)src/app/api/'; then
 fi
 
 if echo "$FILE_PATH" | grep -qE '(^|/)src/(components/|app/(.*/)?(page|layout|loading)\.tsx$)'; then
-  cat >&2 <<'EOF'
-⚠ UI ファイル編集を検知しました。
-
-Codex の標準導線:
-  1. /codex-start または /ui-start
-  2. npm run ui:preflight -- <route> --surface=marketing|product [--auth=none|guest]
-  3. npm run lint:ui:guardrails
-  4. npm run test:ui:review -- <route>
-EOF
+  node tools/check-ui-preflight-gate.mjs "$FILE_PATH"
 fi
 exit 0

@@ -40,6 +40,8 @@ export function readGuestDeviceToken(request: Pick<NextRequest, "cookies">): str
 export function setGuestDeviceTokenCookie(response: NextResponse, token: string) {
   response.cookies.set(GUEST_COOKIE_NAME, token, {
     httpOnly: true,
+    // lax (not strict): guests arriving via external links (e.g. shared LP URLs)
+    // need the cookie sent on the initial navigation request.
     sameSite: "lax",
     secure: isProduction(),
     path: "/",

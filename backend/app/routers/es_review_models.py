@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field
@@ -149,6 +150,11 @@ class ReviewMeta(BaseModel):
     unfinished_tail_detected: bool = False
     retrieval_profile_name: Optional[str] = None
     priority_source_match_count: int = 0
+    ai_smell_tier: int = 0
+    hallucination_tier: int = 0
+    concrete_marker_count: int = 0
+    opening_conclusion_chars: int = 0
+    rewrite_sentence_count: int = 0
     token_usage: Optional[ReviewTokenUsage] = Field(default=None, exclude=True)
     rewrite_rejection_reasons: list[str] = Field(default_factory=list, exclude=True)
     rewrite_attempt_trace: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
@@ -205,3 +211,140 @@ class CompanyReviewStatusResponse(BaseModel):
     total_chunks: int
     strategic_chunks: int
     last_updated: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Internal transfer objects (dataclass, NOT Pydantic)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ReviewContext:
+    """Computed context for a single ES review pass."""
+
+    template_type: str
+    template_request: Any  # TemplateRequest
+    request: Any  # ReviewRequest
+    text_caller: Any
+    review_feature: str
+    llm_provider: str
+    llm_model: str | None
+    review_variant: str
+    injection_risk: str | None
+    progress_queue: Any
+
+    # Classification
+    classification_confidence: str = "low"
+    classification_secondary_candidates: list[str] = field(default_factory=list)
+    classification_rationale: str | None = None
+    classification_hints: list[str] = field(default_factory=list)
+    misclassification_recovery_applied: bool = False
+    recommended_grounding_level: str = "none"
+
+    # Grounding & Evidence
+    company_grounding: str = "assistive"
+    effective_role_name: str | None = None
+    effective_grounding_mode: str = "none"
+    effective_grounding_level: str = "none"
+    effective_company_grounding: str = "assistive"
+    effective_company_rag_available: bool = False
+    grounding_repair_applied: bool = False
+    has_mismatched_company_sources: bool = False
+
+    # Char limits
+    char_min: int | None = None
+    char_max: int | None = None
+
+    # Prompt context
+    prompt_user_facts: list[dict] = field(default_factory=list)
+    prompt_company_evidence_cards: list[dict] = field(default_factory=list)
+    verified_rag_sources: list[dict] = field(default_factory=list)
+    rejected_rag_sources: list[dict] = field(default_factory=list)
+    evidence_coverage_level: str = "none"
+    weak_evidence_notice: bool = False
+
+    # Reference
+    reference_examples: list[dict] = field(default_factory=list)
+    reference_quality_profile: dict | None = None
+    reference_quality_block: str = ""
+    reference_outline_used: bool = False
+
+    # Misc
+    generic_role_mode: bool = False
+    user_priority_urls: set[str] = field(default_factory=set)
+    use_tight_length_control: bool = False
+    review_token_usage: Any = None  # ReviewTokenUsage
+
+    # Enrichment passthrough
+    triggered_enrichment: bool = False
+    enrichment_completed: bool = False
+    enrichment_sources_added: int = 0
+
+    # Retrieval
+    retrieval_profile_name: str | None = None
+    priority_source_match_count: int = 0
+
+
+@dataclass
+class RewriteLoopResult:
+    """Result of the main rewrite attempt loop."""
+
+    final_rewrite: str = ""
+    best_rejected_candidate: str = ""
+    best_rejected_length: int = 0
+    best_rejected_distance: int | None = None
+    best_retry_code: str = "generic"
+    best_failure_codes: list[str] = field(default_factory=list)
+    best_rejected_ai_smell_warnings: list[dict] = field(default_factory=list)
+    best_rejected_hallucination_warnings: list[dict] = field(default_factory=list)
+    accepted_attempt: int = 0
+    accepted_length_policy: str = "strict"
+    accepted_length_shortfall: int = 0
+    accepted_soft_min_floor_ratio: float | None = None
+    accepted_length_profile_id: str | None = None
+    accepted_target_window_lower: int | None = None
+    accepted_target_window_upper: int | None = None
+    accepted_source_fill_ratio: float | None = None
+    accepted_required_growth: int = 0
+    accepted_latest_failed_length: int = 0
+    accepted_length_failure_code: str | None = None
+    accepted_ai_smell_warnings: list[dict] = field(default_factory=list)
+    accepted_hallucination_warnings: list[dict] = field(default_factory=list)
+    rewrite_generation_mode: str = "normal"
+    rewrite_validation_status: str = "strict_ok"
+    rewrite_validation_codes: list[str] = field(default_factory=list)
+    rewrite_validation_user_hint: str | None = None
+    attempt_failures: list[str] = field(default_factory=list)
+    rewrite_attempt_trace: list[dict] = field(default_factory=list)
+    executed_rewrite_attempts: int = 0
+    retry_code: str = "generic"
+    retry_failure_codes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RecoveryResult:
+    """Result after fallback/length-fix/best-effort recovery."""
+
+    final_rewrite: str = ""
+    fallback_triggered: bool = False
+    fallback_reason: str | None = None
+    length_fix_attempted: bool = False
+    length_fix_result: str = "not_needed"
+    rewrite_generation_mode: str = "normal"
+    rewrite_validation_status: str = "strict_ok"
+    rewrite_validation_codes: list[str] = field(default_factory=list)
+    rewrite_validation_user_hint: str | None = None
+    accepted_attempt: int = 0
+    accepted_length_policy: str = "strict"
+    accepted_length_shortfall: int = 0
+    accepted_soft_min_floor_ratio: float | None = None
+    accepted_length_profile_id: str | None = None
+    accepted_target_window_lower: int | None = None
+    accepted_target_window_upper: int | None = None
+    accepted_source_fill_ratio: float | None = None
+    accepted_required_growth: int = 0
+    accepted_latest_failed_length: int = 0
+    accepted_length_failure_code: str | None = None
+    accepted_ai_smell_warnings: list[dict] = field(default_factory=list)
+    accepted_hallucination_warnings: list[dict] = field(default_factory=list)
+    attempt_failures: list[str] = field(default_factory=list)
+    rewrite_attempt_trace: list[dict] = field(default_factory=list)

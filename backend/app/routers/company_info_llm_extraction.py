@@ -30,7 +30,8 @@ from app.routers.company_info_schedule_extraction import (
     _parse_extracted_schedule_info,
 )
 from app.utils.firecrawl import FirecrawlScrapeResult, scrape_url_with_schema
-from app.utils.llm import call_llm_with_error, merge_llm_usage_tokens
+from app.utils.llm import call_llm_with_error
+from app.utils.llm_usage_cost import merge_llm_usage_tokens
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)

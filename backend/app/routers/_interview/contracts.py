@@ -871,6 +871,13 @@ SEVEN_AXIS_KEYS: tuple[str, ...] = (
 RECENT_QUESTION_SUMMARIES_WINDOW = 13
 RECENT_QUESTION_SUMMARIES_STATE_WINDOW = 7
 
+# ---------------------------------------------------------------------------
+# conversation history sliding window
+# ---------------------------------------------------------------------------
+# turn/continue prompt に含める直近ターン数。1 ターン = 1 Q&A pair = 2 messages。
+# feedback prompt には適用しない (全履歴を評価対象とする)。
+CONVERSATION_HISTORY_WINDOW_TURNS = 20
+
 
 class InterviewDrillStartRequest(BaseModel):
     """`/api/interview/drill/start` の request payload。

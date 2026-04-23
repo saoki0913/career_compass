@@ -313,6 +313,20 @@ async function mockCompanyDetailApis(page: Page, company: MockCompany) {
     });
   });
 
+  await page.route(`**/api/companies/${company.id}/fetch-corporate/estimate`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        estimated_free_pages: 1,
+        estimated_credits: 0,
+        requires_confirmation: false,
+        processing_notice_ja: null,
+      }),
+    });
+  });
+
   await page.route(`**/api/companies/${company.id}/search-corporate-pages`, async (route) => {
     await route.fulfill({
       status: 200,
@@ -388,6 +402,37 @@ async function mockCompanyDetailApis(page: Page, company: MockCompany) {
         remainingFreeUnits: 310,
         actualCreditsDeducted: 0,
         estimatedCostBand: "無料枠内",
+      }),
+    });
+  });
+
+  await page.route(`**/api/companies/${company.id}/fetch-corporate-upload/estimate`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        company_id: company.id,
+        source_url: `upload://corporate-pdf/${company.id}/company.pdf`,
+        page_count: 4,
+        source_total_pages: 4,
+        estimated_free_pdf_pages: 4,
+        estimated_credits: 0,
+        estimated_google_ocr_pages: 0,
+        estimated_mistral_ocr_pages: 0,
+        will_truncate: false,
+        requires_confirmation: false,
+        processing_notice_ja: "summary",
+        page_routing_summary: {
+          total_pages: 4,
+          ingest_pages: 4,
+          local_pages: 4,
+          google_ocr_pages: 0,
+          mistral_ocr_pages: 0,
+          truncated_pages: 0,
+          planned_route: ["local"],
+          actual_route: ["local"],
+        },
       }),
     });
   });
@@ -498,8 +543,12 @@ async function mockESApis(page: Page, documentId: string, company: MockCompany) 
 }
 
 async function chooseEsReviewRole(page: Page) {
-  await expect(page.getByRole("combobox").last()).toBeVisible();
-  await page.getByRole("combobox").last().click();
+  const rolePicker = page
+    .getByText("職種を選択してください")
+    .locator("..")
+    .getByRole("combobox");
+  await expect(rolePicker).toBeVisible();
+  await rolePicker.click();
   await page.getByRole("option", { name: "企画職" }).click();
 }
 
@@ -541,8 +590,9 @@ test.describe("bug regressions", () => {
     await page.getByLabel("応募枠名 *").fill("本選考");
     await page.getByLabel("応募枠名 *").press("Enter");
 
-    await expect(page.getByRole("button", { name: "本選考" })).toBeVisible();
-    await page.getByRole("button", { name: "本選考" }).click();
+    const applicationButton = page.getByRole("button", { name: /本選考/ }).first();
+    await expect(applicationButton).toBeVisible();
+    await applicationButton.click();
     await expect(page.getByText("応募枠を編集")).toBeVisible();
 
     const applicationModal = page.locator(".fixed.inset-0.z-50").filter({ hasText: "応募枠を編集" });
@@ -622,9 +672,10 @@ test.describe("bug regressions", () => {
     await page.selectOption("select", "corporate_site");
     await page.getByRole("button", { name: /^検索$/ }).first().click();
     await page.getByRole("button", { name: "選択したURLを取得" }).click();
-    await expect(page.getByRole("button", { name: "閉じる" })).toBeVisible();
-    await page.getByRole("button", { name: "閉じる" }).click();
-    await expect(page.getByRole("button", { name: "登録済みソースを見る" })).toBeVisible();
+    const closeButton = page.getByRole("button", { name: "閉じる", exact: true });
+    if (await closeButton.count()) {
+      await closeButton.click();
+    }
 
     await page.getByRole("button", { name: "企業情報を取得" }).click();
     await page.getByRole("button", { name: "資料アップロード" }).click();
@@ -635,8 +686,8 @@ test.describe("bug regressions", () => {
     });
     await page.getByRole("button", { name: "1件を取り込む" }).click();
 
-    await expect(page.getByText(/company\.pdf|取り込み|資料/)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText("完了").first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("button", { name: "登録済みソースを見る" })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText("企業RAGへの取り込みが完了しました")).toBeVisible({ timeout: 20000 });
   });
 
   test("ES添削は残高不足で開始できず、開始時はページ先頭へ戻る", async ({ page }) => {
@@ -724,7 +775,7 @@ test.describe("bug regressions", () => {
     });
 
     await page.goto("/calendar/connect?returnTo=%2Fcalendar%2Fsettings");
-    await expect(page.getByText("Googleカレンダーを連携")).toBeVisible();
+    await expect(page.getByText("Googleカレンダーを連携").last()).toBeVisible();
     await expect(page.getByRole("link", { name: "Google で連携する" })).toHaveAttribute(
       "href",
       /\/api\/calendar\/connect\?returnTo=%2Fcalendar%2Fsettings/,

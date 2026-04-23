@@ -12,7 +12,6 @@ import json
 from anthropic import AsyncAnthropic
 import openai
 from app.config import settings
-from app.prompts.notion_registry import get_managed_prompt_content
 from app.utils.llm_client_registry import get_registry
 from app.utils.llm_model_routing import (
     LLMProvider,
@@ -243,26 +242,20 @@ def _augment_system_prompt_for_provider_json(
 
     schema_body = _schema_body(json_schema)
     schema_example = _build_schema_example(schema_body)
-    strict_note_template = get_managed_prompt_content(
-        "llm_common.json_strict_note",
-        fallback=(
-            "\n\n# JSON出力の厳守\n"
-            "必ず有効なJSONのみを返してください。説明文、前置き、コードブロックは禁止です。"
-            "\n先頭文字は {{、末尾文字は }} にしてください。"
-            "\n期待するJSONの骨組み:\n"
-            "{schema_example}"
-        ),
+    strict_note_template = (
+        "\n\n# JSON出力の厳守\n"
+        "必ず有効なJSONのみを返してください。説明文、前置き、コードブロックは禁止です。"
+        "\n先頭文字は {{、末尾文字は }} にしてください。"
+        "\n期待するJSONの骨組み:\n"
+        "{schema_example}"
     )
     strict_note = strict_note_template.format(
         schema_example=json.dumps(schema_example, ensure_ascii=False)
     )
     if provider == "google":
-        strict_note += get_managed_prompt_content(
-            "llm_common.json_strict_note_google_append",
-            fallback=(
-                "\nこれは単純な構造化出力タスクです。思考や解説を書かず、"
-                "回答のJSONオブジェクトを先に、かつそれだけを返してください。"
-            ),
+        strict_note += (
+            "\nこれは単純な構造化出力タスクです。思考や解説を書かず、"
+            "回答のJSONオブジェクトを先に、かつそれだけを返してください。"
         )
     return f"{system_prompt}{strict_note}"
 
@@ -276,20 +269,14 @@ def _augment_system_prompt_for_provider_text(
     if feature != "es_review" or provider == "anthropic":
         return system_prompt
 
-    strict_note = get_managed_prompt_content(
-        "llm_common.text_strict_note",
-        fallback=(
-            "\n\n# 出力形式の厳守\n"
-            "出力は最終本文のみを返してください。"
-            "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
-            "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
-        ),
+    strict_note = (
+        "\n\n# 出力形式の厳守\n"
+        "出力は最終本文のみを返してください。"
+        "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
+        "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
     )
     if provider == "google":
-        strict_note += get_managed_prompt_content(
-            "llm_common.text_strict_note_google_append",
-            fallback="\n思考や解説は書かず、本文だけを返してください。",
-        )
+        strict_note += "\n思考や解説は書かず、本文だけを返してください。"
     return f"{system_prompt}{strict_note}"
 
 

@@ -363,6 +363,8 @@ export function ReviewPanel({
   const {
     review,
     visibleRewriteText,
+    explanationText,
+    explanationComplete,
     visibleSources,
     finalRewriteText,
     playbackPhase,
@@ -1271,6 +1273,8 @@ export function ReviewPanel({
               <StreamingReviewResponse
                 key={responseInstanceKey}
                 visibleRewriteText={visibleRewriteText}
+                explanationText={explanationText}
+                explanationComplete={explanationComplete}
                 finalRewriteText={finalRewriteText}
                 sources={visibleSources}
                 charLimit={currentCharLimit}

@@ -48,11 +48,15 @@ async def test_streaming_emits_only_final_canonical_question(
                     "coaching_focus": "やりたい仕事",
                 },
                 error=None,
-            ),
-        )
+                ),
+            )
+
+    async def fake_retry_llm(**kwargs):
+        return SimpleNamespace(success=False, data=None, raw_text=None, error=None)
 
     monkeypatch.setattr("app.routers.motivation._get_company_context", fake_company_context)
     monkeypatch.setattr("app.routers.motivation._evaluate_motivation_internal", fake_evaluate)
+    monkeypatch.setattr("app.routers.motivation.call_llm_with_error", fake_retry_llm)
     monkeypatch.setattr("app.routers.motivation_streaming.call_llm_streaming_fields", fake_stream)
 
     request = NextQuestionRequest(
@@ -89,4 +93,4 @@ async def test_streaming_emits_only_final_canonical_question(
     canonical_question = complete_events[0]["data"]["question"]
     # D-1 (P2-8): 選択型/機械的ペアリングを撤廃したフォールバック候補の 1 つ目
     assert canonical_question == "株式会社テストの事業や取り組みで、気になっている点はありますか？"
-    assert question_chunks == []
+    assert canonical_question

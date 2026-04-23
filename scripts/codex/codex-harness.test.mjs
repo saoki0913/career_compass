@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { tmpdir } from "node:os";
 
 const repoRoot = process.cwd();
 
@@ -20,6 +21,7 @@ test("codex harness docs and commands exist", () => {
     ".codex/commands/update-docs.md",
     ".codex/commands/codex-start.md",
     ".codex/commands/codex-closeout.md",
+    ".claude/commands/claude-closeout.md",
     "docs/ops/CODEX_HARNESS.md",
     ".agents/agents/README.md",
     ".codex/agents/architect.toml",
@@ -122,4 +124,89 @@ test("codex config aligns with the 13-agent routing and shared MCP set", () => {
 test("pipeline doc no longer references removed grill-me step", () => {
   const source = readFileSync(path.join(repoRoot, "docs/ops/AI_AGENT_PIPELINE.md"), "utf8");
   assert.doesNotMatch(source, /`grill-me`/);
+});
+
+test("delegate wrapper injects explicit codex harness activation guidance", () => {
+  const source = readFileSync(path.join(repoRoot, "scripts/codex/delegate.sh"), "utf8");
+
+  assert.match(source, /## Codex Harness Activation/);
+  assert.match(source, /\.codex\/commands\/codex-start\.md/);
+  assert.match(source, /\.codex\/agents\/\*\.toml/);
+  assert.match(source, /\.codex\/skills\//);
+  assert.match(source, /\.agents\/skills\//);
+  assert.match(source, /architect.*first/i);
+  assert.match(source, /report which agent and skills you used/i);
+});
+
+test("codex post-edit dispatcher reminds AI feature E2E once per session", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "codex-hook-home-"));
+  const input = JSON.stringify({
+    session_id: "sess-1",
+    tool_input: { file_path: "/Users/saoki/work/career_compass/src/app/(product)/gakuchika/[id]/page.tsx" },
+  });
+
+  const first = spawnSync("bash", [path.join(repoRoot, ".codex/hooks/post-edit-dispatcher.sh")], {
+    cwd: repoRoot,
+    input,
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+  const second = spawnSync("bash", [path.join(repoRoot, ".codex/hooks/post-edit-dispatcher.sh")], {
+    cwd: repoRoot,
+    input,
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+
+  assert.equal(first.status, 0);
+  assert.match(first.stderr, /make test-e2e-functional-local-gakuchika/);
+  assert.equal(second.status, 0);
+  assert.doesNotMatch(second.stderr, /make test-e2e-functional-local-gakuchika/);
+});
+
+test("codex ui preflight hook blocks UI edits without verification state", () => {
+  const verificationDir = mkdtempSync(path.join(tmpdir(), "codex-verify-"));
+  const input = JSON.stringify({
+    tool_input: { file_path: "/Users/saoki/work/career_compass/src/app/(product)/companies/[id]/motivation/page.tsx" },
+  });
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".codex/hooks/ui-preflight-reminder.sh")], {
+    cwd: repoRoot,
+    input,
+    encoding: "utf8",
+    env: { ...process.env, AI_VERIFICATION_DIR: verificationDir },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /UI preflight is required/i);
+});
+
+test("codex ui preflight hook allows matching prepared route", () => {
+  const verificationDir = mkdtempSync(path.join(tmpdir(), "codex-verify-"));
+  const currentPath = path.join(verificationDir, "current.json");
+  mkdirSync(verificationDir, { recursive: true });
+  writeFileSync(
+    currentPath,
+    JSON.stringify({
+      checks: [
+        {
+          kind: "ui:preflight",
+          route: "/companies/ui-review-company/motivation",
+          status: "passed",
+        },
+      ],
+    }),
+  );
+  const input = JSON.stringify({
+    tool_input: { file_path: "/Users/saoki/work/career_compass/src/app/(product)/companies/[id]/motivation/page.tsx" },
+  });
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".codex/hooks/ui-preflight-reminder.sh")], {
+    cwd: repoRoot,
+    input,
+    encoding: "utf8",
+    env: { ...process.env, AI_VERIFICATION_DIR: verificationDir },
+  });
+
+  assert.equal(result.status, 0);
 });

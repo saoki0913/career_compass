@@ -1,0 +1,18 @@
+{
+  "industry": "infrastructure",
+  "business_context": "電力 × 通信の大手インフラ事業開発部門。電力 ARPU 低下と通信設備投資の回収長期化で新規事業模索中。",
+  "target_metric": "既存事業 ROIC × 新規事業立ち上げ速度",
+  "constraints": [
+    "インフラ減損リスクで事業撤退困難",
+    "規制対応で機動性制約",
+    "投資 CF の大半が既存維持補修"
+  ],
+  "candidate_task": "既存 ROIC を改善しつつ 3 年で新規事業の黒字化 1 本を実現する戦略を提案してください。",
+  "why_this_company": "長期資本投下型と新規立ち上げスピードの両立",
+  "case_followup_topics": [
+    "ROIC 分解 (利益率 × 回転率)",
+    "新規事業 (再エネ / スマートシティ) の優先順位",
+    "規制下での提携・M&A"
+  ],
+  "case_seed_version": "v1.0"
+}

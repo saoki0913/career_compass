@@ -59,4 +59,14 @@ url = "https://mcp.notion.com/mcp"
 
 [security]
 # 機密ファイルの読み書きを Codex 側でもブロックする defense-in-depth。
-deny_patterns = ["*.env", "*.pem", "*.key", "secrets/**"]
+# Claude 側の .claude/settings.json permissions.deny と意味論を揃える。
+deny_patterns = [
+  "*.env",
+  ".env.*",
+  "*.pem",
+  "*.key",
+  "*.p12",
+  "secrets/**",
+  "private/**",
+  "codex-company/.secrets/**",
+]

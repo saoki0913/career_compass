@@ -1,13 +1,7 @@
 /**
- * Gakuchika Conversation SSE Stream API
- *
- * POST: Send answer and get next question via SSE streaming.
- * Proxies FastAPI SSE with "consume-and-re-emit" pattern:
- *   - progress events -> forwarded immediately
- *   - complete event -> DB save + credit consumption + summary if completed, then forwarded
- *   - error event -> forwarded (no credit consumed)
+ * Gakuchika Conversation SSE Stream API — POST: answer + next question via SSE.
+ * Uses shared SSE infrastructure (fetchUpstreamSSE + createSSEProxyStream).
  */
-
 import { after, NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
@@ -17,566 +11,169 @@ import { gakuchikaStreamPolicy } from "@/lib/api-route/billing/gakuchika-stream-
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
 import {
-  FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS,
-  buildHintPayload,
-  buildConversationStatePatch,
-  getGakuchikaNextAction,
-  getIdentity,
-  isInterviewReady,
-  iterateGakuchikaFastApiSseEvents,
-  safeParseConversationState,
-  safeParseMessages,
-  serializeConversationState,
+  getGakuchikaNextAction, getIdentity, isInterviewReady,
+  safeParseConversationState, safeParseMessages, serializeConversationState,
   type ConversationState,
-  type Message,
 } from "@/app/api/gakuchika";
-import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { getViewerPlan } from "@/lib/server/loader-helpers";
-import {
-  getRequestId,
-  logAiCreditCostSummary,
-  splitInternalTelemetry,
-  type InternalCostTelemetry,
-} from "@/lib/ai/cost-summary-log";
+import { getRequestId, logAiCreditCostSummary, splitInternalTelemetry, type InternalCostTelemetry } from "@/lib/ai/cost-summary-log";
 import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
+import { fetchUpstreamSSE } from "@/lib/fastapi/stream-transport";
+import { createSSEProxyStream } from "@/lib/fastapi/sse-proxy";
+import { SSE_RESPONSE_HEADERS } from "@/lib/fastapi/stream-config";
+import { createGakuchikaStreamStateMachine } from "@/lib/gakuchika/stream-state-machine";
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+const jsonErr = (msg: string, status: number) =>
+  new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
+
+/** camelCase ConversationState -> snake_case payload for FastAPI */
+function toSnakeState(s: ConversationState): Record<string, unknown> {
+  return {
+    stage: s.stage, focus_key: s.focusKey, progress_label: s.progressLabel,
+    answer_hint: s.answerHint, input_richness_mode: s.inputRichnessMode,
+    missing_elements: s.missingElements, draft_quality_checks: s.draftQualityChecks,
+    causal_gaps: s.causalGaps, completion_checks: s.completionChecks,
+    ready_for_draft: s.readyForDraft, draft_readiness_reason: s.draftReadinessReason,
+    draft_text: s.draftText, strength_tags: s.strengthTags, issue_tags: s.issueTags,
+    deepdive_recommendation_tags: s.deepdiveRecommendationTags,
+    credibility_risk_tags: s.credibilityRiskTags, deepdive_stage: s.deepdiveStage,
+    deepdive_complete: s.deepdiveComplete, completion_reasons: s.completionReasons,
+    asked_focuses: s.askedFocuses, resolved_focuses: s.resolvedFocuses,
+    deferred_focuses: s.deferredFocuses, blocked_focuses: s.blockedFocuses,
+    recent_question_texts: s.recentQuestionTexts, loop_blocked_focuses: s.loopBlockedFocuses,
+    focus_attempt_counts: s.focusAttemptCounts, last_question_signature: s.lastQuestionSignature,
+    extended_deep_dive_round: s.extendedDeepDiveRound,
+  };
+}
+
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id: gakuchikaId } = await params;
     const requestId = getRequestId(request);
     const identity = await getIdentity(request);
-    if (!identity) {
-      return new Response(
-        JSON.stringify({ error: "認証が必要です" }),
-        { status: 401, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
+    if (!identity) return jsonErr("認証が必要です", 401);
     const { userId, guestId } = identity;
-
-    if (!userId) {
-      return new Response(
-        JSON.stringify({ error: "ガクチカのAI深掘りはログインが必要です" }),
-        { status: 401, headers: { "Content-Type": "application/json" } },
-      );
-    }
-
+    if (!userId) return jsonErr("ガクチカのAI深掘りはログインが必要です", 401);
     const limitResponse = await guardDailyTokenLimit(identity);
     if (limitResponse) return limitResponse;
+    const rateLimited = await enforceRateLimitLayers(request, [...CONVERSATION_RATE_LAYERS], userId, guestId, "gakuchika_conversation_stream");
+    if (rateLimited) return rateLimited;
 
-    const rateLimited = await enforceRateLimitLayers(
-      request,
-      [...CONVERSATION_RATE_LAYERS],
-      userId,
-      guestId,
-      "gakuchika_conversation_stream"
-    );
-    if (rateLimited) {
-      return rateLimited;
-    }
-
-    // Verify gakuchika access
-    const [gakuchika] = await db
-      .select()
-      .from(gakuchikaContents)
-      .where(eq(gakuchikaContents.id, gakuchikaId))
-      .limit(1);
-
-    if (!gakuchika) {
-      return new Response(
-        JSON.stringify({ error: "ガクチカが見つかりません" }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    if (userId && gakuchika.userId !== userId) {
-      return new Response(
-        JSON.stringify({ error: "ガクチカが見つかりません" }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      );
-    }
-    if (guestId && gakuchika.guestId !== guestId) {
-      return new Response(
-        JSON.stringify({ error: "ガクチカが見つかりません" }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    const [gakuchika] = await db.select().from(gakuchikaContents).where(eq(gakuchikaContents.id, gakuchikaId)).limit(1);
+    if (!gakuchika) return jsonErr("ガクチカが見つかりません", 404);
+    if (userId && gakuchika.userId !== userId) return jsonErr("ガクチカが見つかりません", 404);
+    if (guestId && gakuchika.guestId !== guestId) return jsonErr("ガクチカが見つかりません", 404);
 
     const body = await request.json();
     const { answer, sessionId } = body;
+    if (!answer || typeof answer !== "string" || !answer.trim()) return jsonErr("回答を入力してください", 400);
 
-    if (!answer || typeof answer !== "string" || !answer.trim()) {
-      return new Response(
-        JSON.stringify({ error: "回答を入力してください" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // Get conversation by sessionId or latest
     let conversation;
     if (sessionId) {
-      conversation = (await db
-        .select()
-        .from(gakuchikaConversations)
-        .where(eq(gakuchikaConversations.id, sessionId))
-        .limit(1))[0];
-
-      if (!conversation || conversation.gakuchikaId !== gakuchikaId) {
-        return new Response(
-          JSON.stringify({ error: "セッションが見つかりません" }),
-          { status: 404, headers: { "Content-Type": "application/json" } }
-        );
-      }
+      conversation = (await db.select().from(gakuchikaConversations).where(eq(gakuchikaConversations.id, sessionId)).limit(1))[0];
+      if (!conversation || conversation.gakuchikaId !== gakuchikaId) return jsonErr("セッションが見つかりません", 404);
     } else {
-      conversation = (await db
-        .select()
-        .from(gakuchikaConversations)
-        .where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId))
-        .orderBy(desc(gakuchikaConversations.updatedAt))
-        .limit(1))[0];
+      conversation = (await db.select().from(gakuchikaConversations).where(eq(gakuchikaConversations.gakuchikaId, gakuchikaId)).orderBy(desc(gakuchikaConversations.updatedAt)).limit(1))[0];
     }
-
-    if (!conversation) {
-      return new Response(
-        JSON.stringify({ error: "会話が見つかりません" }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    if (conversation.status === "completed") {
-      return new Response(
-        JSON.stringify({ error: "このセッションは完了しています。新しいセッションを開始してください。" }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    if (!conversation) return jsonErr("会話が見つかりません", 404);
+    if (conversation.status === "completed") return jsonErr("このセッションは完了しています。新しいセッションを開始してください。", 409);
 
     const messages = safeParseMessages(conversation.messages);
     const currentQuestionCount = conversation.questionCount ?? 0;
-    const currentConversationState = safeParseConversationState(conversation.starScores, conversation.status);
-
-    // Ensure the current question is in messages (same logic as non-stream POST)
-    const lastAssistantMessage = messages.filter(m => m.role === "assistant").pop();
-    if (!lastAssistantMessage || messages[messages.length - 1].role !== "assistant") {
-      const currentQuestion = lastAssistantMessage
-        ? lastAssistantMessage.content
-        : `「${gakuchika.title}」について、具体的にどのようなことに取り組みましたか？`;
-      messages.push({ id: crypto.randomUUID(), role: "assistant", content: currentQuestion });
+    const curState = safeParseConversationState(conversation.starScores, conversation.status);
+    const lastAssistant = messages.filter(m => m.role === "assistant").pop();
+    if (!lastAssistant || messages[messages.length - 1].role !== "assistant") {
+      messages.push({ id: crypto.randomUUID(), role: "assistant", content: lastAssistant ? lastAssistant.content : `「${gakuchika.title}」について、具体的にどのようなことに取り組みましたか？` });
     }
+    messages.push({ id: crypto.randomUUID(), role: "user", content: answer.trim() });
+    const newQC = currentQuestionCount + 1;
 
-    // Add user answer
-    messages.push({
-      id: crypto.randomUUID(),
-      role: "user",
-      content: answer.trim(),
-    });
-
-    const newQuestionCount = currentQuestionCount + 1;
-
-    // Credit check (1 credit per turn for logged-in users)
     const shouldConsumeCredit = !!userId;
     if (shouldConsumeCredit) {
-      const precheckResult = await gakuchikaStreamPolicy.precheck({
-        userId: userId!,
-        gakuchikaId,
-        newQuestionCount,
-      });
-      if (!precheckResult.ok) {
-        return precheckResult.errorResponse!;
-      }
+      const pc = await gakuchikaStreamPolicy.precheck({ userId: userId!, gakuchikaId, newQuestionCount: newQC });
+      if (!pc.ok) return pc.errorResponse!;
     }
-
-    // Call FastAPI SSE streaming endpoint (with 60s timeout)
-    const abortController = new AbortController();
-    const fetchTimeoutId = setTimeout(
-      () => abortController.abort(),
-      FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS,
-    );
 
     const principalPlan = await getViewerPlan(identity);
-
-    let aiResponse: Response;
+    let upstream: Awaited<ReturnType<typeof fetchUpstreamSSE>>;
     try {
-      aiResponse = await fetchFastApiWithPrincipal("/api/gakuchika/next-question/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
-        principal: {
-          scope: "ai-stream",
-          actor: userId
-            ? { kind: "user", id: userId }
-            : { kind: "guest", id: guestId! },
-          companyId: null,
-          plan: principalPlan,
-        },
-        body: JSON.stringify({
-          gakuchika_title: gakuchika.title,
-          gakuchika_content: gakuchika.content || null,
+      upstream = await fetchUpstreamSSE({
+        path: "/api/gakuchika/next-question/stream", requestId,
+        principal: { scope: "ai-stream", actor: userId ? { kind: "user", id: userId } : { kind: "guest", id: guestId! }, companyId: null, plan: principalPlan },
+        payload: {
+          gakuchika_title: gakuchika.title, gakuchika_content: gakuchika.content || null,
           char_limit_type: gakuchika.charLimitType || null,
-          conversation_history: messages.map(m => ({
-            role: m.role,
-            content: m.content,
-          })),
-          question_count: newQuestionCount,
-          conversation_state: currentConversationState
-            ? {
-                stage: currentConversationState.stage,
-                focus_key: currentConversationState.focusKey,
-                progress_label: currentConversationState.progressLabel,
-                answer_hint: currentConversationState.answerHint,
-                input_richness_mode: currentConversationState.inputRichnessMode,
-                missing_elements: currentConversationState.missingElements,
-                draft_quality_checks: currentConversationState.draftQualityChecks,
-                causal_gaps: currentConversationState.causalGaps,
-                completion_checks: currentConversationState.completionChecks,
-                ready_for_draft: currentConversationState.readyForDraft,
-                draft_readiness_reason: currentConversationState.draftReadinessReason,
-                draft_text: currentConversationState.draftText,
-                  strength_tags: currentConversationState.strengthTags,
-                  issue_tags: currentConversationState.issueTags,
-                  deepdive_recommendation_tags: currentConversationState.deepdiveRecommendationTags,
-                  credibility_risk_tags: currentConversationState.credibilityRiskTags,
-                  deepdive_stage: currentConversationState.deepdiveStage,
-                  deepdive_complete: currentConversationState.deepdiveComplete,
-                  completion_reasons: currentConversationState.completionReasons,
-                  asked_focuses: currentConversationState.askedFocuses,
-                  resolved_focuses: currentConversationState.resolvedFocuses,
-                  deferred_focuses: currentConversationState.deferredFocuses,
-                  blocked_focuses: currentConversationState.blockedFocuses,
-                  focus_attempt_counts: currentConversationState.focusAttemptCounts,
-                  last_question_signature: currentConversationState.lastQuestionSignature,
-                  extended_deep_dive_round: currentConversationState.extendedDeepDiveRound,
-              }
-            : null,
-        }),
-        signal: abortController.signal,
+          conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
+          question_count: newQC, conversation_state: curState ? toSnakeState(curState) : null,
+        },
       });
     } catch (fetchError) {
-      clearTimeout(fetchTimeoutId);
-      if (fetchError instanceof Error && fetchError.name === "AbortError") {
-        logAiCreditCostSummary({
-          feature: "gakuchika",
-          requestId,
-          status: "failed",
-          creditsUsed: 0,
-          telemetry: null,
-        });
-        return new Response(
-          JSON.stringify({ error: "AIの応答がタイムアウトしました。再度お試しください。" }),
-          { status: 504, headers: { "Content-Type": "application/json" } }
-        );
-      }
-      logAiCreditCostSummary({
-        feature: "gakuchika",
-        requestId,
-        status: "failed",
-        creditsUsed: 0,
-        telemetry: null,
-      });
-      return new Response(
-        JSON.stringify({ error: "AIサービスに接続できませんでした" }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
-    } finally {
-      clearTimeout(fetchTimeoutId);
+      const s = fetchError instanceof Error && fetchError.name === "AbortError" ? 504 : 502;
+      logAiCreditCostSummary({ feature: "gakuchika", requestId, status: "failed", creditsUsed: 0, telemetry: null });
+      return jsonErr(s === 504 ? "AIの応答がタイムアウトしました。再度お試しください。" : "AIサービスに接続できませんでした", s);
     }
 
-    if (!aiResponse.ok) {
-      const rawErrorBody = await aiResponse.json().catch(() => ({}));
-      const { payload, telemetry } =
-        rawErrorBody && typeof rawErrorBody === "object"
-          ? splitInternalTelemetry(rawErrorBody as Record<string, unknown>)
-          : { payload: rawErrorBody, telemetry: null as InternalCostTelemetry | null };
-      logAiCreditCostSummary({
-        feature: "gakuchika",
-        requestId,
-        status: "failed",
-        creditsUsed: 0,
-        telemetry,
-      });
-      return new Response(
-        JSON.stringify({
-          error:
-            (payload as { detail?: { error?: string } } | null)?.detail?.error ||
-            "AIサービスに接続できませんでした",
-        }),
-        { status: aiResponse.status, headers: { "Content-Type": "application/json" } }
-      );
+    if (!upstream.response.ok) {
+      upstream.clearTimeout();
+      const raw = await upstream.response.json().catch(() => ({}));
+      const { payload, telemetry } = raw && typeof raw === "object" ? splitInternalTelemetry(raw as Record<string, unknown>) : { payload: raw, telemetry: null as InternalCostTelemetry | null };
+      logAiCreditCostSummary({ feature: "gakuchika", requestId, status: "failed", creditsUsed: 0, telemetry });
+      return jsonErr((payload as { detail?: { error?: string } } | null)?.detail?.error || "AIサービスに接続できませんでした", upstream.response.status);
     }
 
-    // Consume-and-re-emit: intercept SSE events, process complete event
-    const fastApiBody = aiResponse.body;
-    if (!fastApiBody) {
-      logAiCreditCostSummary({
-        feature: "gakuchika",
-        requestId,
-        status: "failed",
-        creditsUsed: 0,
-        telemetry: null,
-      });
-      return new Response(
-        JSON.stringify({ error: "AIレスポンスが空です" }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    let summaryLogged = false;
+    const sm = createGakuchikaStreamStateMachine(curState);
+    let streamedQ = "";
     let latestTelemetry: InternalCostTelemetry | null = null;
-
-    const logSummaryOnce = (args: {
-      status: "success" | "failed" | "cancelled";
-      creditsUsed: number;
-      telemetry?: InternalCostTelemetry | null;
-    }) => {
-      if (summaryLogged) {
-        return;
-      }
+    let summaryLogged = false;
+    const logOnce = (st: "success" | "failed" | "cancelled", cr: number) => {
+      if (summaryLogged) return;
       summaryLogged = true;
-      logAiCreditCostSummary({
-        feature: "gakuchika",
-        requestId,
-        status: args.status,
-        creditsUsed: args.creditsUsed,
-        telemetry: args.telemetry ?? latestTelemetry,
-      });
+      logAiCreditCostSummary({ feature: "gakuchika", requestId, status: st, creditsUsed: cr, telemetry: latestTelemetry });
     };
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
-        let streamedQuestionText = "";
-        let hasStartedQuestionStream = false;
-        let partialState: Partial<ConversationState> = {};
-
-        try {
-          for await (const { event, telemetry } of iterateGakuchikaFastApiSseEvents(fastApiBody)) {
-            latestTelemetry = telemetry ?? latestTelemetry;
-
-            if (event.type === "progress" && !hasStartedQuestionStream) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-            } else if (
-              event.type === "string_chunk" &&
-              event.path === "question" &&
-              typeof event.text === "string"
-            ) {
-              hasStartedQuestionStream = true;
-              streamedQuestionText += event.text;
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-            } else if (event.type === "field_complete") {
-              if (event.path === "focus_key" && typeof event.value === "string") {
-                partialState = { ...partialState, focusKey: event.value as ConversationState["focusKey"] };
-              } else if (event.path === "answer_hint" && typeof event.value === "string") {
-                partialState = { ...partialState, answerHint: event.value };
-              } else if (event.path === "progress_label" && typeof event.value === "string") {
-                partialState = { ...partialState, progressLabel: event.value };
-              } else if (event.path === "ready_for_draft") {
-                partialState = { ...partialState, readyForDraft: Boolean(event.value) };
-              } else if (event.path === "deepdive_stage" && typeof event.value === "string") {
-                partialState = { ...partialState, deepdiveStage: event.value };
-              } else if (event.path === "coach_progress_message") {
-                partialState = {
-                  ...partialState,
-                  coachProgressMessage: typeof event.value === "string" ? event.value : null,
-                };
-              } else if (
-                event.path === "remaining_questions_estimate" &&
-                typeof event.value === "number" &&
-                Number.isFinite(event.value) &&
-                event.value >= 0
-              ) {
-                partialState = {
-                  ...partialState,
-                  remainingQuestionsEstimate: Math.floor(event.value),
-                };
-              }
-              // Forward partial patches (coach_progress_message, remaining_questions_estimate)
-              // so the client can hydrate NaturalProgressStatus before the complete event.
-              if (event.path === "coach_progress_message") {
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({
-                      type: "field_complete",
-                      path: "coach_progress_message",
-                      value: typeof event.value === "string" ? event.value : null,
-                    })}\n\n`,
-                  ),
-                );
-              } else if (event.path === "remaining_questions_estimate") {
-                const normalized =
-                  typeof event.value === "number" &&
-                  Number.isFinite(event.value) &&
-                  event.value >= 0
-                    ? Math.floor(event.value)
-                    : null;
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({
-                      type: "field_complete",
-                      path: "remaining_questions_estimate",
-                      value: normalized,
-                    })}\n\n`,
-                  ),
-                );
-              }
-              const hintPayload = buildHintPayload(
-                buildConversationStatePatch(currentConversationState, partialState),
-              );
-              if (hintPayload) {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ type: "hint_ready", data: hintPayload })}\n\n`),
-                );
-              }
-            } else if (event.type === "complete") {
-              const fastApiData = (event as {
-                data: {
-                  question?: string;
-                  conversation_state?: Record<string, unknown>;
-                  next_action?: string;
-                };
-              }).data;
-
-              const nextQuestionText =
-                typeof fastApiData.question === "string" && fastApiData.question
-                  ? fastApiData.question
-                  : streamedQuestionText;
-
-              const nextConversationState = fastApiData.conversation_state
-                ? safeParseConversationState(JSON.stringify(fastApiData.conversation_state))
-                : buildConversationStatePatch(currentConversationState, partialState);
-              const nextAction =
-                typeof fastApiData.next_action === "string"
-                  ? fastApiData.next_action
-                  : getGakuchikaNextAction(nextConversationState);
-              const shouldAskNext = nextAction === "ask";
-              const isCompleted = nextConversationState.stage === "interview_ready";
-              const status = isCompleted ? "completed" : "in_progress";
-
-              if (shouldAskNext && nextQuestionText) {
-                const aiMessage: Message = {
-                  id: crypto.randomUUID(),
-                  role: "assistant",
-                  content: nextQuestionText,
-                };
-                messages.push(aiMessage);
-              }
-
-              await db
-                .update(gakuchikaConversations)
-                .set({
-                  messages,
-                  questionCount: newQuestionCount,
-                  status,
-                  starScores: serializeConversationState(nextConversationState),
-                  updatedAt: new Date(),
-                })
-                .where(eq(gakuchikaConversations.id, conversation.id));
-
-              if (shouldConsumeCredit) {
-                try {
-                  await gakuchikaStreamPolicy.confirm(
-                    {
-                      userId: userId!,
-                      gakuchikaId,
-                      newQuestionCount,
-                    },
-                    {
-                      kind: "billable_success",
-                      creditsConsumed: CONVERSATION_CREDITS_PER_TURN,
-                      freeQuotaUsed: false,
-                    },
-                    null,
-                  );
-                } catch (billingError) {
-                  console.error("[Gakuchika Stream] Credit confirmation failed after save:", billingError);
-                }
-              }
-
-              if (nextConversationState.stage === "interview_ready" && nextConversationState.draftText) {
-                const summaryMessages = messages.map((message) => ({ ...message }));
-                after(async () => {
-                  try {
-                    await persistGakuchikaSummary(
-                      gakuchikaId,
-                      gakuchika.title,
-                      nextConversationState.draftText!,
-                      summaryMessages
-                    );
-                  } catch (error) {
-                    console.error("[Gakuchika Stream] persistGakuchikaSummary failed:", error);
-                  }
-                });
-              }
-
-              const enrichedEvent = {
-                type: "complete",
-                data: {
-                  messages,
-                  nextQuestion: shouldAskNext ? nextQuestionText : null,
-                  questionCount: newQuestionCount,
-                  isCompleted,
-                  conversationState: nextConversationState,
-                  nextAction,
-                  isInterviewReady: isInterviewReady(nextConversationState),
-                  isAIPowered: true,
-                  summaryPending: nextConversationState.stage === "interview_ready",
-                },
-              };
-              logSummaryOnce({
-                status: "success",
-                creditsUsed: shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0,
-              });
-              void incrementDailyTokenCount(identity, computeTotalTokens(latestTelemetry));
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify(enrichedEvent)}\n\n`)
-              );
-            } else if (event.type === "error") {
-              logSummaryOnce({
-                status: "failed",
-                creditsUsed: 0,
-              });
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-            }
-          }
-        } catch (err) {
-          console.error("[Gakuchika Stream] Error processing SSE:", err);
-          const errorEvent = {
-            type: "error",
-            message: "ストリーミング処理中にエラーが発生しました",
-          };
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`)
-          );
-          logSummaryOnce({
-            status: "failed",
-            creditsUsed: 0,
-          });
-        } finally {
-          if (!summaryLogged) {
-            logSummaryOnce({
-              status: "cancelled",
-              creditsUsed: 0,
-            });
-          }
-          controller.close();
+    const stream = createSSEProxyStream(upstream.response, {
+      feature: "gakuchika", requestId,
+      onProgress: (ev) => {
+        if (ev.type === "string_chunk" && ev.path === "question" && typeof ev.text === "string") streamedQ += ev.text;
+        return sm.processEvent(ev);
+      },
+      onCostTelemetry: (t) => { latestTelemetry = t ?? latestTelemetry; },
+      onComplete: async (ev) => {
+        const d = (ev as { data: { question?: string; conversation_state?: Record<string, unknown>; next_action?: string } }).data;
+        const qText = typeof d.question === "string" && d.question ? d.question : streamedQ;
+        const ns = d.conversation_state ? safeParseConversationState(JSON.stringify(d.conversation_state)) : sm.getMergedState();
+        const na = typeof d.next_action === "string" ? d.next_action : getGakuchikaNextAction(ns);
+        const ask = na === "ask";
+        const done = ns.stage === "interview_ready";
+        if (ask && qText) messages.push({ id: crypto.randomUUID(), role: "assistant", content: qText });
+        await db.update(gakuchikaConversations).set({
+          messages, questionCount: newQC, status: done ? "completed" : "in_progress",
+          starScores: serializeConversationState(ns), updatedAt: new Date(),
+        }).where(eq(gakuchikaConversations.id, conversation.id));
+        if (shouldConsumeCredit) {
+          try { await gakuchikaStreamPolicy.confirm({ userId: userId!, gakuchikaId, newQuestionCount: newQC }, { kind: "billable_success", creditsConsumed: CONVERSATION_CREDITS_PER_TURN, freeQuotaUsed: false }, null); }
+          catch (e) { console.error("[Gakuchika Stream] Credit confirmation failed:", e); }
         }
+        if (ns.stage === "interview_ready" && ns.draftText) {
+          const snap = messages.map(m => ({ ...m }));
+          after(async () => { try { await persistGakuchikaSummary(gakuchikaId, gakuchika.title, ns.draftText!, snap); } catch (e) { console.error("[Gakuchika Stream] persistGakuchikaSummary failed:", e); } });
+        }
+        logOnce("success", shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0);
+        void incrementDailyTokenCount(identity, computeTotalTokens(latestTelemetry));
+        return { replaceEvent: { type: "complete", data: {
+          messages, nextQuestion: ask ? qText : null, questionCount: newQC, isCompleted: done,
+          conversationState: ns, nextAction: na, isInterviewReady: isInterviewReady(ns),
+          isAIPowered: true, summaryPending: ns.stage === "interview_ready",
+        } } };
       },
+      onError: async () => { logOnce("failed", 0); },
+      onFinally: async () => { upstream.clearTimeout(); if (!summaryLogged) logOnce("cancelled", 0); },
     });
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
-    });
+    return new Response(stream, { headers: SSE_RESPONSE_HEADERS });
   } catch (error) {
     console.error("Error in gakuchika stream:", error);
-    return new Response(
-      JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return jsonErr("Internal server error", 500);
   }
 }

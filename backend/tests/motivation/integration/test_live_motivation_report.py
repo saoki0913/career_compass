@@ -348,14 +348,15 @@ async def _run_single_case(
         row["judge"] = judge_result
 
         # Step 6: Classify outcome
-        failure_kind = classify_failure(None, True, fail_reasons, judge_result)
+        failure_kind = classify_failure(
+            None, True, fail_reasons, judge_result, feature="motivation",
+        )
         row["failureKind"] = failure_kind
 
         if failure_kind == "pass":
             row["status"] = "pass"
             row["severity"] = "info"
-        elif failure_kind == "degraded":
-            # LLM judge degraded — soft signal, not a hard test failure
+        elif failure_kind in ("degraded", "soft_fail"):
             row["status"] = "degraded"
             row["severity"] = "warning"
         else:
@@ -370,6 +371,7 @@ async def _run_single_case(
             True,
             [f"exception: {exc!r}"[:200]],
             None,
+            feature="motivation",
         )
         row["deterministicFailReasons"].append(f"exception: {exc!r}"[:200])
         traceback.print_exc()
@@ -401,6 +403,7 @@ async def _run_single_case(
                 False,
                 row["deterministicFailReasons"] + cleanup_errors,
                 row.get("judge"),
+                feature="motivation",
             )
 
     return row
@@ -466,9 +469,9 @@ async def test_live_motivation_report() -> None:
     # auth, state machine error) or a clean deterministic quality regression.
     # "quality" kind from the LLM judge is soft and should not block CI unless
     # explicitly configured otherwise.
-    # Hard failures = anything that is not "pass" or "degraded"
+    # Hard failures = anything that is not "pass", "degraded", or "soft_fail"
     hard_failures = [
-        r for r in rows if r.get("failureKind") not in ("pass", "degraded")
+        r for r in rows if r.get("failureKind") not in ("pass", "degraded", "soft_fail")
     ]
     if hard_failures:
         names = [r["caseId"] for r in hard_failures]

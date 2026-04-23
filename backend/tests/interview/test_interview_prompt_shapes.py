@@ -1,7 +1,9 @@
 from app.routers.interview import (
+    CONVERSATION_HISTORY_WINDOW_TURNS,
     InterviewFeedbackRequest,
     InterviewStartRequest,
     InterviewTurnRequest,
+    Message,
     _build_fallback_opening_payload,
     _build_feedback_prompt,
     _build_opening_prompt,
@@ -9,7 +11,29 @@ from app.routers.interview import (
     _build_setup,
     _build_turn_prompt,
     _enrich_feedback_defaults,
+    _trim_conversation_history,
 )
+
+
+# ---------------------------------------------------------------------------
+# Helpers for conversation history window tests
+# ---------------------------------------------------------------------------
+
+
+def _make_messages(n: int) -> list[dict[str, str]]:
+    """Generate n alternating assistant/user messages for testing."""
+    return [
+        {"role": "assistant" if i % 2 == 0 else "user", "content": f"msg-{i}"}
+        for i in range(n)
+    ]
+
+
+def _make_message_objects(n: int) -> list[Message]:
+    """Generate n Message objects for direct unit tests."""
+    return [
+        Message(role="assistant" if i % 2 == 0 else "user", content=f"msg-{i}")
+        for i in range(n)
+    ]
 
 
 def test_build_plan_prompt_includes_new_setup_fields() -> None:
@@ -46,10 +70,11 @@ def test_build_plan_prompt_includes_new_setup_fields() -> None:
     assert "priority_topics" in prompt
     assert "opening_topic" in prompt
     assert "must_cover_topics" in prompt
-    # A-2: strictness instructions are now concrete
-    assert "標準モード" in prompt
-    # A-3: interviewer persona is now defined
-    assert "人事面接官ペルソナ" in prompt
+    # Phase 2 Stage 1-3: plan は質問生成しないため strictness / interviewer の
+    # 指示ブロックを除外して token budget (≤1,200) に収める。
+    # Setup 値としての "standard" / "hr" は面接前提セクションに残る (上の assert 参照)。
+    assert "標準モード" not in prompt
+    assert "人事面接官ペルソナ" not in prompt
 
 
 def test_build_opening_prompt_mentions_plan_and_setup() -> None:
@@ -215,8 +240,9 @@ def test_build_turn_prompt_mentions_depth_controls() -> None:
     assert "strict" in prompt  # strictness_mode value
     # A-2: strictness instructions are now concrete
     assert "厳しめモード" in prompt
-    # A-4: format-specific instructions are now included
-    assert "行動面接の質問生成ルール" in prompt
+    # A-4: format-specific instructions are now included.
+    # Phase 2 Stage 1 で行動面接のヘッダを "### 行動面接 (standard_behavioral)" に短縮。
+    assert "行動面接" in prompt
 
 
 def test_build_feedback_prompt_requests_weakest_turn_linkage() -> None:
@@ -307,7 +333,12 @@ def test_case_fallback_opening_uses_catalog_and_stable_scenario_key() -> None:
 
     assert "ケース面接として" in opening["question"]
     assert "まず何から切り分けて考えますか" in opening["question"]
-    assert opening["turn_meta"]["intent_key"].startswith("case_scenario:")
+    # intent_key は既存規約 `topic:followup_style` に従う (B4 で統一)
+    intent_key = opening["turn_meta"]["intent_key"]
+    assert ":" in intent_key
+    topic, style = intent_key.split(":", 1)
+    assert topic, "intent_key の topic 部分が空"
+    assert style, "intent_key の followup_style 部分が空"
 
 
 def test_turn_prompt_compacts_recent_question_memory_and_includes_technical_focus() -> None:
@@ -411,9 +442,155 @@ def test_feedback_defaults_personalize_improved_answer() -> None:
             "next_preparation": [],
         },
         setup=_build_setup(payload),
-        company_name=payload.company_name,
     )
 
     assert feedback["improved_answer"]
     assert "任天堂" in feedback["improved_answer"]
     assert "企画" in feedback["improved_answer"]
+
+
+# ---------------------------------------------------------------------------
+# Conversation history sliding window tests
+# ---------------------------------------------------------------------------
+
+
+class TestTrimConversationHistory:
+    """_trim_conversation_history の単体テスト。"""
+
+    def test_noop_when_under_limit(self) -> None:
+        """20 ターン (40 messages) 以下ではスライスせず元のリストを返す。"""
+        msgs = _make_message_objects(4)  # 2 turns
+        result = _trim_conversation_history(msgs)
+        assert len(result) == 4
+        assert result is msgs  # 防御的コピーは行わない
+
+    def test_noop_at_exact_limit(self) -> None:
+        """ちょうど 20 ターン (40 messages) でもスライスしない。"""
+        msgs = _make_message_objects(40)  # 20 turns exactly
+        result = _trim_conversation_history(msgs)
+        assert len(result) == 40
+        assert result is msgs
+
+    def test_slides_to_window(self) -> None:
+        """25 ターン (50 messages) → 直近 20 ターン (40 messages) に切り詰め。"""
+        msgs = _make_message_objects(50)
+        trimmed = _trim_conversation_history(msgs)
+        assert len(trimmed) == 40
+        assert trimmed[0].content == "msg-10"  # 最古 10 messages (5 turns) が落ちる
+        assert trimmed[-1].content == "msg-49"  # 最新は残る
+
+    def test_custom_window(self) -> None:
+        """max_turns パラメータでウィンドウサイズを変更できる。"""
+        msgs = _make_message_objects(20)  # 10 turns
+        trimmed = _trim_conversation_history(msgs, max_turns=3)
+        assert len(trimmed) == 6
+        assert trimmed[0].content == "msg-14"
+        assert trimmed[-1].content == "msg-19"
+
+    def test_odd_message_count(self) -> None:
+        """奇数メッセージ (最後のターンが未完) でもクラッシュしない。"""
+        msgs = _make_message_objects(41)  # 20 turns + assistant 1 通
+        trimmed = _trim_conversation_history(msgs)
+        assert len(trimmed) == 40
+        assert trimmed[0].content == "msg-1"
+        assert trimmed[-1].content == "msg-40"
+
+    def test_default_constant_is_20(self) -> None:
+        """デフォルトウィンドウが 20 ターンであることを確認。"""
+        assert CONVERSATION_HISTORY_WINDOW_TURNS == 20
+
+
+def test_build_turn_prompt_applies_window() -> None:
+    """_build_turn_prompt で 25 ターン分渡すと最古 5 ターンがプロンプトに含まれない。"""
+    payload = InterviewTurnRequest(
+        company_name="テスト社",
+        company_summary="テスト企業。",
+        motivation_summary="テスト志望動機。",
+        gakuchika_summary="テストガクチカ。",
+        academic_summary="テスト学業。",
+        research_summary=None,
+        es_summary="テストES。",
+        selected_industry="IT",
+        selected_role="エンジニア",
+        selected_role_source="application_job_type",
+        role_track="tech_swe",
+        interview_format="standard_behavioral",
+        selection_type="fulltime",
+        interview_stage="mid",
+        interviewer_type="hr",
+        strictness_mode="standard",
+        seed_summary="テスト要約",
+        conversation_history=_make_messages(50),  # 25 turns
+        turn_state={
+            "currentStage": "opening",
+            "totalQuestionCount": 25,
+            "stageQuestionCounts": {},
+            "completedStages": [],
+            "lastQuestionFocus": None,
+            "nextAction": "ask",
+            "phase": "turn",
+            "formatPhase": "standard_main",
+            "coveredTopics": [],
+            "remainingTopics": [],
+            "coverageState": [],
+            "recentQuestionSummariesV2": [],
+            "interviewPlan": {
+                "interview_type": "new_grad_behavioral",
+                "priority_topics": ["motivation_fit"],
+                "opening_topic": "motivation_fit",
+                "must_cover_topics": ["motivation_fit"],
+                "risk_topics": [],
+            },
+        },
+    )
+
+    prompt = _build_turn_prompt(
+        payload,
+        interview_plan={
+            "interview_type": "new_grad_behavioral",
+            "priority_topics": ["motivation_fit"],
+            "opening_topic": "motivation_fit",
+            "must_cover_topics": ["motivation_fit"],
+            "risk_topics": [],
+        },
+        turn_state=payload.turn_state,
+        turn_meta={},
+    )
+
+    # 最古のメッセージ (msg-0 ～ msg-9) はウィンドウ外
+    assert "msg-0" not in prompt
+    assert "msg-9" not in prompt
+    # ウィンドウ内のメッセージ (msg-10 以降) はプロンプトに含まれる
+    assert "msg-10" in prompt
+    assert "msg-49" in prompt
+
+
+def test_build_feedback_prompt_keeps_full_history() -> None:
+    """_build_feedback_prompt は全履歴を保持し、ウィンドウを適用しない。"""
+    payload = InterviewFeedbackRequest(
+        company_name="テスト社",
+        company_summary="テスト企業。",
+        motivation_summary="テスト志望動機。",
+        gakuchika_summary="テストガクチカ。",
+        academic_summary="テスト学業。",
+        research_summary=None,
+        es_summary="テストES。",
+        selected_industry="IT",
+        selected_role="エンジニア",
+        selected_role_source="application_job_type",
+        role_track="tech_swe",
+        interview_format="standard_behavioral",
+        selection_type="fulltime",
+        interview_stage="mid",
+        interviewer_type="hr",
+        strictness_mode="standard",
+        conversation_history=_make_messages(50),  # 25 turns
+        turn_state={"recentQuestionSummariesV2": []},
+        turn_events=[],
+    )
+
+    prompt = _build_feedback_prompt(payload)
+
+    # feedback は全履歴 → msg-0 も含まれる
+    assert "msg-0" in prompt
+    assert "msg-49" in prompt

@@ -249,14 +249,14 @@ async def _run_single_case(
             cleanup_ok=True,
             fail_reasons=fail_reasons,
             judge=judge_result,
+            feature="gakuchika",
         )
         row["failureKind"] = failure_kind
 
         if failure_kind == "pass":
             row["status"] = "pass"
             row["severity"] = "info"
-        elif failure_kind == "degraded":
-            # LLM judge soft-fail: reported as degraded, does not fail the CI run.
+        elif failure_kind in ("degraded", "soft_fail"):
             row["status"] = "degraded"
             row["severity"] = "warning"
         else:
@@ -341,10 +341,10 @@ async def test_live_gakuchika_report() -> None:
     json_path, md_path = write_conversation_report("gakuchika", rows)
     print(f"[gakuchika] report: {json_path}")
 
-    # Hard failures = anything that is not "pass" or "degraded"
+    # Hard failures = anything that is not "pass", "degraded", or "soft_fail"
     hard_failures = [
         r for r in rows
-        if r.get("failureKind") not in ("pass", "degraded")
+        if r.get("failureKind") not in ("pass", "degraded", "soft_fail")
     ]
     if hard_failures:
         names = [r["caseId"] for r in hard_failures]

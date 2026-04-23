@@ -1,0 +1,18 @@
+{
+  "industry": "finance",
+  "business_context": "個人向け資産運用アプリ (MAU 約 50 万) で四半期手数料収益が 12% 下落。",
+  "target_metric": "四半期手数料収益",
+  "constraints": [
+    "UI 大幅変更 3 ヶ月凍結",
+    "規制対応で新機能は月 1 回",
+    "マーケ予算 -20%"
+  ],
+  "candidate_task": "手数料収益回復の打ち手を 3 つ、優先順位と根拠付きで提案してください。",
+  "why_this_company": "金融 × テック × 規制下の意思決定を見たい",
+  "case_followup_topics": [
+    "セグメント別の離脱要因仮説",
+    "規制コスト vs 機能追加",
+    "LTV と CAC の見直し"
+  ],
+  "case_seed_version": "v1.0"
+}

@@ -16,6 +16,10 @@ from typing import AsyncGenerator
 from app.utils.llm import call_llm_streaming_fields, consume_request_llm_cost_summary
 from app.routers.motivation_contract import build_stream_complete_event
 from app.routers.motivation_models import NextQuestionRequest
+from app.routers.motivation_summarize import (
+    append_summary_to_system_prompt,
+    maybe_summarize_older_messages,
+)
 
 
 # ── SSE Streaming helpers ──────────────────────────────────────────────
@@ -33,8 +37,8 @@ async def _generate_next_question_progress(
     Generate SSE events for motivation next-question with progress updates.
     Shares preparation and post-processing with get_next_question.
     """
-    from app.routers.motivation import (
-        _prepare_motivation_next_question,
+    from app.routers.motivation_pipeline import _prepare_motivation_next_question
+    from app.routers.motivation_question import (
         _build_draft_ready_unlock_response,
         _build_draft_ready_response,
         _should_use_deepdive_mode,
@@ -52,6 +56,12 @@ async def _generate_next_question_progress(
                 "internal_telemetry": consume_request_llm_cost_summary("motivation"),
             })
             return
+
+        trimmed_messages, summary_text = await maybe_summarize_older_messages(
+            request.conversation_history,
+            request.conversation_context,
+            company_name=request.company_name,
+        )
 
         yield _sse_event("progress", {
             "step": "rag", "progress": 15, "label": "企業情報を取得中...",
@@ -83,8 +93,9 @@ async def _generate_next_question_progress(
             if _should_use_deepdive_mode(prep)
             else _build_motivation_question_system_prompt(request=request, prep=prep)
         )
-        messages = _build_question_messages(request.conversation_history)
-        user_message = _build_question_user_message(request.conversation_history)
+        prompt = append_summary_to_system_prompt(prompt, summary_text)
+        messages = _build_question_messages(trimmed_messages)
+        user_message = _build_question_user_message(trimmed_messages)
 
         llm_result = None
         async for event in call_llm_streaming_fields(
@@ -103,7 +114,9 @@ async def _generate_next_question_progress(
             stream_string_fields=["question"],
             partial_required_fields=("question",),
         ):
-            if event.type == "error":
+            if event.type == "string_chunk":
+                yield _sse_event("string_chunk", {"path": event.path, "text": event.text})
+            elif event.type == "error":
                 error = event.result.error if event.result else None
                 yield _sse_event("error", {
                     "message": error.message if error else "AIサービスに接続できませんでした。",

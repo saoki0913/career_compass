@@ -273,6 +273,39 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(firstCallBody.selected_role).toBe("企画職");
   });
 
+  it("passes through 422 from FastAPI as 422 with user-facing message and cancels reservation", async () => {
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          detail: [
+            {
+              type: "too_long",
+              loc: ["body", "conversation_history"],
+              msg: "List should have at most 40 items after validation, not 41",
+            },
+          ],
+        }),
+        { status: 422, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
+    const payload = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(payload.error).toBe("会話が長すぎます。新しい会話を開始してください。");
+    // 成功時のみ消費ルール: 上流 422 でも reservation は cancel される
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+    expect(confirmReservationMock).not.toHaveBeenCalled();
+  });
+
   it("keeps the generated draft as conversation state without creating an ES document immediately", async () => {
     fetchFastApiInternalMock
       .mockResolvedValueOnce(
@@ -309,5 +342,55 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(response.status).toBe(200);
     expect(payload.documentId).toBeNull();
     expect(dbInsertMock).not.toHaveBeenCalled();
+  });
+
+  it("returns draft with null nextQuestion when follow-up fetch fails", async () => {
+    fetchFastApiInternalMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            draft: "志望動機の下書きです。",
+            char_count: 120,
+            key_points: ["企業理解"],
+            company_keywords: ["DX支援"],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockRejectedValueOnce(new Error("network error"));
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
+    const payload = await response.json();
+
+    // Draft generation succeeded despite follow-up failure
+    expect(response.status).toBe(200);
+    expect(payload.draft).toBe("志望動機の下書きです。");
+
+    // Follow-up failed silently: nextQuestion must be null
+    expect(payload.nextQuestion).toBeNull();
+
+    // conversationMode key must be present (null when follow-up is absent)
+    expect("conversationMode" in payload).toBe(true);
+    expect(payload.conversationMode === null || typeof payload.conversationMode === "string").toBe(true);
+
+    // messages must be the original two messages (no follow-up question appended)
+    expect(payload.messages).toEqual([
+      { role: "user", content: "a" },
+      { role: "assistant", content: "b" },
+    ]);
+
+    // Credit confirmed because draft succeeded (success-only-consume rule)
+    expect(confirmReservationMock).toHaveBeenCalledWith("res-1");
+
+    // causalGaps and stageStatus default to empty / null when follow-up is absent
+    expect(payload.causalGaps).toEqual([]);
+    expect(payload.stageStatus).toBeNull();
   });
 });

@@ -147,6 +147,42 @@ class DetailedRagStatusResponse(BaseModel):
     last_updated: Optional[str] = None
 
 
+class GapAnalysisFacet(BaseModel):
+    facet: str
+    coverage: float
+    chunk_count: int
+    freshest_at: Optional[str] = None
+    source_diversity: int = 0
+
+
+class GapAnalysisFetchTarget(BaseModel):
+    content_type: str
+    query_hint: str
+    priority: int
+
+
+class GapAnalysisStaleSource(BaseModel):
+    url: str
+    fetched_at: str
+
+
+class GapAnalysisRequest(BaseModel):
+    company_id: str
+    query: str
+    template_type: str
+
+
+class GapAnalysisResponse(BaseModel):
+    company_id: str
+    overall_score: float
+    facets: list[GapAnalysisFacet]
+    missing_facets: list[str]
+    stale_sources: list[GapAnalysisStaleSource]
+    duplicate_ratio: float
+    next_fetch_targets: list[GapAnalysisFetchTarget]
+    needs_enrichment: bool
+
+
 class DeleteByUrlsRequest(BaseModel):
     urls: list[str]
 

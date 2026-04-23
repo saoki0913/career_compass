@@ -1,16 +1,22 @@
-const VALID_AUTH_MODES = new Set(["none", "guest", "mock"]);
+const VALID_AUTH_MODES = new Set(["none", "guest", "mock", "real"]);
 
 export function getUiReviewUsage() {
-  return "Usage: npm run test:ui:review -- /route [/another-route] [--auth=none|guest|mock]";
+  return "Usage: npm run test:ui:review -- /route [/another-route] [--auth=none|guest|mock|real] [--headed]";
 }
 
 export function parseUiReviewArgs(argv) {
   const paths = [];
   let authMode = "none";
+  let headed = false;
 
   for (const arg of argv) {
     if (arg.startsWith("--auth=")) {
       authMode = arg.slice("--auth=".length).trim();
+      continue;
+    }
+
+    if (arg === "--headed") {
+      headed = true;
       continue;
     }
 
@@ -22,20 +28,21 @@ export function parseUiReviewArgs(argv) {
   }
 
   if (!VALID_AUTH_MODES.has(authMode)) {
-    throw new Error(`UI review auth must be one of: none, guest, mock`);
+    throw new Error(`UI review auth must be one of: none, guest, mock, real`);
   }
 
   if (paths.length === 0) {
     throw new Error(getUiReviewUsage());
   }
 
-  return { authMode, paths };
+  return { authMode, paths, headed };
 }
 
-export function buildUiReviewEnv({ authMode, paths }) {
+export function buildUiReviewEnv({ authMode, paths, headed = false }) {
   return {
     PLAYWRIGHT_UI_AUTH_MODE: authMode,
     PLAYWRIGHT_UI_PATHS: paths.map(normalizeUiReviewPath).join(","),
+    ...(headed ? { PLAYWRIGHT_UI_HEADED: "1" } : {}),
   };
 }
 

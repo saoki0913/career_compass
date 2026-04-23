@@ -394,6 +394,58 @@ def run_case_checks(
 
 
 # ---------------------------------------------------------------------------
+# Hard / soft check severity classification (local pre-commit gating)
+# ---------------------------------------------------------------------------
+
+HARD_CHECK_PREFIXES: frozenset[str] = frozenset({
+    "forbidden_token",
+})
+
+HARD_CHECK_SUBSTRINGS: frozenset[str] = frozenset({
+    "feedback_too_short",
+    "draft_empty",
+})
+
+ES_REVIEW_HARD_CHECK_PREFIXES: frozenset[str] = frozenset({
+    "char_count",
+    "length_shortfall_bucket",
+    "unfinished_tail",
+    "forbidden_token",
+    "companyless",
+})
+
+
+def classify_check_severity(fail_reason: str, feature: str = "") -> str:
+    """Classify a single fail_reason as ``"hard"`` or ``"soft"``.
+
+    Hard checks detect broken pipelines (safety violations, empty output).
+    Soft checks detect quality degradation that may vary with LLM output.
+    """
+    prefix = fail_reason.split(":")[0]
+    if feature == "es-review":
+        return "hard" if prefix in ES_REVIEW_HARD_CHECK_PREFIXES else "soft"
+    if prefix in HARD_CHECK_PREFIXES:
+        return "hard"
+    if any(s in fail_reason for s in HARD_CHECK_SUBSTRINGS):
+        return "hard"
+    return "soft"
+
+
+def split_fail_reasons(
+    fail_reasons: list[str],
+    feature: str = "",
+) -> tuple[list[str], list[str]]:
+    """Split failure reasons into ``(hard, soft)`` lists."""
+    hard: list[str] = []
+    soft: list[str] = []
+    for reason in fail_reasons:
+        (hard if classify_check_severity(reason, feature) == "hard" else soft).append(
+            reason
+        )
+    return hard, soft
+
+
+# ---------------------------------------------------------------------------
 # Failure classification
 # ---------------------------------------------------------------------------
 
@@ -403,21 +455,22 @@ def classify_failure(
     cleanup_ok: bool,
     fail_reasons: list[str],
     judge: dict[str, Any] | None,
+    *,
+    feature: str = "",
 ) -> str:
     """Classify the failure kind for reporting.
 
     Decision tree:
 
-    1. ``"pass"``              — no fail_reasons AND (no judge OR judge passed)
-    2. ``"degraded"``          — no deterministic fail_reasons BUT judge failed
-                                 (non-blocking quality signal only)
-    3. ``"deterministic_fail"`` — has fail_reasons from deterministic checks
-    4. ``"judge_fail"``        — judge was blocking and failed (reserved; judge
-                                 is currently always non-blocking)
-    5. ``"cleanup_fail"``      — cleanup_ok is False
-    6. ``"api_error"``         — status_code is not None and not 200
-    7. ``"crash"``             — none of the above apply but there are
-                                 fail_reasons (catch-all for unexpected states)
+    1. ``"pass"``        — no fail_reasons AND (no judge OR judge passed)
+    2. ``"degraded"``    — no deterministic fail_reasons BUT judge failed
+                           (non-blocking quality signal only)
+    3. ``"hard_fail"``   — has hard fail_reasons (safety / pipeline breakage)
+    4. ``"soft_fail"``   — has only soft fail_reasons (LLM output variance)
+    5. ``"judge_fail"``  — judge was blocking and failed (reserved)
+    6. ``"cleanup_fail"``— cleanup_ok is False
+    7. ``"api_error"``   — status_code is not None and not 200
+    8. ``"crash"``       — catch-all for unexpected states
 
     Parameters
     ----------
@@ -431,11 +484,14 @@ def classify_failure(
     judge:
         Judge result dict with at least ``"overallPass": bool`` and
         ``"blocking": bool``, or ``None`` when no judge was run.
+    feature:
+        Feature name (e.g. ``"es-review"``, ``"gakuchika"``) used for
+        hard/soft severity classification.
 
     Returns
     -------
     str
-        One of: ``"pass"``, ``"degraded"``, ``"deterministic_fail"``,
+        One of: ``"pass"``, ``"degraded"``, ``"hard_fail"``, ``"soft_fail"``,
         ``"judge_fail"``, ``"cleanup_fail"``, ``"api_error"``, ``"crash"``.
     """
     judge_passed = judge is None or bool(judge.get("overallPass", True))
@@ -453,14 +509,14 @@ def classify_failure(
     if not fail_reasons and not judge_passed and judge_blocking:
         return "judge_fail"
 
-    # Deterministic check failures take precedence over infrastructure issues
-    # when we have explicit coded reasons from the checks.
+    # Split deterministic reasons into hard / soft
     deterministic_reasons = [
         r for r in fail_reasons
         if not r.startswith("cleanup") and r != "cleanup_failed"
     ]
     if deterministic_reasons:
-        return "deterministic_fail"
+        hard, _soft = split_fail_reasons(deterministic_reasons, feature)
+        return "hard_fail" if hard else "soft_fail"
 
     # Cleanup failure
     if not cleanup_ok or any(

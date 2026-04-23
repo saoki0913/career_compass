@@ -20,7 +20,7 @@ CONVERSATION_TIMEOUT_SECONDS = 300
 # Fallback answer banks (ported verbatim from the TypeScript source)
 # ---------------------------------------------------------------------------
 
-GAKUCHIKA_FALLBACK_ANSWERS: list[str] = [
+_GAKUCHIKA_EMERGENCY_FALLBACK: list[str] = [
     "宿題未提出が続く生徒が増え、保護者からも学習習慣への相談が続いていたため、校舎全体で対応を見直す必要がありました。",
     "私は担当講師としてだけでなく、他の講師も同じ基準で動けるように共有フォーマットを整える役割も担いました。",
     "宿題提出率と面談メモを見て要注意生徒から優先して声かけし、週次ミーティングで改善提案を回しました。",
@@ -161,7 +161,7 @@ def build_deterministic_gakuchika_followup(
     ``e2e/live-ai-conversations.spec.ts``), with case-awareness.
 
     When ``case_answers`` is provided, answers are drawn from the case's own
-    answer bank to stay on-topic.  Falls back to ``GAKUCHIKA_FALLBACK_ANSWERS``
+    answer bank to stay on-topic. Falls back to ``_GAKUCHIKA_EMERGENCY_FALLBACK``
     only when no case-specific answers are available.
 
     Priority order:
@@ -171,7 +171,7 @@ def build_deterministic_gakuchika_followup(
        ``conversationState.missingElements`` entry.
     3. Default to answer bank indexed by ``attempt_index`` (cycling).
     """
-    bank = case_answers if case_answers and len(case_answers) >= 4 else GAKUCHIKA_FALLBACK_ANSWERS
+    bank = case_answers if case_answers else _GAKUCHIKA_EMERGENCY_FALLBACK
 
     def _pick(dimension_index: int) -> str:
         """Pick from the bank, mapping dimension to a bank index."""
@@ -414,7 +414,7 @@ async def run_gakuchika_conversation(
         latest_complete: dict[str, Any] | None = None
         next_question_text: str = first_question
 
-        total_attempts = max(len(answers) + len(GAKUCHIKA_FALLBACK_ANSWERS), 16)
+        total_attempts = max(len(answers) + len(_GAKUCHIKA_EMERGENCY_FALLBACK), 16)
         rate_limit_retries = 0
         max_rate_limit_retries = 12
 

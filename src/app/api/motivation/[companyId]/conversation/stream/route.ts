@@ -2,10 +2,7 @@
  * Motivation Conversation SSE Stream API
  *
  * POST: Send answer and get next question via SSE streaming.
- * Proxies FastAPI SSE with "consume-and-re-emit" pattern:
- *   - progress events → forwarded immediately
- *   - complete event → DB save + credit consumption, then forwarded
- *   - error event → forwarded (no credit consumed)
+ * Uses shared SSE infrastructure (fetchUpstreamSSE + createSSEProxyStream).
  */
 
 import { NextRequest } from "next/server";
@@ -21,12 +18,16 @@ import {
 } from "@/lib/api-route/billing/motivation-stream-policy";
 import { CONVERSATION_CREDITS_PER_TURN } from "@/lib/credits";
 import { createSSEProxyStream } from "@/lib/fastapi/sse-proxy";
+import { fetchUpstreamSSE } from "@/lib/fastapi/stream-transport";
+import { SSE_RESPONSE_HEADERS } from "@/lib/fastapi/stream-config";
 import {
-  type CausalGap as BaseCausalGap,
+  type CausalGap,
   type EvidenceCard,
   mergeDraftReadyContext,
   type Message,
-  type MotivationProgress as BaseMotivationProgress,
+  type MotivationConversationContext,
+  type MotivationProgress,
+  type MotivationScores,
   resolveDraftReadyState,
   safeParseConversationContext as parseConversationContext,
   safeParseMessages,
@@ -36,8 +37,7 @@ import {
   serializeMessages,
   serializeScores,
   serializeStageStatus,
-  type LastQuestionMeta as BaseLastQuestionMeta,
-  type MotivationConversationContext as BaseMotivationConversationContext,
+  type LastQuestionMeta,
   type StageStatus,
 } from "@/lib/motivation/conversation";
 import { getMotivationConversationByCondition as getConversationByCondition } from "@/lib/motivation/conversation-store";
@@ -51,7 +51,6 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
-import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { getViewerPlan } from "@/lib/server/loader-helpers";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
@@ -62,18 +61,8 @@ import {
   resolveMotivationInputs,
 } from "@/lib/motivation/motivation-input-resolver";
 
-interface MotivationScores {
-  company_understanding: number;
-  self_analysis: number;
-  career_vision: number;
-  differentiation: number;
-}
-
-type LastQuestionMeta = BaseLastQuestionMeta;
-
-type MotivationConversationContext = BaseMotivationConversationContext;
-type MotivationProgress = BaseMotivationProgress;
-type CausalGap = BaseCausalGap;
+const jsonErr = (msg: string, status: number) =>
+  new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
 
 export async function POST(
   request: NextRequest,
@@ -83,76 +72,32 @@ export async function POST(
     const { companyId } = await params;
     const requestId = getRequestId(request);
     const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return new Response(
-        JSON.stringify({ error: "認証が必要です" }),
-        { status: 401, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
+    if (!identity) return jsonErr("認証が必要です", 401);
     const { userId, guestId } = identity;
-
-    if (!userId) {
-      return new Response(
-        JSON.stringify({ error: "志望動機のAI支援はログインが必要です" }),
-        { status: 401, headers: { "Content-Type": "application/json" } },
-      );
-    }
+    if (!userId) return jsonErr("志望動機のAI支援はログインが必要です", 401);
 
     const limitResponse = await guardDailyTokenLimit(identity);
     if (limitResponse) return limitResponse;
-
-    const rateLimited = await enforceRateLimitLayers(
-      request,
-      [...CONVERSATION_RATE_LAYERS],
-      userId,
-      guestId,
-      "motivation_conversation_stream"
-    );
-    if (rateLimited) {
-      return rateLimited;
-    }
+    const rateLimited = await enforceRateLimitLayers(request, [...CONVERSATION_RATE_LAYERS], userId, guestId, "motivation_conversation_stream");
+    if (rateLimited) return rateLimited;
 
     const body = await request.json();
     const { answer } = body;
+    if (!answer || typeof answer !== "string" || !answer.trim()) return jsonErr("回答を入力してください", 400);
 
-    if (!answer || typeof answer !== "string" || !answer.trim()) {
-      return new Response(
-        JSON.stringify({ error: "回答を入力してください" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // Get company
     const company = await getOwnedMotivationCompanyData(companyId, identity);
+    if (!company) return jsonErr("企業が見つかりません", 404);
 
-    if (!company) {
-      return new Response(
-        JSON.stringify({ error: "企業が見つかりません" }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // Get conversation
     const conversation = await getConversationByCondition(
       buildMotivationOwnerCondition(companyId, userId, guestId),
     );
-
-    if (!conversation) {
-      return new Response(
-        JSON.stringify({ error: "会話が見つかりません" }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
-      );
-    }
+    if (!conversation) return jsonErr("会話が見つかりません", 404);
 
     const messages = safeParseMessages(conversation.messages);
     const currentQuestionCount = conversation.questionCount ?? 0;
     const newQuestionCount = currentQuestionCount + 1;
     const profileContext = await fetchProfileContext(userId);
     const applicationJobCandidates = await fetchMotivationApplicationJobCandidates(companyId, userId, guestId);
-    // Python (motivation._capture_answer_into_context) owns answer capture and
-    // slot-state transitions. The TS side only builds a canonical context via
-    // resolveMotivationInputs (industry/role resolution) and forwards raw messages.
     const resolvedInputs = resolveMotivationInputs(
       { id: company.id, name: company.name, industry: company.industry },
       parseConversationContext(conversation.conversationContext),
@@ -160,72 +105,39 @@ export async function POST(
     );
 
     if (!isMotivationSetupComplete(resolvedInputs.conversationContext, resolvedInputs.requiresIndustrySelection)) {
-      return new Response(
-        JSON.stringify({ error: "先に業界・職種の設定を完了してください" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
+      return jsonErr("先に業界・職種の設定を完了してください", 400);
     }
+    if (messages.length === 0) return jsonErr("先に質問を開始してください", 400);
 
-    if (messages.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "先に質問を開始してください" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
-      );
-    }
-
-    // Credit check (1 credit per turn for logged-in users)
     const shouldConsumeCredit = !!userId;
-    const billingContext = {
-      userId: userId!,
-      newQuestionCount,
-      companyId,
-    };
+    const billingContext = { userId: userId!, newQuestionCount, companyId };
     const precheckResult = await motivationStreamPolicy.precheck(billingContext);
-    if (!precheckResult.ok) {
-      return precheckResult.errorResponse!;
-    }
+    if (!precheckResult.ok) return precheckResult.errorResponse!;
 
-    // Add user answer to messages
-    const userMessage: Message = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: answer.trim(),
-    };
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", content: answer.trim() };
     messages.push(userMessage);
 
     const scores = safeParseScores(conversation.motivationScores);
-
-    // Fetch gakuchika context for personalization
     const gakuchikaContext = userId ? await fetchGakuchikaContext(userId) : [];
 
-    // Call FastAPI SSE streaming endpoint (with 60s timeout)
-    const abortController = new AbortController();
-    const fetchTimeoutId = setTimeout(() => abortController.abort(), 60_000);
-
     const principalPlan = await getViewerPlan(identity);
-
-    let aiResponse: Response;
+    let upstream: Awaited<ReturnType<typeof fetchUpstreamSSE>>;
     try {
-      aiResponse = await fetchFastApiWithPrincipal("/api/motivation/next-question/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+      upstream = await fetchUpstreamSSE({
+        path: "/api/motivation/next-question/stream",
+        requestId,
         principal: {
           scope: "ai-stream",
-          actor: userId
-            ? { kind: "user", id: userId }
-            : { kind: "guest", id: guestId! },
+          actor: userId ? { kind: "user", id: userId } : { kind: "guest", id: guestId! },
           companyId,
           plan: principalPlan,
         },
-        body: JSON.stringify({
+        payload: {
           company_id: company.id,
           company_name: company.name,
           industry: resolvedInputs.company.industry,
           generated_draft: conversation.generatedDraft ?? null,
-          conversation_history: messages.map(m => ({
-            role: m.role,
-            content: m.content,
-          })),
+          conversation_history: messages.map(m => ({ role: m.role, content: m.content })),
           question_count: newQuestionCount,
           scores,
           gakuchika_context: gakuchikaContext.length > 0 ? gakuchikaContext : null,
@@ -238,91 +150,44 @@ export async function POST(
             : null,
           requires_industry_selection: resolvedInputs.requiresIndustrySelection,
           industry_options: resolvedInputs.industryOptions.length > 0 ? resolvedInputs.industryOptions : null,
-        }),
-        signal: abortController.signal,
+        },
       });
     } catch (fetchError) {
-      clearTimeout(fetchTimeoutId);
-      if (fetchError instanceof Error && fetchError.name === "AbortError") {
-        logAiCreditCostSummary({
-          feature: "motivation",
-          requestId,
-          status: "failed",
-          creditsUsed: 0,
-          telemetry: null,
-        });
-        return new Response(
-          JSON.stringify({ error: "AIの応答がタイムアウトしました。再度お試しください。" }),
-          { status: 504, headers: { "Content-Type": "application/json" } }
-        );
+      logAiCreditCostSummary({ feature: "motivation", requestId, status: "failed", creditsUsed: 0, telemetry: null });
+      if (fetchError instanceof Error && /CAREER_PRINCIPAL_HMAC_SECRET is not configured/.test(fetchError.message)) {
+        return jsonErr("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。", 503);
       }
-      logAiCreditCostSummary({
-        feature: "motivation",
-        requestId,
-        status: "failed",
-        creditsUsed: 0,
-        telemetry: null,
-      });
-      return new Response(
-        JSON.stringify({ error: "AIサービスに接続できませんでした" }),
-        { status: 502, headers: { "Content-Type": "application/json" } }
-      );
-    } finally {
-      clearTimeout(fetchTimeoutId);
+      const s = fetchError instanceof Error && fetchError.name === "AbortError" ? 504 : 502;
+      return jsonErr(s === 504 ? "AIの応答がタイムアウトしました。再度お試しください。" : "AIサービスに接続できませんでした", s);
     }
 
-    if (!aiResponse.ok) {
-      const rawErrorBody = await aiResponse.json().catch(() => ({}));
-      const { payload, telemetry } =
-        rawErrorBody && typeof rawErrorBody === "object"
-          ? splitInternalTelemetry(rawErrorBody as Record<string, unknown>)
-          : { payload: rawErrorBody, telemetry: null as InternalCostTelemetry | null };
-      logAiCreditCostSummary({
-        feature: "motivation",
-        requestId,
-        status: "failed",
-        creditsUsed: 0,
-        telemetry,
-      });
-      return new Response(
-        JSON.stringify({
-          error:
-            (payload as { detail?: { error?: string } } | null)?.detail?.error ||
-            "AIサービスに接続できませんでした",
-        }),
-        { status: aiResponse.status, headers: { "Content-Type": "application/json" } }
+    if (!upstream.response.ok) {
+      upstream.clearTimeout();
+      const raw = await upstream.response.json().catch(() => ({}));
+      const { payload, telemetry } = raw && typeof raw === "object"
+        ? splitInternalTelemetry(raw as Record<string, unknown>)
+        : { payload: raw, telemetry: null as InternalCostTelemetry | null };
+      logAiCreditCostSummary({ feature: "motivation", requestId, status: "failed", creditsUsed: 0, telemetry });
+      return jsonErr(
+        (payload as { detail?: { error?: string } } | null)?.detail?.error || "AIサービスに接続できませんでした",
+        upstream.response.status,
       );
     }
 
-    // Consume-and-re-emit via shared SSE proxy. DB persistence and credit
-    // consumption happen inside the onComplete hook.
-    let summaryLogged = false;
     let latestTelemetry: InternalCostTelemetry | null = null;
     let billingOutcomeStatus: "success" | "failed" | "cancelled" | null = null;
     let creditsAppliedForSummary = 0;
-
-    const logSummaryOnce = (args: {
-      status: "success" | "failed" | "cancelled";
-      creditsUsed: number;
-      telemetry?: InternalCostTelemetry | null;
-    }) => {
+    let summaryLogged = false;
+    const logOnce = (st: "success" | "failed" | "cancelled", cr: number) => {
       if (summaryLogged) return;
       summaryLogged = true;
-      logAiCreditCostSummary({
-        feature: "motivation",
-        requestId,
-        status: args.status,
-        creditsUsed: args.creditsUsed,
-        telemetry: args.telemetry ?? latestTelemetry,
-      });
+      logAiCreditCostSummary({ feature: "motivation", requestId, status: st, creditsUsed: cr, telemetry: latestTelemetry });
     };
 
-    const stream = createSSEProxyStream(aiResponse, {
+    const stream = createSSEProxyStream(upstream.response, {
       feature: "motivation",
       requestId,
-      onCostTelemetry: (telemetry) => {
-        latestTelemetry = telemetry ?? latestTelemetry;
-      },
+      onCostTelemetry: (telemetry) => { latestTelemetry = telemetry ?? latestTelemetry; },
       onComplete: async (event) => {
         const fastApiData = (event as {
           data: {
@@ -354,11 +219,7 @@ export async function POST(
         let newScores = scores;
 
         if (fastApiData.question) {
-          const aiMessage: Message = {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: fastApiData.question,
-          };
+          const aiMessage: Message = { id: crypto.randomUUID(), role: "assistant", content: fastApiData.question };
           messages.push(aiMessage);
         }
 
@@ -382,7 +243,6 @@ export async function POST(
           currentDraftReadyState.unlockedAt ?? undefined,
         );
 
-        // Update database with optimistic concurrency on updatedAt.
         const updatedRows = await db
           .update(motivationConversations)
           .set({
@@ -394,17 +254,12 @@ export async function POST(
             selectedRole: nextConversationContext.selectedRole ?? null,
             selectedRoleSource: nextConversationContext.selectedRoleSource ?? null,
             desiredWork: nextConversationContext.desiredWork ?? null,
-            questionStage:
-              fastApiData.question_stage ??
-              nextConversationContext.questionStage,
-            lastEvidenceCards: serializeEvidenceCards(
-              (fastApiData.evidence_cards || []) as EvidenceCard[],
-            ),
+            questionStage: fastApiData.question_stage ?? nextConversationContext.questionStage,
+            lastEvidenceCards: serializeEvidenceCards((fastApiData.evidence_cards || []) as EvidenceCard[]),
             stageStatus: serializeStageStatus(
               ((fastApiData.stage_status as StageStatus | undefined) || {
                 current: fastApiData.question_stage || resolvedInputs.conversationContext.questionStage,
-                completed: [],
-                pending: [],
+                completed: [], pending: [],
               }) as StageStatus,
             ),
             updatedAt: new Date(),
@@ -413,26 +268,17 @@ export async function POST(
           .returning({ id: motivationConversations.id });
 
         if (updatedRows.length === 0) {
-          // Optimistic concurrency conflict — emit conflict error and cancel stream.
           billingOutcomeStatus = "failed";
           return {
-            replaceEvent: {
-              type: "error",
-              message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。",
-            },
+            replaceEvent: { type: "error", message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。" },
             cancel: true,
           };
         }
 
-        // Billing failures must not roll back a successfully saved conversation.
         try {
           await motivationStreamPolicy.confirm(
             billingContext,
-            {
-              kind: "billable_success",
-              creditsConsumed: shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0,
-              freeQuotaUsed: false,
-            },
+            { kind: "billable_success", creditsConsumed: shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0, freeQuotaUsed: false },
             null,
           );
           billingOutcomeStatus = "success";
@@ -443,7 +289,6 @@ export async function POST(
           creditsAppliedForSummary = 0;
         }
 
-        // Build enriched replacement event for frontend.
         const payload = buildMotivationConversationPayload({
           messages,
           nextQuestion: fastApiData.question || null,
@@ -455,18 +300,11 @@ export async function POST(
             (fastApiData.question_stage as MotivationConversationContext["questionStage"] | null) ??
             nextConversationContext.questionStage,
           stageStatusValue: fastApiData.stage_status,
-          evidenceSummary:
-            typeof fastApiData.evidence_summary === "string"
-              ? fastApiData.evidence_summary
-              : null,
+          evidenceSummary: typeof fastApiData.evidence_summary === "string" ? fastApiData.evidence_summary : null,
           evidenceCards: (fastApiData.evidence_cards || []) as EvidenceCard[],
-          coachingFocus:
-            typeof fastApiData.coaching_focus === "string"
-              ? fastApiData.coaching_focus
-              : null,
+          coachingFocus: typeof fastApiData.coaching_focus === "string" ? fastApiData.coaching_focus : null,
           riskFlags: Array.isArray(fastApiData.risk_flags) ? fastApiData.risk_flags : [],
-          conversationMode:
-            fastApiData.conversation_mode || nextConversationContext.conversationMode || "slot_fill",
+          conversationMode: fastApiData.conversation_mode || nextConversationContext.conversationMode || "slot_fill",
           currentIntent: fastApiData.current_intent || null,
           nextAdvanceCondition: fastApiData.next_advance_condition || null,
           progress: fastApiData.progress || null,
@@ -476,44 +314,25 @@ export async function POST(
           isSetupComplete: true,
         });
 
-        return {
-          replaceEvent: {
-            type: "complete",
-            data: {
-              ...payload,
-              draftReadyJustUnlocked,
-            },
-          },
-        };
+        return { replaceEvent: { type: "complete", data: { ...payload, draftReadyJustUnlocked } } };
       },
-      onError: async () => {
-        billingOutcomeStatus = "failed";
-      },
+      onError: async () => { billingOutcomeStatus = "failed"; },
       onFinally: () => {
+        upstream.clearTimeout();
         if (billingOutcomeStatus === "success") {
-          logSummaryOnce({ status: "success", creditsUsed: creditsAppliedForSummary });
+          logOnce("success", creditsAppliedForSummary);
           void incrementDailyTokenCount(identity, computeTotalTokens(latestTelemetry));
         } else if (billingOutcomeStatus === "failed") {
-          logSummaryOnce({ status: "failed", creditsUsed: 0 });
+          logOnce("failed", 0);
         } else {
-          logSummaryOnce({ status: "cancelled", creditsUsed: 0 });
+          logOnce("cancelled", 0);
         }
       },
     });
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-      },
-    });
+    return new Response(stream, { headers: SSE_RESPONSE_HEADERS });
   } catch (error) {
     console.error("Error in motivation stream:", error);
-    return new Response(
-      JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    return jsonErr("Internal server error", 500);
   }
 }

@@ -2,8 +2,8 @@
 topic: gakuchika
 plan_date: 2026-04-14
 based_on_review: feature/gakuchika_quality_audit_20260412.md
-status: 完了 (release 前 M1/M3/M5 fix 済み、M2/M4 済み、Phase 3.7 / L1-L9 は次 PR)
-last_update: 2026-04-18
+status: 完了 (Phase 7-A〜7-H 全完了、133 tests PASS、judge mean 92/100)
+last_update: 2026-04-20
 ---
 
 # ガクチカ作成機能 品質改善計画 v4
@@ -316,6 +316,68 @@ blocked_focuses / asked_focuses 通知を追加。LLMが同じ質問を繰り返
 
 ---
 
+## Phase 6: v3 Live Test 残課題 (2026-04-19 追加)
+
+> **根拠**: v3 live test (8ケー���) 結果 pass=1 / degraded=3 / fail=4。テスト��ンフラ問題と LLM 品質問題を分離して対応する。
+> **参照**: `docs/review/ai_quality_comprehensive_20260419.md` Appendix A
+
+### 6-A. テストインフラ修正 (LLM 品質とは独立)
+
+#### 6-A-1. フォールバック汚染排除
+
+| 項目 | 内容 |
+|------|------|
+| **問題** | `conversation_runner.py` L23-29 の `GAKUCHIKA_FALLBACK_ANSWERS` が塾講師シナリオ固定。L174 で `case_answers < 4` 件のケースが全てこのバンクにフォールバックし、「学園祭実行委員」「開発サークル」等に「宿題提出率」が注入される |
+| **影響** | 8ケース中6ケースが汚染の影響を受ける |
+| **対象ファイル** | `backend/tests/conversation/conversation_runner.py`, ケース定義元 |
+| **作業内容** | ① extended 5ケースの answers を各 8 件以上に拡充（各シナリオのドメインに適合した回答） ② フォールバック閾値を `>= 4` から `>= 8` に引き上げ ③ `GAKUCHIKA_FALLBACK_ANSWERS` のグローバル塾講師シナリオを廃止し、汎用 STAR 質問応答テンプレートに置換 |
+| **受け入れ条件** | v3 テスト再実行でフォールバック汚染 0 件。全8ケースが case_answers のみで会話完了 |
+| **工数感** | 小 |
+
+#### 6-A-2. テストケース品質強化
+
+| 項目 | 内容 |
+|------|------|
+| **作業内容** | ① `requiredQuestionTokenGroups` が未定義のケースがないか確認し全ケースに必須化 ② 各ケースの answers が STAR 5 観点（状況・課題・行動・結果・学び）を網羅しているか検証 �� 回答バンクのドメイン整合性チェック |
+| **受け入れ条件** | 全ケースに `requiredQuestionTokenGroups` が定義され、answers が 5 観点をカバー |
+| **工数感** | 小 |
+
+### 6-B. LLM 品質改善
+
+#### 6-B-1. 質問ループ検出 + トピックスキップ
+
+| 項目 | 内容 |
+|------|------|
+| **問題** | ユーザーが同一/無関係な回答を繰り返した場合、LLM が同じ質問を反復。最��� 11 回の同一質問ループが観測された (volunteer_outreach) |
+| **対象ファイル** | `backend/app/routers/gakuchika.py`, `backend/app/prompts/gakuchika_prompts.py` |
+| **作業内容** | ① 直近 N 問の質問テキスト類似度を計算（embedding or 文字列一致率） ② 閾値超の重複検出時に `blocked_focuses` に追加し、次の question_group にスキップ ③ スキップ時のユーザー向けメッセージ（「別の観点からお聞きしますね」） ④ ループ検出回数メトリクスの記録 |
+| **受け入れ条件** | 同一質問の連続反復が最大 2 回まで。3 回目で自動スキップ |
+| **工数感** | 中 |
+| **v3 エビデンス** | scope_and_role: 3x / team_conflict: 8+x / volunteer_outreach: 11x |
+
+#### 6-B-2. question_group カバレッジの動的計画
+
+| 項目 | 内容 |
+|------|------|
+| **問題** | LLM が「結果数値確認」に偏重し、role/motivation, learning/transfer グループに遷移しない。4/4 fail が satisfied_groups=1/2 |
+| **対象ファイル** | `backend/app/routers/gakuchika.py`, `backend/app/prompts/gakuchika_prompts.py`, `backend/app/prompts/gakuchika_prompt_builder.py` |
+| **作業内容** | ① 本番ループ中に `satisfied_groups` をリアルタイムトラッキング ② 未到達グループのリストをプロンプ��に明示注入（「まだ聞けていない観点: 役割/担当、学び/今後への活用」） ③ question_count が閾値（例: 4問）を超えた場合に未到達グループへの強制遷移 ④ `required_question_groups` をテストケース定義から読み取り、評価時に使用 |
+| **受け入れ条件** | AI Live テストで `required_question_group_miss` が 0 件 |
+| **工数感** | 中 |
+| **v3 エビデンス** | process_over_result / retail_shift_coordination / engineering_team_latency / research_lab_reproducibility 全て satisfied_groups=1/2 |
+
+#### 6-B-3. ドラフトの事実矛盾検出
+
+| 項目 | 内容 |
+|------|------|
+| **問題** | フォールバック汚染下でドラフトが無関係な事実を含んだ。テストインフラ修正後も、ユーザーが矛盾した情報を入力した場合に備えたガードが必要 |
+| **対象ファイル** | `backend/app/routers/gakuchika.py`, `backend/app/prompts/es_templates.py` |
+| **作業内容** | ① ドラフト生成プロンプトに「ユーザーが明言していない事実をドラフトに含���ない」制約を強化 ② `_extract_student_expressions` の出力とドラフトの fact overlap を検証する post-generation check |
+| **受け入れ条件** | judge の user_fact_preservation スコアが全ケースで 3/5 以上 |
+| **工数感** | 中 |
+
+---
+
 ## 実装順序
 
 ```
@@ -333,6 +395,11 @@ blocked_focuses / asked_focuses 通知を追加。LLMが同じ質問を繰り返
  Step 12: Phase 3.3 + 3.4 + 3.5 + 3.6 — UI改善群           ← Step 11に依存
  Step 13: Phase 3.7 — useReducer化                          ← 独立、最後にマージ
  Step 14: Phase 5 — テスト全件（各Stepで逐次追加）
+ Step 15: Phase 6-A-1 — フォールバック汚染排除 (独立、即着手可)
+ Step 16: Phase 6-A-2 — テストケース品質強化        ← Step 15 に依存
+ Step 17: Phase 6-B-1 + 6-B-2 — ループ検出 + グループ動的計画  ← Step 16 完了後
+ Step 18: Phase 6-B-3 — ドラフト事実矛盾検出        ← Step 17 に依存
+ Step 19: v3 テスト再実行 — 全 8 ケース pass 確認    ← Step 18 完了後
 ```
 
 ## サブエージェント委譲
@@ -348,21 +415,24 @@ blocked_focuses / asked_focuses 通知を追加。LLMが同じ質問を繰り返
 | 3.7 | `nextjs-developer` | hooks/gakuchika/ |
 | 4.1-4.4 | `prompt-engineer` + `fastapi-developer` | es_templates.py, gakuchika.py |
 | 5.1-5.4 | `test-automator` | tests/, e2e/ |
+| 6-A | `test-automator` | conversation_runner.py, ケース定義 |
+| 6-B-1, 6-B-2 | `fastapi-developer` + `prompt-engineer` | gakuchika.py, gakuchika_prompts.py |
+| 6-B-3 | `prompt-engineer` | es_templates.py, gakuchika.py |
 | 最終レビュー | `code-reviewer` | 全ファイル |
 
 ## 期待スコア推移
 
-| 軸 | 現在 | v3目標 | v4目標 | 主要変更 |
-|----|------|--------|--------|----------|
-| プロンプト設計 | 9/15 | 12/15 | 13/15 | ペルソナ, 承認パターン, few-shot, system/user分離 |
-| ES下書き生成 | 8/15 | 11/15 | 12/15 | AI臭排除, 学生の声, anti_patterns 8個 |
-| ES作成判定 | 6/15 | 10/15 | 13/15 | 暗黙タスク, 所有権緩和, 追跡緩和, ループ修正 |
-| 深掘り/STAR | 7/10 | 8/10 | 9/10 | ブロック注入, コーチ進捗メッセージ |
-| テスト | 4/15 | 10/15 | 12/15 | 16+新規テスト, ImportError修正, UIテスト |
-| コード品質 | 6/10 | 7/10 | 8/10 | Shadowing修正, known_facts, useReducer化 |
-| フロントUX | 7/10 | 7/10 | 9/10 | 自然言語進捗, DraftReady改善, カウンター |
-| セーフティ | 8/10 | 9/10 | 9/10 | Shadowing修正 |
-| **合計** | **52** | **~75** | **~87** | v3→v4: +12点（判定緩和+フロントUX） |
+| 軸 | 現在 | v3目標 | v4目標 | v4+P6目標 | 主要変更 |
+|----|------|--------|--------|-----------|----------|
+| プロンプト設計 | 9/15 | 12/15 | 13/15 | 14/15 | ペルソナ, 承認パターン, few-shot, system/user分離, +グループ動的計画 |
+| ES下書き生成 | 8/15 | 11/15 | 12/15 | 13/15 | AI臭排除, 学生の声, anti_patterns 8個, +事実矛盾検出 |
+| ES作成判定 | 6/15 | 10/15 | 13/15 | 13/15 | 暗黙タスク, 所有権緩和, 追跡緩和, ループ修正 |
+| 深掘り/STAR | 7/10 | 8/10 | 9/10 | 10/10 | ブロック注入, コーチ進捗メッセージ, +ループ検出+スキップ |
+| テスト | 4/15 | 10/15 | 12/15 | 14/15 | 16+新規テスト, ImportError修正, UIテスト, +フォールバック汚染排除 |
+| コード品質 | 6/10 | 7/10 | 8/10 | 8/10 | Shadowing修正, known_facts, useReducer化 |
+| フロントUX | 7/10 | 7/10 | 9/10 | 9/10 | 自然言語進捗, DraftReady改善, カウンター |
+| セーフティ | 8/10 | 9/10 | 9/10 | 9/10 | Shadowing修正 |
+| **合計** | **52** | **~75** | **~87** | **~90** | v4→v4+P6: +3点（ループ検出, グループ動的計画, 事実矛盾検出, テスト基盤修正） |
 
 ## リスク軽減
 
@@ -539,4 +609,36 @@ blocked_focuses / asked_focuses 通知を追加。LLMが同じ質問を繰り返
 **Phase 1 ギャップ分析 (証拠 pinpoint)**:
 - baseline overall mean **4.598/5 = 91.96/100** (元評価 72/100 から大幅改善されていることが判明)
 - 改善対象軸: naturalness 4.40 (training) / 4.22 (holdout)、quote_retention 0.24
-- ai-writing-auditor: 24 draft 中「実感した」 15/24 (62
+- ai-writing-auditor: 24 draft 中「実感した」 15/24 (62%)
+
+---
+
+### 2026-04-19 v3 Live Test 結果反映 — Phase 6 追加
+
+**テスト結果**: v3 live test (8ケース) pass=1, degraded=3, fail=4
+
+| ケース | ステータス | 失敗種別 | judge |
+|--------|:-:|------|------|
+| scope_and_role | degraded | LLM loop 3x | N/A |
+| quantitative_outcome | **pass** | — | 4/4/4/3/4 |
+| team_conflict | degraded | LLM loop 8+x | N/A |
+| process_over_result | fail | required_question_group_miss (1/2) | pass 4/4/4/3/3 |
+| retail_shift_coordination | fail | required_question_group_miss (1/2) | **fail** 2/1/2/3/2 |
+| engineering_team_latency | fail | required_question_group_miss (1/2) | **fail** 3/2/3/2/4 |
+| volunteer_outreach | degraded | LLM loop 11x | N/A |
+| research_lab_reproducibility | fail | required_question_group_miss (1/2) | pass 4/4/4/3/4 |
+
+**根本原因分析**:
+
+A. **テストインフラ問題** (LLM品質とは独立):
+- `conversation_runner.py` L23-29 の `GAKUCHIKA_FALLBACK_ANSWERS` が塾講師シナリオ固定
+- extended 5ケース (answers=3件) が全てこのバンクにフォールバック → ドメイン汚染
+- 6/8 ケースが汚染の影響を受ける
+
+B. **LLM品質問題**:
+1. 質問ループ (3 degraded): 同一質問を最大11回反復。重複検出・トピックスキップ機構なし
+2. question_group カバレッジ不足 (4 fail): 全て satisfied_groups=1/2。「結果数値確認」に偏重し role/motivation/learning に遷移しない
+3. ドラフト品質崩壊 (2 judge fail): フォールバック汚染下で user_fact_preservation=1-2/5
+
+**対応**: Phase 6 (6-A: テストインフラ修正, 6-B: LLM品質改善) を追加。
+**包括評価への反映**: `docs/review/ai_quality_comprehensive_20260419.md` §2-4 を 75→68 に再評価、Appendix A 追加。

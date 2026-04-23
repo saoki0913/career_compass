@@ -136,7 +136,7 @@ Claude Code (Opus 4.6) から Codex CLI (GPT-5.4) へ作業を委譲するフロ
 | `implementation` | workspace-write | `codex exec` | 独立性の高い実装タスクの委譲 |
 | `post_review` | read-only (組込) | `codex review --uncommitted` | uncommitted changes のクロスレビュー |
 
-**起動**: Claude Code の command (`/codex-plan-review`, `/codex-implement`, `/codex-post-review`) → `scripts/codex/delegate.sh <mode>` → Codex CLI。
+**起動**: Claude Code の command (`/codex-plan-review`, `/codex-implement`, `/codex-post-review`) → `scripts/codex/delegate.sh <mode>` → Codex CLI。timeout は default 3600s、長時間タスクのみ `--timeout 7200` を明示する。
 
 `delegate.sh` は handoff prompt に共通の `Codex Harness Activation` ブロックを差し込み、`.codex/commands/codex-start.md` の orientation、`AGENTS.md` + `.codex/config.toml` routing による agent 選定、`.codex/agents/*.toml` の `developer_instructions`、および `.codex/skills/` / `.agents/skills/` の活用を明示的に要求する。
 

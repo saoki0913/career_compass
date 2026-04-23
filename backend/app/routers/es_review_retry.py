@@ -28,7 +28,7 @@ from app.routers.es_review_validation import (
     SHORT_ANSWER_CHAR_MAX,
     _normalize_repaired_text,
 )
-from app.utils.llm import resolve_feature_model_metadata
+from app.utils.llm_model_routing import resolve_feature_model_metadata
 
 
 PROMPT_USER_FACT_LIMIT = 8
@@ -105,6 +105,7 @@ def _resolve_rewrite_focus_mode(*, retry_code: str) -> str:
         "negative_self_eval": "positive_reframe_focus",
         "company_reference_in_companyless": "structure_focus",
         "assistive_honorific": "grounding_focus",
+        "hallucination": "fact_preservation_focus",
         "low_ending_diversity": "ai_smell_focus",
         "generic": "structure_focus",
     }
@@ -153,7 +154,7 @@ def _format_target_char_hint(
 
 _DEGRADED_BLOCK_CODES = frozenset({
     "empty", "fragment", "negative_self_eval", "company_reference_in_companyless",
-    "assistive_honorific",
+    "assistive_honorific", "hallucination",
 })
 
 
@@ -198,6 +199,25 @@ def _build_ai_smell_retry_hints(warnings: list[dict[str, str]]) -> list[str]:
             hints.append("「多様な」「幅広い」等の抽象修飾語を具体例に置き換える")
         elif code == "low_ending_diversity":
             hints.append("文末のバリエーションを増やす（「〜したい」「〜と考える」だけでなく、「〜である」「〜だ」等も使う）")
+        elif code == "ai_added_kankeisha":
+            hints.append("「関係者」をユーザーの元表現に戻す")
+        elif code == "concrete_value_absence":
+            hints.append("元回答の数値や具体的な行動を保持し、抽象化しすぎない")
+    return hints
+
+
+def _build_hallucination_retry_hints(warnings: list[dict[str, str]]) -> list[str]:
+    hints: list[str] = []
+    for w in warnings[:2]:
+        code = w.get("code", "")
+        if code == "number_mutation":
+            hints.append(f"数値の改変を修正: {w.get('detail', '')}")
+        elif code == "role_title_mutation":
+            hints.append(f"役職名の改変を修正: {w.get('detail', '')}")
+        elif code == "metric_fabrication":
+            hints.append("元回答にない数値を削除する")
+        elif code == "experience_fabrication":
+            hints.append("元回答にない経験・活動を削除する")
     return hints
 
 
@@ -351,7 +371,7 @@ def _es_review_temperature(
         return 0.14
     mid = (model_name or "").strip().lower()
     if provider == "openai" and "mini" in mid:
-        return 0.16
+        return 0.12
     return 0.2
 
 
@@ -547,6 +567,7 @@ def _retry_hint_from_code(
         ),
         "company_reference_in_companyless": "「貴社」等の企業敬称を使わず、自分の経験で書く",
         "assistive_honorific": "「貴社」等の企業敬称ではなく、企業名や固有の事業・価値観で触れる",
+        "hallucination": "元回答の数値・役割・具体的経験を変更せず、そのまま保持する",
         "generic": "条件を満たす安全な改善案を返す",
     }
     return mapping.get(code, mapping["generic"])
@@ -841,6 +862,7 @@ __all__ = [
     "_best_effort_rewrite_admissible",
     "_build_role_focused_second_pass_query",
     "_build_second_pass_content_type_boosts",
+    "_build_hallucination_retry_hints",
     "_dedupe_preserve_order",
     "_describe_retry_reason",
     "_es_review_temperature",

@@ -1,9 +1,12 @@
 #!/bin/bash
 # PostToolUse (Edit|Write): path-aware reminders for prompts, maintainability, schema, and tests.
 set -euo pipefail
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
 # shellcheck source=lib/skill-recommender.sh
 . "$(dirname "$0")/lib/skill-recommender.sh"
+# shellcheck source=lib/e2e-functional-reminder.sh
+. "$(dirname "$0")/lib/e2e-functional-reminder.sh"
 
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
@@ -12,6 +15,10 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 if [ -z "$FILE_PATH" ]; then
   exit 0
 fi
+
+maybe_emit_e2e_functional_reminder "$FILE_PATH" "$SESSION_ID" "claude"
+
+node "$PROJECT_DIR/tools/mark-verification-stale.mjs" --file="$FILE_PATH" --session="$SESSION_ID" --agent=claude >/dev/null 2>&1 || true
 
 # ─────────────────────────────────────────────────────────────
 # hotspot ファイル編集 — 1 回でも触れたら即推奨

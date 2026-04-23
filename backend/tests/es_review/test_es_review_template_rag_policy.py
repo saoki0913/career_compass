@@ -104,6 +104,33 @@ def test_build_company_evidence_cards_limits_assistive_templates_to_one_card() -
     assert len(cards) == 1
 
 
+def test_build_company_evidence_cards_filters_low_quality_cards() -> None:
+    cards = _build_company_evidence_cards(
+        [
+            {
+                "content_type": "corporate_site",
+                "title": "事業",
+                "excerpt": "挑戦",
+            },
+            {
+                "content_type": "employee_interviews",
+                "title": "社員インタビュー",
+                "excerpt": "法人営業部門で顧客課題に応じたサービス提案を行う",
+            },
+        ],
+        template_type="company_motivation",
+        question="志望理由を教えてください。",
+        answer="顧客課題の解決に関心があります。",
+        role_name="営業",
+        intern_name=None,
+        grounding_mode="company_general",
+    )
+
+    assert cards
+    assert all(card["claim"] != "事業" for card in cards)
+    assert cards[0]["is_primary"] is True
+
+
 def test_company_evidence_coverage_is_scored_for_assistive_templates() -> None:
     level, weak_notice = _assess_company_evidence_coverage(
         template_type="self_pr",

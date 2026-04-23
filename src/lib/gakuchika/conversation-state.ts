@@ -74,6 +74,8 @@ export interface ConversationState {
   resolvedFocuses: FocusKey[];
   deferredFocuses: FocusKey[];
   blockedFocuses: FocusKey[];
+  recentQuestionTexts: string[];
+  loopBlockedFocuses: FocusKey[];
   focusAttemptCounts: Partial<Record<FocusKey, number>>;
   lastQuestionSignature: string | null;
   /** 面接準備完了後の「もっと深掘る」回数（サーバー・FastAPI と同期） */
@@ -131,6 +133,8 @@ export function getDefaultConversationState(): ConversationState {
     resolvedFocuses: [],
     deferredFocuses: [],
     blockedFocuses: [],
+    recentQuestionTexts: [],
+    loopBlockedFocuses: [],
     focusAttemptCounts: {},
     lastQuestionSignature: null,
     extendedDeepDiveRound: 0,
@@ -172,15 +176,16 @@ function normalizeStringList(value: unknown): string[] {
 function normalizeDraftQualityChecks(value: unknown): DraftQualityChecks {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const record = value as Record<string, unknown>;
-  return {
-    task_clarity: typeof record.task_clarity === "boolean" ? record.task_clarity : undefined,
-    action_ownership: typeof record.action_ownership === "boolean" ? record.action_ownership : undefined,
-    role_required: typeof record.role_required === "boolean" ? record.role_required : undefined,
-    role_clarity: typeof record.role_clarity === "boolean" ? record.role_clarity : undefined,
-    result_traceability: typeof record.result_traceability === "boolean" ? record.result_traceability : undefined,
-    learning_reusability:
-      typeof record.learning_reusability === "boolean" ? record.learning_reusability : undefined,
-  };
+  const checks: DraftQualityChecks = {};
+  if (typeof record.task_clarity === "boolean") checks.task_clarity = record.task_clarity;
+  if (typeof record.action_ownership === "boolean") checks.action_ownership = record.action_ownership;
+  if (typeof record.role_required === "boolean") checks.role_required = record.role_required;
+  if (typeof record.role_clarity === "boolean") checks.role_clarity = record.role_clarity;
+  if (typeof record.result_traceability === "boolean") checks.result_traceability = record.result_traceability;
+  if (typeof record.learning_reusability === "boolean") {
+    checks.learning_reusability = record.learning_reusability;
+  }
+  return checks;
 }
 
 function normalizeCompletionChecks(value: unknown): Record<string, boolean> {
@@ -282,6 +287,8 @@ function parseLegacyState(value: Record<string, unknown>, status: string | null 
     resolvedFocuses: status === "completed" ? ["context", "task", "action", "result"] : [],
     deferredFocuses: status === "completed" ? ["learning"] : [],
     blockedFocuses: [],
+    recentQuestionTexts: [],
+    loopBlockedFocuses: [],
     focusAttemptCounts: {},
     lastQuestionSignature: null,
     extendedDeepDiveRound: 0,
@@ -343,6 +350,8 @@ export function safeParseConversationState(json: string | null, status?: string 
       resolvedFocuses: normalizeFocusList(parsed.resolved_focuses ?? parsed.resolvedFocuses),
       deferredFocuses: normalizeFocusList(parsed.deferred_focuses ?? parsed.deferredFocuses),
       blockedFocuses: normalizeFocusList(parsed.blocked_focuses ?? parsed.blockedFocuses),
+      recentQuestionTexts: normalizeStringList(parsed.recent_question_texts ?? parsed.recentQuestionTexts),
+      loopBlockedFocuses: normalizeFocusList(parsed.loop_blocked_focuses ?? parsed.loopBlockedFocuses),
       focusAttemptCounts: normalizeFocusAttemptCounts(parsed.focus_attempt_counts ?? parsed.focusAttemptCounts),
       lastQuestionSignature: normalizeString(parsed.last_question_signature ?? parsed.lastQuestionSignature),
       extendedDeepDiveRound: normalizeExtendedDeepDiveRound(
@@ -383,6 +392,8 @@ export function serializeConversationState(state: ConversationState): string {
     resolved_focuses: state.resolvedFocuses,
     deferred_focuses: state.deferredFocuses,
     blocked_focuses: state.blockedFocuses,
+    recent_question_texts: state.recentQuestionTexts,
+    loop_blocked_focuses: state.loopBlockedFocuses,
     focus_attempt_counts: state.focusAttemptCounts,
     last_question_signature: state.lastQuestionSignature,
     extended_deep_dive_round: state.extendedDeepDiveRound,
@@ -411,6 +422,8 @@ export function buildConversationStatePatch(
     resolvedFocuses: patch.resolvedFocuses ?? current.resolvedFocuses,
     deferredFocuses: patch.deferredFocuses ?? current.deferredFocuses,
     blockedFocuses: patch.blockedFocuses ?? current.blockedFocuses,
+    recentQuestionTexts: patch.recentQuestionTexts ?? current.recentQuestionTexts,
+    loopBlockedFocuses: patch.loopBlockedFocuses ?? current.loopBlockedFocuses,
     focusAttemptCounts: patch.focusAttemptCounts ?? current.focusAttemptCounts,
     lastQuestionSignature: patch.lastQuestionSignature ?? current.lastQuestionSignature,
     extendedDeepDiveRound: patch.extendedDeepDiveRound ?? current.extendedDeepDiveRound,

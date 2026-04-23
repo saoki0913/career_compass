@@ -18,8 +18,6 @@ Orchestration responsibilities that live in this module:
 
 from __future__ import annotations
 
-import json
-import random
 import re
 from typing import Any, AsyncGenerator, Optional
 
@@ -39,14 +37,11 @@ from app.security.sse_concurrency import (
 from app.limiter import limiter
 from app.prompts.gakuchika_prompts import (
     DEEPDIVE_QUESTION_PRINCIPLES,
-    INITIAL_QUESTION_USER_MESSAGE,
     REFERENCE_GUIDE_RUBRIC,
     STRUCTURED_SUMMARY_PROMPT,
     es_draft_few_shot_for,
 )
 from app.prompts.gakuchika_prompt_builder import (
-    INITIAL_QUESTION_MAX_TOKENS,
-    _render_initial_question_system_prompt,
     build_deepdive_prompt_text,
     build_es_prompt_text,
 )
@@ -64,6 +59,12 @@ from app.normalization.gakuchika_payload import (
     _normalize_deepdive_payload,
     _normalize_es_build_payload,
     _sanitize_blocked_focuses,
+)
+from app.routers.gakuchika_question_pipeline import (
+    _generate_initial_question as _generate_initial_question_pipeline,
+    _generate_next_question_progress as _generate_next_question_progress_pipeline,
+    _sse_event as _sse_event_pipeline,
+    _stream_schema_hints as _stream_schema_hints_pipeline,
 )
 from app.utils.gakuchika_text import (
     BUILD_FOCUS_FALLBACKS,
@@ -86,10 +87,11 @@ from app.utils.gakuchika_text import (
 )
 from app.utils.llm import (
     _parse_json_response,
-    PromptSafetyError,
-    call_llm_streaming_fields,
     call_llm_with_error,
     consume_request_llm_cost_summary,
+)
+from app.utils.llm_prompt_safety import (
+    PromptSafetyError,
     sanitize_prompt_input,
     sanitize_user_prompt_text,
 )
@@ -101,6 +103,18 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/gakuchika", tags=["gakuchika"])
 
 NEXT_QUESTION_MAX_TOKENS = 420
+
+
+def _check_fact_overlap(draft_text: str, student_expressions: list[str]) -> dict[str, Any]:
+    if not student_expressions or not draft_text:
+        return {"overlap_ok": True, "overlap_ratio": 0.0, "matched": []}
+    matched = [expr for expr in student_expressions if expr in draft_text]
+    ratio = len(matched) / len(student_expressions) if student_expressions else 0.0
+    return {
+        "overlap_ok": ratio >= 0.1,
+        "overlap_ratio": round(ratio, 3),
+        "matched": matched,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -136,12 +150,15 @@ class ConversationStateInput(BaseModel):
     resolved_focuses: list[str] = Field(default_factory=list)
     deferred_focuses: list[str] = Field(default_factory=list)
     blocked_focuses: list[str] = Field(default_factory=list)
+    recent_question_texts: list[str] = Field(default_factory=list)
+    loop_blocked_focuses: list[str] = Field(default_factory=list)
     focus_attempt_counts: dict[str, int] = Field(default_factory=dict)
     last_question_signature: str | None = Field(default=None, max_length=120)
     extended_deep_dive_round: int = Field(default=0, ge=0, le=100)
     # Round-trip fields surfaced to the client via SSE (pass-through on resume).
     coach_progress_message: str | None = Field(default=None, max_length=120)
     remaining_questions_estimate: int | None = Field(default=None, ge=0, le=20)
+    retry_degraded: bool = False
 
     model_config = {"extra": "ignore"}
 
@@ -388,17 +405,44 @@ def _build_draft_diagnostics(draft_text: str) -> dict[str, list[str]]:
     }
 
 
-def _determine_deepdive_phase(question_count: int) -> tuple[str, str, list[str]]:
+def _determine_deepdive_phase(
+    question_count: int,
+    *,
+    asked_focuses: list[str] | None = None,
+    resolved_focuses: list[str] | None = None,
+    blocked_focuses: list[str] | None = None,
+    loop_blocked_focuses: list[str] | None = None,
+) -> tuple[str, str, list[str]]:
     """Map deep-dive question count to (phase_name, description, preferred_focuses).
 
     Orchestration: the handler decides which phase to drive and passes the
     tuple to the prompt-template builder.
     """
     if question_count <= 2:
-        return ("es_aftercare", "ES本文の骨格に対して判断理由と役割の解像度を上げる", ["challenge", "role", "action_reason"])
-    if question_count <= 5:
-        return ("evidence_enhancement", "成果の根拠・信憑性・再現可能性を補強する", ["result_evidence", "credibility", "learning_transfer"])
-    return ("interview_expansion", "将来展望や原体験まで含めて人物像を厚くする", ["future", "backstory", "learning_transfer"])
+        phase_name, phase_desc, preferred_focuses = ("es_aftercare", "ES本文の骨格に対して判断理由と役割の解像度を上げる", ["challenge", "role", "action_reason"])
+    elif question_count <= 5:
+        phase_name, phase_desc, preferred_focuses = ("evidence_enhancement", "成果の根拠・信憑性・再現可能性を補強する", ["result_evidence", "credibility", "learning_transfer"])
+    else:
+        phase_name, phase_desc, preferred_focuses = ("interview_expansion", "将来展望や原体験まで含めて人物像を厚くする", ["future", "backstory", "learning_transfer"])
+
+    if asked_focuses is not None:
+        from app.normalization.gakuchika_question_planner import (
+            _compute_group_coverage,
+            _select_next_deepdive_focus_by_coverage,
+        )
+        coverage = _compute_group_coverage(
+            asked_focuses,
+            resolved_focuses or [],
+            blocked_focuses or [],
+            loop_blocked_focuses or [],
+        )
+        redirect = _select_next_deepdive_focus_by_coverage(
+            coverage, preferred_focuses[0] if preferred_focuses else None, question_count,
+        )
+        if redirect and redirect not in preferred_focuses:
+            preferred_focuses = [redirect, *preferred_focuses]
+
+    return phase_name, phase_desc, preferred_focuses
 
 
 def _resolve_next_action(state: dict[str, Any]) -> str:
@@ -447,13 +491,14 @@ def _build_es_prompt(request: NextQuestionRequest) -> tuple[str, str]:
         stage=state.stage if state else "es_building",
         missing_elements=list(state.missing_elements) if state else [],
     )
+    loop_blocked = list(state.loop_blocked_focuses) if state else []
     return build_es_prompt_text(
         gakuchika_title=request.gakuchika_title,
         conversation_text=_format_conversation(request.conversation_history),
         known_facts=_build_known_facts(request.conversation_history),
         input_richness_mode=input_richness_mode,
         asked_focuses=asked,
-        blocked_focuses=blocked,
+        blocked_focuses=list(dict.fromkeys([*blocked, *loop_blocked])),
     )
 
 
@@ -463,16 +508,33 @@ def _build_deepdive_prompt(request: NextQuestionRequest) -> tuple[str, str]:
 
     Returns ``(system_prompt, user_message)``.
     """
-    phase_name, phase_description, preferred_focuses = _determine_deepdive_phase(request.question_count)
     state = request.conversation_state
     draft_text = state.draft_text if state else ""
     ext_round = int(state.extended_deep_dive_round or 0) if state else 0
     asked = list(state.asked_focuses) if state else []
+    resolved = list(state.resolved_focuses) if state else []
     blocked = _sanitize_blocked_focuses(
         state.blocked_focuses if state else [],
         stage=state.stage if state else "deep_dive_active",
         missing_elements=list(state.missing_elements) if state else [],
     )
+    loop_blocked = list(state.loop_blocked_focuses) if state else []
+
+    phase_name, phase_description, preferred_focuses = _determine_deepdive_phase(
+        request.question_count,
+        asked_focuses=asked,
+        resolved_focuses=resolved,
+        blocked_focuses=blocked,
+        loop_blocked_focuses=loop_blocked,
+    )
+
+    from app.normalization.gakuchika_question_planner import (
+        _compute_group_coverage,
+        _render_coverage_summary,
+    )
+    coverage = _compute_group_coverage(asked, resolved, blocked, loop_blocked)
+    coverage_summary = _render_coverage_summary(coverage)
+
     return build_deepdive_prompt_text(
         gakuchika_title=request.gakuchika_title,
         draft_text=draft_text or "",
@@ -486,7 +548,8 @@ def _build_deepdive_prompt(request: NextQuestionRequest) -> tuple[str, str]:
         deepdive_recommendation_tags=list(state.deepdive_recommendation_tags) if state else [],
         credibility_risk_tags=list(state.credibility_risk_tags) if state else [],
         asked_focuses=asked,
-        blocked_focuses=blocked,
+        blocked_focuses=list(dict.fromkeys([*blocked, *loop_blocked])),
+        coverage_summary=coverage_summary,
     )
 
 
@@ -538,57 +601,7 @@ def _build_initial_fallback_response(
 
 
 async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str, dict[str, Any]]:
-    """Orchestrate initial question generation.
-
-    M2 (2026-04-17): LLM call and normalization moved out of
-    ``app.prompts.gakuchika_prompt_builder`` (template-only layer) and into
-    this router so that prompts stay side-effect free.
-    """
-    input_richness_mode = _classify_input_richness(
-        request.gakuchika_content or request.gakuchika_title
-    )
-
-    if not request.gakuchika_content:
-        return _build_initial_fallback_response(
-            focus_key="context",
-            input_richness_mode=input_richness_mode,
-            question_count=request.question_count,
-        )
-
-    system_prompt = _render_initial_question_system_prompt(
-        input_richness_mode=input_richness_mode,
-    )
-    user_message = INITIAL_QUESTION_USER_MESSAGE.format(
-        gakuchika_title=sanitize_prompt_input(request.gakuchika_title, max_length=200),
-        gakuchika_content=sanitize_prompt_input(request.gakuchika_content, max_length=2000),
-        input_richness_mode=input_richness_mode,
-    )
-    llm_result = await call_llm_with_error(
-        system_prompt=system_prompt,
-        user_message=user_message,
-        max_tokens=INITIAL_QUESTION_MAX_TOKENS,
-        temperature=0.4,
-        feature="gakuchika",
-        retry_on_parse=True,
-        disable_fallback=True,
-    )
-
-    if llm_result.success and llm_result.data is not None:
-        question, state, _ = _normalize_es_build_payload(
-            llm_result.data,
-            None,
-            conversation_text=request.gakuchika_content or "",
-            input_richness_mode=input_richness_mode,
-            question_count=request.question_count,
-        )
-        if question or state["ready_for_draft"]:
-            return question or _fallback_build_meta("context")["question"], state
-
-    return _build_initial_fallback_response(
-        focus_key=random.choice(["context", "task", "action"]),
-        input_richness_mode=input_richness_mode,
-        question_count=request.question_count,
-    )
+    return await _generate_initial_question_pipeline(request)
 
 
 # ---------------------------------------------------------------------------
@@ -596,183 +609,16 @@ async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str,
 # ---------------------------------------------------------------------------
 
 def _sse_event(event_type: str, data: dict[str, Any]) -> str:
-    payload = {"type": event_type, **data}
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    return _sse_event_pipeline(event_type, data)
 
 
 def _stream_schema_hints(is_deepdive: bool) -> dict[str, str]:
-    if is_deepdive:
-        return {
-            "question": "string",
-            "answer_hint": "string",
-            "progress_label": "string",
-            "focus_key": "string",
-            "deepdive_stage": "string",
-        }
-    return {
-        "question": "string",
-        "answer_hint": "string",
-        "progress_label": "string",
-        "focus_key": "string",
-        "missing_elements": "array",
-        "ready_for_draft": "boolean",
-        "draft_readiness_reason": "string",
-    }
+    return _stream_schema_hints_pipeline(is_deepdive)
 
 
 async def _generate_next_question_progress(request: NextQuestionRequest) -> AsyncGenerator[str, None]:
-    try:
-        if not request.gakuchika_title:
-            yield _sse_event("error", {
-                "message": "ガクチカのテーマが指定されていません",
-                "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
-            })
-            return
-
-        has_user_response = any(msg.role == "user" for msg in request.conversation_history)
-        if not has_user_response and not _is_deepdive_request(request):
-            question, state = await _generate_initial_question(request)
-            coach_progress_message = state.get("coach_progress_message")
-            if coach_progress_message:
-                yield _sse_event("field_complete", {
-                    "path": "coach_progress_message",
-                    "value": coach_progress_message,
-                })
-            remaining_estimate = state.get("remaining_questions_estimate")
-            if isinstance(remaining_estimate, int):
-                yield _sse_event("field_complete", {
-                    "path": "remaining_questions_estimate",
-                    "value": remaining_estimate,
-                })
-            yield _sse_event("complete", {
-                "data": {
-                    "question": question,
-                    "conversation_state": state,
-                    "next_action": _resolve_next_action(state),
-                },
-                "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
-            })
-            return
-
-        is_deepdive = _is_deepdive_request(request)
-        system_prompt, user_message = (
-            _build_deepdive_prompt(request) if is_deepdive else _build_es_prompt(request)
-        )
-        fallback_state = request.conversation_state
-
-        yield _sse_event("progress", {
-            "step": "analysis",
-            "progress": 30,
-            "label": "質問の意図を整理中",
-        })
-        yield _sse_event("progress", {
-            "step": "question",
-            "progress": 60,
-            "label": "次の質問を生成中...",
-        })
-
-        llm_result = None
-        async for event in call_llm_streaming_fields(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            max_tokens=NEXT_QUESTION_MAX_TOKENS,
-            temperature=0.35,
-            feature="gakuchika",
-            schema_hints=_stream_schema_hints(is_deepdive),
-            stream_string_fields=["question"],
-            attempt_repair_on_parse_failure=False,
-            partial_required_fields=("question",),
-        ):
-            if event.type == "string_chunk":
-                yield _sse_event("string_chunk", {"path": event.path, "text": event.text})
-            elif event.type == "field_complete":
-                yield _sse_event("field_complete", {"path": event.path, "value": event.value})
-            elif event.type == "array_item_complete":
-                yield _sse_event("array_item_complete", {"path": event.path, "value": event.value})
-            elif event.type == "error":
-                error = event.result.error if event.result else None
-                yield _sse_event("error", {
-                    "message": error.message if error else "AIサービスに接続できませんでした。",
-                    "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
-                })
-                return
-            elif event.type == "complete":
-                llm_result = event.result
-
-        if llm_result is None or not llm_result.success or llm_result.data is None:
-            error = llm_result.error if llm_result else None
-            yield _sse_event("error", {
-                "message": error.message if error else "AIサービスに接続できませんでした。",
-                "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
-            })
-            return
-
-        if is_deepdive:
-            question, state, source = _normalize_deepdive_payload(
-                llm_result.data,
-                fallback_state,
-                conversation_text=_build_user_corpus(
-                    request.conversation_history,
-                    initial_content=request.gakuchika_content,
-                    draft_text=request.conversation_state.draft_text if request.conversation_state else None,
-                ),
-                draft_text=request.conversation_state.draft_text if request.conversation_state else "",
-                question_count=request.question_count,
-            )
-        else:
-            question, state, source = _normalize_es_build_payload(
-                llm_result.data,
-                fallback_state,
-                conversation_text=_build_user_corpus(
-                    request.conversation_history,
-                    initial_content=request.gakuchika_content,
-                ),
-                input_richness_mode=(
-                    request.conversation_state.input_richness_mode
-                    if request.conversation_state
-                    else _classify_input_richness(request.gakuchika_content or request.gakuchika_title)
-                ),
-                question_count=request.question_count,
-            )
-
-        logger.info(
-            "[Gakuchika] normalized via %s (stage=%s focus=%s)",
-            source,
-            state["stage"],
-            state["focus_key"],
-        )
-
-        # Phase B.7: emit coach_progress_message as a partial so the UI
-        # ``NaturalProgressStatus`` chip can update before the final
-        # ``complete`` event lands. M4 (2026-04-17) adds remaining_questions_estimate
-        # with the same partial+complete pattern. Contract:
-        # ``docs/architecture/GAKUCHIKA_SSE_CONTRACT.md`` § field_complete.
-        coach_progress_message = state.get("coach_progress_message")
-        if coach_progress_message:
-            yield _sse_event("field_complete", {
-                "path": "coach_progress_message",
-                "value": coach_progress_message,
-            })
-        remaining_estimate = state.get("remaining_questions_estimate")
-        if isinstance(remaining_estimate, int):
-            yield _sse_event("field_complete", {
-                "path": "remaining_questions_estimate",
-                "value": remaining_estimate,
-            })
-
-        yield _sse_event("complete", {
-            "data": {
-                "question": question,
-                "conversation_state": state,
-                "next_action": _resolve_next_action(state),
-            },
-            "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
-        })
-    except Exception as exc:
-        yield _sse_event("error", {
-            "message": f"予期しないエラーが発生しました: {str(exc)}",
-            "internal_telemetry": consume_request_llm_cost_summary("gakuchika"),
-        })
+    async for chunk in _generate_next_question_progress_pipeline(request):
+        yield chunk
 
 
 # ---------------------------------------------------------------------------
@@ -827,6 +673,7 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
         question, state, _ = _normalize_deepdive_payload(
             data,
             payload.conversation_state,
+            conversation_history=[msg.model_dump(mode="python") for msg in payload.conversation_history],
             conversation_text=_build_user_corpus(
                 payload.conversation_history,
                 initial_content=payload.gakuchika_content,
@@ -839,6 +686,7 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
         question, state, _ = _normalize_es_build_payload(
             data,
             payload.conversation_state,
+            conversation_history=[msg.model_dump(mode="python") for msg in payload.conversation_history],
             conversation_text=_build_user_corpus(
                 payload.conversation_history,
                 initial_content=payload.gakuchika_content,
@@ -1054,6 +902,14 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
     draft = normalize_es_draft_single_paragraph(_clean_string(data.get("draft")))
     followup_suggestion = _clean_string(data.get("followup_suggestion")) or "更に深掘りする"
     draft_diagnostics = _build_draft_diagnostics(draft)
+    fact_check = _check_fact_overlap(draft, student_expressions)
+    if not fact_check["overlap_ok"]:
+        logger.warning(
+            "gakuchika_draft_low_fact_overlap",
+            overlap_ratio=fact_check["overlap_ratio"],
+            matched_count=len(fact_check["matched"]),
+            total_expressions=len(student_expressions),
+        )
     return GakuchikaESDraftResponse(
         draft=draft,
         char_count=len(draft),

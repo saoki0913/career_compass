@@ -235,32 +235,64 @@ pre-commit フック (`enforce-local-ai-e2e.mjs`) がステージ済みファイ
 
 **push は常にユーザー確認必須**: `git push` は GitHub Actions CI 全スイート + Staging デプロイを発火するため、AskUserQuestion で必ずユーザーに確認してから実行する。確認時にはプッシュ対象のコミット一覧（`git log origin/develop..HEAD --oneline`）を提示する。
 
+**チェック 3 層モデル**:
+
+| Layer | 内容 | 失敗時の挙動 |
+|---|---|---|
+| 1. Hard (blocking) | 禁止語、最低文字数、非空（全機能共通）。ES Review は文字数範囲・未完成末尾・companyless も含む | pytest.fail() → manifest status="failed" → pre-commit hook blocks |
+| 2. Soft (non-blocking) | token_coverage (50%)、draft_length 範囲、required_question_groups、focus_tokens/style/RAG (ES Review) | manifest status="passed" + softFailCount>0 → Claude が AskUserQuestion で対応確認 |
+| 3. LLM Judge (opt-in) | 5 軸採点。ローカル閾値: all>=2 AND avg>=3.0（CI/staging: all>=3, avg>=3.5） | 実行前に AskUserQuestion で確認。成功=自動クリア、失敗=AskUserQuestion |
+
 **実行フロー**:
 
 1. `git add <対象ファイル>` で全変更をステージ
 2. E2E スコープ判定: ステージ済みファイルで `resolveE2EFunctionalScope()` を呼ぶ（SSOT: `src/lib/e2e-functional-features.mjs`）
 3. `shouldRun: false` → Section B の閾値チェック → コミット → **ユーザーに push 確認**
 4. `shouldRun: true` → AskUserQuestion で E2E 実行の確認をする。以下を提示:
-   - トリガーされた features 一覧と source（shared-trigger / llm-shared / feature-trigger）
-   - 各 feature の推定実行時間
-   - ユーザーが features を選択・スキップ可能
-   → 承認された features で `make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES={features}` を実行
-5. 全 pass → Section B の閾値チェック（Codex post_review）→ コミット → **ユーザーに push 確認**
-6. いずれか fail:
-   a. エラーを分析し修正
-   b. 修正ファイルを `git add` で追加ステージ
-   c. スコープを **再判定**（初回結果を再利用しない）
-   d. 失敗 feature + 新規該当 feature を再テスト（**1 回のみ**）
-   e. 再テスト pass → Section B → コミット → **ユーザーに push 確認**
-   f. 再テスト fail → ユーザーに報告（コミットしない）
+   a. トリガーされた features 一覧と source（shared-trigger / llm-shared / feature-trigger）
+   b. 各 feature の推定実行時間
+   c. ユーザーが features を選択・スキップ可能
+   d. AskUserQuestion (multiSelect: true) で E2E オプションを確認する。以下を提示:
+      - `browserRequired: true` の対象 features 一覧とトリガー変更ファイル
+      - チェックボックス選択肢:
+        - 「Playwright テストを実行する」（全機能 / 選択 / スキップ）
+        - 「LLM Judge を含める」（with-judge / without-judge）
+      - ユーザーの回答を checkpoint に記録:
+        - format: `playwright=<val>,judge=<val>`
+        - playwright: `run` / `run:<features>` / `skip`
+        - judge: `with-judge` / `without-judge`
+      - checkpoint: `~/.claude/sessions/career_compass/e2e-options-${SESSION_ID}`
+      - この確認フローは `.claude/hooks/e2e-options-guard.sh` が PreToolUse hook で機械的に enforce する
+      - **Judge 伝播**: `judge=without-judge` の場合、必ず `LIVE_AI_CONVERSATION_LLM_JUDGE=0` を make コマンドに明示付加する。`run-ai-live-local.sh` の extended モードが自動で `LLM_JUDGE=1` にする挙動を上書きするため
+   → 承認された features で `make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES={features}` を実行。Playwright スキップ時は `AI_LIVE_SKIP_ALL_PLAYWRIGHT=1` を、Judge なし時は `LIVE_AI_CONVERSATION_LLM_JUDGE=0` を付加
+5. テスト結果の処理:
+   a. manifest.status === "failed"（ハードチェック失敗）:
+      → エラーを分析・修正 → 修正ファイルを `git add` → スコープを **再判定** → 失敗 feature + 新規該当 feature を再テスト（**1 回のみ**）
+      → 再テスト pass → Section B → コミット → **ユーザーに push 確認**
+      → 再テスト fail → ユーザーに報告（コミットしない）
+   b. manifest.status === "passed" AND softFailCount > 0:
+      → AskUserQuestion で対応を確認:
+        - 「無視してコミット」→ Section B → コミット → **ユーザーに push 確認**
+        - 「再実行」→ ステップ 4 に戻る
+        - 「修正する」→ 問題を報告
+   c. manifest.judgeStatus === "failed"（LLM Judge 失敗）:
+      → AskUserQuestion で対応を確認:
+        - 「無視してコミット」→ Section B → コミット → **ユーザーに push 確認**
+        - 「再実行」→ ステップ 4 に戻る
+        - 「修正する」→ 問題を報告
+   d. 全 pass → Section B の閾値チェック（Codex post_review）→ コミット → **ユーザーに push 確認**
 
 **注意事項**:
 - `git push origin develop` は AskUserQuestion でユーザー承認を得てから実行する。自動 push は禁止
-- `es-review` feature は `playwrightStatus === "passed"` も必要
+- `browserRequired: true` の全 feature は `playwrightStatus === "passed"` が必要（Playwright をスキップした場合、pre-commit hook がコミットをブロックする）
+- E2E オプション確認フローは `.claude/hooks/e2e-options-guard.sh` が PreToolUse hook で機械的に enforce する。checkpoint: `~/.claude/sessions/career_compass/e2e-options-${SESSION_ID}`
 - Codex `post_review`（Section B）は E2E 通過後、コミット直前に実行。修正分もレビュー対象になる
 - `tools/resolve-e2e-functional-scope.mjs` は `git diff HEAD` を使うため、ステージ前に unstaged changes がないことを前提とする
 - E2E スコープ判定で feature にマッチしない functional 変更はコミット + プッシュ可（pre-commit hook が最終判定）
-- マニフェスト: `backend/tests/output/local_ai_live/status/{feature}.json`
+- マニフェスト: `backend/tests/output/local_ai_live/status/{feature}.json`（softFailCount, softFailReasons, judgeStatus, judgeFailCount を含む）
+- pre-commit hook (`enforce-local-ai-e2e.mjs`) は `status === "passed"` のみチェック（ハードチェックのみ反映）。ソフト/ジャッジは Claude workflow が処理
+- `LLM_JUDGE_LOCAL_MODE=1` は `run-ai-live-local.sh` が自動設定。CI/staging には影響しない
+- この E2E 実行確認フローは `.claude/hooks/e2e-confirm-guard.sh` が PreToolUse hook で機械的に enforce する。checkpoint: `~/.claude/sessions/career_compass/e2e-confirm-${SESSION_ID}`
 
 ### C. オーケストレーター運用 — Claude 設計 / Codex 実装・レビュー
 

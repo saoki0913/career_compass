@@ -93,6 +93,10 @@ test-e2e-functional-local:
 test-e2e-functional-local-company-info-search:
 	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=company-info-search bash scripts/dev/run-ai-live-local.sh
 
+## localhost を対象に企業情報検索の AI Live を dev suite (5社) で実行
+test-e2e-functional-local-company-info-search-dev:
+	SUITE=dev OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=company-info-search bash scripts/dev/run-ai-live-local.sh
+
 ## localhost を対象に選考スケジュール取得の AI Live を実行
 test-e2e-functional-local-selection-schedule:
 	SUITE=$(SUITE) OUTPUT_DIR=$(OUTPUT_DIR) AI_LIVE_LOCAL_FEATURES=selection-schedule bash scripts/dev/run-ai-live-local.sh
@@ -334,13 +338,13 @@ backend-install:
 # バックエンドテスト (pytest)
 # ===========================================
 
-LIVE_SEARCH_MODES ?= hybrid,legacy
+LIVE_SEARCH_MODES ?= hybrid
 LIVE_SEARCH_CACHE_MODE ?= bypass
 LIVE_SEARCH_SAMPLE_SEED ?= 15
-LIVE_SEARCH_SAMPLE_SIZE ?= 350
+LIVE_SEARCH_SAMPLE_SIZE ?= 50
 LIVE_SEARCH_MAX_RESULTS ?= 5
 LIVE_SEARCH_TOKENS_PER_SECOND ?= 10
-LIVE_SEARCH_MAX_TOKENS ?= 1.0
+LIVE_SEARCH_MAX_TOKENS ?= 4.0
 LIVE_SEARCH_PASS_TOP_N ?= 5
 LIVE_SEARCH_PER_INDUSTRY_MIN ?= 1
 LIVE_SEARCH_FAIL_ON_LOW_RATE ?= 0
@@ -371,9 +375,9 @@ LIVE_ES_REVIEW_CASE_FILTER ?=
 backend-test:
 	cd backend && python -m pytest tests/ -v
 
-## Live検索レポートテスト（Legacy + Hybrid, ネットワーク必須）
-## 350社キュレーションリスト × 2モード × 11検索種 = 7,700検索
-## 所要時間目安: ~2時間 (1 req/s)、TOKENS_PER_SECOND=10 で ~15分
+## Live検索レポートテスト（デフォルト: hybrid のみ, ネットワーク必須）
+## 50社 × 1モード × 11検索種 = 550検索、所要時間目安: ~2-3分 (10 req/s)
+## フル: make backend-test-live-search LIVE_SEARCH_SAMPLE_SIZE=350 LIVE_SEARCH_MODES=hybrid,legacy
 backend-test-live-search:
 	@echo "Running live search report test (Legacy + Hybrid; requires network; may take a while)..."
 	@echo "  Companies: $(LIVE_SEARCH_SAMPLE_SIZE), Curated: $(LIVE_SEARCH_USE_CURATED), Modes: $(LIVE_SEARCH_MODES)"

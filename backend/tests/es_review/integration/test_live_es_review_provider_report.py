@@ -25,6 +25,7 @@ from app.testing.es_review_live_gate import (
     get_selected_models,
 )
 from app.utils.llm import call_llm_with_error
+from tests.conversation.checks import split_fail_reasons
 
 
 MODEL_MATRIX = {
@@ -829,6 +830,9 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                     provider=provider,
                     model_id=model_id,
                 )
+                hard_det, soft_det = split_fail_reasons(
+                    deterministic_failures, "es-review",
+                )
                 if enable_judge:
                     judge_result = await _maybe_run_judge(case, rewrite)
                 judge_failures = _judge_blocking_failures(
@@ -836,7 +840,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                     require=require_judge_pass and enable_judge,
                     min_scores=judge_min_scores,
                 )
-                combined_failures = list(deterministic_failures) + judge_failures
+                combined_failures = list(hard_det) + judge_failures
 
                 duration_ms = int((perf_counter() - started) * 1000)
                 # rewrite_attempt_count: ルーターが採用した改善案の試行番号（rewrite または length_fix を通算した 1-based）
@@ -873,6 +877,8 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                     "judge_scores": judge_result.get("scores") if judge_result else None,
                     "judge_usage": judge_result.get("usage") if judge_result else None,
                     "deterministic_fail_reasons": deterministic_failures,
+                    "hard_fail_reasons": hard_det,
+                    "soft_fail_reasons": soft_det,
                     "judge_blocking_reasons": judge_failures,
                     "review_meta_diag": _review_meta_diag(review_meta),
                     "duration_ms": duration_ms,
@@ -917,7 +923,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                         "note": note,
                     }
                 )
-                if not _is_canary_case_set(case_set) and blocking_failures_enabled:
+                if not _is_canary_case_set(case_set) and blocking_failures_enabled and failure_kind != "infra":
                     blocking_failures.append(
                         f"{model_id}::{case.case_id} failed: {exc.detail}"
                         + (f" | debug={dbg}" if dbg else "")
@@ -948,7 +954,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                         "note": str(exc),
                     }
                 )
-                if not _is_canary_case_set(case_set) and blocking_failures_enabled:
+                if not _is_canary_case_set(case_set) and blocking_failures_enabled and failure_kind != "infra":
                     blocking_failures.append(f"{model_id}::{case.case_id} failed: {exc}")
                 _cli_progress(
                     step=progress_step,

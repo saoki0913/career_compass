@@ -46,6 +46,29 @@ DEEPDIVE_FOCUSES: tuple[str, ...] = (
     "backstory",
 )
 
+DEEPDIVE_QUESTION_GROUPS: dict[str, dict[str, object]] = {
+    "foundation": {
+        "focuses": ["role", "challenge"],
+        "required": True,
+        "label": "役割と課題認識",
+    },
+    "reasoning": {
+        "focuses": ["action_reason", "credibility"],
+        "required": True,
+        "label": "判断理由と信憑性",
+    },
+    "evidence": {
+        "focuses": ["result_evidence", "learning_transfer"],
+        "required": False,
+        "label": "成果根拠と学び",
+    },
+    "narrative": {
+        "focuses": ["future", "backstory"],
+        "required": False,
+        "label": "将来展望と原体験",
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Japanese phrase pattern catalogues
 # ---------------------------------------------------------------------------

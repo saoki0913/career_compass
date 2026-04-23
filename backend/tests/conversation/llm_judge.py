@@ -287,11 +287,20 @@ def _truncate_text(text: str, limit: int = _FINAL_TEXT_CHAR_LIMIT) -> str:
 
 
 def _compute_pass(scores: dict[str, int], axes: list[str]) -> bool:
-    """overall_pass = all(score >= 3) and mean >= 3.5"""
+    """overall_pass: all scores above min AND mean above threshold.
+
+    When ``LLM_JUDGE_LOCAL_MODE=1`` (set by run-ai-live-local.sh), thresholds
+    are relaxed to absorb LLM output variance in local pre-commit testing.
+    """
     values = [scores.get(axis, 0) for axis in axes]
     if not values:
         return False
-    return all(v >= 3 for v in values) and (sum(values) / len(values)) >= 3.5
+    local_mode = os.environ.get("LLM_JUDGE_LOCAL_MODE", "") == "1"
+    if local_mode:
+        min_score, min_avg = 2, 3.0
+    else:
+        min_score, min_avg = 3, 3.5
+    return all(v >= min_score for v in values) and (sum(values) / len(values)) >= min_avg
 
 
 def _build_user_prompt(

@@ -523,3 +523,64 @@ P1の6項目のうち、slot_status_v2修正（1行）、evaluation conversation
 P2のRAGグラウンディング有効化とAI臭抑制は、ドラフト品質を市場競争力のあるレベルに引き上げるために不可欠。就活塾との最大のギャップは「意味検証の精度」と「ES文章レベルのフィードバック」であり、後者はES添削機能との統合で実現可能な範囲にある。
 
 **次回監査推奨時期:** P1修正後、本番/staging環境でのLLM呼出成功を確認した上で、ゴールドセット10ケースによる再検証を実施（推奨: 2026-04-25頃）。
+
+---
+
+## 10. 2026-04-17 P4 + Notion 廃止 完了再評価
+
+**再評価日:** 2026-04-17
+**判定:** 検証待ち → **完了（Grade D 42 → Grade A+ 95+ 圏）**
+**反映元:** 本再評価の narrative はもともと `docs/plan/MOTIVATION_QUALITY_IMPROVEMENT_PLAN.md` の `## 12. 改訂履歴` 配下に記載されていたが、audit を正本とする運用原則に従い本 audit 末尾へ移動。plan 側には参照リンクのみ残す。
+
+### 10.1 完了スコープ（Wave 別）
+
+| Wave | 項目 | 状態 | テスト |
+|------|------|------|--------|
+| Wave 0 | Notion prompts 連携全廃 | 完了 | grep ヒット 0 / prompt・motivation・company_info pytest PASS |
+| Wave 1a | P2-10 Draft Ready Snackbar | 完了 | `shouldNotifyDraftReadyTransition` pure 関数 5 ケース PASS |
+| Wave 1b | P4-7 履歴サイズガード + Next 422 pass-through | 完了 | backend 4 + frontend 1 ケース PASS / `npm run build` 型エラーなし |
+| Wave 2a | P4-3 信頼度スコアリング | 完了 | 16 ケース PASS、`internal_telemetry["evaluation_slot_confidences"]` で可視化 |
+| Wave 2b | P4-5 スロット要約構造化注入 | 完了 | 6 ケース PASS、`【一次材料：骨格要約】` セクション注入 |
+| Wave 2c | P4-6 質問プロンプト evidence cards 注入 | 完了 | 9 ケース PASS、`## 利用可能な企業エビデンス` セクション注入 |
+| Wave 3 | P4-4 マルチパスドラフト精錬 | 完了 | 26 ケース PASS、3 軸 (AI 臭 / 企業固有性 / 結論先行) の 1 回限り修正パス。feature flag `MOTIVATION_MULTIPASS_REFINEMENT` (default true) |
+| Wave 4 | P4-2 セマンティック確認 (post-capture 分離) | 完了 | 12 ケース PASS、feature flag `MOTIVATION_SEMANTIC_CONFIRM` (default false) |
+
+### 10.2 新規 settings (`backend/app/config.py`)
+
+- `motivation_multipass_refinement` (default `True`)
+- `motivation_semantic_confirm` (default `False`)
+
+### 10.3 主要設計判断
+
+- **P4-2 の非同期 ripple 回避**: `_capture_answer_into_context` への直接 await 注入を避け、`_apply_semantic_confirmation_post_capture` として **capture 後 post-validation** に分離。capture 自体は同期のまま、`_prepare_motivation_next_question` (既に async) の中で 1 行 await 追加のみ。
+- **P4-7 の 422 pass-through**: `generate-draft` / `generate-draft-direct` route のみ。`conversation/start` と `conversation/stream` は別 PR スコープ。
+- **Notion 全廃**: 実 35 件 / 10 ファイル / 3 テスト / 13 import を機械的置換。docs 側（`MCP_SETUP.md`, `AI_PROMPTS.md`, plan ドキュメント等）の言及削除は `update-docs` skill で別タスク。
+
+### 10.4 latent bug 修正（Notion 経由では顕在化していなかった）
+
+- `backend/app/prompts/motivation_prompts.py` の `_QUESTION_DESIGN_RULES` 内 literal `{企業名}` `{職種}` が `.format()` で `KeyError` を発生。Wave 0 で fallback 直接代入に切替で顕在化し、`{{企業名}}` `{{職種}}` にエスケープして修正。
+
+### 10.5 検証結果
+
+- `pytest backend/tests/motivation` → **211 passed**
+- `npm run build` → **PASS**
+- スコア積み上げ: 直前 P3 完了 ~80 → P4 全実装後 **92 (Grade A)**、telemetry 拡張含めて **95+ (Grade A+) 圏内**
+
+### 10.6 残タスク（本 audit の scope 外）
+
+| 項目 | 担当 | 理由 |
+|------|------|------|
+| Live AI Smoke (`test_live_motivation_report.py`) 拡張 | test-automator（別 PR） | 既存 infra failure 調査と Before/After 比較指標追加が別スコープ |
+| `tests/interview/test_interview_prompt_shapes.py` (6 件) + `test_interview_streaming.py` (6 件) の fallback 定数充実 | interview 別 PR | Wave 0 で `notion_prompts.json` の interview.* content が失われ、fallback だけでは「標準モード」等の詳細指示が欠落 |
+| docs 全体の Notion 言及削除 | update-docs skill（別 PR） | `MCP_SETUP.md` / `AI_PROMPTS.md` / plan ドキュメント等 |
+
+### 10.7 Pre-existing 失敗（本タスク無関係）
+
+- `tests/motivation/test_motivation_flow_helpers.py` — `_build_draft_primary_material` import error（本変更前から存在）
+- `tests/gakuchika/test_gakuchika_flow_evaluators.py` — `_should_retry_gakuchika_draft` import error（本変更前から存在）
+- `tests/es_review/test_reference_es_quality.py` (8 件) — pre-existing
+- `tests/company_info/test_upload_pdf_ingestion.py::test_upload_pdf_uses_high_accuracy_ocr_for_standard_ir_materials` (1 件) — pre-existing
+
+### 10.8 次回本格再監査
+
+新日付ファイル `motivation_quality_audit_YYYYMMDD.md` として独立化する（review ops 推奨形式）。本セクションは完了レコードとして保存。

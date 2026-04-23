@@ -15,6 +15,7 @@ Improve LLM output quality for Japanese ES review and generation while preventin
 - `ai-writing-auditor` — detect AI-臭 in Japanese ES output
 - `llm-architect` — multi-model routing (Claude / GPT / Gemini), cost/latency tradeoffs
 - `ai-product` — project skill for RAG + LLM integration, AI UX, cost optimization patterns
+- `empirical-prompt-tuning` — subagent 実行＋メトリクス比較でプロンプト変更の効果を客観検証
 
 ## Context7 の使い方
 ライブラリ/フレームワークのドキュメントが必要なとき:

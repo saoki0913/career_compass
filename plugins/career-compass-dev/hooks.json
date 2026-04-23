@@ -39,7 +39,8 @@
       ],
       "suggest": [
         "command:quality-check",
-        "skill:backend-refactor-check"
+        "skill:backend-refactor-check",
+        "command:codex-post-review"
       ]
     },
     {
@@ -67,7 +68,8 @@
       ],
       "suggest": [
         "command:quality-check",
-        "skill:security-change-check"
+        "skill:security-change-check",
+        "command:codex-post-review"
       ]
     },
     {

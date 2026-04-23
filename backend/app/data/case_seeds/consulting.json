@@ -1,0 +1,18 @@
+{
+  "industry": "consulting",
+  "business_context": "中堅戦略コンサルで稼働率が前年比 8pt 低下。",
+  "target_metric": "コンサルタント稼働率",
+  "constraints": [
+    "採用計画据え置き",
+    "既存大手クライアント維持最優先",
+    "新規投資 2 年 10 億円上限"
+  ],
+  "candidate_task": "稼働率を 6 ヶ月で 85% に戻す打ち手を提案してください。",
+  "why_this_company": "稼働率 × チャージレートの両面を扱えるか",
+  "case_followup_topics": [
+    "稼働率分解",
+    "既存深耕 vs 新規開拓",
+    "新規プラクティス立ち上げ"
+  ],
+  "case_seed_version": "v1.0"
+}

@@ -128,6 +128,11 @@ def _build_review_meta(
     rewrite_attempt_trace: list[dict[str, Any]] | None = None,
     rewrite_total_rewrite_attempts: int = 0,
     ai_smell_warnings: list[dict[str, str]] | None = None,
+    ai_smell_tier: int = 0,
+    hallucination_tier: int = 0,
+    concrete_marker_count: int = 0,
+    opening_conclusion_chars: int = 0,
+    rewrite_sentence_count: int = 0,
 ) -> ReviewMeta:
     template_request = request.template_request
     role_context = request.role_context or RoleContext()
@@ -196,6 +201,11 @@ def _build_review_meta(
         rewrite_attempt_trace=list(rewrite_attempt_trace or []),
         rewrite_total_rewrite_attempts=rewrite_total_rewrite_attempts,
         ai_smell_warnings=list(ai_smell_warnings or []),
+        ai_smell_tier=ai_smell_tier,
+        hallucination_tier=hallucination_tier,
+        concrete_marker_count=concrete_marker_count,
+        opening_conclusion_chars=opening_conclusion_chars,
+        rewrite_sentence_count=rewrite_sentence_count,
     )
 
 
@@ -204,20 +214,20 @@ def _router():
 
 
 async def _generate_review_progress(*args, **kwargs):  # type: ignore[override]
-    async for event in _router()._generate_review_progress_impl(*args, **kwargs):
+    async for event in _router()._generate_review_progress(*args, **kwargs):
         yield event
 
 
 def _build_review_streaming_response(*args, **kwargs):  # type: ignore[override]
-    return _router()._build_review_streaming_response_impl(*args, **kwargs)
+    return _router()._build_review_streaming_response(*args, **kwargs)
 
 
 async def review_section_with_template(*args, **kwargs):  # type: ignore[override]
-    return await _router()._review_section_with_template_impl(*args, **kwargs)
+    return await _router().review_section_with_template(*args, **kwargs)
 
 
 def _build_template_review_response(*args, **kwargs):  # type: ignore[override]
-    return _router()._build_template_review_response_impl(*args, **kwargs)
+    return _router()._build_template_review_response(*args, **kwargs)
 
 
 __all__ = [

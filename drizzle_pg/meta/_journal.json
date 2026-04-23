@@ -148,6 +148,27 @@
       "when": 1776595200000,
       "tag": "0020_calendar_refresh_token_issued_at",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1776988800000,
+      "tag": "0021_interview_version_lineage",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1777593600000,
+      "tag": "0022_interview_drill_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1777852800000,
+      "tag": "0023_add_rag_split_free_units",
+      "breakpoints": true
     }
   ]
 }

@@ -8,11 +8,11 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.limiter import limiter
-from app.routers import health, company_info, es_review, gakuchika, motivation, interview
+from app.routers import health, company_info, es_review, gakuchika, motivation, interview, local_ai_live
 from app.security.internal_service import require_internal_service
 from app.security.payload_limits import JsonPayloadSizeLimitMiddleware
 from app.utils.secure_logger import get_logger
-from app.utils.llm import reset_request_llm_cost_summary
+from app.utils.llm_usage_cost import reset_request_llm_cost_summary
 
 logger = get_logger(__name__)
 
@@ -101,6 +101,7 @@ app.include_router(es_review.router, dependencies=[Depends(require_internal_serv
 app.include_router(gakuchika.router, dependencies=[Depends(require_internal_service)])
 app.include_router(motivation.router, dependencies=[Depends(require_internal_service)])
 app.include_router(interview.router, dependencies=[Depends(require_internal_service)])
+app.include_router(local_ai_live.router, dependencies=[Depends(require_internal_service)])
 
 
 @app.get("/")

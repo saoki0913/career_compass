@@ -11,6 +11,11 @@ import re
 from typing import Any, Optional
 
 from app.prompts.es_templates import get_company_honorific
+from app.routers.es_review_fact_guard import (
+    HARD_BLOCK_HALLUCINATION_CODES,
+    _compute_hallucination_score,
+    _detect_fact_hallucination_warnings,
+)
 from app.routers.es_review_grounding import (
     COMPANY_HONORIFIC_TOKENS,
     COMPANY_REFERENCE_TOKENS,
@@ -635,7 +640,10 @@ def _validate_rewrite_candidate(
         if gosha_replacements:
             length_meta["gosha_replacements"] = gosha_replacements
 
-    _ai_warnings = _detect_ai_smell_patterns(fitted, user_answer)
+    _ai_warnings = _detect_ai_smell_patterns(
+        fitted, user_answer,
+        template_type=template_type, char_max=char_max,
+    )
     length_meta["ai_smell_warnings"] = _ai_warnings
     _ai_smell_result = _compute_ai_smell_score(
         _ai_warnings, template_type=template_type, char_max=char_max,
@@ -643,6 +651,17 @@ def _validate_rewrite_candidate(
     length_meta["ai_smell_score"] = _ai_smell_result["score"]
     length_meta["ai_smell_tier"] = _ai_smell_result["tier"]
     length_meta["ai_smell_band"] = _ai_smell_result["band"]
+    _hallucination_warnings = _detect_fact_hallucination_warnings(
+        fitted, user_answer,
+        template_type=template_type, char_max=char_max,
+    )
+    length_meta["hallucination_warnings"] = _hallucination_warnings
+    _hallucination_result = _compute_hallucination_score(
+        _hallucination_warnings, template_type=template_type,
+    )
+    length_meta["hallucination_score"] = _hallucination_result["score"]
+    length_meta["hallucination_tier"] = _hallucination_result["tier"]
+    length_meta["hallucination_band"] = _hallucination_result["band"]
 
     if "です" in fitted or "ます" in fitted:
         style_invalid = True
@@ -719,6 +738,16 @@ def _validate_rewrite_candidate(
     if assistive_honorific_detected:
         failure_codes.append("assistive_honorific")
         failure_reason = "この設問では「貴社」等の企業敬称ではなく、企業名や固有の事業・価値観で触れてください。"
+    hallucination_codes_found = {w["code"] for w in _hallucination_warnings}
+    hard_block_detected = bool(
+        hallucination_codes_found & HARD_BLOCK_HALLUCINATION_CODES
+    )
+    if hard_block_detected:
+        failure_codes.append("hallucination")
+        failure_reason = (
+            "元回答の事実（数値・役割・経験）が改変されています。"
+            "元の内容を正確に保ってください。"
+        )
     if primary_length_code:
         failure_codes.append(primary_length_code)
         if len(failure_codes) == 1:
@@ -740,13 +769,24 @@ def _validate_rewrite_candidate(
                     meta["soft_validation_applied"] = True
                     meta["soft_validation_codes"] = sorted(set(failure_codes))
                     return fitted, "soft_ok", "ok", meta
-        return None, failure_codes[0], failure_reason, {"failure_codes": failure_codes, "ai_smell_warnings": _ai_warnings}
+        return None, failure_codes[0], failure_reason, {
+            "failure_codes": failure_codes,
+            "ai_smell_warnings": _ai_warnings,
+            "hallucination_warnings": _hallucination_warnings,
+            "hallucination_tier": _hallucination_result["tier"],
+        }
 
     result_code = "soft_ok" if length_meta["length_policy"] != "strict" else "ok"
     return fitted, result_code, "ok", length_meta
 
 
-def _detect_ai_smell_patterns(text: str, user_answer: str) -> list[dict[str, str]]:
+def _detect_ai_smell_patterns(
+    text: str,
+    user_answer: str,
+    *,
+    template_type: str = "basic",
+    char_max: int | None = None,
+) -> list[dict[str, str]]:
     """Detect AI-like writing patterns in rewrite text.
 
     Returns a list of warning dicts, each with 'code' and 'detail' keys.
@@ -799,12 +839,21 @@ def _detect_ai_smell_patterns(text: str, user_answer: str) -> list[dict[str, str
         "価値を創出する",
         "新たな価値を",
         "幅広い視野",
+        "多角的に",
+        "包括的に",
     ]
     detected_phrases = [p for p in ai_phrases if p in text and p not in user_answer]
     if detected_phrases:
         warnings.append({
             "code": "ai_signature_phrase",
             "detail": f"LLM特有フレーズ検出: {'、'.join(detected_phrases[:3])}",
+        })
+
+    # 2b. ai_added_kankeisha: "関係者" added by AI when not in user's original
+    if "関係者" in text and "関係者" not in user_answer:
+        warnings.append({
+            "code": "ai_added_kankeisha",
+            "detail": "「関係者」はユーザー元回答になく、AI追加の可能性",
         })
 
     # 3. vague_modifier_chain: abstract modifiers without concrete backing, 2+ occurrences
@@ -841,6 +890,29 @@ def _detect_ai_smell_patterns(text: str, user_answer: str) -> list[dict[str, str
                     "detail": "最終文が具体語なしの定型的意気込みで締まっている",
                 })
 
+    # 6. concrete_value_absence: rewrite lacks concrete markers for templates that need them
+    _concrete_templates = {"gakuchika", "self_pr", "company_motivation"}
+    _check_concrete = template_type in _concrete_templates or (
+        template_type == "work_values" and char_max is not None and char_max > 200
+    )
+    if _check_concrete:
+        has_digit = bool(re.search(r"\d", text))
+        has_specific_noun = bool(re.search(
+            r"(\d+[人名件%％倍回日月年時間]|[一二三四五六七八九十百千万]\s*[人名件%倍回])",
+            text,
+        ))
+        user_had_digit = bool(re.search(r"\d", user_answer))
+        if user_had_digit and not has_digit:
+            warnings.append({
+                "code": "concrete_value_absence",
+                "detail": "元回答の数値がリライトで失われた",
+            })
+        elif not has_digit and not has_specific_noun and len(text) >= 120:
+            warnings.append({
+                "code": "concrete_value_absence",
+                "detail": "具体的な数値・固有名が不足している",
+            })
+
     return warnings
 
 
@@ -851,6 +923,8 @@ _AI_SMELL_PENALTIES: dict[str, float] = {
     "monotone_connector": 1.0,
     "ceremonial_closing": 1.0,
     "low_ending_diversity": 0.5,
+    "ai_added_kankeisha": 2.0,
+    "concrete_value_absence": 1.5,
 }
 
 _TIER2_THRESHOLDS: dict[str, dict[str, float]] = {

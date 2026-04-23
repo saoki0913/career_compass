@@ -23,7 +23,7 @@
 - ES自動添削（rewrite 中心、反映UX、全文添削はコピーのみ）
 - ガクチカ作成（MVPとして搭載）
 - 志望動機作成（AI対話形式でES下書き生成）
-- 企業特化模擬面接（GPT-5.4 mini 固定）
+- 企業特化模擬面接（plan: GPT-5.4 / 質問: Claude Haiku 4.5 / 講評: Claude Sonnet 4.6）
 - 進捗管理（企業登録→公式情報抽出→締切承認→通知→タスク提案）
 - ES作成ドキュメント（保存・企業/応募枠紐づけ）
 - ES初期テンプレ（5種類）
@@ -222,7 +222,7 @@
 - Tips/企業分析のAI利用も同じ消費ルールを適用する
 
 ### 4.4 面接対策
-- 企業特化模擬面接は `GPT-5.4 mini` 固定
+- plan 生成は GPT-5.4 (`MODEL_INTERVIEW_PLAN`)、質問生成は Claude Haiku 4.5 (`MODEL_INTERVIEW`)、最終講評は Claude Sonnet 4.6 (`MODEL_INTERVIEW_FEEDBACK`)
 - 最終講評が成功した 1 セッションごとに **6クレジット** 消費
 - 月次無料枠は設けない
 - 失敗時・途中離脱時は消費しない
@@ -948,7 +948,7 @@
 
 ### 17.6.2 基本仕様
 - ルートは `/companies/[id]/interview`
-- 質問生成は `MODEL_INTERVIEW=gpt-mini`（既定 `GPT-5.4 mini`）。最終講評は `MODEL_INTERVIEW_FEEDBACK`（既定 Claude Sonnet 系。表示名は `docs/features/INTERVIEW.md` 参照）
+- plan 生成は `MODEL_INTERVIEW_PLAN=gpt`（既定 GPT-5.4）。質問生成は `MODEL_INTERVIEW=claude-haiku`（既定 Claude Haiku 4.5）。最終講評は `MODEL_INTERVIEW_FEEDBACK`（既定 Claude Sonnet 系。表示名は `docs/features/INTERVIEW.md` 参照）
 - 画面は `DashboardHeader` + `max-w-7xl` の 2 カラム product UI
 - 開始前、進行中、完了後は同一レイアウト上で切り替える
 - 開始前に `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` を確認する
@@ -964,7 +964,7 @@
 - Next API は `GET /api/companies/[id]/interview` + `POST /api/companies/[id]/interview/start` + `POST /api/companies/[id]/interview/stream` + `POST /api/companies/[id]/interview/feedback` + `POST /api/companies/[id]/interview/continue` + `POST /api/companies/[id]/interview/reset` + `POST /api/companies/[id]/interview/feedback/satisfaction`
 - opening、各 follow-up、最終講評のすべてを SSE で streaming 表示する
 - SSE event は `progress / string_chunk / field_complete / array_item_complete / complete / error`
-- 会話上部と右カラムの両方で `現在の主論点 / covered までの残り checklist / follow-up 意図 / format phase` を表示する
+- 会話上部と右カラムの両方で `現在の主論点 / covered までの残り checklist` を表示する
 - `DashboardHeader` と `BottomTabBar` から `面接対策` を開くと `CompanySelectModal mode="interview"` を出し、企業選択後に対象 route へ遷移する
 - 最終講評では `企業適合 / 職種適合 / 具体性 / 論理性 / 説得力 / 一貫性 / 信頼性` の 7 軸評価、良かった点、改善点、一貫性リスク、最弱設問、最弱回答、改善回答例、追加準備論点、満足度を返す
 - 最終講評 card は先に表示し、`overall_comment`・スコア・箇条書き・改善回答例を段階的に埋める

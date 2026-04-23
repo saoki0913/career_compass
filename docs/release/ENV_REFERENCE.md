@@ -69,7 +69,8 @@
 | `MODEL_GAKUCHIKA_DRAFT` | No | ガクチカ ES 下書き生成 (デフォルト: `claude-sonnet` → Sonnet 4.6) |
 | `MODEL_MOTIVATION` | No | 志望動機作成モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
 | `MODEL_MOTIVATION_DRAFT` | No | 志望動機 ES 下書き生成 (デフォルト: `claude-sonnet` → Sonnet 4.6) |
-| `MODEL_INTERVIEW` | No | 企業特化模擬面接モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
+| `MODEL_INTERVIEW` | No | 企業特化模擬面接モデルティア (デフォルト: `claude-haiku` → Claude Haiku 4.5) |
+| `MODEL_INTERVIEW_PLAN` | No | 面接計画生成モデルティア (デフォルト: `gpt` → GPT-5.4) |
 | `MODEL_SELECTION_SCHEDULE` | No | 選考スケジュール抽出モデルティア (デフォルト: `gpt-mini` → GPT-5.4 mini) |
 | `MODEL_COMPANY_INFO` | No | 企業情報抽出モデルエイリアスまたは明示モデルID (デフォルト: `openai`) |
 | `MODEL_RAG_QUERY_EXPANSION` | No | RAGクエリ拡張 (デフォルト: `gpt-mini` = GPT-5.4 mini) |
@@ -132,6 +133,7 @@
 
 補足:
 - staging / preview の CI test auth は `CI_E2E_AUTH_SECRET` が設定されていれば有効。
+- `sync-career-compass-secrets.sh --apply --target vercel-staging` は `vercel-staging.env` の通常 key に加えて、`github-actions.env` にある `CI_E2E_AUTH_SECRET` / `CI_E2E_AUTH_ENABLED` / `PLAYWRIGHT_BASE_URL` を staging frontend へ overlay する。
 - 明示的に止めたい場合のみ frontend env に `CI_E2E_AUTH_ENABLED=0` を入れる。
 
 ## Sync Commands
