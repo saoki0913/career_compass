@@ -50,7 +50,10 @@ if [ -n "$TRACE_FILES" ]; then
 fi
 
 if [ $TRACE_STATUS -ne 0 ]; then
-  if [ $TRACE_STATUS -eq 1 ]; then
+  if printf '%s' "$TRACE_OUTPUT" | grep -qiE 'detection failed|fetch failed|network|timeout'; then
+    echo "[security] Trace-core scanner error (exit=$TRACE_STATUS); details: $TRACE_LOG"
+    SCANNER_ERRORS=1
+  elif [ $TRACE_STATUS -eq 1 ]; then
     echo "[security] Trace-core found issues (exit=$TRACE_STATUS); details: $TRACE_LOG"
     SCAN_RESULT=1
   else
