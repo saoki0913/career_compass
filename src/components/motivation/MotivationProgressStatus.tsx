@@ -11,6 +11,7 @@ import {
   type StageStatus,
   type ConversationMode,
   type MotivationStageKey,
+  type CausalGap,
 } from "@/lib/motivation/ui";
 
 type SlotKey = Exclude<MotivationStageKey, "closing">;
@@ -27,6 +28,7 @@ interface MotivationProgressStatusProps {
   currentSlotLabel: string | null;
   currentIntentLabel: string | null;
   nextAdvanceCondition: string | null;
+  causalGaps?: CausalGap[];
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +111,47 @@ function formatQuestionDisplay(
 // MotivationProgressStatus
 // ---------------------------------------------------------------------------
 
+const CausalGapStep = memo(function CausalGapStep({
+  gap,
+  status,
+}: {
+  gap: CausalGap;
+  status: PillStatus;
+}) {
+  return (
+    <div className="flex items-start gap-2.5 py-1">
+      <span className="relative mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center">
+        {status === "done" ? (
+          <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden />
+        ) : (
+          <>
+            <span
+              className={cn(
+                "absolute inline-flex h-2 w-2 rounded-full",
+                status === "current" ? "bg-sky-500" : "bg-muted-foreground/30",
+              )}
+            />
+            {status === "current" ? (
+              <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-sky-500 opacity-60" />
+            ) : null}
+          </>
+        )}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className={cn(
+          "text-[11px] font-medium",
+          status === "done" ? "text-muted-foreground line-through" : "text-foreground/80",
+        )}>
+          {SLOT_PILL_LABELS[gap.slot as SlotKey] || gap.slot}
+        </p>
+        {status === "current" ? (
+          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{gap.reason}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+});
+
 export const MotivationProgressStatus = memo(function MotivationProgressStatus({
   stageStatus,
   questionCount,
@@ -117,8 +160,10 @@ export const MotivationProgressStatus = memo(function MotivationProgressStatus({
   currentSlotLabel,
   currentIntentLabel,
   nextAdvanceCondition,
+  causalGaps = [],
 }: MotivationProgressStatusProps) {
   const questionDisplay = formatQuestionDisplay(questionCount, conversationMode);
+  const isDeepDive = conversationMode === "deepdive";
 
   const hasDetail =
     currentSlotLabel !== null ||
@@ -141,16 +186,27 @@ export const MotivationProgressStatus = memo(function MotivationProgressStatus({
         </span>
       </div>
 
-      {/* Slot pill badges */}
-      <div className="flex flex-wrap gap-1.5">
-        {(STAGE_ORDER as SlotKey[]).map((slot) => (
-          <MotivationSlotPill
-            key={slot}
-            label={SLOT_PILL_LABELS[slot]}
-            status={getMotivationSlotPillStatus(slot, stageStatus)}
-          />
-        ))}
-      </div>
+      {isDeepDive && causalGaps.length > 0 ? (
+        <div className="space-y-0.5">
+          {causalGaps.map((gap, i) => (
+            <CausalGapStep
+              key={gap.id}
+              gap={gap}
+              status={i === 0 ? "current" : "pending"}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {(STAGE_ORDER as SlotKey[]).map((slot) => (
+            <MotivationSlotPill
+              key={slot}
+              label={SLOT_PILL_LABELS[slot]}
+              status={getMotivationSlotPillStatus(slot, stageStatus)}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Detail section */}
       {hasDetail ? (

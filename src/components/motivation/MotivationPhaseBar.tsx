@@ -12,6 +12,7 @@ import {
 
 interface MotivationPhaseBarProps {
   isDraftReady: boolean;
+  generatedDraft?: string | null;
   conversationMode: ConversationMode;
   hasNextQuestion: boolean;
   hasCausalGaps: boolean;
@@ -26,21 +27,29 @@ function statusClass(status: PillStatus) {
 
 export const MotivationPhaseBar = memo(function MotivationPhaseBar({
   isDraftReady,
+  generatedDraft,
   conversationMode,
   hasNextQuestion,
   hasCausalGaps,
   className,
 }: MotivationPhaseBarProps) {
   const currentPhase = getMotivationLifecyclePhase(isDraftReady, conversationMode, hasNextQuestion, hasCausalGaps);
+  const hasDraft = Boolean(generatedDraft?.trim());
 
   return (
     <div className={cn("space-y-2", className)}>
       {MOTIVATION_LIFECYCLE_PHASES.map((phase) => {
-        const itemStatus = getMotivationPhaseStatus(phase.key, currentPhase);
+        let itemStatus = getMotivationPhaseStatus(phase.key, currentPhase);
+        if (phase.key === "draft_ready" && hasDraft && itemStatus !== "done") {
+          itemStatus = "done";
+        }
+        const label = phase.key === "draft_ready" && hasDraft
+          ? "ES生成済み"
+          : phase.label;
         return (
           <div key={phase.key} className={cn("rounded-[18px] border px-3.5 py-2.5 text-xs shadow-sm", statusClass(itemStatus))}>
             <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">{phase.label}</span>
+              <span className="font-medium">{label}</span>
               <span>{itemStatus === "done" ? "完了" : itemStatus === "current" ? "進行中" : "未着手"}</span>
             </div>
           </div>
