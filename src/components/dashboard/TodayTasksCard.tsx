@@ -87,7 +87,7 @@ export function TodayTasksCard({ todayTask, openTasks }: TodayTasksCardProps) {
   const showSeparator = hasTodayTask && hasOpenTasks;
 
   return (
-    <Card className="border-border/50 py-2 gap-2">
+    <Card className="border-border/50 py-1.5 gap-1.5">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-lg">今日のタスク</CardTitle>
         <Button variant="outline" size="sm" asChild>

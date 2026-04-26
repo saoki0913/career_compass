@@ -47,7 +47,7 @@ function LayoutInner({ children }: { children: ReactNode }) {
       <AppSidebar />
       <MobileSidebarToggle />
       <div
-        className="min-h-screen transition-[margin-left] duration-200 ease-in-out lg:ml-[var(--sidebar-width)]"
+        className="min-h-screen transition-[margin-left,width] duration-200 ease-in-out lg:ml-[var(--sidebar-width)] lg:w-[calc(100vw_-_var(--sidebar-width))]"
         style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
       >
         {children}

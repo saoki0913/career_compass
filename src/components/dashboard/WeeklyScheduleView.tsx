@@ -57,7 +57,8 @@ const typeLabels: Record<string, string> = {
 };
 
 const DAY_NAMES = ["月", "火", "水", "木", "金", "土", "日"] as const;
-const TIME_SLOTS = ["09", "11", "13", "15", "17"] as const;
+const TIME_SLOTS_FULL = ["09", "11", "13", "15", "17"] as const;
+const TIME_SLOTS_COMPACT = ["09", "11", "13"] as const;
 
 function toJSTDateKey(date: Date): string {
   return date.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
@@ -99,10 +100,10 @@ function getJSTHour(isoDatetime: string): number {
 }
 
 function getNearestSlot(hour: number): string {
-  for (let i = TIME_SLOTS.length - 1; i >= 0; i--) {
-    if (hour >= parseInt(TIME_SLOTS[i], 10)) return TIME_SLOTS[i];
+  for (let i = TIME_SLOTS_FULL.length - 1; i >= 0; i--) {
+    if (hour >= parseInt(TIME_SLOTS_FULL[i], 10)) return TIME_SLOTS_FULL[i];
   }
-  return TIME_SLOTS[0];
+  return TIME_SLOTS_FULL[0];
 }
 
 function getColorForType(type: string) {
@@ -112,12 +113,6 @@ function getColorForType(type: string) {
 const CalendarIcon = ({ className }: { className?: string }) => (
   <svg className={cn("h-5 w-5", className)} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-  </svg>
-);
-
-const EmptyCalendarIcon = () => (
-  <svg className="h-8 w-8 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
   </svg>
 );
 
@@ -272,7 +267,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
             })}
 
             {/* Time slot rows */}
-            {TIME_SLOTS.map((slot) => (
+            {(hasContent ? TIME_SLOTS_FULL : TIME_SLOTS_COMPACT).map((slot) => (
               <Fragment key={slot}>
                 <div className="flex items-start justify-center border-t border-border/20 pt-1">
                   <span className="text-[9px] font-medium text-muted-foreground">{slot}</span>
@@ -318,10 +313,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
         </div>
 
         {!hasContent && (
-          <div className="flex items-center justify-center gap-2 pt-1 pb-1">
-            <EmptyCalendarIcon />
-            <p className="text-xs text-muted-foreground">今週の予定はありません</p>
-          </div>
+          <p className="pt-1 text-center text-xs text-muted-foreground">今週の予定はありません</p>
         )}
       </CardContent>
     </Card>

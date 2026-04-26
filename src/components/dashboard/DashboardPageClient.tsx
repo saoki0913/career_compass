@@ -80,24 +80,24 @@ export function DashboardPageClient({
           onMotivationClick={() => setShowMotivationCompanySelect(true)}
         />
 
-        <div className="grid grid-cols-1 gap-1 lg:grid-cols-[7fr_3fr] lg:items-start">
+        <div className="grid grid-cols-1 gap-1 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)] lg:items-start">
           <WeeklyScheduleView deadlines={scheduleDeadlines} calendarEvents={viewer.isGuest ? [] : calendarEvents} isGuest={viewer.isGuest} />
           <TodayTasksCard todayTask={todayTask} openTasks={openTasks} />
         </div>
 
-        <div className="grid grid-cols-1 gap-1 lg:grid-cols-[7fr_3fr] lg:items-start">
+        <div className="grid grid-cols-1 gap-1 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)] lg:items-start">
           <CompanyProgressCard companies={companies} />
           <DeadlineCard deadlines={deadlines} />
         </div>
 
         {viewer.isGuest && (
-          <div className="rounded-xl border border-primary/20 bg-gradient-to-r from-primary/10 via-accent/10 to-primary/10 p-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="rounded-lg border border-primary/20 bg-gradient-to-r from-primary/10 via-accent/10 to-primary/10 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-semibold">ゲストモードで利用中</h3>
-                <p className="mt-0.5 text-xs text-muted-foreground">ログインすると、データの保存やカレンダー連携が使えます</p>
+                <p className="text-xs text-muted-foreground">ログインすると、データの保存やカレンダー連携が使えます</p>
               </div>
-              <Button size="sm" asChild><Link href="/login">ログインする</Link></Button>
+              <Button size="sm" className="shrink-0" asChild><Link href="/login">ログインする</Link></Button>
             </div>
           </div>
         )}

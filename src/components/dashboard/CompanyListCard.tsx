@@ -72,7 +72,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
             title="企業が未登録です"
             description="企業を追加して、選考を管理しましょう"
             action={{ label: "企業を追加", href: "/companies/new" }}
-            className="py-6"
+            className="py-2"
           />
         ) : (
           <div className="overflow-x-auto">
