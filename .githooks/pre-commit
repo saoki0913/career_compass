@@ -6,3 +6,11 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 node scripts/git-hooks/enforce-local-ai-e2e.mjs
+
+# Lightweight security scan (critical = hard block, high = warning only)
+scan_exit=0
+bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical || scan_exit=$?
+if [ "$scan_exit" -eq 1 ]; then
+  echo "[pre-commit] Security scan found critical issues. Commit blocked."
+  exit 1
+fi

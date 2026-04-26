@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 
-import { execSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import readline from "node:readline";
 import { buildE2EFunctionalSnapshot, getStagedFiles } from "../ci/e2e-functional-snapshot.mjs";
 import {
   ALL_E2E_FUNCTIONAL_FEATURES,
@@ -14,6 +12,7 @@ import {
 import { resolveE2EFunctionalScope } from "../../src/lib/e2e-functional-scope.mjs";
 
 const STATUS_DIR = "backend/tests/output/local_ai_live/status";
+const DECISION_PREFIX = "e2e-functional-decision-";
 
 function readManifest(repoRoot, feature) {
   const manifestPath = path.join(repoRoot, STATUS_DIR, `${feature}.json`);
@@ -39,11 +38,109 @@ function getSuggestedCommand(features) {
   return features.map((feature) => getE2EFunctionalCommand(feature, "local")).join("\n  ");
 }
 
+function parseFeatureList(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function parseE2EFunctionalDecision(raw) {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+
+  const [action, first = "", second = "", ...rest] = value.split(":");
+  if (action === "run") {
+    return {
+      action,
+      runFeatures: parseFeatureList(first),
+      skipFeatures: [],
+      snapshotHash: second,
+      reason: rest.join(":"),
+    };
+  }
+  if (action === "skip") {
+    return {
+      action,
+      runFeatures: [],
+      skipFeatures: parseFeatureList(first),
+      snapshotHash: second,
+      reason: rest.join(":"),
+    };
+  }
+  if (action === "partial") {
+    const [snapshotHash = "", ...reasonParts] = rest;
+    return {
+      action,
+      runFeatures: parseFeatureList(first),
+      skipFeatures: parseFeatureList(second),
+      snapshotHash,
+      reason: reasonParts.join(":"),
+    };
+  }
+  return null;
+}
+
+function defaultDecisionDir() {
+  const home = process.env.HOME || "";
+  return home ? path.join(home, ".claude", "sessions", "career_compass") : "";
+}
+
+function readDecision({
+  decisionFile = process.env.E2E_FUNCTIONAL_DECISION_FILE,
+  snapshotHash = "",
+  features = [],
+} = {}) {
+  const candidates = [];
+  if (decisionFile) {
+    candidates.push(decisionFile);
+  } else {
+    const dir = defaultDecisionDir();
+    if (dir && fs.existsSync(dir)) {
+      const files = fs
+        .readdirSync(dir)
+        .filter((name) => name.startsWith(DECISION_PREFIX))
+        .map((name) => path.join(dir, name))
+        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+      candidates.push(...files);
+    }
+  }
+
+  const parsedDecisions = [];
+  for (const file of candidates) {
+    try {
+      const parsed = parseE2EFunctionalDecision(fs.readFileSync(file, "utf8"));
+      if (parsed) parsedDecisions.push(parsed);
+    } catch {
+      // Ignore unreadable stale session files and keep looking.
+    }
+  }
+  if (snapshotHash && features.length > 0) {
+    const required = new Set(features);
+    const matching = parsedDecisions.find((decision) => {
+      if (decision.snapshotHash !== snapshotHash) return false;
+      return [...decision.runFeatures, ...decision.skipFeatures].some((feature) =>
+        required.has(feature),
+      );
+    });
+    if (matching) return matching;
+  }
+  return parsedDecisions[0] || null;
+}
+
+function decisionCoversFailures(decision, failures) {
+  if (!decision || decision.action === "run") return false;
+  if (!decision.reason.trim()) return false;
+  const skipped = new Set(decision.skipFeatures);
+  return failures.every((failure) => skipped.has(failure.feature));
+}
+
 export function evaluateLocalAiE2EReadiness({
   repoRoot = process.cwd(),
   changedFiles = [],
   snapshotHash,
   readManifestImpl = readManifest,
+  readDecisionImpl = (options) => readDecision(options),
 } = {}) {
   const scope = resolveE2EFunctionalScope({ changedFiles });
   if (!scope.shouldRun || scope.features.length === 0) {
@@ -101,17 +198,44 @@ export function evaluateLocalAiE2EReadiness({
     }
   }
 
+  const rawDecision =
+    failures.length > 0
+      ? readDecisionImpl({ snapshotHash, features: scope.features })
+      : null;
+  const decision =
+    typeof rawDecision === "string" ? parseE2EFunctionalDecision(rawDecision) : rawDecision;
+  if (decision) {
+    if (decision.snapshotHash !== snapshotHash) {
+      const decisionFeatures = [...new Set([...decision.runFeatures, ...decision.skipFeatures])];
+      for (const feature of decisionFeatures.length > 0 ? decisionFeatures : scope.features) {
+        failures.push({
+          feature,
+          reason: "stale_decision",
+          decisionSnapshotHash: decision.snapshotHash,
+        });
+      }
+    } else if (decisionCoversFailures(decision, failures)) {
+      return {
+        ok: true,
+        features: scope.features,
+        failures: [],
+        decision,
+      };
+    }
+  }
+
   return {
     ok: failures.length === 0,
     features: scope.features,
     failures,
+    ...(decision ? { decision } : {}),
   };
 }
 
-function printFailureSummary(result) {
+function printFailureSummary(result, snapshotHash) {
   const groupedFeatures = [...new Set(result.failures.map((failure) => failure.feature))];
   const suggestedCommand = getSuggestedCommand(groupedFeatures);
-  process.stderr.write("⛔ local AI E2E gate failed. Commit 前に localhost E2E を更新してください。\n");
+  process.stderr.write("⛔ local E2E Functional gate failed. Commit 前に AskUserQuestion で実行/スキップを選択してください。\n");
   for (const failure of result.failures) {
     const detail =
       failure.reason === "missing_manifest"
@@ -121,77 +245,18 @@ function printFailureSummary(result) {
           : failure.reason === "stale_snapshot"
             ? "staged snapshot と一致しません"
             : failure.reason === "playwright_required"
-              ? `ES 添削 browser E2E が未通過です (playwrightStatus=${failure.playwrightStatus || "unknown"})`
-              : `status=${failure.status || "failed"}`;
+              ? `browser E2E が未通過です (playwrightStatus=${failure.playwrightStatus || "unknown"})`
+              : failure.reason === "stale_decision"
+                ? `AskUserQuestion checkpoint が stale です (decisionSnapshotHash=${failure.decisionSnapshotHash || "unknown"})`
+                : `status=${failure.status || "failed"}`;
     process.stderr.write(`- ${failure.feature}: ${detail}\n`);
   }
-  process.stderr.write("実行コマンド:\n");
+  process.stderr.write("実行する場合のコマンド:\n");
   process.stderr.write(`  ${suggestedCommand}\n`);
-}
-
-function askConfirmation(question) {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim().toLowerCase());
-    });
-  });
-}
-
-async function autoRunFeatureTests(repoRoot, failures) {
-  const features = [...new Set(failures.map((f) => f.feature))];
-
-  process.stderr.write("\n⛔ 以下の機能の E2E テストが未通過です:\n");
-  for (const f of features) {
-    process.stderr.write(`  - ${f}\n`);
-  }
-  process.stderr.write("\n");
-
-  if (process.env.AI_E2E_AUTO_CONFIRM !== "1") {
-    if (!process.stdin.isTTY) {
-      process.stderr.write(
-        "非インタラクティブ環境です。手動で実行してください:\n" +
-        `  ${getSuggestedCommand(features)}\n` +
-        "または AI_E2E_AUTO_CONFIRM=1 で自動実行を有効化してください\n"
-      );
-      process.exit(1);
-    }
-    const answer = await askConfirmation(
-      "テストを実行しますか？ (y/n/s=skip commit) > "
-    );
-    if (answer === "s" || answer === "skip") {
-      process.stderr.write("コミットを中止します\n");
-      process.exit(1);
-    }
-    if (answer !== "y" && answer !== "yes") {
-      process.stderr.write(
-        "テストをスキップします。手動で実行してください:\n" +
-        `  ${getSuggestedCommand(features)}\n`
-      );
-      process.exit(1);
-    }
-  }
-
-  process.stderr.write(`🔄 AI E2E テストを実行します (${features.join(", ")})...\n`);
-
-  const featuresArg = features.join(",");
-  const suiteOverride = process.env.AI_E2E_AUTO_SUITE || "dev";
-  const cmd = `make ai-live-local SUITE=${suiteOverride} AI_LIVE_LOCAL_FEATURES=${featuresArg}`;
-  process.stderr.write(`${cmd}\n`);
-  const result = spawnSync("make", ["ai-live-local", `SUITE=${suiteOverride}`, `AI_LIVE_LOCAL_FEATURES=${featuresArg}`], {
-    stdio: "inherit",
-    cwd: repoRoot,
-    timeout: 20 * 60 * 1000,
-    killSignal: "SIGTERM",
-    shell: false,
-  });
-
-  if (result.error?.code === "ETIMEDOUT") {
-    process.stderr.write("  ⏰ テスト実行がタイムアウトしました (20分)\n");
-  } else if (result.status !== 0) {
-    process.stderr.write("  一部テスト失敗\n");
-  }
+  process.stderr.write("スキップする場合の checkpoint 例:\n");
+  process.stderr.write(
+    `  echo "skip:${groupedFeatures.join(",")}:${snapshotHash}:<reason>" > ~/.claude/sessions/career_compass/e2e-functional-decision-<SESSION_ID>\n`,
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -206,26 +271,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     });
 
     if (!result.ok) {
-      if (process.env.AI_E2E_AUTO_RUN === "0") {
-        printFailureSummary(result);
-        process.exit(1);
-      }
-
-      await autoRunFeatureTests(repoRoot, result.failures);
-
-      const reSnapshot = buildE2EFunctionalSnapshot({ cwd: repoRoot, files: changedFiles });
-      const reResult = evaluateLocalAiE2EReadiness({
-        repoRoot,
-        changedFiles,
-        snapshotHash: reSnapshot.snapshotHash,
-      });
-
-      if (!reResult.ok) {
-        printFailureSummary(reResult);
-        process.exit(1);
-      }
-
-      process.stderr.write("✅ AI E2E テスト pass — コミットを続行します\n");
+      printFailureSummary(result, snapshot.snapshotHash);
+      process.exit(1);
     }
   })();
 }

@@ -1,4 +1,4 @@
-.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression test-e2e-regression test-e2e-functional test-e2e-functional-es test-e2e-functional-gakuchika test-e2e-functional-motivation test-e2e-functional-interview test-e2e-functional-company-info-search test-e2e-functional-rag-ingest test-e2e-functional-selection-schedule test-e2e-functional-calendar test-e2e-functional-tasks-deadlines test-e2e-functional-notifications test-e2e-functional-company-crud test-e2e-functional-profile-settings test-e2e-functional-billing test-e2e-functional-search-query test-e2e-functional-local test-e2e-functional-local-company-info-search test-e2e-functional-local-selection-schedule test-e2e-functional-local-rag-ingest test-e2e-functional-local-gakuchika test-e2e-functional-local-motivation test-e2e-functional-local-interview test-e2e-functional-local-es test-e2e-functional-local-calendar test-e2e-functional-local-tasks-deadlines test-e2e-functional-local-notifications test-e2e-functional-local-company-crud test-e2e-functional-local-profile-settings test-e2e-functional-local-billing test-e2e-functional-local-search-query ai-live-local db-push db-generate db-studio clean \
+.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression test-e2e-regression test-e2e-functional test-e2e-functional-es test-e2e-functional-gakuchika test-e2e-functional-motivation test-e2e-functional-interview test-e2e-functional-company-info-search test-e2e-functional-rag-ingest test-e2e-functional-selection-schedule test-e2e-functional-calendar test-e2e-functional-tasks-deadlines test-e2e-functional-notifications test-e2e-functional-company-crud test-e2e-functional-profile-settings test-e2e-functional-billing test-e2e-functional-search-query test-e2e-functional-local test-e2e-functional-local-company-info-search test-e2e-functional-local-selection-schedule test-e2e-functional-local-rag-ingest test-e2e-functional-local-gakuchika test-e2e-functional-local-motivation test-e2e-functional-local-interview test-e2e-functional-local-es test-e2e-functional-local-calendar test-e2e-functional-local-tasks-deadlines test-e2e-functional-local-notifications test-e2e-functional-local-company-crud test-e2e-functional-local-profile-settings test-e2e-functional-local-billing test-e2e-functional-local-search-query test-quality-all test-static security-scan ai-live-local db-push db-generate db-studio clean \
 	up down restart backend-test backend-test-search backend-lint backend-format logs check deps reset-db seed \
 	backend-deadcode frontend-deadcode deadcode \
 	db-migrate db-status db-check db-drop db-introspect db-fresh backend-install \
@@ -221,6 +221,19 @@ test-e2e-functional-local-pages-smoke:
 ## staging を対象にページ表示確認の AI Live を実行
 test-e2e-functional-pages-smoke:
 	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=pages-smoke bash scripts/ci/run-ai-live.sh
+
+## LLM / RAG / search quality checks (opt-in)
+test-quality-all:
+	AI_LIVE_TEST_CATEGORY=quality AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=all bash scripts/ci/run-ai-live.sh
+
+## Static checks (opt-in)
+test-static:
+	npx tsc --noEmit
+	npm run lint
+
+## Lightweight security scan (staged critical only)
+security-scan:
+	bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical
 
 # ===========================================
 # データベース (Drizzle + Supabase/PostgreSQL)

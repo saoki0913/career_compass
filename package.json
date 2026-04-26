@@ -42,6 +42,9 @@
     "test:e2e:functional:local:motivation": "AI_LIVE_LOCAL_FEATURES=motivation bash scripts/dev/run-ai-live-local.sh",
     "test:e2e:functional:local:interview": "AI_LIVE_LOCAL_FEATURES=interview bash scripts/dev/run-ai-live-local.sh",
     "test:e2e:functional:local:es": "AI_LIVE_LOCAL_FEATURES=es-review AI_LIVE_LOCAL_SKIP_ES_REVIEW_PLAYWRIGHT=0 bash scripts/dev/run-ai-live-local.sh",
+    "test:quality:all": "AI_LIVE_TEST_CATEGORY=quality bash scripts/ci/run-ai-live.sh --feature all",
+    "test:static": "npx tsc --noEmit && npm run lint",
+    "test:security:light": "bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical",
     "test:ui:review": "node tools/run-ui-review.mjs",
     "test:unit": "vitest run",
     "test:agent-pipeline": "node --test scripts/agent-pipeline/sync-pipeline.test.mjs",
@@ -117,6 +120,7 @@
     "knip": "^5",
     "remotion": "^4.0.441",
     "tailwindcss": "^4",
+    "trace-core": "^0.7.0",
     "typescript": "^5",
     "vitest": "^4.1.0"
   }
