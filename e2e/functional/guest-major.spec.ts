@@ -19,7 +19,7 @@ import {
   expectOkResponse,
   loginAsGuest,
   navigateTo,
-} from "./fixtures/auth";
+} from "../fixtures/auth";
 
 type RoleOptionsResponse = {
   roleGroups: Array<{

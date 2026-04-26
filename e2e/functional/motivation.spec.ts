@@ -4,7 +4,7 @@ import {
   ensureGuestSession,
   mockAuthenticatedUser,
   mockCredits,
-} from "./fixtures/auth";
+} from "../fixtures/auth";
 
 const COMPANY_ID = "motivation-test-company";
 
@@ -769,7 +769,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
 
-    const phaseBar = page.locator("[class*='space-y-2']").filter({ hasText: "ES作成可" });
+    const phaseBar = page.locator("div, section, aside, nav").filter({ hasText: "ES作成可" }).filter({ hasText: "深堀り中" }).first();
     await expect(phaseBar.getByText("ES作成可")).toBeVisible();
     await expect(phaseBar.getByText("進行中")).toBeVisible();
     await expect(phaseBar.getByText("深堀り中")).toBeVisible();
@@ -824,7 +824,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
     await expect(page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" })).toBeVisible();
     await page.getByRole("button", { name: "もっと深堀りして再生成する" }).click();
 
-    const phaseBar = page.locator("[class*='space-y-2']").filter({ hasText: "ES作成可" });
+    const phaseBar = page.locator("div, section, aside, nav").filter({ hasText: "ES作成可" }).filter({ hasText: "深堀り中" }).first();
     await expect(phaseBar.getByText("完了").first()).toBeVisible();
     await expect(phaseBar.getByText("深堀り中")).toBeVisible();
   });

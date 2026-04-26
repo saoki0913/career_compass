@@ -8,8 +8,8 @@ import {
   deleteOwnedNotification,
   deleteOwnedTask,
   expectOkResponse,
-} from "./fixtures/auth";
-import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
+} from "../fixtures/auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "../google-auth";
 
 test.describe("User major flow", () => {
   test.skip(!hasAuthenticatedUserAccess, "Authenticated E2E access is not configured");

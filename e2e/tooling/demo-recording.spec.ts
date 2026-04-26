@@ -18,7 +18,7 @@ import {
   loginAsGuest,
   mockCredits,
   navigateTo,
-} from "./fixtures/auth";
+} from "../fixtures/auth";
 
 const GUEST_DEVICE_TOKEN_KEY = "ukarun_device_token";
 const DEMO_COMPANY_NAME = "株式会社グローバルテック";

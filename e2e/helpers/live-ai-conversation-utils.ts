@@ -31,28 +31,41 @@ export type SetupResponseLike = {
   statusText(): string;
   text(): Promise<string>;
 };
-export type SetupRequester = typeof apiRequest;
+export type SetupRequester = (
+  page: Parameters<typeof apiRequest>[0],
+  method: string,
+  endpoint: string,
+  body?: Record<string, unknown>,
+) => Promise<SetupResponseLike>;
 
 // ---------------------------------------------------------------------------
 // SSE parsing
 // ---------------------------------------------------------------------------
 
 export function parseSseEvents(rawText: string): ParsedSseEvent[] {
-  return rawText
+  const blocks = rawText
     .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
     .split("\n\n")
     .map((block) => block.trim())
-    .filter(Boolean)
-    .flatMap((block) => {
-      const dataLine = block.split("\n").find((line) => line.startsWith("data: "));
-      if (!dataLine) return [];
+    .filter(Boolean);
 
-      try {
-        return [JSON.parse(dataLine.slice("data: ".length).trim()) as ParsedSseEvent];
-      } catch {
-        return [];
-      }
-    });
+  const events = blocks.flatMap((block) => {
+    const dataLines = block
+      .split("\n")
+      .filter((line) => line.startsWith("data: "))
+      .map((line) => line.slice("data: ".length));
+    if (dataLines.length === 0) return [];
+
+    try {
+      return [JSON.parse(dataLines.join("\n").trim()) as ParsedSseEvent];
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      throw new Error(`Malformed SSE event JSON: ${cause}`);
+    }
+  });
+
+  return events;
 }
 
 export function parseCompleteData(events: ParsedSseEvent[]) {
@@ -61,7 +74,11 @@ export function parseCompleteData(events: ParsedSseEvent[]) {
   if (!completeEvent) {
     throw new Error("stream did not emit a complete event");
   }
-  return (completeEvent.data || {}) as Record<string, unknown>;
+  const data = (completeEvent.data || {}) as Record<string, unknown>;
+  if (Object.keys(data).length === 0) {
+    console.warn("[SSE] complete event has empty data payload — backend may have changed format");
+  }
+  return data;
 }
 
 export function isGakuchikaDraftReady(completeData: Record<string, unknown> | null | undefined) {
@@ -367,7 +384,8 @@ export async function runMotivationSetupWithRequest(
   let latestComplete: Record<string, unknown> | null = null;
   const totalAttempts = Math.max(answers.length + MOTIVATION_FALLBACK_ANSWERS.length, 24);
   let motivationRateRetries = 0;
-  const maxMotivationRateRetries = 12;
+  const maxMotivationRateRetries = Number(process.env.LIVE_AI_RETRY_MAX) || 12;
+  const retryDelayMs = Number(process.env.LIVE_AI_RETRY_DELAY_MS) || 2000;
 
   for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
     const answer =
@@ -389,7 +407,9 @@ export async function runMotivationSetupWithRequest(
       motivationRateRetries += 1;
       transcript?.pop();
       attempt -= 1;
-      await new Promise((r) => setTimeout(r, 2000 * motivationRateRetries));
+      const delay = retryDelayMs * motivationRateRetries;
+      console.warn(`[motivation] 429 rate limit, retry ${motivationRateRetries}/${maxMotivationRateRetries} in ${delay}ms`);
+      await new Promise((r) => setTimeout(r, delay));
       continue;
     }
     const events = parseSseEvents(
@@ -442,7 +462,8 @@ export async function runGakuchikaSetupWithRequest(
   let nextQuestionText = startBody.nextQuestion || startBody.messages[0]?.content || "";
   const totalAttempts = Math.max(answers.length + GAKUCHIKA_FALLBACK_ANSWERS.length, 24);
   let rateLimitRetries = 0;
-  const maxRateLimitRetries = 12;
+  const maxRateLimitRetries = Number(process.env.LIVE_AI_RETRY_MAX) || 12;
+  const gakuRetryDelayMs = Number(process.env.LIVE_AI_RETRY_DELAY_MS) || 2000;
 
   for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
     const answer =
@@ -464,7 +485,9 @@ export async function runGakuchikaSetupWithRequest(
       rateLimitRetries += 1;
       transcript?.pop();
       attempt -= 1;
-      await new Promise((r) => setTimeout(r, 2000 * rateLimitRetries));
+      const delay = gakuRetryDelayMs * rateLimitRetries;
+      console.warn(`[gakuchika] 429 rate limit, retry ${rateLimitRetries}/${maxRateLimitRetries} in ${delay}ms`);
+      await new Promise((r) => setTimeout(r, delay));
       continue;
     }
     const events = parseSseEvents(
@@ -494,11 +517,13 @@ type OwnedCompanySummary = { id: string; name: string };
 export function collectStaleLiveAiCompanyIds(
   companies: OwnedCompanySummary[],
   caseIds: string[],
+  runId: string,
 ) {
   return companies
     .filter(
       (company) =>
         company.name.includes("_live-ai-conversations-") &&
+        company.name.includes(`_${runId}`) &&
         caseIds.some((caseId) =>
           company.name.includes(`_${caseId}_live-ai-conversations-`),
         ),
@@ -517,9 +542,10 @@ async function listOwnedCompanies(page: Parameters<typeof apiRequest>[0]) {
 export async function cleanupStaleLiveAiCompanies(
   page: Parameters<typeof apiRequest>[0],
   caseIds: string[],
+  runId: string,
 ) {
   const companies = await listOwnedCompanies(page);
-  const staleIds = collectStaleLiveAiCompanyIds(companies, caseIds);
+  const staleIds = collectStaleLiveAiCompanyIds(companies, caseIds, runId);
   for (const staleId of staleIds) {
     await deleteOwnedCompany(page, staleId);
   }

@@ -25,11 +25,11 @@ import {
   apiRequestAsAuthenticatedUser,
   apiRequest,
   expectOkResponse,
-} from "./fixtures/auth";
+} from "../fixtures/auth";
 import {
   hasAuthenticatedUserAccess,
   signInAsAuthenticatedUser,
-} from "./google-auth";
+} from "../google-auth";
 
 // ---------------------------------------------------------------------------
 // Guest tests

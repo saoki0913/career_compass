@@ -185,55 +185,80 @@ function buildCiE2ESessionFailureMessage(input: {
   return parts.join(" | ");
 }
 
+const CI_E2E_AUTH_MAX_ATTEMPTS = 4;
+const CI_E2E_AUTH_RETRY_BASE_MS = 800;
+
 export async function ensureCiE2EAuthSession(page: Page) {
   if (!ciE2EAuthSecret) {
     throw new Error("Missing CI_E2E_AUTH_SECRET");
   }
 
   const baseUrl = getBaseUrl();
-  const response = await page.context().request.post(`${baseUrl}/api/internal/test-auth/login`, {
-    headers: {
-      Authorization: `Bearer ${ciE2EAuthSecret}`,
-      ...(ciE2EScope ? { "x-ci-e2e-scope": ciE2EScope } : {}),
-    },
-  });
+  let lastError: Error | null = null;
 
-  if (!response.ok()) {
-    const rawBody = await response.text();
-    const requestId = response.headers()["x-request-id"] || "";
-    throw new Error(
-      buildCiE2EAuthFailureMessage({
-        status: response.status(),
-        errorCode: parseErrorCode(rawBody),
-        endpoint: response.url(),
-        requestId,
-        responseSnippet: normalizeResponseSnippet(rawBody),
-      })
-    );
-  }
+  for (let attempt = 0; attempt < CI_E2E_AUTH_MAX_ATTEMPTS; attempt += 1) {
+    const response = await page.context().request.post(`${baseUrl}/api/internal/test-auth/login`, {
+      headers: {
+        Authorization: `Bearer ${ciE2EAuthSecret}`,
+        ...(ciE2EScope ? { "x-ci-e2e-scope": ciE2EScope } : {}),
+      },
+    });
 
-  let sessionProbe = await probeCiE2ESession(page);
-  if (!sessionProbe.hasSessionCookie || !sessionProbe.sessionUserId) {
-    const parsedCookies = response
-      .headersArray()
-      .filter((header) => header.name.toLowerCase() === "set-cookie")
-      .map((header) => parseSetCookieHeader(header.value, new URL(baseUrl)))
-      .filter((cookie): cookie is NonNullable<ReturnType<typeof parseSetCookieHeader>> => {
-        if (!cookie) {
-          return false;
-        }
-        return sessionProbe.cookieCandidates.includes(cookie.name);
-      });
+    if (!response.ok()) {
+      const rawBody = await response.text();
+      const requestId = response.headers()["x-request-id"] || "";
+      const error = new Error(
+        buildCiE2EAuthFailureMessage({
+          status: response.status(),
+          errorCode: parseErrorCode(rawBody),
+          endpoint: response.url(),
+          requestId,
+          responseSnippet: normalizeResponseSnippet(rawBody),
+        }),
+      );
 
-    if (parsedCookies.length > 0) {
-      await page.context().addCookies(parsedCookies);
-      sessionProbe = await probeCiE2ESession(page);
+      if (response.status() === 401 || response.status() === 404) {
+        throw error;
+      }
+
+      lastError = error;
+      if (response.status() >= 500 && attempt < CI_E2E_AUTH_MAX_ATTEMPTS - 1) {
+        await page.waitForTimeout(CI_E2E_AUTH_RETRY_BASE_MS * (attempt + 1));
+        continue;
+      }
+      throw error;
+    }
+
+    let sessionProbe = await probeCiE2ESession(page);
+    if (!sessionProbe.hasSessionCookie || !sessionProbe.sessionUserId) {
+      const parsedCookies = response
+        .headersArray()
+        .filter((header) => header.name.toLowerCase() === "set-cookie")
+        .map((header) => parseSetCookieHeader(header.value, new URL(baseUrl)))
+        .filter((cookie): cookie is NonNullable<ReturnType<typeof parseSetCookieHeader>> => {
+          if (!cookie) {
+            return false;
+          }
+          return sessionProbe.cookieCandidates.includes(cookie.name);
+        });
+
+      if (parsedCookies.length > 0) {
+        await page.context().addCookies(parsedCookies);
+        sessionProbe = await probeCiE2ESession(page);
+      }
+    }
+
+    if (sessionProbe.hasSessionCookie && sessionProbe.sessionUserId) {
+      return;
+    }
+
+    lastError = new Error(buildCiE2ESessionFailureMessage(sessionProbe));
+    if (attempt < CI_E2E_AUTH_MAX_ATTEMPTS - 1) {
+      await page.waitForTimeout(CI_E2E_AUTH_RETRY_BASE_MS * (attempt + 1));
     }
   }
 
-  if (!sessionProbe.hasSessionCookie || !sessionProbe.sessionUserId) {
-    throw new Error(buildCiE2ESessionFailureMessage(sessionProbe));
-  }
+  throw lastError ?? new Error("CI E2E auth failed after retries");
 }
 
 export async function signInWithGoogle(page: Page, expectedPath: string) {

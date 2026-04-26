@@ -1,13 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import {
   ensureGuestSession,
   loginAsGuest,
   mockAuthenticatedUser,
   mockCredits,
-} from "./fixtures/auth";
-import { parseUiReviewPaths, slugifyUiReviewPath } from "../src/lib/ui-review-cli.mjs";
+} from "../fixtures/auth";
+import { parseUiReviewPaths, slugifyUiReviewPath } from "../../src/lib/ui-review-cli.mjs";
 
 const authMode = process.env.PLAYWRIGHT_UI_AUTH_MODE?.trim() || "none";
 const reviewPaths = parseUiReviewPaths(process.env.PLAYWRIGHT_UI_PATHS);
@@ -47,7 +48,7 @@ const UI_REVIEW_COMPANY = {
 } as const;
 
 async function mockCompaniesRoute(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   routePath: string,
 ) {
   if (!routePath.startsWith("/companies")) {
@@ -73,7 +74,7 @@ async function mockCompaniesRoute(
 }
 
 async function mockCalendarRoute(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   routePath: string,
 ) {
   if (routePath !== "/calendar") {
@@ -192,7 +193,7 @@ async function mockCalendarRoute(
 }
 
 async function mockGakuchikaRoute(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   routePath: string,
 ) {
   if (routePath !== "/gakuchika") {
@@ -227,7 +228,7 @@ async function mockGakuchikaRoute(
 }
 
 async function mockTasksRoute(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   routePath: string,
 ) {
   if (routePath !== "/tasks") {
@@ -312,7 +313,7 @@ async function mockTasksRoute(
   });
 }
 
-async function mockNotifications(page: Parameters<typeof test>[0]["page"]) {
+async function mockNotifications(page: Page) {
   await page.route("**/api/notifications**", async (route) => {
     await route.fulfill({
       status: 200,
@@ -323,7 +324,7 @@ async function mockNotifications(page: Parameters<typeof test>[0]["page"]) {
 }
 
 async function mockMotivationRoute(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   routePath: string,
 ) {
   if (routePath !== `/companies/${MOTIVATION_COMPANY_ID}/motivation`) {
@@ -438,7 +439,7 @@ async function mockMotivationRoute(
 }
 
 async function mockInterviewRoute(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   routePath: string,
 ) {
   if (routePath !== `/companies/${MOTIVATION_COMPANY_ID}/interview`) {
@@ -519,7 +520,7 @@ async function mockInterviewRoute(
 }
 
 async function prepareAuthForRoute(
-  page: Parameters<typeof test>[0]["page"],
+  page: Page,
   routePath: string,
 ) {
   if (authMode === "real") {

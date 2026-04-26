@@ -6,7 +6,7 @@ import {
   hasDeviceToken,
   loginAsGuest,
   navigateTo,
-} from "./fixtures/auth";
+} from "../fixtures/auth";
 
 test.describe("Auth boundary contracts", () => {
   test("guest session persists across refresh and tabs", async ({ page, context }) => {
@@ -32,18 +32,18 @@ test.describe("Auth boundary contracts", () => {
     await ensureGuestSession(page);
 
     await page.goto("/settings");
-    await page.waitForTimeout(1000);
-    expect(
+    await page.waitForLoadState("domcontentloaded");
+    const settingsBlocked =
       page.url().includes("/login") ||
-        (await page.getByText(/ログイン|認証/i).first().isVisible().catch(() => false))
-    ).toBeTruthy();
+      (await page.getByText(/ログイン|認証/i).first().isVisible({ timeout: 5_000 }).catch(() => false));
+    expect(settingsBlocked, `Expected /settings to redirect or show auth gate, got: ${page.url()}`).toBe(true);
 
     await page.goto("/calendar/settings");
-    await page.waitForTimeout(1000);
-    expect(
+    await page.waitForLoadState("domcontentloaded");
+    const calendarSettingsBlocked =
       page.url().includes("/login") ||
-        (await page.getByText(/ログイン|認証/i).first().isVisible().catch(() => false))
-    ).toBeTruthy();
+      (await page.getByText(/ログイン|認証/i).first().isVisible({ timeout: 5_000 }).catch(() => false));
+    expect(calendarSettingsBlocked, `Expected /calendar/settings to redirect or show auth gate, got: ${page.url()}`).toBe(true);
   });
 
   test("guest session can be cleared explicitly", async ({ page }) => {

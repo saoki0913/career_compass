@@ -9,8 +9,8 @@ import {
   deleteOwnedCompany,
   deleteOwnedDocument,
   expectOkResponse,
-} from "./fixtures/auth";
-import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
+} from "../fixtures/auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "../google-auth";
 
 const LIVE_AI_ENV_NAMES = [
   "OPENAI_API_KEY",
@@ -54,6 +54,8 @@ test.describe("Live AI major flow", () => {
 
     const runId = `live-es-${Date.now()}`;
     const companyName = `AI添削会社_${runId}`;
+    const reviewContent =
+      "顧客の業務課題を仕組みから改善し、事業成長に直結する提案を実現したい。大学ゼミでは地域店舗の予約導線を調査し、利用者インタビューと売上データを照合して改善案をまとめた。貴社では企画職として、現場の声とデータをつなぎ、継続的に成果を検証する姿勢を活かしたい。";
 
     let companyId: string | null = null;
     let documentId: string | null = null;
@@ -82,8 +84,7 @@ test.describe("Live AI major flow", () => {
           {
             id: `${runId}-body`,
             type: "paragraph",
-            content:
-              "私が貴社を志望する理由は、顧客課題に近い場所で改善提案を繰り返し、事業成長に貢献できる環境だと感じているためです。",
+            content: reviewContent,
           },
         ],
       });
@@ -91,8 +92,7 @@ test.describe("Live AI major flow", () => {
 
       const reviewStreamBody = await expectOkResponse(
         await apiRequestAsAuthenticatedUser(page, "POST", `/api/documents/${documentId}/review/stream`, {
-          content:
-            "私が貴社を志望する理由は、顧客課題に近い場所で改善提案を繰り返し、事業成長に貢献できる環境だと感じているためです。",
+          content: reviewContent,
           companyId,
           hasCompanyRag: false,
           sectionTitle: "志望動機",

@@ -4,8 +4,8 @@ import {
   createOwnedTask,
   deleteOwnedCompany,
   deleteOwnedTask,
-} from "./fixtures/auth";
-import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
+} from "../fixtures/auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "../google-auth";
 
 test.describe("Dashboard today task card layout", () => {
   test.skip(!hasAuthenticatedUserAccess, "Authenticated E2E access is not configured");

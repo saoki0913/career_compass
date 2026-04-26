@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mockAuthenticatedUser, mockCredits } from "./fixtures/auth";
+import { mockAuthenticatedUser, mockCredits } from "../fixtures/auth";
 
 const GAKUCHIKA_ID = "gk-1";
 

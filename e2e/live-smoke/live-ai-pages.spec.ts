@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "../google-auth";
 
 const PAGES = [
   { path: "/dashboard", label: "ダッシュボード" },

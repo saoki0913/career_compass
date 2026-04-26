@@ -19,8 +19,8 @@ import {
   deleteOwnedCompany,
   deleteOwnedGakuchika,
   expectOkResponse,
-} from "./fixtures/auth";
-import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
+} from "../fixtures/auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "../google-auth";
 import {
   cleanupStaleLiveAiCompanies,
   collectChunks,
@@ -28,7 +28,7 @@ import {
   parseCompleteData,
   runGakuchikaSetupWithRequest,
   runMotivationSetupWithRequest,
-} from "./helpers/live-ai-conversation-utils";
+} from "../helpers/live-ai-conversation-utils";
 
 const RUN_ID = `live-ai-conversations-${Date.now()}`;
 const SSE_SMOKE_TIMEOUT_MS = 300_000;
@@ -66,7 +66,7 @@ test.describe.serial("SSE Smoke Tests", () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     try {
-      await cleanupStaleLiveAiCompanies(page, SMOKE_CASE_IDS);
+      await cleanupStaleLiveAiCompanies(page, SMOKE_CASE_IDS, RUN_ID);
     } finally {
       await context.close();
     }

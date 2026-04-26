@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { hasGoogleAuthState, signInWithGoogle } from "./google-auth";
+import { hasGoogleAuthState, signInWithGoogle } from "../google-auth";
 
 const productionCompanyId = process.env.E2E_PRODUCTION_COMPANY_ID?.trim();
 

@@ -3,8 +3,8 @@ import {
   loginAsGuest,
   ensureGuestSession,
   navigateTo,
-} from "./fixtures/auth";
-import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
+} from "../fixtures/auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "../google-auth";
 
 test.describe("Interview dashboard (guest)", () => {
   test("shows login required message", async ({ page }) => {

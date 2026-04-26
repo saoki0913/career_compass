@@ -24,21 +24,21 @@ run_playwright() {
 
 case "$suite" in
   guest)
-    run_playwright e2e/guest-major.spec.ts
+    run_playwright e2e/functional/guest-major.spec.ts
     ;;
   auth)
-    run_playwright e2e/auth-boundary.spec.ts e2e/user-major.spec.ts
+    run_playwright e2e/functional/auth-boundary.spec.ts e2e/functional/user-major.spec.ts
     ;;
   regression)
-    run_playwright e2e/regression-bugs.spec.ts e2e/motivation.spec.ts
+    run_playwright e2e/functional/regression-bugs.spec.ts e2e/functional/motivation.spec.ts
     ;;
   all)
     run_playwright \
-      e2e/guest-major.spec.ts \
-      e2e/auth-boundary.spec.ts \
-      e2e/user-major.spec.ts \
-      e2e/regression-bugs.spec.ts \
-      e2e/motivation.spec.ts
+      e2e/functional/guest-major.spec.ts \
+      e2e/functional/auth-boundary.spec.ts \
+      e2e/functional/user-major.spec.ts \
+      e2e/functional/regression-bugs.spec.ts \
+      e2e/functional/motivation.spec.ts
     ;;
   *)
     echo "Usage: $0 <guest|auth|regression|all>" >&2

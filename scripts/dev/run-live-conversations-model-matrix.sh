@@ -43,7 +43,7 @@ for m in "${models[@]}"; do
     MODEL_INTERVIEW_FEEDBACK="${MODEL_INTERVIEW_FEEDBACK:-claude-sonnet}" \
     AI_LIVE_OUTPUT_DIR="$run_dir" \
     PLAYWRIGHT_SKIP_WEBSERVER="${PLAYWRIGHT_SKIP_WEBSERVER:-1}" \
-    npx playwright test -c playwright.live.config.ts e2e/live-ai-conversations.spec.ts || true
+    npx playwright test -c playwright.live.config.ts e2e/live-smoke/live-ai-conversations.spec.ts || true
 done
 
 log "Done. Merge reports with:"

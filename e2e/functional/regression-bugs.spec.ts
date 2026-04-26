@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { loginAsGuest, mockAuthenticatedUser, mockCredits } from "./fixtures/auth";
+import { loginAsGuest, mockAuthenticatedUser, mockCredits } from "../fixtures/auth";
 
 type MockCompany = {
   id: string;
@@ -547,7 +547,7 @@ async function chooseEsReviewRole(page: Page) {
     .getByText("職種を選択してください")
     .locator("..")
     .getByRole("combobox");
-  await expect(rolePicker).toBeVisible();
+  await expect(rolePicker).toBeEnabled({ timeout: 10_000 });
   await rolePicker.click();
   await page.getByRole("option", { name: "企画職" }).click();
 }

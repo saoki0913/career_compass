@@ -7,8 +7,8 @@ import {
   createOwnedDeadline,
   deleteOwnedDeadline,
   deleteOwnedCompany,
-} from "./fixtures/auth";
-import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "./google-auth";
+} from "../fixtures/auth";
+import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "../google-auth";
 
 test.describe("Deadlines page (guest)", () => {
   test("guest can access deadlines page", async ({ page }) => {
@@ -49,6 +49,7 @@ test.describe("Deadlines page (authenticated)", () => {
       deadlineId = deadline.id;
 
       await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.getByText("締切管理")).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText("E2Eテスト締切")).toBeVisible({ timeout: 10_000 });
     } finally {
       if (deadlineId) {
@@ -101,10 +102,10 @@ test.describe("Calendar page (guest)", () => {
     await ensureGuestSession(page);
 
     await page.goto("/calendar/settings");
-    await page.waitForTimeout(1000);
-    expect(
+    await page.waitForLoadState("domcontentloaded");
+    const calendarSettingsBlocked =
       page.url().includes("/login") ||
-        (await page.getByText(/ログイン|認証/i).first().isVisible().catch(() => false)),
-    ).toBeTruthy();
+      (await page.getByText(/ログイン|認証/i).first().isVisible({ timeout: 5_000 }).catch(() => false));
+    expect(calendarSettingsBlocked, `Expected /calendar/settings to redirect or show auth gate, got: ${page.url()}`).toBe(true);
   });
 });
