@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth/AuthProvider";
 import Link from "next/link";
 import Image from "next/image";
-import { ArrowRight, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
   { label: "機能紹介", href: "/#features" },
-  { label: "他社比較", href: "/#comparison" },
+  { label: "使い方", href: "/#how-it-works" },
   { label: "料金プラン", href: "/#pricing" },
   { label: "FAQ", href: "/#faq" },
 ] as const;
