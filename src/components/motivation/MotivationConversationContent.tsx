@@ -313,13 +313,24 @@ export function MotivationConversationContent({ companyId }: { companyId: string
 
                   {isDraftReady && !nextQuestion && !generatedDraft && !isGeneratingDraft && !isWaitingForResponse && !isTextStreaming && (
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900">
-                      志望動機の材料が揃いました。右上の「志望動機ESを作成」からESを生成できます。生成後はさらに深掘りして強化できます。
+                      材料が揃いました。右上の「志望動機ESを作成」で生成できます。会話を続けて材料を追加することもできます。
                     </div>
                   )}
 
                   {isDraftReady && !nextQuestion && generatedDraft && !isWaitingForResponse && !isTextStreaming && (
-                    <div className="rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
-                      補強が完了しました。「志望動機ESを作成」で再生成すると、深掘り内容が反映されます。
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3">
+                      <p className="text-sm text-sky-900">
+                        ESを生成しました。さらに深掘りして強化できます。
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 border-sky-300 text-sky-700 hover:bg-sky-100"
+                        onClick={handleResumeDeepDive}
+                        disabled={isSending || isLocked}
+                      >
+                        深掘りを続ける
+                      </Button>
                     </div>
                   )}
 
@@ -430,11 +441,9 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                   onSend={() => handleSend()}
                   disabled={isSending || !nextQuestion || isLocked || showSetupScreen}
                   placeholder={
-                    isDraftReady && !nextQuestion && !generatedDraft
-                      ? "ESを生成すると、補強の質問が始まります"
-                      : isDraftReady && !nextQuestion && generatedDraft
-                        ? "補強完了。ESを再生成できます"
-                        : answerGuide
+                    isDraftReady && !nextQuestion && generatedDraft
+                      ? "「深掘りを続ける」で補強できます"
+                      : answerGuide
                   }
                   className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
                 />

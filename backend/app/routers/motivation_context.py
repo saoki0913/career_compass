@@ -568,6 +568,8 @@ def _normalize_conversation_context(value: dict[str, Any] | None) -> dict[str, A
         "unlockReason": str(context.get("unlockReason") or "").strip() or None,
         "currentIntent": str(context.get("currentIntent") or "").strip() or None,
         "nextAdvanceCondition": str(context.get("nextAdvanceCondition") or "").strip() or None,
+        "postDraftAwaitingResume": bool(context.get("postDraftAwaitingResume", False)),
+        "deepdiveResumeCount": int(context.get("deepdiveResumeCount", 0)),
     }
     if not has_explicit_confirmed_facts:
         if normalized["industryReason"]:

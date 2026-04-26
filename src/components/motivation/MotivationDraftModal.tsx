@@ -189,7 +189,7 @@ export const MotivationDraftModal = memo(function MotivationDraftModal({
       open={isOpen}
       onOpenChange={(open) => { if (!open) onDeepDive(); }}
     >
-      <DialogContent className="flex max-h-[min(80vh,720px)] max-w-2xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
+      <DialogContent className="flex max-h-[min(85vh,840px)] max-w-4xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
         <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4">
           <DialogTitle className="text-xl">{title}</DialogTitle>
           <DialogDescription className="mt-2 text-base leading-snug text-muted-foreground">

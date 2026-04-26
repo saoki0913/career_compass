@@ -348,64 +348,82 @@ async def _maybe_retry_for_draft_quality(
     anchor_keywords: list[str] | None,
     retry_prompt_builder: Callable[[list[str]], tuple[str, str]],
     llm_call_fn: Callable[[str, str], Awaitable[Optional[str]]],
+    max_attempts: int = 2,
+    extra_hints: list[str] | None = None,
 ) -> tuple[str, dict[str, Any], list[str], dict[str, Any]]:
-    """Retry once for draft-quality issues and return the final accepted draft.
+    """Retry up to ``max_attempts`` times for draft-quality issues.
 
     Returns: ``(final_draft, smell_score, failure_codes, telemetry)``
     ``failure_codes`` is empty only when the returned draft satisfies validation.
     """
-    initial_failure_codes, initial_smell_score, initial_within = _collect_draft_quality_failure_codes(
-        draft_text=initial_draft,
+    current_draft = initial_draft
+    current_failure_codes, current_smell_score, current_within = _collect_draft_quality_failure_codes(
+        draft_text=current_draft,
         user_origin_text=user_origin_text,
         template_type=template_type,
         char_min=char_min,
         char_max=char_max,
         anchor_keywords=anchor_keywords,
     )
-    if not initial_failure_codes:
+    if not current_failure_codes:
         telemetry = {
             "quality_retry_attempted": False,
             "quality_retry_adopted": False,
             "quality_retry_failure_codes": [],
-            "initial_within_limits": initial_within,
+            "quality_retry_count": 0,
+            "initial_within_limits": current_within,
             "retry_within_limits": None,
         }
-        return initial_draft, initial_smell_score, [], telemetry
+        return current_draft, current_smell_score, [], telemetry
 
-    hints = _build_draft_quality_retry_hints(
-        failure_codes=initial_failure_codes,
-        ai_warnings=list(initial_smell_score.get("warnings", []) or []),
-        anchor_keywords=anchor_keywords,
-        char_min=char_min,
-        char_max=char_max,
-    )
-    retry_system_prompt, retry_user_prompt = retry_prompt_builder(hints)
-    retry_draft = await llm_call_fn(retry_system_prompt, retry_user_prompt)
-    telemetry = {
+    attempts_made = 0
+    telemetry: dict[str, Any] = {
         "quality_retry_attempted": True,
         "quality_retry_adopted": False,
-        "quality_retry_failure_codes": initial_failure_codes,
-        "initial_within_limits": initial_within,
+        "quality_retry_failure_codes": current_failure_codes,
+        "quality_retry_count": 0,
+        "initial_within_limits": current_within,
         "retry_within_limits": None,
     }
-    if not retry_draft:
-        return initial_draft, initial_smell_score, initial_failure_codes, telemetry
 
-    retry_failure_codes, retry_smell_score, retry_within = _collect_draft_quality_failure_codes(
-        draft_text=retry_draft,
-        user_origin_text=user_origin_text,
-        template_type=template_type,
-        char_min=char_min,
-        char_max=char_max,
-        anchor_keywords=anchor_keywords,
-    )
-    telemetry["retry_within_limits"] = retry_within
-    if retry_failure_codes:
-        return retry_draft, retry_smell_score, retry_failure_codes, telemetry
+    for attempt in range(max_attempts - 1):
+        hints = _build_draft_quality_retry_hints(
+            failure_codes=current_failure_codes,
+            ai_warnings=list(current_smell_score.get("warnings", []) or []),
+            anchor_keywords=anchor_keywords,
+            char_min=char_min,
+            char_max=char_max,
+        )
+        if extra_hints:
+            hints = list(extra_hints) + hints
+        retry_system_prompt, retry_user_prompt = retry_prompt_builder(hints)
+        retry_draft = await llm_call_fn(retry_system_prompt, retry_user_prompt)
+        attempts_made += 1
+        if not retry_draft:
+            break
 
-    telemetry["quality_retry_adopted"] = True
-    telemetry["quality_retry_failure_codes"] = []
-    return retry_draft, retry_smell_score, [], telemetry
+        retry_failure_codes, retry_smell_score, retry_within = _collect_draft_quality_failure_codes(
+            draft_text=retry_draft,
+            user_origin_text=user_origin_text,
+            template_type=template_type,
+            char_min=char_min,
+            char_max=char_max,
+            anchor_keywords=anchor_keywords,
+        )
+        telemetry["retry_within_limits"] = retry_within
+        current_draft = retry_draft
+        current_failure_codes = retry_failure_codes
+        current_smell_score = retry_smell_score
+        current_within = retry_within
+
+        if not retry_failure_codes:
+            telemetry["quality_retry_adopted"] = True
+            telemetry["quality_retry_failure_codes"] = []
+            telemetry["quality_retry_count"] = attempts_made
+            return current_draft, current_smell_score, [], telemetry
+
+    telemetry["quality_retry_count"] = attempts_made
+    return current_draft, current_smell_score, current_failure_codes, telemetry
 
 
 def _select_motivation_draft(

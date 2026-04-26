@@ -73,3 +73,26 @@ def test_build_draft_quality_retry_hints_covers_char_ai_and_company_codes() -> N
     assert "270字以上" in joined
     assert "DX支援" in joined
     assert "文末表現" in joined
+
+
+def test_maybe_retry_for_draft_quality_accepts_max_attempts_and_extra_hints() -> None:
+    """Verify the function signature accepts the new parameters."""
+    import asyncio
+    from app.routers.motivation_retry import _maybe_retry_for_draft_quality
+
+    async def _run() -> None:
+        draft, smell, codes, telem = await _maybe_retry_for_draft_quality(
+            initial_draft="私は御社の企業理念に共感し、DX推進に貢献したいと考��ています。具体的には、前職での業務改善経験を活かし、現場の課題解決に取り組みたいです。",
+            user_origin_text="私はDX推進に関心があります。",
+            template_type="company_motivation",
+            char_min=50,
+            char_max=300,
+            anchor_keywords=["DX推進"],
+            max_attempts=3,
+            extra_hints=["前回生成済みドラフトからの改善を優先"],
+            retry_prompt_builder=lambda hints: ("system", "user"),
+            llm_call_fn=lambda s, u: asyncio.coroutine(lambda: None)(),
+        )
+        assert isinstance(telem, dict)
+
+    asyncio.run(_run())

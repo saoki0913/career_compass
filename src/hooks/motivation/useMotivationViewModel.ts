@@ -3,6 +3,7 @@ import {
   INTENT_LABELS,
   STAGE_ANSWER_GUIDE,
   STAGE_LABELS,
+  deriveMotivationModeLabel,
   type ConversationMode,
   type EvidenceCard,
   type MotivationMessage,
@@ -108,6 +109,7 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
     currentSlot,
     currentIntent,
     progress,
+    causalGaps,
     roleOptionsData,
     selectedIndustry,
     selectedRoleName,
@@ -158,7 +160,12 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
 
   // --- Conversation phase ---
   const isPostDraftMode = Boolean(generatedDraft?.trim()) && isDraftReady;
-  const motivationModeLabel = CONVERSATION_MODE_LABELS[conversationMode];
+  const motivationModeLabel = deriveMotivationModeLabel({
+    conversationMode,
+    questionCount,
+    isDraftReady,
+    causalGapCount: causalGaps.length,
+  });
 
   const canGenerateDraft =
     isDraftReady && messages.length >= 2 && !showSetupScreen;

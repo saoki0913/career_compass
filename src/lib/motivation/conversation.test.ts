@@ -80,4 +80,17 @@ describe("motivation conversation draft readiness", () => {
     expect(context.questionStage).toBe("desired_work");
     expect(context.draftReady).toBe(true);
   });
+
+  it("defaults postDraftAwaitingResume to undefined when not set", () => {
+    const context = safeParseConversationContext(null);
+    expect(context.postDraftAwaitingResume).toBeUndefined();
+  });
+
+  it("preserves postDraftAwaitingResume when explicitly set", () => {
+    const context = safeParseConversationContext({
+      postDraftAwaitingResume: true,
+      draftReady: true,
+    });
+    expect(context.postDraftAwaitingResume).toBe(true);
+  });
 });

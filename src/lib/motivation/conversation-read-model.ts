@@ -229,6 +229,14 @@ export function safeParseConversationContext(value: unknown): MotivationConversa
       draftReady: typeof parsed.draftReady === "boolean" ? parsed.draftReady : undefined,
       draftReadyUnlockedAt:
         typeof parsed.draftReadyUnlockedAt === "string" ? parsed.draftReadyUnlockedAt : null,
+      postDraftAwaitingResume:
+        typeof parsed.postDraftAwaitingResume === "boolean"
+          ? parsed.postDraftAwaitingResume
+          : undefined,
+      deepdiveResumeCount:
+        typeof parsed.deepdiveResumeCount === "number"
+          ? parsed.deepdiveResumeCount
+          : undefined,
     };
   } catch {
     return {

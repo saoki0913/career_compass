@@ -9,13 +9,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
 import {
   safeParseConversationContext,
   safeParseMessages,
   safeParseEvidenceCards,
   safeParseScores,
-  resolveDraftReadyState,
   type CausalGap,
   type LastQuestionMeta,
   type MotivationConversationContext,
@@ -130,19 +128,14 @@ export async function POST(
   const messages = safeParseMessages(conversation.messages);
   const conversationContext = safeParseConversationContext(conversation.conversationContext ?? null);
 
-  // Reserve credits upfront (1 credit for follow-up recovery)
-  let reservationId: string | null = null;
-  const reservation = await reserveCredits(
-    userId,
-    1,
-    "motivation_resume_deepdive",
-    companyId,
-    `志望動機深掘り再開: ${company.name}`,
-  );
-  if (!reservation.success) {
-    return NextResponse.json({ error: "クレジットが不足しています" }, { status: 402 });
+  const MAX_DEEPDIVE_RESUMES = 3;
+  const resumeCount = conversationContext.deepdiveResumeCount ?? 0;
+  if (resumeCount >= MAX_DEEPDIVE_RESUMES) {
+    return NextResponse.json(
+      { error: `深掘り再開は1回のES生成につき${MAX_DEEPDIVE_RESUMES}回までです。` },
+      { status: 429 },
+    );
   }
-  reservationId = reservation.reservationId;
 
   try {
     // Call FastAPI for follow-up question
@@ -164,7 +157,6 @@ export async function POST(
     });
 
     if (!followUpResponse.ok) {
-      await cancelReservation(reservationId);
       logAiCreditCostSummary({
         feature: "motivation_resume_deepdive",
         requestId,
@@ -183,7 +175,6 @@ export async function POST(
     const followUp = followUpPayload as FollowUpQuestionResponse | null;
 
     if (!followUp?.question) {
-      await cancelReservation(reservationId);
       logAiCreditCostSummary({
         feature: "motivation_resume_deepdive",
         requestId,
@@ -236,6 +227,8 @@ export async function POST(
         conversationContext: {
           ...conversationContext,
           draftReady: true,
+          postDraftAwaitingResume: false,
+          deepdiveResumeCount: resumeCount + 1,
           conversationMode: conversationMode || conversationContext.conversationMode || "deepdive",
           currentIntent: currentIntent || conversationContext.currentIntent || null,
           nextAdvanceCondition:
@@ -255,13 +248,11 @@ export async function POST(
       })
       .where(eq(motivationConversations.id, conversation.id));
 
-    // Confirm credit reservation only after DB persistence succeeds
-    await confirmReservation(reservationId);
     logAiCreditCostSummary({
       feature: "motivation_resume_deepdive",
       requestId,
       status: "success",
-      creditsUsed: 1,
+      creditsUsed: 0,
       telemetry,
     });
     void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
@@ -270,6 +261,8 @@ export async function POST(
     const updatedConversationContext: MotivationConversationContext = {
       ...conversationContext,
       draftReady: true,
+      postDraftAwaitingResume: false,
+      deepdiveResumeCount: resumeCount + 1,
       conversationMode: conversationMode || conversationContext.conversationMode || "deepdive",
       currentIntent: currentIntent || conversationContext.currentIntent || null,
       nextAdvanceCondition:
@@ -342,7 +335,6 @@ export async function POST(
       ...payload,
     });
   } catch (error) {
-    if (reservationId) await cancelReservation(reservationId);
     logError("motivation-resume-deepdive", error, { companyId, userId, requestId });
     logAiCreditCostSummary({
       feature: "motivation_resume_deepdive",

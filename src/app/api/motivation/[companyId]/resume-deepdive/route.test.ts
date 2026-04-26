@@ -228,7 +228,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     }));
   });
 
-  it("returns follow-up question when generatedDraft exists", async () => {
+  it("returns follow-up question without consuming credits", async () => {
     fetchFastApiInternalMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -267,7 +267,8 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
 
     expect(response.status).toBe(200);
     expect(buildMotivationConversationPayloadMock).toHaveBeenCalled();
-    expect(confirmReservationMock).toHaveBeenCalledWith("res-1");
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+    expect(confirmReservationMock).not.toHaveBeenCalled();
     expect(dbUpdateMock).toHaveBeenCalled();
   });
 
@@ -297,7 +298,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
   });
 
-  it("returns 503 and cancels reservation when FastAPI fails", async () => {
+  it("returns 503 when FastAPI fails", async () => {
     fetchFastApiInternalMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ detail: "Service Unavailable" }), {
         status: 503,
@@ -321,7 +322,32 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     });
 
     expect(response.status).toBe(503);
-    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 429 when deepdiveResumeCount exceeds limit", async () => {
+    safeParseConversationContextMock.mockReturnValueOnce({
+      draftReady: true,
+      questionStage: "differentiation",
+      deepdiveResumeCount: 3,
+    });
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(429);
+    expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
   });
 });

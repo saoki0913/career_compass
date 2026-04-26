@@ -232,6 +232,7 @@ class GenerateDraftRequest(BaseModel):
     slot_summaries: Optional[dict[str, Optional[str]]] = None
     slot_evidence_sentences: Optional[dict[str, list[str]]] = None
     char_limit: int = Field(default=400, ge=300, le=500)
+    is_regeneration: bool = False
 
 
 class GenerateDraftResponse(BaseModel):

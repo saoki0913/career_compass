@@ -82,4 +82,27 @@ describe("useMotivationViewModel derivations", () => {
       }),
     ).toContain("ES作成後の補足深掘り");
   });
+
+  it("uses deriveMotivationModeLabel for detailed mode label", () => {
+    const vm = useMotivationViewModel({
+      ...baseInput,
+      conversationMode: "slot_fill",
+      questionCount: 1,
+      isDraftReady: false,
+    });
+    expect(vm.motivationModeLabel).toBe("志望動機の土台を整えています");
+  });
+
+  it("shows deepdive gap count in mode label", () => {
+    const vm = useMotivationViewModel({
+      ...baseInput,
+      conversationMode: "deepdive",
+      isDraftReady: true,
+      causalGaps: [
+        { id: "g1", slot: "company_reason", reason: "r", promptHint: "h" },
+        { id: "g2", slot: "self_connection", reason: "r", promptHint: "h" },
+      ],
+    });
+    expect(vm.motivationModeLabel).toBe("補強中（残り2件）");
+  });
 });

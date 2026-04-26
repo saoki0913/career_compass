@@ -159,6 +159,23 @@ export const MOTIVATION_LIFECYCLE_PHASES = [
   { key: "interview_ready", label: "面接準備完了" },
 ] as const;
 
+export function deriveMotivationModeLabel(params: {
+  conversationMode: ConversationMode;
+  questionCount: number;
+  isDraftReady: boolean;
+  causalGapCount: number;
+}): string {
+  const { conversationMode, questionCount, isDraftReady, causalGapCount } = params;
+
+  if (conversationMode === "deepdive") {
+    return causalGapCount > 0 ? `補強中（残り${causalGapCount}件）` : "補強完了";
+  }
+
+  if (isDraftReady) return "材料が揃いました";
+  if (questionCount <= 2) return "志望動機の土台を整えています";
+  return "材料をもう少し揃えています";
+}
+
 export function getMotivationPhaseStatus(
   phaseKey: "draft_ready" | "deep_dive_active" | "interview_ready",
   currentPhase: MotivationLifecyclePhase,

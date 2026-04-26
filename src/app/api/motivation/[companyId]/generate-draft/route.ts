@@ -14,11 +14,7 @@ import {
   resolveDraftReadyState,
   safeParseConversationContext,
   safeParseMessages,
-  type CausalGap,
-  type LastQuestionMeta,
   type MotivationConversationContext,
-  type MotivationStage,
-  type StageStatus,
 } from "@/lib/motivation/conversation";
 import { getMotivationConversationByCondition as getConversationByCondition } from "@/lib/motivation/conversation-store";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
@@ -46,30 +42,6 @@ interface FastAPIDraftResponse {
   internal_telemetry?: unknown;
 }
 
-interface EvidenceCard {
-  sourceId: string;
-  title: string;
-  contentType: string;
-  excerpt: string;
-  sourceUrl: string;
-  relevanceLabel: string;
-}
-
-interface FollowUpQuestionResponse {
-  question: string;
-  evidence_summary?: string | null;
-  evidence_cards?: EvidenceCard[];
-  coaching_focus?: string | null;
-  question_stage?: string | null;
-  conversation_mode?: "slot_fill" | "deepdive";
-  current_slot?: string | null;
-  current_intent?: string | null;
-  next_advance_condition?: string | null;
-  progress?: Record<string, unknown> | null;
-  causal_gaps?: unknown[];
-  stage_status?: unknown;
-  captured_context?: Record<string, unknown> | null;
-}
 
 export async function POST(
   request: NextRequest,
@@ -198,29 +170,23 @@ export async function POST(
       });
 
       if (response.status === 422) {
-        return NextResponse.json(
-          createApiErrorResponse(request, {
-            status: 422,
-            code: "CONVERSATION_TOO_LONG",
-            userMessage: "会話が長すぎます。新しい会話を開始してください。",
-            action: "会話をリセットしてやり直してください。",
-          }),
-          { status: 422 }
-        );
+        return createApiErrorResponse(request, {
+          status: 422,
+          code: "CONVERSATION_TOO_LONG",
+          userMessage: "会話が長すぎます。新しい会話を開始してください。",
+          action: "会話をリセットしてやり直してください。",
+        });
       }
 
       if (response.status === 409) {
         const detail = (errorData as { detail?: { error?: string; failure_codes?: string[] } }).detail;
-        return NextResponse.json(
-          createApiErrorResponse(request, {
-            status: 409,
-            code: "DRAFT_QUALITY_FAILED",
-            userMessage: detail?.error || "志望動機の品質基準を満たす下書きを生成できませんでした。",
-            action: "もう一度お試しください。会話を続けて情報を補足すると改善されることがあります。",
-            retryable: true,
-          }),
-          { status: 409 }
-        );
+        return createApiErrorResponse(request, {
+          status: 409,
+          code: "DRAFT_QUALITY_FAILED",
+          userMessage: detail?.error || "志望動機の品質基準を満たす下書きを生成できませんでした。",
+          action: "もう一度お試しください。会話を続けて情報を補足すると改善されることがあります。",
+          retryable: true,
+        });
       }
 
       const detailMsg = messageFromFastApiDetail((errorData as { detail?: unknown }).detail);
@@ -235,7 +201,6 @@ export async function POST(
     const data = payload as FastAPIDraftResponse;
     const draftNormalized = normalizeEsDraftSingleParagraph(data.draft);
 
-    // Confirm credit reservation on success
     if (reservationId) {
       await confirmReservation(reservationId);
     }
@@ -243,102 +208,25 @@ export async function POST(
       feature: "motivation_draft",
       requestId,
       status: "success",
-      creditsUsed: reservationId ? 2 : 0,
+      creditsUsed: reservationId ? 6 : 0,
       telemetry,
     });
     void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
-
-    let nextQuestion: string | null = null;
-    let evidenceSummary: string | null = null;
-    let evidenceCards: EvidenceCard[] = [];
-    let coachingFocus: string | null = null;
-    let questionStage: MotivationStage | null = null;
-    let conversationMode: "slot_fill" | "deepdive" | null = null;
-    let currentSlot: MotivationStage | null = null;
-    let currentIntent: string | null = null;
-    let nextAdvanceCondition: string | null = null;
-    let progress: Record<string, unknown> | null = null;
-    let causalGaps: CausalGap[] = [];
-    let stageStatus: StageStatus | null = null;
-    let updatedMessages = messages;
-
-    const followUpResponse = await fetchFastApiInternal("/api/motivation/next-question", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
-      body: JSON.stringify({
-        company_id: company.id,
-        company_name: company.name,
-        industry: company.industry,
-        generated_draft: draftNormalized,
-        conversation_history: messages,
-        question_count: conversation.questionCount ?? 0,
-        conversation_context: {
-          ...conversationContext,
-          draftReady: true,
-        },
-      }),
-    }).catch(() => null);
-
-    if (followUpResponse?.ok) {
-      const rawFollowUp = await followUpResponse.json().catch(() => null);
-      const followUpPayload =
-        rawFollowUp && typeof rawFollowUp === "object"
-          ? splitInternalTelemetry(rawFollowUp).payload
-          : null;
-      const followUp = followUpPayload as FollowUpQuestionResponse | null;
-
-      if (followUp?.question) {
-        nextQuestion = followUp.question;
-        evidenceSummary = typeof followUp.evidence_summary === "string" ? followUp.evidence_summary : null;
-        evidenceCards = Array.isArray(followUp.evidence_cards) ? followUp.evidence_cards : [];
-        coachingFocus = typeof followUp.coaching_focus === "string" ? followUp.coaching_focus : null;
-        questionStage = typeof followUp.question_stage === "string"
-          ? (followUp.question_stage as MotivationStage)
-          : null;
-        conversationMode = followUp.conversation_mode || null;
-        currentSlot = followUp.current_slot ? (followUp.current_slot as MotivationStage) : null;
-        currentIntent = followUp.current_intent || null;
-        nextAdvanceCondition = followUp.next_advance_condition || null;
-        progress = followUp.progress || null;
-        causalGaps = Array.isArray(followUp.causal_gaps) ? (followUp.causal_gaps as CausalGap[]) : [];
-        stageStatus = (followUp.stage_status as StageStatus | null) ?? null;
-        updatedMessages = [
-          ...messages,
-          {
-            role: "assistant" as const,
-            content: followUp.question,
-          },
-        ];
-      }
-    }
 
     await db
       .update(motivationConversations)
       .set({
         generatedDraft: draftNormalized,
         charLimitType: String(charLimit) as "300" | "400" | "500",
-        messages: updatedMessages,
+        messages,
         conversationContext: {
           ...conversationContext,
           draftSource: "conversation",
           draftReady: true,
-          conversationMode: conversationMode || conversationContext.conversationMode || "deepdive",
-          currentIntent: currentIntent || conversationContext.currentIntent || null,
-          nextAdvanceCondition:
-            nextAdvanceCondition || conversationContext.nextAdvanceCondition || null,
-          causalGaps,
-          questionStage: questionStage || conversationContext.questionStage,
-          lastQuestionMeta: nextQuestion
-            ? {
-                ...((conversationContext.lastQuestionMeta || {}) as LastQuestionMeta),
-                questionText: nextQuestion,
-                question_stage: questionStage || conversationContext.questionStage,
-              }
-            : (conversationContext.lastQuestionMeta as LastQuestionMeta | null) || null,
+          postDraftAwaitingResume: true,
+          deepdiveResumeCount: 0,
         } satisfies MotivationConversationContext,
-        questionStage: questionStage || conversation.questionStage,
-        lastEvidenceCards: evidenceCards,
-        stageStatus,
+        questionStage: conversation.questionStage,
         updatedAt: new Date(),
       })
       .where(eq(motivationConversations.id, conversation.id));
@@ -349,19 +237,8 @@ export async function POST(
       keyPoints: data.key_points,
       companyKeywords: data.company_keywords,
       documentId: null,
-      nextQuestion,
-      evidenceSummary,
-      evidenceCards,
-      coachingFocus,
-      questionStage,
-      conversationMode,
-      currentSlot,
-      currentIntent,
-      nextAdvanceCondition,
-      progress,
-      causalGaps,
-      stageStatus,
-      messages: updatedMessages,
+      nextQuestion: null,
+      messages,
     });
   } catch (error) {
     if (reservationId) await cancelReservation(reservationId);

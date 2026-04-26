@@ -199,45 +199,18 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(reserveCreditsMock).not.toHaveBeenCalled();
   });
 
-  it("returns a deepdive follow-up question after draft generation succeeds", async () => {
-    fetchFastApiInternalMock
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            draft: "志望動機の下書きです。",
-            char_count: 120,
-            key_points: ["企業理解", "自己接続"],
-            company_keywords: ["DX支援"],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            question: "この志望動機をさらに強めるために、原体験のどの点を補足したいですか？",
-            draft_ready: true,
-            evidence_summary: "参考情報",
-            evidence_cards: [],
-            coaching_focus: "補足深掘り",
-            question_stage: "self_connection",
-            conversation_mode: "deepdive",
-            current_slot: "self_connection",
-            current_intent: "experience_anchor",
-            next_advance_condition: "原体験とのつながりが1つ補えれば十分です。",
-            progress: { completed: 6, total: 6, current_slot: "self_connection", current_slot_label: "自分との接続", current_intent: "experience_anchor", next_advance_condition: "原体験とのつながりが1つ補えれば十分です。", mode: "deepdive" },
-            causal_gaps: [{ id: "self_connection_gap", slot: "self_connection", reason: "経験との接続が弱い", promptHint: "過去の経験や価値観とのつながりを補う" }],
-            stage_status: { current: "self_connection", completed: ["industry_reason"], pending: ["value_contribution"] },
-            captured_context: {
-              draftReady: true,
-              selectedIndustry: "IT",
-              selectedRole: "企画職",
-              questionStage: "self_connection",
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
+  it("returns draft with null nextQuestion and sets postDraftAwaitingResume after success", async () => {
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          draft: "志望動機の下書きです。",
+          char_count: 120,
+          key_points: ["企業理解", "自己接続"],
+          company_keywords: ["DX支援"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
     const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
     const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
@@ -251,26 +224,22 @@ describe("api/motivation/[companyId]/generate-draft", () => {
 
     expect(response.status).toBe(200);
     expect(payload.draft).toBe("志望動機の下書きです。");
-    expect(payload.nextQuestion).toBe("この志望動機をさらに強めるために、原体験のどの点を補足したいですか？");
-    expect(payload.conversationMode).toBe("deepdive");
-    expect(payload.currentSlot).toBe("self_connection");
-    expect(payload.coachingFocus).toBe("補足深掘り");
-    expect(fetchFastApiInternalMock).toHaveBeenNthCalledWith(
-      1,
+    expect(payload.nextQuestion).toBeNull();
+    expect(fetchFastApiInternalMock).toHaveBeenCalledTimes(1);
+    expect(fetchFastApiInternalMock).toHaveBeenCalledWith(
       "/api/motivation/generate-draft",
       expect.objectContaining({
         body: expect.any(String),
       }),
     );
-    const firstCallBody = JSON.parse(fetchFastApiInternalMock.mock.calls[0][1].body as string);
-    expect(firstCallBody.slot_summaries).toEqual({
+    const callBody = JSON.parse(fetchFastApiInternalMock.mock.calls[0][1].body as string);
+    expect(callBody.slot_summaries).toEqual({
       company_reason: "DX支援を通じて顧客課題に向き合える点に惹かれています。",
     });
-    expect(firstCallBody.slot_evidence_sentences).toEqual({
+    expect(callBody.slot_evidence_sentences).toEqual({
       company_reason: ["DX支援を通じて顧客課題に向き合える点に惹かれています。"],
     });
-    // D-2 (P2-1): RAG role-grounded モード判定のため selected_role を FastAPI へ送る
-    expect(firstCallBody.selected_role).toBe("企画職");
+    expect(callBody.selected_role).toBe("企画職");
   });
 
   it("passes through 422 from FastAPI as 422 with user-facing message and cancels reservation", async () => {
@@ -300,34 +269,23 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(422);
-    expect(payload.error).toBe("会話が長すぎます。新しい会話を開始してください。");
-    // 成功時のみ消費ルール: 上流 422 でも reservation は cancel される
+    expect(payload.error.userMessage).toBe("会話が長すぎます。新しい会話を開始してください。");
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
     expect(confirmReservationMock).not.toHaveBeenCalled();
   });
 
   it("keeps the generated draft as conversation state without creating an ES document immediately", async () => {
-    fetchFastApiInternalMock
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            draft: "志望動機の下書きです。",
-            char_count: 120,
-            key_points: ["企業理解"],
-            company_keywords: ["DX支援"],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            question: "次に補強したい点はどこですか？",
-            evidence_cards: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          draft: "志望動機の下書きです。",
+          char_count: 120,
+          key_points: ["企業理解"],
+          company_keywords: ["DX支援"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
     const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
     const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
@@ -341,56 +299,8 @@ describe("api/motivation/[companyId]/generate-draft", () => {
 
     expect(response.status).toBe(200);
     expect(payload.documentId).toBeNull();
-    expect(dbInsertMock).not.toHaveBeenCalled();
-  });
-
-  it("returns draft with null nextQuestion when follow-up fetch fails", async () => {
-    fetchFastApiInternalMock
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            draft: "志望動機の下書きです。",
-            char_count: 120,
-            key_points: ["企業理解"],
-            company_keywords: ["DX支援"],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockRejectedValueOnce(new Error("network error"));
-
-    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
-    const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
-      method: "POST",
-      body: JSON.stringify({ charLimit: 400 }),
-      headers: { "content-type": "application/json" },
-    });
-
-    const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
-    const payload = await response.json();
-
-    // Draft generation succeeded despite follow-up failure
-    expect(response.status).toBe(200);
-    expect(payload.draft).toBe("志望動機の下書きです。");
-
-    // Follow-up failed silently: nextQuestion must be null
     expect(payload.nextQuestion).toBeNull();
-
-    // conversationMode key must be present (null when follow-up is absent)
-    expect("conversationMode" in payload).toBe(true);
-    expect(payload.conversationMode === null || typeof payload.conversationMode === "string").toBe(true);
-
-    // messages must be the original two messages (no follow-up question appended)
-    expect(payload.messages).toEqual([
-      { role: "user", content: "a" },
-      { role: "assistant", content: "b" },
-    ]);
-
-    // Credit confirmed because draft succeeded (success-only-consume rule)
-    expect(confirmReservationMock).toHaveBeenCalledWith("res-1");
-
-    // causalGaps and stageStatus default to empty / null when follow-up is absent
-    expect(payload.causalGaps).toEqual([]);
-    expect(payload.stageStatus).toBeNull();
+    expect(dbInsertMock).not.toHaveBeenCalled();
+    expect(fetchFastApiInternalMock).toHaveBeenCalledTimes(1);
   });
 });

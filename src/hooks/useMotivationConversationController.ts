@@ -852,10 +852,6 @@ export function useMotivationConversationController({ companyId }: { companyId: 
 
       notifyMotivationDraftGenerated();
       setIsDraftModalOpen(true);
-
-      if (!data.nextQuestion && data.draft) {
-        setError("深掘り質問の取得に失敗しました。モーダルを閉じた後「再試行」で再取得できます。");
-      }
     } catch (err) {
       setError(
         reportUserFacingError(

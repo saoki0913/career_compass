@@ -45,9 +45,13 @@ export function MotivationDraftActionBar({
           <button
             key={limit}
             type="button"
+            disabled={isGenerating}
             onClick={() => onCharLimitChange(limit)}
             className={cn(
-              "rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+              "rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+              isGenerating
+                ? "cursor-not-allowed opacity-50"
+                : "cursor-pointer",
               charLimit === limit
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-background hover:bg-secondary",

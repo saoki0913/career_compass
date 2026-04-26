@@ -182,6 +182,8 @@ export interface MotivationConversationContext {
   /** Python-owned; read-only on TS side */
   draftReady?: boolean;
   draftReadyUnlockedAt?: string | null;
+  postDraftAwaitingResume?: boolean;
+  deepdiveResumeCount?: number;
 }
 
 // ---------------------------------------------------------------------------

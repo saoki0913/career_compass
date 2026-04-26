@@ -8,7 +8,7 @@ import { ConversationSidebarCard } from "@/components/chat/ConversationWorkspace
 import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
 import { MotivationPhaseBar } from "@/components/motivation/MotivationPhaseBar";
 import { MotivationProgressStatus } from "@/components/motivation/MotivationProgressStatus";
-import type { CausalGap, ConversationMode, EvidenceCard, StageStatus } from "@/lib/motivation/ui";
+import { SLOT_PILL_LABELS, type CausalGap, type ConversationMode, type EvidenceCard, type MotivationStageKey, type StageStatus } from "@/lib/motivation/ui";
 
 const ResetIcon = () => (
   <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -162,7 +162,7 @@ export function MotivationConversationSidebar({
                       <div className="mt-2 space-y-2">
                         {causalGaps.map((gap) => (
                           <div key={gap.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
-                            <p className="text-[11px] font-medium text-foreground/80">{gap.slot}</p>
+                            <p className="text-[11px] font-medium text-foreground/80">{SLOT_PILL_LABELS[gap.slot as Exclude<MotivationStageKey, "closing">] || gap.slot}</p>
                             <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{gap.reason}</p>
                           </div>
                         ))}
