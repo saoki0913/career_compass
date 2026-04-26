@@ -1,6 +1,6 @@
 # 実装進捗ドキュメント
 
-**最終更新**: 2026-04-05
+**最終更新**: 2026-04-26
 
 ## 人向け要約（読み始めに）
 
@@ -12,6 +12,7 @@
 
 ## 最近の更新
 
+- 2026-04-26: ダッシュボードをリデザイン。StatsCards（4枚の KPI カード）を完全削除し、QuickActions を5つのカラフルなグラデーションボタン（ES添削 / ES作成 / 企業研究 / ガクチカの深掘り / 面接対策）に刷新。企業セクションを縦リストから `groupCompaniesByPipeline()` を使った5列パイプライン（カンバン）表示に変更。レイアウトを `[7fr_2fr_3fr]` + `[7fr_3fr]` の2段グリッドに再構成し、PC一画面でスクロール不要に。`StatsCard.tsx` 削除、`computeDashboardStats` / `StatsInput` / `DashboardStats` をデッドコード削除、`DashboardSkeleton` を新レイアウトに合わせて更新。ActivationChecklist は未完了時のみ条件表示に変更。
 - 2026-04-05: ガクチカ・志望動機の ES 下書き生成を ES 添削と同一の `TEMPLATE_DEFS` 由来に統一。`build_template_draft_generation_prompt`（`gakuchika` / `company_motivation`）、旧 `GAKUCHIKA_DRAFT_PROMPT`・`DRAFT_GENERATION_PROMPT`・`DRAFT_FROM_PROFILE_PROMPT` 削除、Notion 必須キーから `gakuchika.draft_generation` / `motivation.draft_generation` 除外。`tests/prompts/test_es_draft_generation_prompt.py` 追加。`SPEC` 17・17.5、`GAKUCHIKA_DEEP_DIVE`、`MOTIVATION`、`ES_REVIEW`、本ファイルを同期。
 - 2026-04-05: ガクチカ一覧・詳細・進捗（MEMO 追加分）。`GET /api/gakuchika` で最新会話行を素材単位に集約し `conversationStatus` を正規化、`questionCount` フォールバックを追加。一覧は `getGakuchikaListStatusKey` と `visibilitychange` 再取得。詳細は次質問を `useStreamingTextPlayback` + `StreamingChatMessage` で再生。FastAPI `_build_core_missing_elements` の `context` を状況語ヒントで緩和。Vitest / pytest 更新。`docs/SPEC.md` 17・`GAKUCHIKA_DEEP_DIVE`・本ファイルを同期。
 - 2026-04-05: ガクチカ作成（MEMO 77–86）。`会話をやり直す` を確認モーダル経由に、STAR 進捗の楽観更新削除と `getBuildItemStatus` 保守化、FastAPI で ES 構築中の `focus_key` を `missing_elements` 先頭 STAR に正規化、プロンプトに STAR 順の明示、ES 下書き 300/400/500 字の UI 選択と `charLimit` 連携。`docs/SPEC.md` 17 / `docs/features/GAKUCHIKA_DEEP_DIVE.md` を同期。
@@ -155,7 +156,7 @@
 | 通知欄 | ✅ 完了 | 最大5件 + 「他◯件」 |
 | クレジット残高表示 | ✅ 完了 | 残量・次回付与日 |
 | 今日の無料取得回数 | ✅ 完了 | 「今日の無料取得: 残X回」 |
-| 締切警告（3日/24時間以内） | ✅ 完了 | DeadlineList コンポーネント |
+| 締切警告（3日/24時間以内） | ✅ 完了 | DeadlineCard コンポーネント |
 | タスク開始→画面遷移 | ✅ 完了 | |
 
 ---

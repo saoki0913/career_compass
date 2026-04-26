@@ -9,7 +9,7 @@
 | タスク一覧 | `src/app/tasks/page.tsx` |
 | タスク管理 hook | `src/hooks/useTasks.ts` |
 | API | `src/app/api/tasks/` |
-| ダッシュボード連携 | `src/components/dashboard/IncompleteTasksCard.tsx` |
+| ダッシュボード連携 | `src/components/dashboard/TodayTasksCard.tsx` |
 
 ---
 
@@ -214,7 +214,7 @@ generateTasksForDeadline() が呼ばれる
 | `src/app/api/tasks/route.ts` | タスクCRUD API |
 | `src/app/api/tasks/[id]/route.ts` | タスク個別操作API |
 | `src/app/api/tasks/today/route.ts` | Today's Task API |
-| `src/components/dashboard/IncompleteTasksCard.tsx` | ダッシュボード未完了タスクカード |
+| `src/components/dashboard/TodayTasksCard.tsx` | ダッシュボード今日のタスクカード |
 | `src/lib/server/task-generation.ts` | テンプレートベースタスク生成 (transaction) |
 | `src/lib/server/task-dependency.ts` | 依存解除/リブロック service (transaction) |
 | `src/lib/db/schema.ts` | DBスキーマ（`tasks`, `task_templates`） |

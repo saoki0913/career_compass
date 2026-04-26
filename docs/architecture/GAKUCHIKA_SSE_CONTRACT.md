@@ -7,7 +7,8 @@ architecture-gate (2026-04-17) で必須要件として明文化された。
 
 - FastAPI 内部 API: `POST /api/gakuchika/next-question/stream` (実装: `backend/app/routers/gakuchika.py`)
 - Next.js API route: `POST /api/gakuchika/[id]/conversation/stream` (実装: `src/app/api/gakuchika/[id]/conversation/stream/route.ts`)
-- Next.js API proxy: `src/app/api/gakuchika/fastapi-stream.ts` の `iterateGakuchikaFastApiSseEvents` / `consumeGakuchikaNextQuestionSse`
+- Next.js API proxy: `src/app/api/gakuchika/fastapi-stream.ts` の `consumeGakuchikaNextQuestionSse`
+- 共通 SSE reader: `src/lib/fastapi/sse-proxy.ts` の `readSSEDataEvents` / `parseSSEDataBlock`
 - Client controller: `src/hooks/useGakuchikaConversationController.ts`
 
 ## 全体方針
