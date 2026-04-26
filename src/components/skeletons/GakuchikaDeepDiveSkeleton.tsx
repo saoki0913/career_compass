@@ -8,7 +8,6 @@ import {
 /**
  * ガクチカ作成会話画面（`/gakuchika/[id]`）のローディング用。
  * `ConversationWorkspaceShell` に近い構図で、header / action bar / chat / sidebar を揃える。
- * グローバル `DashboardHeader` は `loading.tsx` 等で別途表示する。
  */
 export function GakuchikaDeepDiveSkeleton({
   accent = "ガクチカ作成の会話を読み込んでいます",
@@ -72,7 +71,7 @@ export function GakuchikaDeepDiveSkeleton({
               </div>
             </div>
 
-            <div className="shrink-0 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-[calc(0.75rem+var(--mobile-bottom-nav-offset))] lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
+            <div className="shrink-0 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-3 lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
               <div className="space-y-3">
                 <Skeleton className="h-3 w-full max-w-md rounded-md" />
                 <div className="flex items-end gap-2 rounded-xl border border-border/70 bg-card p-3">

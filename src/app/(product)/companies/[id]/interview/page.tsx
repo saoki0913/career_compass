@@ -4,7 +4,6 @@ import { useParams } from "next/navigation";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
-import { DashboardHeader } from "@/components/dashboard";
 import { InterviewPageContent } from "@/components/interview/InterviewPageContent";
 import { InterviewConversationSkeleton } from "@/components/skeletons/InterviewConversationSkeleton";
 import { OperationLockProvider } from "@/hooks/useOperationLock";
@@ -17,7 +16,6 @@ export default function CompanyInterviewPage() {
   if (!isReady) {
     return (
       <div className="min-h-screen bg-background">
-        <DashboardHeader />
         <main>
           <InterviewConversationSkeleton accent="面接の準備を進めています" />
         </main>

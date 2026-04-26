@@ -14,7 +14,7 @@ import {
 export function ESEditorSkeleton() {
   return (
     <div className="es-editor-print-scope flex h-screen flex-col overflow-hidden bg-background">
-      <div className="sticky top-16 z-40 border-b border-border bg-background/95 backdrop-blur print:hidden">
+      <div className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur print:hidden">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-14 items-center justify-between gap-2">
             <div className="flex min-w-0 flex-1 items-center gap-4">
