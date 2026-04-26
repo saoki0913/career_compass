@@ -194,9 +194,20 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
 
   it("returns error and errors when compliance blocks all urls", async () => {
     const { filterAllowedPublicSourceUrls } = await import("@/lib/company-info/source-compliance");
+    const blockedResult = {
+      url: "https://private.example/",
+      status: "blocked" as const,
+      reasons: ["社内URLは取得できません"],
+      robotsStatus: "allowed" as const,
+      termsStatus: "unknown" as const,
+      checkedAt: "2026-04-26T00:00:00.000Z",
+      policyVersion: "test",
+    };
     vi.mocked(filterAllowedPublicSourceUrls).mockResolvedValueOnce({
       allowedUrls: [],
-      blockedResults: [{ urls: ["https://private.example/"], reasons: ["社内URLは取得できません"] }],
+      results: [blockedResult],
+      warningResults: [],
+      blockedResults: [blockedResult],
     });
 
     const { POST } = await import("@/app/api/companies/[id]/fetch-corporate/estimate/route");

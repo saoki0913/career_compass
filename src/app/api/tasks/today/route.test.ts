@@ -48,11 +48,11 @@ describe("api/tasks/today", () => {
   beforeEach(() => {
     getRequestIdentityMock.mockReset();
     dbSelectMock.mockReset();
-    process.env.NODE_ENV = originalNodeEnv;
+    vi.stubEnv("NODE_ENV", originalNodeEnv);
   });
 
   afterEach(() => {
-    process.env.NODE_ENV = originalNodeEnv;
+    vi.stubEnv("NODE_ENV", originalNodeEnv);
   });
 
   it("returns 401 when the request has no valid identity", async () => {
@@ -167,7 +167,7 @@ describe("api/tasks/today", () => {
 
   it("returns a structured 500 response in development", async () => {
     const { GET } = await import("@/app/api/tasks/today/route");
-    process.env.NODE_ENV = "development";
+    vi.stubEnv("NODE_ENV", "development");
     getRequestIdentityMock.mockRejectedValue(new Error("session lookup exploded"));
 
     const response = await GET(new NextRequest("http://localhost:3000/api/tasks/today"));

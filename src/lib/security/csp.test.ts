@@ -13,12 +13,6 @@ describe("security/csp", () => {
   });
 
   afterEach(() => {
-    if (originalNodeEnv === undefined) {
-      vi.unstubAllEnvs();
-      delete process.env.NODE_ENV;
-      return;
-    }
-
     vi.stubEnv("NODE_ENV", originalNodeEnv);
   });
 
