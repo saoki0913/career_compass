@@ -536,6 +536,8 @@ def _build_motivation_question_system_prompt(
     last_question_meta = prep.conversation_context.get("lastQuestionMeta") or {}
     last_question = str(last_question_meta.get("questionText") or "").strip() or "（なし）"
     last_question_target_slot = str(last_question_meta.get("question_stage") or "").strip() or "（なし）"
+    slot_summaries = prep.conversation_context.get("slotSummaries") or {}
+    previous_slot_summary = str(slot_summaries.get(last_question_target_slot) or "").strip() or "（なし）"
     recent_question_summaries = []
     for message in request.conversation_history[-4:]:
         if message.role == "assistant" and message.content.strip():
@@ -556,6 +558,7 @@ def _build_motivation_question_system_prompt(
         draft_readiness_reason=str(prep.eval_result.get("draft_readiness_reason") or "（理由なし）"),
         last_question=last_question,
         last_question_target_slot=last_question_target_slot,
+        previous_slot_summary=previous_slot_summary,
         recent_question_summaries=recent_question_summaries_text,
     )
     evidence_cards_for_prompt = [

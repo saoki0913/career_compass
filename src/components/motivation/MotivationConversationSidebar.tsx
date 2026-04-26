@@ -10,16 +10,7 @@ import { MotivationPhaseBar } from "@/components/motivation/MotivationPhaseBar";
 import { MotivationProgressStatus } from "@/components/motivation/MotivationProgressStatus";
 import { SLOT_PILL_LABELS, type CausalGap, type ConversationMode, type EvidenceCard, type MotivationStageKey, type StageStatus } from "@/lib/motivation/ui";
 
-const ResetIcon = () => (
-  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M4 4v5h5M20 20v-5h-5M20 9a8 8 0 00-14.9-3M4 15a8 8 0 0014.9 3"
-    />
-  </svg>
-);
+import { ResetIcon } from "./motivation-icons";
 
 export function MotivationConversationSidebar({
   companyId,

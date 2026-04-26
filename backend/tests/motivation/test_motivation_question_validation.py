@@ -138,3 +138,32 @@ class TestDynamicTooLongLimit:
         with patch.object(motivation_module.logger, "info") as info_mock:
             _call(question, stage="company_reason", company_name="")
         assert "too_long" in _fallback_reasons(info_mock)
+
+
+class TestPreviousSlotSummaryExtraction:
+    """Wave 4-B: previous_slot_summary の抽出ロジックを検証"""
+
+    @staticmethod
+    def _extract(conversation_context: dict) -> str:
+        last_question_meta = conversation_context.get("lastQuestionMeta") or {}
+        last_question_target_slot = str(last_question_meta.get("question_stage") or "").strip() or "（なし）"
+        slot_summaries = conversation_context.get("slotSummaries") or {}
+        return str(slot_summaries.get(last_question_target_slot) or "").strip() or "（なし）"
+
+    def test_extracts_summary_from_slot_summaries(self):
+        ctx = {
+            "lastQuestionMeta": {"question_stage": "industry_reason"},
+            "slotSummaries": {"industry_reason": "IT業界に興味がある"},
+        }
+        assert self._extract(ctx) == "IT業界に興味がある"
+
+    def test_missing_summary_shows_placeholder(self):
+        ctx = {
+            "lastQuestionMeta": {"question_stage": "company_reason"},
+            "slotSummaries": {},
+        }
+        assert self._extract(ctx) == "（なし）"
+
+    def test_no_last_question_meta_shows_placeholder(self):
+        ctx: dict = {"slotSummaries": {"industry_reason": "test"}}
+        assert self._extract(ctx) == "（なし）"
