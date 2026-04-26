@@ -3,43 +3,18 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { DashboardHeader } from "@/components/dashboard";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { cn } from "@/lib/utils";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
-import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { MotivationDraftModal } from "@/components/motivation/MotivationDraftModal";
 import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
-import { MotivationProgressStatus } from "@/components/motivation/MotivationProgressStatus";
-import { MotivationPhaseBar } from "@/components/motivation/MotivationPhaseBar";
-import { ConversationSidebarCard } from "@/components/chat/ConversationWorkspaceShell";
+import { MotivationConversationHeader } from "@/components/motivation/MotivationConversationHeader";
+import { MotivationConversationSidebar } from "@/components/motivation/MotivationConversationSidebar";
+import { MotivationSetupPanel } from "@/components/motivation/MotivationSetupPanel";
 import { ConversationPageSkeleton } from "@/components/skeletons/ConversationPageSkeleton";
 import { useMotivationConversationController } from "@/hooks/useMotivationConversationController";
 import { useMotivationViewModel } from "@/hooks/motivation/useMotivationViewModel";
-import {
-  findRoleOption,
-  STAGE_LABELS,
-} from "@/lib/motivation/ui";
-
-// Icons
-const ArrowLeftIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
+import { STAGE_LABELS } from "@/lib/motivation/ui";
 
 const LoadingSpinner = () => (
   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -62,103 +37,6 @@ const ResetIcon = () => (
     />
   </svg>
 );
-
-
-function MotivationDraftActionBar({
-  charLimit,
-  onCharLimitChange,
-  onGenerate,
-  isGenerating,
-  disabled,
-  helperText,
-  compact = false,
-  layout = "stack",
-  showTitle = true,
-}: {
-  charLimit: 300 | 400 | 500;
-  onCharLimitChange: (limit: 300 | 400 | 500) => void;
-  onGenerate: () => void;
-  isGenerating: boolean;
-  disabled: boolean;
-  helperText: string;
-  compact?: boolean;
-  layout?: "stack" | "inline";
-  showTitle?: boolean;
-}) {
-  const isInline = layout === "inline";
-  const controls = (
-    <>
-      <p className="text-xs font-medium text-muted-foreground xl:shrink-0">文字数</p>
-      <div className="grid grid-cols-3 gap-2">
-        {([300, 400, 500] as const).map((limit) => (
-          <button
-            key={limit}
-            type="button"
-            onClick={() => onCharLimitChange(limit)}
-            className={cn(
-              "rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
-              charLimit === limit
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border bg-background hover:bg-secondary"
-            )}
-          >
-            {limit}字
-          </button>
-        ))}
-      </div>
-    </>
-  );
-
-  if (isInline) {
-    return (
-      <ConversationActionBar
-        helperText={helperText}
-        actionLabel="志望動機ESを作成"
-        pendingLabel="作成中..."
-        onAction={onGenerate}
-        disabled={disabled}
-        isPending={isGenerating}
-        controls={controls}
-      />
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      <div
-        className={cn(
-          "gap-2",
-          compact ? "flex flex-col" : "flex items-start justify-between"
-        )}
-      >
-        <div className="min-w-0">
-          {showTitle ? <p className="text-sm font-semibold text-foreground">志望動機ESを作成</p> : null}
-          <p className={cn("text-xs leading-5 text-muted-foreground", !showTitle && "text-sm leading-5")}>
-            {helperText}
-          </p>
-        </div>
-
-        <>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center xl:justify-self-end">{controls}</div>
-          <Button
-            onClick={onGenerate}
-            disabled={disabled || isGenerating}
-            className={cn("rounded-2xl shadow-sm", compact ? "h-11 w-full" : "h-11 min-w-[180px]")}
-          >
-            {isGenerating ? (
-              <>
-                <LoadingSpinner />
-                <span className="ml-2">作成中...</span>
-              </>
-            ) : (
-              "志望動機ESを作成"
-            )}
-          </Button>
-        </>
-      </div>
-    </div>
-  );
-}
 
 export function MotivationConversationContent({ companyId }: { companyId: string }) {
   const router = useRouter();
@@ -283,7 +161,6 @@ export function MotivationConversationContent({ companyId }: { companyId: string
   if (isLoading) {
     return (
       <div className="h-screen bg-background flex flex-col overflow-hidden">
-        <DashboardHeader />
         <main className="flex-1 overflow-hidden">
           <ConversationPageSkeleton accent="AIが企業の情報を読み込んでいます" />
         </main>
@@ -294,7 +171,6 @@ export function MotivationConversationContent({ companyId }: { companyId: string
   if (!company) {
     return (
       <div className="h-screen bg-background flex flex-col overflow-hidden">
-        <DashboardHeader />
         <main className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <p className="text-muted-foreground">企業が見つかりません</p>
@@ -309,44 +185,21 @@ export function MotivationConversationContent({ companyId }: { companyId: string
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
-      <DashboardHeader />
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-3 py-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href={`/companies/${companyId}`}
-              className="p-2 rounded-lg hover:bg-secondary transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-              aria-label="戻る"
-            >
-              <ArrowLeftIcon />
-            </Link>
-            <div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h1 className="text-xl font-bold">志望動機を作成</h1>
-                <div className="hidden h-1.5 w-1.5 rounded-full bg-muted-foreground/30 lg:block" />
-                <p className="text-sm text-muted-foreground">{company.name}</p>
-                {!showSetupScreen ? (
-                  <Badge variant={isPostDraftMode ? "soft-info" : "outline"} className="px-3 py-1 text-[11px]">
-                    {motivationModeLabel}
-                  </Badge>
-                ) : null}
-              </div>
-            </div>
-          </div>
-          <div className="w-full xl:max-w-[760px]">
-            <MotivationDraftActionBar
-              charLimit={charLimit}
-              onCharLimitChange={setCharLimit}
-              onGenerate={handleGenerateDraft}
-              isGenerating={isGeneratingDraft}
-              disabled={!canGenerateDraft || isLocked}
-              helperText={draftHelperText}
-              layout="inline"
-              showTitle={false}
-            />
-          </div>
-        </div>
+        <MotivationConversationHeader
+          companyId={companyId}
+          companyName={company.name}
+          charLimit={charLimit}
+          onCharLimitChange={setCharLimit}
+          onGenerateDraft={handleGenerateDraft}
+          isGeneratingDraft={isGeneratingDraft}
+          canGenerateDraft={canGenerateDraft}
+          isLocked={isLocked}
+          draftHelperText={draftHelperText}
+          showSetupScreen={showSetupScreen}
+          isPostDraftMode={isPostDraftMode}
+          motivationModeLabel={motivationModeLabel}
+        />
 
         <div className="grid grid-cols-1 gap-4 flex-1 overflow-hidden lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.75fr)]">
           {/* Chat area */}
@@ -373,187 +226,29 @@ export function MotivationConversationContent({ companyId }: { companyId: string
               </div>
             </div>
 
-            {/* Messages: setup fits viewport (inner scroll); conversation scrolls here */}
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               {showSetupScreen ? (
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
-                  <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col overflow-hidden">
-                    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[26px] border border-border/70 bg-background/95 shadow-sm">
-                      <div className="shrink-0 border-b border-border/50 p-4 sm:p-5">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-foreground">最初に業界と職種を確定します</p>
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                              企業情報、ガクチカ、プロフィール、志望職種を踏まえた質問にするため、チャット前に前提を揃えます。
-                            </p>
-                          </div>
-                          {isSetupComplete ? (
-                            <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
-                              準備完了
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 sm:pt-4">
-                    <div className="grid gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                      <div className="space-y-3 rounded-[22px] border border-border/60 bg-background/85 p-4">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">企業</p>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            この企業向けの志望動機を作成します。
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
-                          <p className="text-sm font-medium text-foreground">{company.name}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {effectiveIndustry ? `業界: ${effectiveIndustry}` : "業界は次で指定します"}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3 rounded-[22px] border border-border/60 bg-background/85 p-4">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">業界</p>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            {requiresIndustrySelection
-                              ? "企業情報だけでは広いため、ここで必須選択します。"
-                              : "企業情報から解決できているため確認のみです。"}
-                          </p>
-                        </div>
-
-                        {requiresIndustrySelection ? (
-                          <Select
-                            value={selectedIndustry}
-                            disabled={disableSetupEditing}
-                            onValueChange={(value) => {
-                              void handleIndustryChange(value);
-                            }}
-                          >
-                            <SelectTrigger className="h-11 rounded-2xl">
-                              <SelectValue placeholder="業界を選択してください" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(roleOptionsData?.industryOptions || []).map((industry) => (
-                                <SelectItem key={industry} value={industry}>
-                                  {industry}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3">
-                            <p className="text-sm font-medium text-foreground">{effectiveIndustry || "業界未取得"}</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 rounded-[22px] border border-border/60 bg-background/85 p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">志望職種</p>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            候補から選び、見つからない場合だけ自由入力を使ってください。
-                          </p>
-                        </div>
-                        {isRoleOptionsLoading ? (
-                          <span className="text-xs text-muted-foreground">候補を読み込み中...</span>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-                        <div>
-                          <Select
-                            disabled={disableSetupEditing || !effectiveIndustry || (roleOptionsData?.roleGroups.length ?? 0) === 0}
-                            value={roleSelectionSource === "custom" ? "" : selectedRoleName}
-                            onValueChange={(value) => {
-                              const matched = roleOptionsData ? findRoleOption(roleOptionsData.roleGroups, value) : null;
-                              setSelectedRoleName(value);
-                              setRoleSelectionSource(matched?.source || null);
-                              setCustomRoleInput("");
-                            }}
-                          >
-                            <SelectTrigger className="h-11 rounded-2xl">
-                              <SelectValue placeholder={effectiveIndustry ? "職種を選択してください" : "先に業界を選択してください"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {(roleOptionsData?.roleGroups || []).map((group) => (
-                                <SelectGroup key={group.id}>
-                                  <SelectLabel className="text-xs font-normal text-muted-foreground">
-                                    {group.label}
-                                  </SelectLabel>
-                                  {group.options.map((option) => (
-                                    <SelectItem key={`${group.id}-${option.value}`} value={option.value}>
-                                      {option.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectGroup>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div>
-                          <label className="text-xs font-medium text-muted-foreground">
-                            候補にない場合のみ入力
-                          </label>
-                          <Input
-                            className="mt-2"
-                            disabled={disableSetupEditing || !effectiveIndustry}
-                            placeholder="例: デジタル企画、プロダクトマネージャー"
-                            value={customRoleInput}
-                            onChange={(event) => {
-                              const nextValue = event.target.value;
-                              setCustomRoleInput(nextValue);
-                              setSelectedRoleName(nextValue);
-                              setRoleSelectionSource(nextValue.trim() ? "custom" : null);
-                            }}
-                          />
-                          {isCustomRoleActive ? (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              現在は自由入力の職種を優先して質問を組み立てます。
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      {roleOptionsError ? (
-                        <div className="mt-3 rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-muted-foreground">
-                          {roleOptionsError}
-                        </div>
-                      ) : null}
-
-                      {!roleOptionsError && effectiveIndustry && (roleOptionsData?.roleGroups.length ?? 0) === 0 ? (
-                        <p className="mt-3 text-xs text-muted-foreground">
-                          候補がないため、右側の自由入力で職種を指定してください。
-                        </p>
-                      ) : null}
-
-                      {(effectiveIndustry || selectedRoleName) && (
-                        <div className="mt-4 rounded-2xl border border-border/60 bg-muted/30 px-4 py-3">
-                          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                            現在の設定
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {effectiveIndustry ? (
-                              <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
-                                業界: {effectiveIndustry}
-                              </Badge>
-                            ) : null}
-                            {selectedRoleName ? (
-                              <Badge variant="soft-primary" className="px-3 py-1 text-[11px]">
-                                職種: {selectedRoleName}
-                              </Badge>
-                            ) : null}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <MotivationSetupPanel
+                  companyName={company.name}
+                  effectiveIndustry={effectiveIndustry}
+                  requiresIndustrySelection={requiresIndustrySelection}
+                  selectedIndustry={selectedIndustry}
+                  selectedRoleName={selectedRoleName}
+                  customRoleInput={customRoleInput}
+                  roleOptionsData={roleOptionsData}
+                  roleOptionsError={roleOptionsError}
+                  roleSelectionSource={roleSelectionSource}
+                  isRoleOptionsLoading={isRoleOptionsLoading}
+                  isSetupComplete={isSetupComplete}
+                  disableSetupEditing={disableSetupEditing}
+                  isCustomRoleActive={isCustomRoleActive}
+                  onIndustryChange={(value) => {
+                    void handleIndustryChange(value);
+                  }}
+                  onSelectedRoleNameChange={setSelectedRoleName}
+                  onRoleSelectionSourceChange={setRoleSelectionSource}
+                  onCustomRoleInputChange={setCustomRoleInput}
+                />
               ) : (
                 <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-3 sm:p-4">
                   {messages.map((msg) => (
@@ -633,7 +328,6 @@ export function MotivationConversationContent({ companyId }: { companyId: string
               )}
             </div>
 
-            {/* Error message */}
             {conversationLoadError && (
               <div className="shrink-0 mx-4 mb-2 flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-900">
                 <span>{conversationLoadError}</span>
@@ -675,7 +369,7 @@ export function MotivationConversationContent({ companyId }: { companyId: string
             )}
 
             {/* Bottom fixed area: input */}
-            <div className="shrink-0 space-y-4 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-[calc(0.75rem+var(--mobile-bottom-nav-offset))] lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
+            <div className="shrink-0 space-y-4 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-3 lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
               {showSetupScreen ? (
                 <div className="flex flex-col gap-3">
                   <p className="text-sm text-muted-foreground">
@@ -748,162 +442,34 @@ export function MotivationConversationContent({ companyId }: { companyId: string
             </div>
           </div>
 
-          {/* Sidebar */}
-          <div className="space-y-4 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
-            <div className="space-y-3 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-              <ConversationSidebarCard
-                title="進捗"
-                actions={
-                  hasSavedConversation ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleResetConversation}
-                      disabled={isLocked || isSending || isGeneratingDraft || isResetting || isStartingConversation}
-                      className="h-9 rounded-xl border-border/80 bg-background px-3 text-xs shadow-sm"
-                    >
-                      <ResetIcon />
-                      <span className="ml-2">{isResetting ? "初期化中..." : "会話をやり直す"}</span>
-                    </Button>
-                  ) : undefined
-                }
-              >
-                <div className="space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    {effectiveIndustry ? (
-                      <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
-                        業界: {effectiveIndustry}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="px-3 py-1 text-[11px]">
-                        業界未確定
-                      </Badge>
-                    )}
-                    {selectedRoleName ? (
-                      <Badge variant="soft-primary" className="px-3 py-1 text-[11px]">
-                        職種: {selectedRoleName}
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="px-3 py-1 text-[11px]">
-                        職種未選択
-                      </Badge>
-                    )}
-                    {generatedDraft ? (
-                      <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
-                        ES下書き生成済み
-                      </Badge>
-                    ) : null}
-                  </div>
-
-                  {showSetupScreen ? (
-                    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
-                      <p className="text-sm font-medium text-foreground">開始前の設定</p>
-                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                        業界と職種を確定すると、この企業向けに質問が始まります。
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      <MotivationProgressStatus
-                        stageStatus={stageStatus}
-                        questionCount={questionCount}
-                        conversationMode={conversationMode}
-                        coachingFocus={coachingFocus}
-                        currentSlotLabel={currentSlotLabel}
-                        currentIntentLabel={currentIntentLabel}
-                        nextAdvanceCondition={nextAdvanceCondition}
-                      />
-                      <MotivationPhaseBar
-                        isDraftReady={isDraftReady}
-                        conversationMode={conversationMode}
-                        hasNextQuestion={Boolean(nextQuestion)}
-                        hasCausalGaps={causalGaps.length > 0}
-                      />
-                      {conversationMode === "deepdive" ? (
-                        <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-xs font-medium text-foreground">補強フェーズ</p>
-                            <Badge
-                              variant={causalGaps.length === 0 ? "soft-success" : "soft-info"}
-                              className="px-2 py-0.5 text-[10px]"
-                            >
-                              {causalGaps.length === 0 ? "完了" : `残り${causalGaps.length}件`}
-                            </Badge>
-                          </div>
-                          {causalGaps.length > 0 ? (
-                            <div className="mt-2 space-y-2">
-                              {causalGaps.map((gap) => (
-                                <div key={gap.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
-                                  <p className="text-[11px] font-medium text-foreground/80">{gap.slot}</p>
-                                  <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{gap.reason}</p>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              全ての補強項目が解消されました。
-                            </p>
-                          )}
-                        </div>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              </ConversationSidebarCard>
-
-              <Card className="border-border/50">
-                <CardHeader className="px-3.5 py-2.5">
-                  <CardTitle className="text-sm font-medium">参考にした企業情報</CardTitle>
-                </CardHeader>
-                <CardContent className="px-3.5 pb-3.5 pt-0">
-                  {evidenceCards.length > 0 || evidenceSummary ? (
-                    <MotivationEvidenceSection
-                      evidenceCards={evidenceCards}
-                      evidenceSummary={evidenceSummary}
-                      compact
-                      showHeader={false}
-                    />
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      質問に使った企業情報の要点が、ここに簡潔に表示されます。
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-
-              {generatedDraft ? (
-                <Card className="border-border/50">
-                  <CardHeader className="flex min-h-12 flex-row items-center justify-between space-y-0 px-3.5 py-2.5">
-                    <CardTitle className="text-sm font-medium">生成した下書き</CardTitle>
-                    <Badge variant="soft-info" className="px-2 py-0.5 text-[10px]">
-                      {generatedDraft.length}字
-                    </Badge>
-                  </CardHeader>
-                  <CardContent className="space-y-3 px-3.5 pb-3.5 pt-0">
-                    <p className="text-xs leading-5 text-muted-foreground line-clamp-4">
-                      {generatedDraft.slice(0, 120)}{generatedDraft.length > 120 ? "..." : ""}
-                    </p>
-                    {generatedDocumentId ? (
-                      <Button asChild variant="outline" className="w-full">
-                        <Link href={`/es/${generatedDocumentId}`}>ESを編集する</Link>
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        className="w-full"
-                        onClick={() => setIsDraftModalOpen(true)}
-                      >
-                        下書きを確認する
-                      </Button>
-                    )}
-                    <Button asChild className="w-full">
-                      <Link href={`/companies/${companyId}/interview`}>この志望動機をもとに面接対策へ進む</Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              ) : null}
-            </div>
-          </div>
+          <MotivationConversationSidebar
+            companyId={companyId}
+            effectiveIndustry={effectiveIndustry}
+            selectedRoleName={selectedRoleName}
+            generatedDraft={generatedDraft}
+            generatedDocumentId={generatedDocumentId}
+            showSetupScreen={showSetupScreen}
+            stageStatus={stageStatus}
+            questionCount={questionCount}
+            conversationMode={conversationMode}
+            coachingFocus={coachingFocus}
+            currentSlotLabel={currentSlotLabel}
+            currentIntentLabel={currentIntentLabel}
+            nextAdvanceCondition={nextAdvanceCondition}
+            isDraftReady={isDraftReady}
+            nextQuestion={nextQuestion}
+            causalGaps={causalGaps}
+            evidenceCards={evidenceCards}
+            evidenceSummary={evidenceSummary}
+            hasSavedConversation={hasSavedConversation}
+            isLocked={isLocked}
+            isSending={isSending}
+            isGeneratingDraft={isGeneratingDraft}
+            isResetting={isResetting}
+            isStartingConversation={isStartingConversation}
+            onResetConversation={handleResetConversation}
+            onOpenDraftModal={() => setIsDraftModalOpen(true)}
+          />
         </div>
 
         {generatedDraft ? (

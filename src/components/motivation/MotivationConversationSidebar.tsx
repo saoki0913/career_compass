@@ -1,0 +1,236 @@
+"use client";
+
+import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConversationSidebarCard } from "@/components/chat/ConversationWorkspaceShell";
+import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
+import { MotivationPhaseBar } from "@/components/motivation/MotivationPhaseBar";
+import { MotivationProgressStatus } from "@/components/motivation/MotivationProgressStatus";
+import type { CausalGap, ConversationMode, EvidenceCard, StageStatus } from "@/lib/motivation/ui";
+
+const ResetIcon = () => (
+  <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={2}
+      d="M4 4v5h5M20 20v-5h-5M20 9a8 8 0 00-14.9-3M4 15a8 8 0 0014.9 3"
+    />
+  </svg>
+);
+
+export function MotivationConversationSidebar({
+  companyId,
+  effectiveIndustry,
+  selectedRoleName,
+  generatedDraft,
+  generatedDocumentId,
+  showSetupScreen,
+  stageStatus,
+  questionCount,
+  conversationMode,
+  coachingFocus,
+  currentSlotLabel,
+  currentIntentLabel,
+  nextAdvanceCondition,
+  isDraftReady,
+  nextQuestion,
+  causalGaps,
+  evidenceCards,
+  evidenceSummary,
+  hasSavedConversation,
+  isLocked,
+  isSending,
+  isGeneratingDraft,
+  isResetting,
+  isStartingConversation,
+  onResetConversation,
+  onOpenDraftModal,
+}: {
+  companyId: string;
+  effectiveIndustry: string;
+  selectedRoleName: string;
+  generatedDraft: string | null;
+  generatedDocumentId: string | null;
+  showSetupScreen: boolean;
+  stageStatus: StageStatus | null;
+  questionCount: number;
+  conversationMode: ConversationMode;
+  coachingFocus: string | null;
+  currentSlotLabel: string | null;
+  currentIntentLabel: string | null;
+  nextAdvanceCondition: string | null;
+  isDraftReady: boolean;
+  nextQuestion: string | null;
+  causalGaps: CausalGap[];
+  evidenceCards: EvidenceCard[];
+  evidenceSummary: string | null;
+  hasSavedConversation: boolean;
+  isLocked: boolean;
+  isSending: boolean;
+  isGeneratingDraft: boolean;
+  isResetting: boolean;
+  isStartingConversation: boolean;
+  onResetConversation: () => void;
+  onOpenDraftModal: () => void;
+}) {
+  return (
+    <div className="space-y-4 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
+      <div className="space-y-3 lg:flex-1 lg:overflow-y-auto lg:pr-1">
+        <ConversationSidebarCard
+          title="進捗"
+          actions={
+            hasSavedConversation ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onResetConversation}
+                disabled={isLocked || isSending || isGeneratingDraft || isResetting || isStartingConversation}
+                className="h-9 rounded-xl border-border/80 bg-background px-3 text-xs shadow-sm"
+              >
+                <ResetIcon />
+                <span className="ml-2">{isResetting ? "初期化中..." : "会話をやり直す"}</span>
+              </Button>
+            ) : undefined
+          }
+        >
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {effectiveIndustry ? (
+                <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
+                  業界: {effectiveIndustry}
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="px-3 py-1 text-[11px]">
+                  業界未確定
+                </Badge>
+              )}
+              {selectedRoleName ? (
+                <Badge variant="soft-primary" className="px-3 py-1 text-[11px]">
+                  職種: {selectedRoleName}
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="px-3 py-1 text-[11px]">
+                  職種未選択
+                </Badge>
+              )}
+              {generatedDraft ? (
+                <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
+                  ES下書き生成済み
+                </Badge>
+              ) : null}
+            </div>
+
+            {showSetupScreen ? (
+              <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+                <p className="text-sm font-medium text-foreground">開始前の設定</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  業界と職種を確定すると、この企業向けに質問が始まります。
+                </p>
+              </div>
+            ) : (
+              <>
+                <MotivationProgressStatus
+                  stageStatus={stageStatus}
+                  questionCount={questionCount}
+                  conversationMode={conversationMode}
+                  coachingFocus={coachingFocus}
+                  currentSlotLabel={currentSlotLabel}
+                  currentIntentLabel={currentIntentLabel}
+                  nextAdvanceCondition={nextAdvanceCondition}
+                />
+                <MotivationPhaseBar
+                  isDraftReady={isDraftReady}
+                  conversationMode={conversationMode}
+                  hasNextQuestion={Boolean(nextQuestion)}
+                  hasCausalGaps={causalGaps.length > 0}
+                />
+                {conversationMode === "deepdive" ? (
+                  <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-foreground">補強フェーズ</p>
+                      <Badge
+                        variant={causalGaps.length === 0 ? "soft-success" : "soft-info"}
+                        className="px-2 py-0.5 text-[10px]"
+                      >
+                        {causalGaps.length === 0 ? "完了" : `残り${causalGaps.length}件`}
+                      </Badge>
+                    </div>
+                    {causalGaps.length > 0 ? (
+                      <div className="mt-2 space-y-2">
+                        {causalGaps.map((gap) => (
+                          <div key={gap.id} className="rounded-lg border border-border/40 bg-muted/10 px-3 py-2">
+                            <p className="text-[11px] font-medium text-foreground/80">{gap.slot}</p>
+                            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{gap.reason}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        全ての補強項目が解消されました。
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        </ConversationSidebarCard>
+
+        <Card className="border-border/50">
+          <CardHeader className="px-3.5 py-2.5">
+            <CardTitle className="text-sm font-medium">参考にした企業情報</CardTitle>
+          </CardHeader>
+          <CardContent className="px-3.5 pb-3.5 pt-0">
+            {evidenceCards.length > 0 || evidenceSummary ? (
+              <MotivationEvidenceSection
+                evidenceCards={evidenceCards}
+                evidenceSummary={evidenceSummary}
+                compact
+                showHeader={false}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                質問に使った企業情報の要点が、ここに簡潔に表示されます。
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        {generatedDraft ? (
+          <Card className="border-border/50">
+            <CardHeader className="flex min-h-12 flex-row items-center justify-between space-y-0 px-3.5 py-2.5">
+              <CardTitle className="text-sm font-medium">生成した下書き</CardTitle>
+              <Badge variant="soft-info" className="px-2 py-0.5 text-[10px]">
+                {generatedDraft.length}字
+              </Badge>
+            </CardHeader>
+            <CardContent className="space-y-3 px-3.5 pb-3.5 pt-0">
+              <p className="text-xs leading-5 text-muted-foreground line-clamp-4">
+                {generatedDraft.slice(0, 120)}{generatedDraft.length > 120 ? "..." : ""}
+              </p>
+              {generatedDocumentId ? (
+                <Button asChild variant="outline" className="w-full">
+                  <Link href={`/es/${generatedDocumentId}`}>ESを編集する</Link>
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={onOpenDraftModal}
+                >
+                  下書きを確認する
+                </Button>
+              )}
+              <Button asChild className="w-full">
+                <Link href={`/companies/${companyId}/interview`}>この志望動機をもとに面接対策へ進む</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
+      </div>
+    </div>
+  );
+}

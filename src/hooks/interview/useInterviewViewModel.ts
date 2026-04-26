@@ -27,8 +27,8 @@ export interface InterviewViewModel {
 export function useInterviewViewModel(input: InterviewViewModelInput): InterviewViewModel {
   const { companyId, feedback } = input;
 
-  const normalizedCompanyId = normalizeAppDynamicParam(companyId);
-  const weakestAxis = feedback ? deriveWeakestAxis(feedback.scores) : null;
+  const normalizedCompanyId = normalizeInterviewCompanyId(companyId);
+  const weakestAxis = feedback ? deriveInterviewWeakestAxis(feedback.scores) : null;
 
   return {
     normalizedCompanyId,
@@ -44,7 +44,7 @@ export function useInterviewViewModel(input: InterviewViewModelInput): Interview
  * Avoid `/api/companies//...` which redirects to `/api/companies/...` and
  * returns HTML 404 (no `[id]` route).
  */
-function normalizeAppDynamicParam(value: string | string[] | undefined): string | null {
+export function normalizeInterviewCompanyId(value: string | string[] | undefined): string | null {
   if (value === undefined) return null;
   const raw = Array.isArray(value) ? value[0] : value;
   if (typeof raw !== "string") return null;
@@ -52,7 +52,7 @@ function normalizeAppDynamicParam(value: string | string[] | undefined): string 
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function deriveWeakestAxis(scores: Feedback["scores"]): string | null {
+export function deriveInterviewWeakestAxis(scores: Feedback["scores"]): string | null {
   let weakest: string | null = null;
   let lowest = Infinity;
   for (const [key, value] of Object.entries(scores)) {

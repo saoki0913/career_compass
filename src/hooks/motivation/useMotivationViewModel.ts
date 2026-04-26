@@ -185,7 +185,7 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
         (activeStage ? STAGE_LABELS[activeStage] : null);
 
   // --- Draft helper text ---
-  const draftHelperText = deriveDraftHelperText({
+  const draftHelperText = deriveMotivationDraftHelperText({
     isGeneratingDraft,
     showSetupScreen,
     isPostDraftMode,
@@ -218,7 +218,7 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
 // Pure helper (testable without React)
 // ---------------------------------------------------------------------------
 
-function deriveDraftHelperText(flags: {
+export function deriveMotivationDraftHelperText(flags: {
   isGeneratingDraft: boolean;
   showSetupScreen: boolean;
   isPostDraftMode: boolean;
