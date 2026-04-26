@@ -61,7 +61,7 @@ export function DashboardSkeleton() {
           </Card>
 
           {/* Tasks skeleton */}
-          <Card className="border-border/50 py-2 gap-2">
+          <Card className="border-border/50 py-1.5 gap-1.5">
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <Skeleton className="h-6 w-28 rounded-md" shimmerDelayMs={0} />
               <SkeletonButton className="h-8 w-20" shimmerDelayMs={40} />
