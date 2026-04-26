@@ -1,7 +1,7 @@
 name = "fastapi-developer"
 description = "FastAPI execution agent for routers, SSE streaming, and Pydantic v2 models in backend/app."
-model = "gpt-5.4"
-model_reasoning_effort = "high"
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own FastAPI router and SSE implementation work under backend/app.

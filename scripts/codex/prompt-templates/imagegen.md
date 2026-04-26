@@ -1,7 +1,25 @@
 # Image Generation Task
 
 あなたは career_compass プロジェクトのデザインアセット生成担当です。
-`$imagegen` (GPT Image 2) を使用して、指定されたデザインアセットを生成してください。
+`$imagegen` ビルトインツールを使用して、指定されたデザインアセットを生成してください。
+
+## $imagegen Tool Parameters (MANDATORY — 最優先)
+
+**すべての `$imagegen` 呼び出しで以下のパラメータを必ず明示的に渡すこと。省略は禁止。**
+
+| Parameter | Value | 備考 |
+|---|---|---|
+| `model` | `"gpt-image-2"` | `gpt-image-1`, `dall-e-3` は使用禁止 |
+| `quality` | `"high"` | `"auto"`, `"standard"`, `"medium"`, `"low"` は使用禁止 |
+| `size` | コンテキストで指定 or `"1536x1024"` | デフォルト横長 |
+
+### 禁止事項
+- `$imagegen` 以外の画像生成手段（Python スクリプト、CLI ツール、curl、API 直接呼び出し）は一切使用しないこと
+- `OPENAI_API_KEY` を参照する方法は使わないこと — `$imagegen` ビルトインツールは Codex CLI 自身の認証を使用する
+- `model` / `quality` パラメータを省略して「デフォルト任せ」にしないこと
+
+### 検証
+レスポンスの `## Generated Images` セクションで、実際に渡した `model` と `quality` の値を必ず報告すること。
 
 ## Use-Case Taxonomy
 
@@ -104,9 +122,9 @@ Avoid: <negative constraints>
 1. Additional Context の要件を読み、use-case taxonomy で分類
 2. Prompt Augmentation Rules に従い構造化プロンプトを構築
 3. Anti-Tacky Guidelines を Avoid 行として組み込み
-4. `$imagegen` で画像を生成
-5. 生成画像を `public/generated_images/` に保存
-6. 使用したプロンプト全文と生成パラメータを結果に記録
+4. `$imagegen` ビルトインツールを `model: "gpt-image-2"`, `quality: "high"` で呼び出す（パラメータ省略禁止）
+5. 生成画像を `public/generated_images/` に保存（sandbox 制約で失敗した場合は原本パスを報告）
+6. 使用したプロンプト全文と **実際に渡した model / quality / size パラメータ** を結果に記録
 
 ## Output Format
 
@@ -122,6 +140,9 @@ COMPLETE / PARTIAL / FAILED
 各画像について:
 - path: public/generated_images/{filename}
 - taxonomy: <use-case slug>
+- model: <実際に $imagegen に渡した model 値 — "gpt-image-2" であること>
+- quality: <実際に $imagegen に渡した quality 値 — "high" であること>
+- size: <実際に $imagegen に渡した size 値>
 - prompt_used: <$imagegen に渡した完全なプロンプト>
 - dimensions: WxH
 

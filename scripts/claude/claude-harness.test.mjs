@@ -68,6 +68,108 @@ test("permission-request-guard denies force push", () => {
   assert.match(output.hookSpecificOutput.decision.message, /force/i);
 });
 
+test("pre-tool dispatcher keeps harmless bash commands quiet", () => {
+  const result = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      tool_name: "Bash",
+      tool_input: { command: "git status" },
+    }),
+  );
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+});
+
+test("pre-tool dispatcher still blocks force push", () => {
+  const result = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      tool_name: "Bash",
+      tool_input: { command: "git push --force origin main" },
+    }),
+  );
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /force/i);
+});
+
+test("tdd guard records test edits before implementation edits", () => {
+  const projectDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-project-"));
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-home-"));
+  const sourceDir = path.join(projectDir, "src/lib/stripe");
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(path.join(sourceDir, "config.test.ts"), "export {};\n");
+  writeFileSync(path.join(sourceDir, "config.ts"), "export {};\n");
+
+  const env = { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: projectDir };
+  const testEdit = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/tdd-enforcement-guard.sh")], {
+    cwd: projectDir,
+    input: JSON.stringify({
+      session_id: "sess-tdd",
+      tool_input: { file_path: path.join(sourceDir, "config.test.ts") },
+    }),
+    encoding: "utf8",
+    env,
+  });
+  const implementationEdit = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/tdd-enforcement-guard.sh")], {
+    cwd: projectDir,
+    input: JSON.stringify({
+      session_id: "sess-tdd",
+      tool_input: { file_path: path.join(sourceDir, "config.ts") },
+    }),
+    encoding: "utf8",
+    env,
+  });
+
+  assert.equal(testEdit.status, 0);
+  assert.equal(implementationEdit.status, 0);
+});
+
+test("tdd guard blocks implementation edits without a prior test edit", () => {
+  const projectDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-project-"));
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-home-"));
+  const sourceDir = path.join(projectDir, "src/lib/stripe");
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(path.join(sourceDir, "config.test.ts"), "export {};\n");
+  writeFileSync(path.join(sourceDir, "config.ts"), "export {};\n");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/tdd-enforcement-guard.sh")], {
+    cwd: projectDir,
+    input: JSON.stringify({
+      session_id: "sess-tdd",
+      tool_input: { file_path: path.join(sourceDir, "config.ts") },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: projectDir },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /未更新/);
+});
+
+test("tdd guard blocks implementation edits when the test file is missing", () => {
+  const projectDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-project-"));
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-home-"));
+  const sourceDir = path.join(projectDir, "src/lib/stripe");
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(path.join(sourceDir, "config.ts"), "export {};\n");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/tdd-enforcement-guard.sh")], {
+    cwd: projectDir,
+    input: JSON.stringify({
+      session_id: "sess-tdd",
+      tool_input: { file_path: path.join(sourceDir, "config.ts") },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: projectDir },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /テストファイルが見つかりません/);
+});
+
 test("post-tool-failure-triage suggests escalation for sandbox failures", () => {
   const result = runHook(
     ".claude/hooks/post-tool-failure-triage.sh",
@@ -245,6 +347,20 @@ test("user-prompt-submit-router suggests codex delegation for codex keywords", (
   assert.equal(result.status, 0);
   const output = JSON.parse(result.stdout);
   assert.match(output.hookSpecificOutput.additionalContext, /codex-delegation-workflow/);
+});
+
+test("user-prompt-submit-router treats hook stalls as harness diagnostics", () => {
+  const result = runHook(
+    ".claude/hooks/user-prompt-submit-router.sh",
+    JSON.stringify({
+      prompt: "Running PreToolUse hook: Checking git push が続いて進まない。ハーネス設計がおかしいはず。改善して。",
+    }),
+  );
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.match(output.hookSpecificOutput.additionalContext, /Harness Diagnostic|Hook \/ harness diagnostic/i);
+  assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /実装規模のタスク|Implementation-sized task/);
 });
 
 test("codex delegation timeout guidance stays aligned at default 3600 / max 7200 seconds", () => {

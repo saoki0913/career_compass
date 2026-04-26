@@ -88,6 +88,10 @@ fi
 
 case "$FILE_PATH" in
   */backend/app/prompts/*|*/backend/app/utils/llm*.py)
+    PROMPT_STATE_DIR="$HOME/.claude/sessions/career_compass"
+    mkdir -p "$PROMPT_STATE_DIR"
+    printf '%s\n' "$FILE_PATH" > "$PROMPT_STATE_DIR/prompt-review-pending-$SESSION_ID"
+    rm -f "$PROMPT_STATE_DIR/prompt-review-confirmed-$SESSION_ID"
     cat >&2 <<'EOF'
 🧪 prompt / LLM ファイルを変更しました。commit 前に以下を推奨します:
 

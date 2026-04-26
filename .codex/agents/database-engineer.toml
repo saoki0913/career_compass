@@ -1,7 +1,7 @@
 name = "database-engineer"
 description = "Schema and migration agent for Drizzle, PostgreSQL indexing, and database performance safety."
-model = "gpt-5.4"
-model_reasoning_effort = "high"
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own schema, migrations, and index design. Preserve guest/user dual ownership and migration safety.

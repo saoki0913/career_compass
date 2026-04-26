@@ -1,7 +1,7 @@
 name = "search-quality-engineer"
 description = "Search-quality specialist for BM25, reranking, tokenizer behavior, and iterative quality improvement."
-model = "gpt-5.4"
-model_reasoning_effort = "high"
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own ranking and search-quality work under bm25_store, reranker, japanese_tokenizer, and web_search.

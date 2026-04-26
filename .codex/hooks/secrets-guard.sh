@@ -4,8 +4,8 @@ set -e
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty')
 
-if [ "$TOOL" = "Read" ]; then
-  FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .file_path // empty')
+if [ "$TOOL" = "Read" ] || echo "$TOOL" | grep -qE '^mcp__filesystem__'; then
+  FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // .file_path // empty')
   if [ -n "$FILE_PATH" ] && echo "$FILE_PATH" | grep -q 'codex-company/\.secrets/'; then
     cat >&2 <<'EOF'
 ⛔ `codex-company/.secrets/` の直接 Read は禁止です。`zsh scripts/release/sync-career-compass-secrets.sh --check` を使ってください。

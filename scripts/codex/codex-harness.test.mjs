@@ -21,6 +21,7 @@ test("codex harness docs and commands exist", () => {
     ".codex/commands/update-docs.md",
     ".codex/commands/codex-start.md",
     ".codex/commands/codex-closeout.md",
+    ".codex/hooks.json",
     ".claude/commands/claude-closeout.md",
     "docs/ops/CODEX_HARNESS.md",
     ".agents/agents/README.md",
@@ -52,6 +53,16 @@ test("secrets-guard blocks direct secret reads", () => {
   assert.match(result.stderr, /\.secrets/);
 });
 
+test("secrets-guard blocks filesystem MCP secret reads", () => {
+  const result = runHook(".codex/hooks/secrets-guard.sh", JSON.stringify({
+    tool_name: "mcp__filesystem__read_file",
+    tool_input: { path: "codex-company/.secrets/test.env" },
+  }));
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /\.secrets/);
+});
+
 test("codex-start wrapper prints codex agent specs", () => {
   const result = runHook(".codex/hooks/session-orientation.sh", "{}");
 
@@ -69,7 +80,17 @@ test("codex harness doc points to .codex agents as the runtime source", () => {
 
 test("codex custom agents include the required schema and skill bindings", () => {
   const agentDir = path.join(repoRoot, ".codex/agents");
-  const files = readdirSync(agentDir).filter((file) => file.endsWith(".toml"));
+  const tracked = spawnSync("git", ["ls-files", ".codex/agents"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  assert.equal(tracked.status, 0);
+  const files = tracked.stdout
+    .trim()
+    .split(/\n/)
+    .filter(Boolean)
+    .map((filePath) => path.basename(filePath))
+    .filter((file) => file.endsWith(".toml"));
 
   assert.equal(files.length, 13);
 
@@ -92,6 +113,8 @@ test("codex config aligns with the 13-agent routing and shared MCP set", () => {
   const source = readFileSync(path.join(repoRoot, ".codex/config.toml"), "utf8");
 
   assert.match(source, /^\[agents\]$/m);
+  assert.match(source, /^\[features\]$/m);
+  assert.match(source, /^codex_hooks = true$/m);
   assert.match(source, /^max_threads = 6$/m);
   assert.match(source, /^max_depth = 1$/m);
   assert.match(source, /^\[mcp_servers\.playwright\]$/m);
@@ -119,6 +142,57 @@ test("codex config aligns with the 13-agent routing and shared MCP set", () => {
   for (const routingKey of routingKeys) {
     assert.match(source, new RegExp(`^"${routingKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\s+=\\s+".+"$`, "m"));
   }
+});
+
+test("codex lifecycle hooks are wired for safety and quality gates", () => {
+  const source = readFileSync(path.join(repoRoot, ".codex/hooks.json"), "utf8");
+  const config = JSON.parse(source);
+
+  assert.ok(config.hooks.SessionStart);
+  assert.ok(config.hooks.PreToolUse);
+  assert.ok(config.hooks.PermissionRequest);
+  assert.ok(config.hooks.PostToolUse);
+  assert.ok(config.hooks.UserPromptSubmit);
+  assert.ok(config.hooks.Stop);
+
+  const preToolHooks = config.hooks.PreToolUse.flatMap((entry) => entry.hooks);
+  assert.equal(preToolHooks.length, 1);
+  assert.match(preToolHooks[0].command, /pre-tool-dispatcher\.sh/);
+  assert.match(preToolHooks[0].statusMessage, /tool safety gates/i);
+  assert.match(source, /features\.codex_hooks|session-orientation\.sh|pre-tool-dispatcher\.sh/s);
+  assert.match(source, /stop-plaintext-confirm-guard\.sh/);
+});
+
+test("codex pre-tool dispatcher keeps harmless bash commands quiet", () => {
+  const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+    tool_name: "Bash",
+    tool_input: { command: "git status" },
+  }));
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+});
+
+test("codex pre-tool dispatcher still blocks force push", () => {
+  const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+    tool_name: "Bash",
+    tool_input: { command: "git push --force origin main" },
+  }));
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /force/i);
+});
+
+test("codex user-prompt router treats hook stalls as harness diagnostics", () => {
+  const result = runHook(".codex/hooks/user-prompt-submit-router.sh", JSON.stringify({
+    prompt: "Running PreToolUse hook: Checking git push が続いて進まない。ハーネス設計がおかしいはず。改善して。",
+  }));
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.match(output.hookSpecificOutput.additionalContext, /Hook \/ harness diagnostic/i);
+  assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /Implementation-sized task|Architecture-impacting task/);
 });
 
 test("pipeline doc no longer references removed grill-me step", () => {
@@ -209,4 +283,140 @@ test("codex ui preflight hook allows matching prepared route", () => {
   });
 
   assert.equal(result.status, 0);
+});
+
+test("codex ui preflight hook understands apply_patch file paths", () => {
+  const verificationDir = mkdtempSync(path.join(tmpdir(), "codex-verify-"));
+  const input = JSON.stringify({
+    tool_name: "apply_patch",
+    tool_input: {
+      command: [
+        "*** Begin Patch",
+        "*** Update File: src/app/(product)/companies/[id]/motivation/page.tsx",
+        "@@",
+        "+const touched = true;",
+        "*** End Patch",
+      ].join("\n"),
+    },
+  });
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".codex/hooks/ui-preflight-reminder.sh")], {
+    cwd: repoRoot,
+    input,
+    encoding: "utf8",
+    env: { ...process.env, AI_VERIFICATION_DIR: verificationDir },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /UI preflight is required/i);
+});
+
+test("codex band-aid guard blocks apply_patch additions", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "codex-hook-home-"));
+  const input = JSON.stringify({
+    session_id: "sess-band-aid",
+    tool_name: "apply_patch",
+    tool_input: {
+      command: [
+        "*** Begin Patch",
+        "*** Update File: src/lib/example.ts",
+        "@@",
+        "+const value = input as any;",
+        "*** End Patch",
+      ].join("\n"),
+    },
+  });
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".codex/hooks/bandaid-guard.sh")], {
+    cwd: repoRoot,
+    input,
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Band-aid pattern/i);
+  assert.match(result.stderr, /as any/);
+});
+
+test("codex prompt edit dispatcher creates a pending confirmation gate", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "codex-hook-home-"));
+  const sessionId = "sess-prompt";
+  const editInput = JSON.stringify({
+    session_id: sessionId,
+    tool_name: "apply_patch",
+    tool_input: {
+      command: [
+        "*** Begin Patch",
+        "*** Update File: backend/app/prompts/es_review.py",
+        "@@",
+        "+PROMPT = 'updated'",
+        "*** End Patch",
+      ].join("\n"),
+    },
+  });
+
+  const dispatch = spawnSync("bash", [path.join(repoRoot, ".codex/hooks/post-edit-dispatcher.sh")], {
+    cwd: repoRoot,
+    input: editInput,
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+  assert.equal(dispatch.status, 0);
+
+  const guard = spawnSync("bash", [path.join(repoRoot, ".codex/hooks/prompt-edit-confirm-guard.sh")], {
+    cwd: repoRoot,
+    input: JSON.stringify({
+      session_id: sessionId,
+      tool_name: "apply_patch",
+      tool_input: {
+        command: [
+          "*** Begin Patch",
+          "*** Update File: src/lib/example.ts",
+          "@@",
+          "+export const value = 1;",
+          "*** End Patch",
+        ].join("\n"),
+      },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+
+  assert.equal(guard.status, 2);
+  assert.match(guard.stderr, /confirmation is pending/i);
+});
+
+test("codex destructive rm guard blocks unsafe recursive deletion", () => {
+  const result = runHook(".codex/hooks/destructive-rm-guard.sh", JSON.stringify({
+    tool_name: "Bash",
+    tool_input: { command: "rm -rf src/components" },
+  }));
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Unsafe rm -rf/i);
+});
+
+test("codex permission request guard denies force push approval", () => {
+  const result = runHook(".codex/hooks/permission-request-guard.sh", JSON.stringify({
+    tool_name: "Bash",
+    tool_input: { command: "git push --force-with-lease origin develop" },
+  }));
+
+  assert.equal(result.status, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.hookSpecificOutput.hookEventName, "PermissionRequest");
+  assert.equal(parsed.hookSpecificOutput.decision.behavior, "deny");
+});
+
+test("codex stop plaintext confirmation guard asks Codex to continue", () => {
+  const result = runHook(".codex/hooks/stop-plaintext-confirm-guard.sh", JSON.stringify({
+    stop_hook_active: false,
+    last_assistant_message: "コミットしますか？ push はまだしません。",
+  }));
+
+  assert.equal(result.status, 0);
+  const parsed = JSON.parse(result.stdout);
+  assert.equal(parsed.decision, "block");
+  assert.match(parsed.reason, /plain text/i);
 });

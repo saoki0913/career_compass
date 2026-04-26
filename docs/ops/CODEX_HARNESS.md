@@ -98,9 +98,29 @@ skill は 2 系統ある。
 - `similarity-search-patterns`
 - `audit-website`
 
-## 5. Commands と wrapper
+## 5. Hooks / Commands
 
-Codex では first-class hook に全面依存せず、command と shell wrapper を補助導線として使う。
+Codex は lifecycle hooks を first-class に使う。公式仕様では `[features] codex_hooks = true` を有効化し、`.codex/hooks.json` または `.codex/config.toml` inline `[hooks]` から `PreToolUse`, `PostToolUse`, `PermissionRequest`, `UserPromptSubmit`, `SessionStart`, `Stop` を読み込む。
+
+この repo では `.codex/config.toml` に feature flag、`.codex/hooks.json` に配線、`.codex/hooks/*.sh` に実体を置く。project-local hooks は Codex で project trust が有効な場合だけ読み込まれる。
+
+Codex hook 配線:
+
+| event | matcher | hook |
+|---|---|---|
+| `SessionStart` | `startup\|resume` | `session-orientation.sh` |
+| `PreToolUse` | `Bash\|Read\|mcp__filesystem__.*\|apply_patch\|Edit\|Write` | `pre-tool-dispatcher.sh` |
+| `PermissionRequest` | `Bash\|Read\|mcp__filesystem__.*` | `permission-request-guard.sh` |
+| `PostToolUse` | `apply_patch\|Edit\|Write` | `post-edit-dispatcher.sh` |
+| `PostToolUse` | `Bash` | `post-tool-failure-triage.sh` |
+| `UserPromptSubmit` | all | `user-prompt-submit-router.sh` |
+| `Stop` | all | `stop-plaintext-confirm-guard.sh`, `stop-summary.sh` |
+
+`pre-tool-dispatcher.sh` は tool input を先に軽量判定し、該当する場合だけ個別 guard を呼び出す。これにより通常の `Bash` 実行で `Checking git push` / `Checking commit review gate` / `Checking test category gate` が毎回直列表示される状態を避けつつ、危険操作は従来通り fail-close する。
+
+Codex では file edit が `apply_patch` として届くため、`.codex/hooks/lib/codex-hook-utils.sh` で `tool_input.command` から変更ファイルと追加行を抽出する。dispatcher と各 hook 本体は旧 `file_path` 形式にも対応し、手動 dry-run と実 runtime の両方で同じ判定を使う。
+
+TDD enforcement は Codex では強制しない。安全系と品質ゲートは hook / pre-commit で止め、TDD は agent instruction と review で扱う。
 
 主な入口:
 
@@ -110,21 +130,26 @@ Codex では first-class hook に全面依存せず、command と shell wrapper 
 - `/update-docs`
 - `/codex-closeout`
 
-shell wrapper:
+hook / wrapper:
 
 - `.codex/hooks/session-orientation.sh`
+- `.codex/hooks/pre-tool-dispatcher.sh`
 - `.codex/hooks/ui-preflight-reminder.sh`
 - `.codex/hooks/secrets-guard.sh`
 - `.codex/hooks/git-push-guard.sh`
+- `.codex/hooks/destructive-rm-guard.sh`
+- `.codex/hooks/bandaid-guard.sh`
+- `.codex/hooks/prompt-edit-confirm-guard.sh`
+- `.codex/hooks/commit-codex-gate.sh`
+- `.codex/hooks/test-category-gate.sh`
+- `.codex/hooks/permission-request-guard.sh`
 - `.codex/hooks/post-edit-dispatcher.sh`
-- `.codex/hooks/file-changed-lint.sh`
-- `.codex/hooks/subagent-start-log.sh`
+- `.codex/hooks/post-tool-failure-triage.sh`
+- `.codex/hooks/user-prompt-submit-router.sh`
+- `.codex/hooks/stop-plaintext-confirm-guard.sh`
 - `.codex/hooks/stop-summary.sh`
-- `.codex/hooks/session-end-cleanup.sh`
 
-wrapper は guardrail と closeout の補助であり、agent selection の正本ではない。
-
-`post-edit-dispatcher.sh` だけは Claude と同じ AI functional E2E reminder を必須導線として共有する。実際の判定ロジックは `.claude/hooks/lib/e2e-functional-reminder.sh` を source し、`es-review`, `gakuchika`, `motivation`, `interview`, `company-info-search`, `rag-ingest`, `selection-schedule` の各 feature 変更で対応する `make test-e2e-functional-local-*` を 1 セッション 1 回だけ案内する。実際の block は agent hook ではなく repo-managed `.githooks/pre-commit` が担当する。
+`post-edit-dispatcher.sh` は Claude と同じ AI functional E2E reminder を共有する。判定ロジックは `.claude/hooks/lib/e2e-functional-reminder.sh` を source し、`es-review`, `gakuchika`, `motivation`, `interview`, `company-info-search`, `rag-ingest`, `selection-schedule` の各 feature 変更で対応する `make test-e2e-functional-local-*` を 1 セッション 1 回だけ案内する。最終 block は repo-managed `.githooks/pre-commit` が担当する。
 
 ## 5.1 Claude-to-Codex Delegation
 
@@ -176,6 +201,8 @@ Claude = オーケストレーター、Codex = ワーカーの閉ループ運用
 
 `.codex/config.toml` では次を管理する。
 
+- `[features]`
+  - `codex_hooks = true`
 - `[agents]`
   - `max_threads = 6`
   - `max_depth = 1`
@@ -202,6 +229,8 @@ npm run test:harness
 - `.codex/agents/*.toml` の存在
 - required field の存在
 - 主要 agent の skill binding
-- `.codex/config.toml` の `[agents]` / `[routing]` / `mcp_servers.*`
+- `.codex/config.toml` の `[features]` / `[agents]` / `[routing]` / `mcp_servers.*`
+- `.codex/hooks.json` の lifecycle hook 配線
+- Codex 実入力形式 (`apply_patch`) で UI / band-aid / prompt confirmation gate が動くこと
 - `CODEX_HARNESS.md` の source-of-truth 記述
 - `AI_AGENT_PIPELINE.md` の stale step 除去

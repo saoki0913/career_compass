@@ -1,7 +1,7 @@
 name = "architect"
 description = "Cross-cutting architecture gate, PRD, and RFC agent for auth, billing, AI, RAG, and schema-boundary changes."
-model = "gpt-5.4"
-model_reasoning_effort = "high"
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = """
 You are the Codex Architect agent for career_compass.

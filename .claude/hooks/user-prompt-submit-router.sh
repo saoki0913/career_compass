@@ -10,6 +10,12 @@ if [ -z "$PROMPT" ]; then
 fi
 
 LOWER=$(printf '%s' "$PROMPT" | tr '[:upper:]' '[:lower:]')
+IS_HARNESS_DIAGNOSTIC=false
+if printf '%s' "$PROMPT" | grep -qiE 'hook|hooks|harness|PreToolUse|PostToolUse|UserPromptSubmit|PermissionRequest|Checking git push|Checking test category|Checking commit review|進まない|止ま'; then
+  if printf '%s' "$PROMPT" | grep -qiE 'なんで|なぜ|why|おかしい|設計|改善|直|fix|debug|diagnos'; then
+    IS_HARNESS_DIAGNOSTIC=true
+  fi
+fi
 
 if printf '%s' "$PROMPT" | grep -qiE 'codex-company/\.secrets|直接.*secret|read.*secret'; then
   jq -n '{
@@ -22,13 +28,18 @@ fi
 CONTEXT=""
 TITLE=""
 
+if [ "$IS_HARNESS_DIAGNOSTIC" = "true" ]; then
+  CONTEXT="${CONTEXT}Hook / harness diagnostic task: inspect lifecycle hook routing, reduce noisy always-on guards, and keep safety gates intact. Do not treat this as an ordinary product feature implementation.\n"
+  TITLE="Harness Diagnostic"
+fi
+
 if printf '%s' "$LOWER" | grep -qE 'deploy|release|production|staging|ship it|本番|公開|リリース'; then
   CONTEXT="${CONTEXT}Release 系依頼です。release-engineer を優先し、make deploy / make ops-release-check / scripts/release/release-career-compass.sh を正本として扱ってください.\n"
   TITLE="Release Task"
 fi
 
 # 機能改善 / 新機能追加 / リファクタ系依頼 — 着手前に architecture-gate を回す
-if printf '%s' "$PROMPT" | grep -qE '機能.*改善|改善して|機能.*追加|新機能|新しい機能|リファクタ|refactor|大規模|まとめて.*直|横断|境界.*変更|責務.*分離'; then
+if [ "$IS_HARNESS_DIAGNOSTIC" != "true" ] && printf '%s' "$PROMPT" | grep -qE '機能.*改善|改善して|機能.*追加|新機能|新しい機能|リファクタ|refactor|大規模|まとめて.*直|横断|境界.*変更|責務.*分離'; then
   CONTEXT="${CONTEXT}機能改善 / 新機能追加 / リファクタ系の依頼の可能性があります。着手前に architecture-gate skill を回し、PASS / PASS_WITH_REFACTOR / BLOCK を判定してください。BLOCK の場合は improve-architecture skill で RFC 化を先に行うこと。実装後は code-reviewer skill を必ず通すこと.\n"
   [ -z "$TITLE" ] && TITLE="Architecture Improvement Task"
 fi
@@ -76,7 +87,7 @@ if [ -z "$CONTEXT" ] && printf '%s' "$PROMPT" | grep -qE 'src/app/api/|backend/a
 fi
 
 # 実装規模タスク → plan mode 誘導（docs-only / test-only / 質問系は除外）
-if printf '%s' "$LOWER" | grep -qE '実装|追加して|作って|修正して|変更して|直して|対応して|改善して|組み込|入れて|書いて|更新して|fix|implement|build|create|refactor|add.*feature|update.*to'; then
+if [ "$IS_HARNESS_DIAGNOSTIC" != "true" ] && printf '%s' "$LOWER" | grep -qE '実装|追加して|作って|修正して|変更して|直して|対応して|改善して|組み込|入れて|書いて|更新して|fix|implement|build|create|refactor|add.*feature|update.*to'; then
   if ! printf '%s' "$LOWER" | grep -qE '^(何|どう|なぜ|how|what|why|explain|教えて|確認)'; then
     CONTEXT="${CONTEXT}実装規模のタスクの可能性があります。docs-only / test-only / 局所的文言修正でなければ、EnterPlanMode でプランを立ててから着手してください（CLAUDE.md §A: Codex plan review チェックポイントを通過するために必要）.\n"
   fi

@@ -15,7 +15,8 @@ CONTEXT_FILE=""
 DEFAULT_TIMEOUT_SEC=3600
 MAX_TIMEOUT_SEC=7200
 TIMEOUT_SEC=$DEFAULT_TIMEOUT_SEC
-MODEL="gpt-5.4"
+MODEL="gpt-5.5"
+MODEL_REASONING_EFFORT="medium"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -90,7 +91,26 @@ HARNESS_DIRECTIVES="## Codex Harness Activation
 4. If the task spans multiple domains or requires scope/boundary judgment, consult architect first and then continue with the concrete specialist agent.
 5. In the final response, report which agent and skills you used. If none applied, explain why."
 
-PROMPT="${TEMPLATE}
+# imagegen skips harness directives to reduce overhead and avoid connection timeouts
+if [ "$MODE" = "imagegen" ]; then
+  IMAGEGEN_ENFORCE='## REMINDER: $imagegen Parameters (ENFORCED BY HARNESS)
+You MUST call the $imagegen built-in tool with these exact parameters on every invocation:
+  model = "gpt-image-2"
+  quality = "high"
+Do NOT use any other image generation method (no Python scripts, no CLI tools, no curl).
+Do NOT omit these parameters or use defaults.'
+
+  PROMPT="${TEMPLATE}
+
+${IMAGEGEN_ENFORCE}
+
+## Additional Context
+${CONTEXT:-No additional context provided.}
+
+## Project Root
+${PROJECT_DIR}"
+else
+  PROMPT="${TEMPLATE}
 
 ${HARNESS_DIRECTIVES}
 
@@ -99,6 +119,7 @@ ${CONTEXT:-No additional context provided.}
 
 ## Project Root
 ${PROJECT_DIR}"
+fi
 
 printf '%s\n' "$PROMPT" > "$RESULT_DIR/request.md"
 
@@ -107,10 +128,9 @@ START_TS=$(date +%s)
 EXIT_CODE=0
 STATUS="SUCCESS"
 
-# imagegen: snapshot git state before execution for scope audit
+# imagegen: timestamp marker for image collection
 if [ "$MODE" = "imagegen" ]; then
   touch "$RESULT_DIR/.start_marker"
-  git -C "$PROJECT_DIR" status --porcelain 2>/dev/null | sort > "$RESULT_DIR/.git_before" || true
   sleep 1
 fi
 
@@ -119,6 +139,7 @@ case "$MODE" in
     timeout "$TIMEOUT_SEC" codex exec \
       --sandbox read-only \
       -m "$MODEL" \
+      -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
       -o "$RESULT_DIR/result.md" \
       --ephemeral \
       -C "$PROJECT_DIR" \
@@ -128,6 +149,7 @@ case "$MODE" in
     timeout "$TIMEOUT_SEC" codex exec \
       --sandbox workspace-write \
       -m "$MODEL" \
+      -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
       -o "$RESULT_DIR/result.md" \
       --ephemeral \
       -C "$PROJECT_DIR" \
@@ -139,54 +161,68 @@ case "$MODE" in
     timeout "$TIMEOUT_SEC" codex exec review \
       --uncommitted \
       -m "$MODEL" \
+      -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
       -o "$RESULT_DIR/result.md" \
       --ephemeral \
       2>"$RESULT_DIR/stderr.tmp" || EXIT_CODE=$?
     ;;
   imagegen)
-    mkdir -p "$PROJECT_DIR/public/generated_images"
+    # Use a lightweight workspace to avoid project harness overhead (agents,
+    # skills, hooks) which causes $imagegen connection timeouts. Images are
+    # generated to Codex cache (~/.codex/generated_images/) then collected.
+    IMAGEGEN_WORKSPACE="/tmp/imagegen-workspace-$$"
+    mkdir -p "$IMAGEGEN_WORKSPACE/public/generated_images" "$PROJECT_DIR/public/generated_images"
+    if [ ! -d "$IMAGEGEN_WORKSPACE/.git" ]; then
+      git init "$IMAGEGEN_WORKSPACE" >/dev/null 2>&1
+      git -C "$IMAGEGEN_WORKSPACE" -c core.hooksPath=/dev/null commit --allow-empty -m "init" >/dev/null 2>&1
+    fi
     timeout "$TIMEOUT_SEC" codex exec \
       --sandbox workspace-write \
       -m "$MODEL" \
+      -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
+      -c experimental_use_rmcp_client=false \
       -o "$RESULT_DIR/result.md" \
       --ephemeral \
-      -C "$PROJECT_DIR" \
-      "$PROMPT" 2>"$RESULT_DIR/stderr.tmp" || EXIT_CODE=$?
+      -C "$IMAGEGEN_WORKSPACE" \
+      "$PROMPT" < /dev/null 2>"$RESULT_DIR/stderr.tmp" || EXIT_CODE=$?
+    # Copy any images Codex placed in the lightweight workspace
+    find "$IMAGEGEN_WORKSPACE/public/generated_images" -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.webp' \) \
+      -exec cp {} "$PROJECT_DIR/public/generated_images/" \; 2>/dev/null
+    rm -rf "$IMAGEGEN_WORKSPACE"
     ;;
 esac
 
 END_TS=$(date +%s)
 DURATION_MS=$(( (END_TS - START_TS) * 1000 ))
 
-# ─── imagegen: scope audit + image collection ────────────────────
+# ─── imagegen: image collection ──────────────────────────────────
+# Scope audit removed for imagegen: Codex sandbox (workspace-write) already
+# enforces write restrictions. Git-status-based audit caused false positives
+# when parallel sessions modified unrelated files during the run.
 IMAGE_COUNT=0
 if [ "$MODE" = "imagegen" ] && [ -f "$RESULT_DIR/.start_marker" ]; then
-  # Scope audit: compare git state before/after to detect only NEW changes by Codex
-  git -C "$PROJECT_DIR" status --porcelain 2>/dev/null | sort > "$RESULT_DIR/.git_after" || true
-  SCOPE_OK=true
-  while IFS= read -r line; do
-    file="${line:3}"
-    case "$file" in
-      public/generated_images/*|.claude/state/*) ;;
-      "") ;;
-      *) SCOPE_OK=false; echo "SCOPE_VIOLATION: $file" >&2 ;;
-    esac
-  done < <(comm -13 "$RESULT_DIR/.git_before" "$RESULT_DIR/.git_after")
-
-  if [ "$SCOPE_OK" = false ]; then
-    STATUS="SCOPE_VIOLATION"
-    EXIT_CODE=1
-  fi
   rm -f "$RESULT_DIR/.git_before" "$RESULT_DIR/.git_after"
 
-  # Collect generated images
+  # Collect generated images from project dir AND Codex cache
+  CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
   IMAGE_FILES=()
   while IFS= read -r img_path; do
+    # Copy Codex-cache images into project generated_images/
+    if [[ "$img_path" == "$CODEX_HOME"* ]]; then
+      basename_img=$(basename "$img_path")
+      cp "$img_path" "$PROJECT_DIR/public/generated_images/$basename_img" 2>/dev/null
+      img_path="$PROJECT_DIR/public/generated_images/$basename_img"
+    fi
     IMAGE_FILES+=("$img_path")
     IMAGE_COUNT=$((IMAGE_COUNT + 1))
-  done < <(find "$PROJECT_DIR/public/generated_images" -type f \
-    \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.webp' -o -name '*.svg' \) \
-    -newer "$RESULT_DIR/.start_marker" 2>/dev/null)
+  done < <(
+    find "$PROJECT_DIR/public/generated_images" -type f \
+      \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.webp' -o -name '*.svg' \) \
+      -newer "$RESULT_DIR/.start_marker" 2>/dev/null
+    find "$CODEX_HOME/generated_images" -type f \
+      \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.webp' \) \
+      -newer "$RESULT_DIR/.start_marker" 2>/dev/null
+  )
 
   printf '[\n' > "$RESULT_DIR/images.json"
   for i in "${!IMAGE_FILES[@]}"; do
@@ -198,10 +234,7 @@ if [ "$MODE" = "imagegen" ] && [ -f "$RESULT_DIR/.start_marker" ]; then
 fi
 
 # ─── Failure classification ──────────────────────────────────────
-# SCOPE_VIOLATION は imagegen scope audit で既に設定済みの場合があるため保護
-if [ "$STATUS" = "SCOPE_VIOLATION" ]; then
-  : # already set by imagegen scope audit
-elif [ "$EXIT_CODE" -eq 124 ]; then
+if [ "$EXIT_CODE" -eq 124 ]; then
   STATUS="TIMEOUT"
 elif [ "$EXIT_CODE" -ne 0 ]; then
   STATUS="CODEX_ERROR"

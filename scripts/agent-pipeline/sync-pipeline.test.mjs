@@ -17,7 +17,6 @@ import { syncPipeline } from "./sync-pipeline.mjs";
 
 const EXPECTED_HARNESS_INVENTORY = {
   agents: 13,
-  hooksTopLevelSh: 13,
   opusAgents: 11,
   sonnetAgents: 2,
   claudeSkills: 41,
@@ -140,18 +139,25 @@ test("harness inventory counts match expected baseline", () => {
   );
 
   const hookDir = path.join(projectRoot, ".claude/hooks");
-  const hooks = readdirSync(hookDir, { withFileTypes: true })
-    .filter((e) => e.isFile() && e.name.endsWith(".sh"))
-    .map((e) => e.name);
-  assert.equal(
-    hooks.length,
-    EXPECTED_HARNESS_INVENTORY.hooksTopLevelSh,
-    `expected ${EXPECTED_HARNESS_INVENTORY.hooksTopLevelSh} top-level hooks, found ${hooks.length}`,
-  );
-
   assert.ok(
     existsSync(path.join(hookDir, "lib/skill-recommender.sh")),
     ".claude/hooks/lib/skill-recommender.sh must exist",
+  );
+  assert.ok(
+    existsSync(path.join(hookDir, "pre-tool-dispatcher.sh")),
+    ".claude/hooks/pre-tool-dispatcher.sh must exist",
+  );
+
+  const claudeSettings = JSON.parse(
+    readFileSync(path.join(projectRoot, ".claude/settings.json"), "utf8"),
+  );
+  const preToolCommands = claudeSettings.hooks.PreToolUse.flatMap((entry) =>
+    entry.hooks.map((hook) => hook.command),
+  );
+  assert.deepEqual(
+    preToolCommands,
+    ['"$CLAUDE_PROJECT_DIR"/.claude/hooks/pre-tool-dispatcher.sh'],
+    "PreToolUse must be routed through a single dispatcher entrypoint",
   );
 
   let opus = 0;

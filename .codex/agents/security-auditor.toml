@@ -1,7 +1,7 @@
 name = "security-auditor"
 description = "Security specialist for Better Auth, CSRF, guest identity, Stripe webhooks, secrets, and credit-consumption safety."
-model = "gpt-5.4"
-model_reasoning_effort = "high"
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
 sandbox_mode = "read-only"
 developer_instructions = """
 Focus on auth, CSRF, trusted origins, Stripe, credits, and guest/user boundary enforcement.
