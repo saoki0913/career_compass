@@ -85,11 +85,8 @@ from app.utils.gakuchika_text import (
     _normalize_text,
     _role_required,
 )
-from app.utils.llm import (
-    _parse_json_response,
-    call_llm_with_error,
-    consume_request_llm_cost_summary,
-)
+from app.utils.llm import call_llm_with_error, consume_request_llm_cost_summary
+from app.utils.llm_providers import _parse_json_response
 from app.utils.llm_prompt_safety import (
     PromptSafetyError,
     sanitize_prompt_input,

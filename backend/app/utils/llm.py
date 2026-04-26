@@ -1,30 +1,69 @@
 """
-LLMユーティリティモジュール
+LLM orchestration module.
 
-複数のLLMプロバイダーを統一的に呼び出すインターフェースを提供:
-- Claude Sonnet（ES添削、ガクチカ深掘りのメイン）
-- OpenAI（企業情報抽出、RAGユーティリティ用）
-- Google Gemini（公式 Gemini API）
-
-機能ごとの自動モデル選択とフォールバックロジックをサポート。
+Provider-specific calls, response parsing, streaming, routing, cost estimation,
+and prompt-safety helpers live in the adjacent ``llm_*`` modules. This file owns
+the high-level structured/text call flow and the small compatibility surface
+still used by FastAPI routes.
 """
 
-import asyncio
-import base64
-import time
-import httpx
-from anthropic import AsyncAnthropic, APIError as AnthropicAPIError
-import openai
-from openai import APIError as OpenAIAPIError
-from app.config import settings
-from app.utils import llm_client_registry, llm_model_routing, llm_prompt_safety, llm_usage_cost
-from app.utils.secure_logger import get_logger
+from __future__ import annotations
+
 import json
+import time
+from typing import Any, Optional
+
+import httpx
+from anthropic import APIError as AnthropicAPIError
+from openai import APIError as OpenAIAPIError
+
+from app.config import settings
+from app.utils import (
+    llm_client_registry,
+    llm_model_routing,
+    llm_prompt_safety,
+    llm_providers,
+    llm_responses,
+    llm_streaming,
+    llm_usage_cost,
+)
+from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
-from typing import Any, AsyncGenerator, Callable, Literal, Optional, TypeAlias
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+
+
+# Direct imports for symbols used within this module.
+from app.utils.llm_model_routing import (
+    _feature_cross_fallback_model,
+    _resolve_model_target,
+)
+from app.utils.llm_providers import (
+    ERROR,
+    SUCCESS,
+    WARNING,
+    LLMResult,
+    _augment_system_prompt_for_provider_json,
+    _augment_system_prompt_for_provider_text,
+    _classify_error_for_provider,
+    _create_error,
+    _detect_truncation,
+    _extract_gemini_usage_summary,
+    _log,
+    _log_debug,
+    _normalize_chat_messages,
+    _parse_json_response,
+    _provider_display_name,
+    get_anthropic_client,
+    get_google_http_client,
+    get_openai_client,
+)
+from app.utils.llm_responses import (
+    OpenAIResponsesRefusalError,
+    _should_use_openai_responses_api,
+)
+from app.utils.llm_usage_cost import estimate_llm_usage_cost_usd
+
+REPAIR_JSON_OPENAI_MAX_TOKENS = 1500
 
 
 def _emit_output_leakage_event(
@@ -37,352 +76,19 @@ def _emit_output_leakage_event(
     result = llm_prompt_safety.detect_output_leakage(raw_text)
     if not result.is_leaked:
         return
-    import json as _json
-    logger.info(_json.dumps({
-        "event": "llm.output.leakage_detected",
-        "feature": feature,
-        "model": model,
-        "provider": provider,
-        "patterns": result.matched_patterns,
-        "text_length": len(raw_text),
-        "tier": "log_only",
-    }))
-
-
-# Global clients for connection pooling (mutable state stays here)
-_anthropic_client: Optional[AsyncAnthropic] = None
-_anthropic_client_rag: Optional[AsyncAnthropic] = None
-_openai_client: Optional[openai.AsyncOpenAI] = None
-_openai_client_rag: Optional[openai.AsyncOpenAI] = None
-_google_http_client: Optional[httpx.AsyncClient] = None
-_google_http_client_rag: Optional[httpx.AsyncClient] = None
-
-# Thread-safe lock for client initialization
-_client_lock = asyncio.Lock()
-
-
-async def get_anthropic_client(for_rag: bool = False) -> AsyncAnthropic:
-    """Anthropicクライアントを取得または作成（コネクションプーリング対応、スレッドセーフ）。"""
-    global _anthropic_client, _anthropic_client_rag
-    async with _client_lock:
-        if for_rag:
-            if _anthropic_client_rag is None:
-                _anthropic_client_rag = AsyncAnthropic(
-                    api_key=settings.anthropic_api_key,
-                    timeout=settings.rag_timeout_seconds,
-                )
-            return _anthropic_client_rag
-        else:
-            if _anthropic_client is None:
-                _anthropic_client = AsyncAnthropic(
-                    api_key=settings.anthropic_api_key,
-                    timeout=settings.llm_timeout_seconds,
-                )
-            return _anthropic_client
-
-
-async def get_openai_client(for_rag: bool = False) -> openai.AsyncOpenAI:
-    """OpenAIクライアントを取得または作成（コネクションプーリング対応、スレッドセーフ）。"""
-    global _openai_client, _openai_client_rag
-    async with _client_lock:
-        if for_rag:
-            if _openai_client_rag is None:
-                _openai_client_rag = openai.AsyncOpenAI(
-                    api_key=settings.openai_api_key,
-                    timeout=settings.rag_timeout_seconds,
-                )
-            return _openai_client_rag
-        else:
-            if _openai_client is None:
-                _openai_client = openai.AsyncOpenAI(
-                    api_key=settings.openai_api_key,
-                    timeout=settings.llm_timeout_seconds,
-                )
-            return _openai_client
-
-
-async def get_google_http_client(for_rag: bool = False) -> httpx.AsyncClient:
-    """Gemini API用 HTTP クライアントを取得する。"""
-    global _google_http_client, _google_http_client_rag
-    timeout = settings.rag_timeout_seconds if for_rag else settings.llm_timeout_seconds
-
-    async with _client_lock:
-        if for_rag:
-            if _google_http_client_rag is None:
-                _google_http_client_rag = httpx.AsyncClient(timeout=timeout)
-            return _google_http_client_rag
-
-        if _google_http_client is None:
-            _google_http_client = httpx.AsyncClient(timeout=timeout)
-        return _google_http_client
-
-# (model config functions moved to llm_model_routing; imported above)
-
-# Feature name mapping for error messages and logs
-FEATURE_NAMES = {
-    "es_review": "ES添削",
-    "gakuchika": "ガクチカ深掘り",
-    "motivation": "志望動機作成",
-    "interview": "面接対策",
-    "interview_feedback": "面接最終講評",
-    "gakuchika_draft": "ガクチカES下書き",
-    "motivation_draft": "志望動機ES下書き",
-    "selection_schedule": "選考スケジュール抽出",
-    "company_info": "企業情報抽出",
-    "rag_query_expansion": "RAGクエリ拡張",
-    "rag_hyde": "RAG仮想文書生成",
-    "rag_classify": "RAGコンテンツ分類",
-}
-
-# Log markers
-SUCCESS = "✅"
-WARNING = "⚠️"
-ERROR = "❌"
-INFO = "ℹ️"
-_DEBUG_ONLY_FEATURES = {
-    "rag_query_expansion",
-    "rag_hyde",
-    "rag_classify",
-}
-
-
-# (get_model_display_name moved to llm_model_routing; imported above)
-
-
-def _log(feature: str, message: str, marker: str = ""):
-    """機能名プレフィックス付きでログを出力。"""
-    if feature in _DEBUG_ONLY_FEATURES and marker not in {WARNING, ERROR}:
-        return
-
-    feature_ja = FEATURE_NAMES.get(feature, feature)
-    if marker:
-        print(f"[{feature_ja}] {marker} {message}")
-    else:
-        print(f"[{feature_ja}] {message}")
-
-
-def _log_debug(feature: str, message: str) -> None:
-    """Debugログ（settings.debug=Trueの時のみ出力）。"""
-    if settings.debug:
-        _log(feature, message, INFO)
-
-
-def _provider_display_name(provider: str) -> str:
-    return {
-        "anthropic": "Claude (Anthropic)",
-        "openai": "OpenAI",
-        "google": "Google Gemini",
-    }.get(provider, provider)
-
-
-# (_resolve_openai_model, _resolve_model_target, resolve_feature_model_metadata,
-#  _provider_has_api_key, _feature_cross_fallback_model moved to llm_model_routing; imported above)
-
-
-def _requires_json_prompt_hint(provider: llm_model_routing.LLMProvider) -> bool:
-    return provider == "google"
-
-
-def _json_repair_system_prompt(*, require_valid: bool = False) -> str:
-    if require_valid:
-        return "あなたはJSON修復の専門家です。必ず有効なJSONのみを返してください。"
-    return "あなたはJSON修復の専門家です。必ずJSONのみ出力してください。"
-
-
-def _json_repair_user_prompt(repair_source: str) -> str:
-    template = (
-        "以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。\n\n"
-        "{repair_source}"
-    )
-    return template.format(repair_source=repair_source)
-
-
-def _schema_body(json_schema: dict | None) -> dict | None:
-    if not json_schema:
-        return None
-    return json_schema.get("schema", json_schema)
-
-
-def _build_google_response_schema(json_schema: dict | None) -> dict | None:
-    schema_body = _schema_body(json_schema)
-    if not isinstance(schema_body, dict):
-        return None
-
-    allowed_keys = {
-        "type",
-        "format",
-        "description",
-        "nullable",
-        "enum",
-        "items",
-        "properties",
-        "required",
-        "propertyOrdering",
-        "minItems",
-        "maxItems",
-        "minimum",
-        "maximum",
-        "minLength",
-        "maxLength",
-        "anyOf",
-    }
-
-    def _clean(node: Any) -> Any:
-        if isinstance(node, dict):
-            cleaned: dict[str, Any] = {}
-            for key, value in node.items():
-                if key not in allowed_keys:
-                    continue
-                if key == "properties" and isinstance(value, dict):
-                    cleaned[key] = {prop: _clean(prop_schema) for prop, prop_schema in value.items()}
-                elif key == "items":
-                    cleaned[key] = _clean(value)
-                elif key == "anyOf" and isinstance(value, list):
-                    cleaned[key] = [_clean(item) for item in value]
-                else:
-                    cleaned[key] = value
-            return cleaned
-        if isinstance(node, list):
-            return [_clean(item) for item in node]
-        return node
-
-    return _clean(schema_body)
-
-
-def _build_schema_example(schema: dict | None) -> Any:
-    if not isinstance(schema, dict):
-        return {}
-
-    schema_type = schema.get("type")
-    if schema_type == "object":
-        properties = schema.get("properties") or {}
-        return {
-            key: _build_schema_example(value if isinstance(value, dict) else {})
-            for key, value in properties.items()
-        }
-    if schema_type == "array":
-        item_schema = schema.get("items")
-        return [_build_schema_example(item_schema if isinstance(item_schema, dict) else {})]
-    if schema_type == "number":
-        return 0
-    if schema_type == "integer":
-        return 0
-    if schema_type == "boolean":
-        return False
-    return ""
-
-
-def _augment_system_prompt_for_provider_json(
-    provider: llm_model_routing.LLMProvider,
-    system_prompt: str,
-    response_format: llm_model_routing.ResponseFormat,
-    json_schema: dict | None,
-) -> str:
-    if response_format == "text" or not _requires_json_prompt_hint(provider):
-        return system_prompt
-
-    schema_body = _schema_body(json_schema)
-    schema_example = _build_schema_example(schema_body)
-    strict_note_template = (
-        "\n\n# JSON出力の厳守\n"
-        "必ず有効なJSONのみを返してください。説明文、前置き、コードブロックは禁止です。"
-        "\n先頭文字は {{、末尾文字は }} にしてください。"
-        "\n期待するJSONの骨組み:\n"
-        "{schema_example}"
-    )
-    strict_note = strict_note_template.format(
-        schema_example=json.dumps(schema_example, ensure_ascii=False)
-    )
-    if provider == "google":
-        strict_note += (
-            "\nこれは単純な構造化出力タスクです。思考や解説を書かず、"
-            "回答のJSONオブジェクトを先に、かつそれだけを返してください。"
+    logger.info(
+        json.dumps(
+            {
+                "event": "llm.output.leakage_detected",
+                "feature": feature,
+                "model": model,
+                "provider": provider,
+                "patterns": result.matched_patterns,
+                "text_length": len(raw_text),
+                "tier": "log_only",
+            }
         )
-    return f"{system_prompt}{strict_note}"
-
-
-def _augment_system_prompt_for_provider_text(
-    provider: llm_model_routing.LLMProvider,
-    system_prompt: str,
-    *,
-    feature: str,
-) -> str:
-    if feature != "es_review" or provider == "anthropic":
-        return system_prompt
-
-    strict_note = (
-        "\n\n# 出力形式の厳守\n"
-        "出力は最終本文のみを返してください。"
-        "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
-        "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
     )
-    if provider == "google":
-        strict_note += "\n思考や解説は書かず、本文だけを返してください。"
-    return f"{system_prompt}{strict_note}"
-
-
-def _build_chat_response_format(
-    provider: Literal["openai"],
-    response_format: llm_model_routing.ResponseFormat,
-    json_schema: dict | None,
-) -> dict[str, Any] | None:
-    if response_format == "text":
-        return None
-
-    if response_format == "json_schema" and json_schema:
-        schema_body = _schema_body(json_schema)
-        schema_name = str(json_schema.get("name") or "response")
-        return {
-            "type": "json_schema",
-            "json_schema": {
-                "name": schema_name,
-                "schema": schema_body,
-                "strict": True,
-            },
-        }
-
-    return {"type": "json_object"}
-
-
-@dataclass
-class LLMError:
-    """LLMエラーの詳細情報。"""
-
-    error_type: str  # "no_api_key", "billing", "rate_limit", "invalid_key", "network", "parse", "refusal", "unknown"
-    message: str  # ユーザー向けメッセージ（日本語）
-    detail: str  # ログ用の技術的詳細
-    provider: str  # "anthropic" または "openai"
-    feature: str  # 使用中の機能
-
-    def to_dict(self) -> dict:
-        return {
-            "error_type": self.error_type,
-            "message": self.message,
-            "detail": self.detail,
-            "provider": self.provider,
-            "feature": self.feature,
-        }
-
-
-@dataclass
-class LLMResult:
-    """LLM呼び出しの結果。"""
-
-    success: bool
-    data: dict | None = None
-    error: LLMError | None = None
-    raw_text: str | None = None  # Raw LLM response before JSON parsing
-    usage: dict[str, int] | None = None
-    # API に渡した実モデル ID（ログ・コスト集計用）
-    resolved_model: str | None = None
-
-
-class OpenAIResponsesRefusalError(RuntimeError):
-    """Structured Outputs refusal surfaced by the Responses API."""
-
-
-# (most cost tracking functions moved to llm_usage_cost; imported above)
-# consume_request_llm_cost_summary is kept here (differs from extraction module)
 
 
 def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, Any] | None:
@@ -472,10 +178,6 @@ def log_selection_schedule_request_llm_cost(
     aggregated_usage: dict[str, int],
     resolved_models: list[str],
 ) -> None:
-    """
-    Developer-only log: aggregated tokens and optional USD estimate.
-    Never sent to API clients.
-    """
     if not llm_usage_cost._should_log_llm_cost_debug():
         return
     if not aggregated_usage and not resolved_models:
@@ -502,9 +204,9 @@ def log_selection_schedule_request_llm_cost(
 
     est = None
     if aggregated_usage and normalized_usage:
-        for m in resolved_models:
-            if m:
-                est = llm_usage_cost.estimate_llm_usage_cost_usd(m, normalized_usage)
+        for model in resolved_models:
+            if model:
+                est = llm_usage_cost.estimate_llm_usage_cost_usd(model, normalized_usage)
                 if est is not None:
                     break
         if est is None and resolved_models:
@@ -524,233 +226,71 @@ def log_selection_schedule_request_llm_cost(
     logger.info(f"[選考スケジュール抽出] {line}")
 
 
-def _create_error(
-    error_type: str, provider: str, feature: str, detail: str = ""
-) -> LLMError:
-    """ユーザーフレンドリーなメッセージ付きの詳細エラーを作成。"""
-    feature_name = FEATURE_NAMES.get(feature, feature)
-    provider_name = _provider_display_name(provider)
+def _sync_provider_clients() -> None:
+    llm_providers.get_anthropic_client = get_anthropic_client
+    llm_providers.get_openai_client = get_openai_client
+    llm_providers.get_google_http_client = get_google_http_client
 
-    messages = {
-        "no_api_key": "AI機能の設定に問題があります。管理者にお問い合わせください。",
-        "billing": f"{provider_name}のクレジット残高が不足しています。APIダッシュボードでクレジットを追加してください。",
-        "rate_limit": f"{provider_name}のレート制限に達しました。しばらく待ってから再度お試しください。",
-        "invalid_key": f"{provider_name}のAPIキーが無効です。正しいAPIキーを設定してください。",
-        "network": f"{provider_name}への接続に失敗しました。ネットワーク接続を確認してください。",
-        "parse": "AIからの応答を解析できませんでした。もう一度お試しください。",
-        "refusal": "AIが安全上の理由で応答を返せませんでした。入力内容や条件を見直して、もう一度お試しください。",
-        "unknown": f"{feature_name}の処理中にエラーが発生しました。しばらくしてから再度お試しください。",
-    }
 
-    return LLMError(
-        error_type=error_type,
-        message=messages.get(error_type, messages["unknown"]),
-        detail=detail,
-        provider=provider,
-        feature=feature,
+async def _call_google_generate_content(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any]]:
+    _sync_provider_clients()
+    return await llm_providers._call_google_generate_content(*args, **kwargs)
+
+
+async def _call_claude_raw(*args: Any, **kwargs: Any) -> tuple[str, dict[str, int] | None]:
+    _sync_provider_clients()
+    return await llm_providers._call_claude_raw(*args, **kwargs)
+
+
+async def _call_claude_raw_stream(*args: Any, **kwargs: Any) -> Any:
+    _sync_provider_clients()
+    async for chunk in llm_providers._call_claude_raw_stream(*args, **kwargs):
+        yield chunk
+
+
+async def _call_openai_compatible(
+    *args: Any,
+    **kwargs: Any,
+) -> tuple[dict | None, dict[str, int] | None]:
+    _sync_provider_clients()
+    return await llm_providers._call_openai_compatible(*args, **kwargs)
+
+
+async def _call_openai_compatible_raw_text(
+    *args: Any,
+    **kwargs: Any,
+) -> tuple[str, dict[str, int] | None]:
+    _sync_provider_clients()
+    return await llm_providers._call_openai_compatible_raw_text(*args, **kwargs)
+
+
+async def _call_openai_responses(
+    *args: Any,
+    **kwargs: Any,
+) -> tuple[dict | None, dict[str, int] | None]:
+    _sync_provider_clients()
+    return await llm_responses._call_openai_responses(*args, **kwargs)
+
+
+async def _call_openai_responses_raw_text(
+    *args: Any,
+    **kwargs: Any,
+) -> tuple[str, dict[str, int] | None]:
+    _sync_provider_clients()
+    return await llm_responses._call_openai_responses_raw_text(*args, **kwargs)
+
+
+def _json_repair_system_prompt(*, require_valid: bool = False) -> str:
+    if require_valid:
+        return "あなたはJSON修復の専門家です。必ず有効なJSONのみを返してください。"
+    return "あなたはJSON修復の専門家です。必ずJSONのみ出力してください。"
+
+
+def _json_repair_user_prompt(repair_source: str) -> str:
+    return (
+        "以下のテキストを有効なJSONに修復してください。JSON以外は出力しないでください。\n\n"
+        f"{repair_source}"
     )
-
-
-def _classify_anthropic_error(error: Exception) -> tuple[str, str]:
-    """Anthropic APIエラーを分類し、(error_type, detail)を返す。"""
-    error_str = str(error).lower()
-
-    if "credit balance is too low" in error_str or "billing" in error_str:
-        return "billing", "Anthropicのクレジット残高が不足しています"
-    elif "rate limit" in error_str or "429" in error_str:
-        return "rate_limit", "Anthropicのレート制限を超えました"
-    elif (
-        "invalid api key" in error_str
-        or "authentication" in error_str
-        or "401" in error_str
-    ):
-        return "invalid_key", "AnthropicのAPIキーが無効です"
-    elif "connection" in error_str or "timeout" in error_str or "network" in error_str:
-        return "network", f"ネットワークエラー: {error}"
-    else:
-        return "unknown", str(error)
-
-
-def _classify_openai_error(error: Exception) -> tuple[str, str]:
-    """OpenAI APIエラーを分類し、(error_type, detail)を返す。"""
-    error_str = str(error).lower()
-
-    if "insufficient_quota" in error_str or "exceeded your current quota" in error_str:
-        return "billing", "OpenAIのクォータを超えました"
-    elif "rate limit" in error_str or "429" in error_str:
-        return "rate_limit", "OpenAIのレート制限を超えました"
-    elif (
-        "invalid api key" in error_str
-        or "authentication" in error_str
-        or "401" in error_str
-    ):
-        return "invalid_key", "OpenAIのAPIキーが無効です"
-    elif "connection" in error_str or "timeout" in error_str or "network" in error_str:
-        return "network", f"ネットワークエラー: {error}"
-    else:
-        return "unknown", str(error)
-
-
-def _classify_google_error(error: Exception) -> tuple[str, str]:
-    """Gemini APIエラーを分類し、(error_type, detail)を返す。"""
-    if isinstance(error, httpx.HTTPStatusError):
-        status_code = error.response.status_code
-        if status_code == 429:
-            return "rate_limit", f"Gemini APIのレート制限を超えました (status={status_code})"
-        if status_code in {401, 403}:
-            return "invalid_key", f"Gemini APIキーが無効、または権限が不足しています (status={status_code})"
-        if status_code == 402:
-            return "billing", "Gemini APIのクレジット残高が不足しています"
-        if 400 <= status_code < 500:
-            return "unknown", f"Gemini APIリクエストエラー (status={status_code})"
-        return "network", f"Gemini API HTTPエラー (status={status_code})"
-    if isinstance(error, httpx.TimeoutException):
-        return "network", f"Gemini APIタイムアウト: {error}"
-    if isinstance(error, httpx.HTTPError):
-        return "network", f"Gemini API接続エラー: {error}"
-    return "unknown", str(error)
-
-
-def _classify_error_for_provider(provider: llm_model_routing.LLMProvider, error: Exception) -> tuple[str, str]:
-    if provider == "anthropic":
-        return _classify_anthropic_error(error)
-    if provider == "google":
-        return _classify_google_error(error)
-    return _classify_openai_error(error)
-
-
-def _build_gemini_contents(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    contents: list[dict[str, Any]] = []
-    for message in messages:
-        role = str(message.get("role") or "user")
-        text = str(message.get("content") or "")
-        if not text:
-            continue
-        contents.append(
-            {
-                "role": "model" if role == "assistant" else "user",
-                "parts": [{"text": text}],
-            }
-        )
-    return contents
-
-
-def _extract_gemini_text(payload: dict[str, Any]) -> str:
-    candidates = payload.get("candidates") or []
-    text_parts: list[str] = []
-    for candidate in candidates:
-        content = candidate.get("content") or {}
-        parts = content.get("parts") or []
-        for part in parts:
-            if not isinstance(part, dict):
-                continue
-            part_text = str(part.get("text") or "").strip()
-            if part_text:
-                text_parts.append(part_text)
-        candidate_text = str(candidate.get("text") or "").strip()
-        if candidate_text:
-            text_parts.append(candidate_text)
-    top_level_text = str(payload.get("text") or "").strip()
-    if top_level_text:
-        text_parts.append(top_level_text)
-    return "\n".join(part for part in text_parts if part)
-
-
-def _extract_gemini_usage_summary(payload: dict[str, Any]) -> dict[str, int]:
-    usage = payload.get("usageMetadata") or {}
-    return {
-        "input_tokens": int(usage.get("promptTokenCount") or 0),
-        "output_tokens": int(usage.get("candidatesTokenCount") or 0),
-        "reasoning_tokens": int(usage.get("thoughtsTokenCount") or 0),
-        "cached_input_tokens": int(usage.get("cachedContentTokenCount") or 0),
-    }
-
-
-def _extract_anthropic_usage_summary(response: Any) -> dict[str, int]:
-    usage = getattr(response, "usage", None) or {}
-
-    def _get(obj: Any, key: str) -> int:
-        if isinstance(obj, dict):
-            return int(obj.get(key) or 0)
-        return int(getattr(obj, key, 0) or 0)
-
-    return {
-        "input_tokens": _get(usage, "input_tokens"),
-        "output_tokens": _get(usage, "output_tokens"),
-        "reasoning_tokens": 0,
-        "cached_input_tokens": _get(usage, "cache_read_input_tokens"),
-    }
-
-
-def _build_google_generation_config(
-    *,
-    model: str,
-    max_tokens: int,
-    temperature: float,
-) -> dict[str, Any]:
-    model_lower = (model or "").lower()
-    effective_max_tokens = max_tokens
-    if model_lower.startswith("gemini-3"):
-        effective_max_tokens = min(4096, max(max_tokens * 4, max_tokens + 1024))
-
-    generation_config: dict[str, Any] = {
-        "maxOutputTokens": effective_max_tokens,
-        "temperature": temperature,
-    }
-    if model_lower.startswith("gemini-3"):
-        generation_config["thinkingConfig"] = {
-            "thinkingLevel": "LOW",
-            "includeThoughts": False,
-        }
-    return generation_config
-
-
-async def _call_google_generate_content(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str,
-    *,
-    response_format: llm_model_routing.ResponseFormat = "text",
-    json_schema: dict | None = None,
-    feature: str = "unknown",
-) -> tuple[str, dict[str, Any]]:
-    client = await get_google_http_client(for_rag=_is_rag_feature(feature))
-    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-    effective_temperature = min(temperature, 0.1) if feature == "es_review" else temperature
-    effective_system_prompt = _augment_system_prompt_for_provider_json(
-        "google",
-        system_prompt,
-        response_format,
-        json_schema,
-    )
-    request_body: dict[str, Any] = {
-        "system_instruction": {"parts": [{"text": effective_system_prompt}]},
-        "contents": _build_gemini_contents(normalized_messages),
-        "generationConfig": _build_google_generation_config(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=effective_temperature,
-        ),
-    }
-
-    if response_format in {"json_object", "json_schema"}:
-        request_body["generationConfig"]["responseMimeType"] = "application/json"
-        schema_body = _build_google_response_schema(json_schema)
-        if response_format == "json_schema" and schema_body:
-            request_body["generationConfig"]["responseSchema"] = schema_body
-
-    response = await client.post(
-        f"{settings.google_base_url}/models/{model}:generateContent",
-        params={"key": settings.google_api_key},
-        headers={"Content-Type": "application/json"},
-        json=request_body,
-    )
-    response.raise_for_status()
-    payload = response.json()
-    return _extract_gemini_text(payload), payload
 
 
 async def _repair_json_with_same_model(
@@ -801,10 +341,6 @@ async def _repair_json_with_same_model(
     )
 
 
-# JSON 修復は OpenAI の gpt-mini へ集約。同一モデルでの max_tokens 段階リトライは行わない。
-REPAIR_JSON_OPENAI_MAX_TOKENS = 1500
-
-
 async def _repair_json_with_openai_model(
     *,
     raw_response: str,
@@ -814,7 +350,6 @@ async def _repair_json_with_openai_model(
     use_responses_api: bool = False,
     parse_retry_instructions: Optional[str] = None,
 ) -> LLMResult | None:
-    """OpenAI の `gpt-mini` 等で JSON を修復。キー未設定時は None。"""
     if not settings.openai_api_key:
         return None
     repair_source = (raw_response or "").strip()
@@ -853,128 +388,33 @@ async def _repair_json_with_openai_model(
     )
 
 
-async def _call_openai_compatible(
-    provider: Literal["openai"],
+async def _call_claude(
     system_prompt: str,
     user_message: str,
     messages: list[dict] | None,
     max_tokens: int,
     temperature: float,
-    model: str,
-    response_format: llm_model_routing.ResponseFormat = "json_object",
-    json_schema: dict | None = None,
+    model: str | None = None,
     feature: str = "unknown",
-) -> tuple[dict | None, dict[str, int] | None]:
-    """OpenAI Chat Completions API を呼び出す。"""
-    client = await get_openai_client(for_rag=_is_rag_feature(feature))
-
-    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-    effective_system_prompt = _augment_system_prompt_for_provider_json(
-        provider,
-        system_prompt,
-        response_format,
-        json_schema,
-    )
-    api_messages = [{"role": "system", "content": effective_system_prompt}] + normalized_messages
-
-    request_kwargs: dict[str, Any] = {
-        "model": model,
-        "messages": api_messages,
-    }
-    if _openai_uses_max_completion_tokens(model):
-        request_kwargs["max_completion_tokens"] = max_tokens
-    else:
-        request_kwargs["max_tokens"] = max_tokens
-    if _openai_supports_temperature(model):
-        request_kwargs["temperature"] = temperature
-
-    response_format_payload = _build_chat_response_format(provider, response_format, json_schema)
-    if response_format_payload:
-        request_kwargs["response_format"] = response_format_payload
-
-    response = await client.chat.completions.create(**request_kwargs)
-
-    usage_summary = _extract_openai_chat_usage_summary(response)
-    message = response.choices[0].message
-    content = message.content
-    msg_parsed = getattr(message, "parsed", None)
-
-    # Structured Outputs: SDK が message.parsed に dict を載せ、content が空のことがある。
-    parsed_obj: dict[str, Any] | None = None
-    if isinstance(msg_parsed, dict):
-        parsed_obj = msg_parsed
-    elif msg_parsed is not None and hasattr(msg_parsed, "model_dump"):
-        try:
-            dumped = msg_parsed.model_dump()
-            if isinstance(dumped, dict):
-                parsed_obj = dumped
-        except Exception:
-            parsed_obj = None
-
-    if parsed_obj is not None:
-        return parsed_obj, usage_summary
-
-    if not content:
-        print(f"[{_provider_display_name(provider)}] 空のレスポンスを受信")
-        return None, usage_summary
-    if settings.debug:
-        open_braces = content.count("{") - content.count("}")
-        open_brackets = content.count("[") - content.count("]")
-        quote_count = content.count('"') - content.count('\\"')
-        _log_debug(
-            feature,
-            f"{_provider_display_name(provider)} raw response stats: "
-            f"chars={len(content)}, "
-            f"open_braces={open_braces}, "
-            f"open_brackets={open_brackets}, "
-            f"unescaped_quotes={quote_count}, "
-            f"truncation_suspected={_detect_truncation(content)}",
-        )
-    return _parse_json_response(content), usage_summary
-
-
-async def _call_openai_compatible_raw_text(
-    provider: Literal["openai"],
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str,
-    feature: str = "unknown",
-) -> tuple[str, dict[str, int] | None]:
-    """OpenAI Chat Completions API を呼び出し、生テキストを返す。"""
-    client = await get_openai_client(for_rag=_is_rag_feature(feature))
-
-    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-    effective_system_prompt = _augment_system_prompt_for_provider_text(
-        provider,
-        system_prompt,
+) -> dict | None:
+    content, _ = await _call_claude_raw(
+        system_prompt=system_prompt,
+        user_message=user_message,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        model=model,
         feature=feature,
     )
-    api_messages = [{"role": "system", "content": effective_system_prompt}] + normalized_messages
-
-    request_kwargs: dict[str, Any] = {
-        "model": model,
-        "messages": api_messages,
-    }
-    if _openai_uses_max_completion_tokens(model):
-        request_kwargs["max_completion_tokens"] = max_tokens
-    else:
-        request_kwargs["max_tokens"] = max_tokens
-    if _openai_supports_temperature(model):
-        request_kwargs["temperature"] = temperature
-    if feature == "es_review":
-        request_kwargs["verbosity"] = "medium"
-        request_kwargs["prompt_cache_key"] = f"es_review:text:{model}"
-
-    response = await client.chat.completions.create(**request_kwargs)
-    usage_summary = _extract_openai_chat_usage_summary(response)
-    content = response.choices[0].message.content
     if not content:
-        print(f"[{_provider_display_name(provider)}] 空のレスポンスを受信")
-        return "", usage_summary
-    return content, usage_summary
+        return None
+    _emit_output_leakage_event(
+        feature=feature,
+        model=model or "",
+        provider="anthropic",
+        raw_text=content,
+    )
+    return _parse_json_response(content)
 
 
 def _emit_fallback_event(
@@ -985,8 +425,7 @@ def _emit_fallback_event(
     latency_ms: int,
     primary_provider: str,
 ) -> None:
-    """Cross-provider fallback 開始時の構造化ログ。circuit_state は失敗した側 primary のブレーカーのみ。"""
-    get_logger(__name__).info(
+    logger.info(
         json.dumps(
             {
                 "event": "llm.fallback.triggered",
@@ -1024,24 +463,6 @@ async def call_llm_with_error(
     parse_retry_instructions: Optional[str] = None,
     disable_fallback: bool = False,
 ) -> LLMResult:
-    """
-    プロバイダー自動選択と詳細なエラーハンドリング付きでLLMを呼び出す。
-
-    Args:
-        system_prompt: LLMへのシステムプロンプト
-        user_message: ユーザーメッセージ（messagesがNoneの場合に使用）
-        messages: オプションの会話履歴（マルチターン会話用）
-        max_tokens: レスポンスの最大トークン数
-        temperature: サンプリング温度
-        model: 明示的なモデル選択（エイリアス or 明示モデルID）
-        feature: 自動モデル選択用の機能名
-        disable_fallback: Trueの場合、別プロバイダーへのフォールバックを無効化
-        retry_on_parse: True のとき、初回 JSON パース失敗後は同一モデルでの max_tokens 段階リトライは行わず、
-            OpenAI キーがあれば修復を試す（`gpt-mini`・`REPAIR_JSON_OPENAI_MAX_TOKENS`）。
-
-    Returns:
-        LLMResult: 成功ステータス、データ、オプションのエラー詳細を含む
-    """
     feature = feature or "unknown"
     requested_model = model or llm_model_routing.get_model_config().get(feature, "claude-sonnet")
     start = time.monotonic()
@@ -1064,17 +485,14 @@ async def call_llm_with_error(
 
     model_display = llm_model_routing.get_model_display_name(target.actual_model)
     _log(feature, f"{model_display} を呼び出し中...")
-
     normalized_messages, used_user_message = _normalize_chat_messages(messages, user_message)
-    if used_user_message:
-        message_count = 1
-        message_chars = len(user_message or "")
-        message_mode = "user_message"
-    else:
-        message_count = len(normalized_messages)
-        message_chars = sum(len(str(m.get("content", ""))) for m in normalized_messages)
-        message_mode = "messages"
-
+    message_count = 1 if used_user_message else len(normalized_messages)
+    message_chars = (
+        len(user_message or "")
+        if used_user_message
+        else sum(len(str(m.get("content", ""))) for m in normalized_messages)
+    )
+    message_mode = "user_message" if used_user_message else "messages"
     _log_debug(
         feature,
         "LLM input size: "
@@ -1104,19 +522,22 @@ async def call_llm_with_error(
             )
             if settings.debug:
                 content = raw_response or ""
-                open_braces = content.count("{") - content.count("}")
-                open_brackets = content.count("[") - content.count("]")
-                quote_count = content.count('"') - content.count('\\"')
                 _log_debug(
                     feature,
                     "LLM raw response stats: "
                     f"chars={len(content)}, "
-                    f"open_braces={open_braces}, "
-                    f"open_brackets={open_brackets}, "
-                    f"unescaped_quotes={quote_count}, "
+                    f"open_braces={content.count('{') - content.count('}')}, "
+                    f"open_brackets={content.count('[') - content.count(']')}, "
+                    f"unescaped_quotes={content.count(chr(34)) - content.count(chr(92) + chr(34))}, "
                     f"truncation_suspected={_detect_truncation(content)}",
                 )
-            result = _parse_json_response(raw_response)
+            _emit_output_leakage_event(
+                feature=feature,
+                model=target.actual_model or "",
+                provider="anthropic",
+                raw_text=raw_response or "",
+            )
+            result = _parse_json_response(raw_response or "")
         elif target.provider == "google":
             raw_response, payload = await _call_google_generate_content(
                 system_prompt=system_prompt,
@@ -1144,7 +565,7 @@ async def call_llm_with_error(
                 feature=feature,
             )
         else:
-            compat_result = await _call_openai_compatible(
+            result, usage_summary = await _call_openai_compatible(
                 provider=target.provider,
                 system_prompt=system_prompt,
                 user_message=user_message,
@@ -1156,11 +577,6 @@ async def call_llm_with_error(
                 json_schema=json_schema,
                 feature=feature,
             )
-            if isinstance(compat_result, tuple):
-                result, usage_summary = compat_result
-            else:
-                result = compat_result
-                usage_summary = None
 
         log_llm_cost_event(
             feature=feature,
@@ -1181,134 +597,132 @@ async def call_llm_with_error(
             )
 
         if retry_on_parse:
-            repair_source = raw_response or ""
-            if repair_source:
-                if settings.openai_api_key:
-                    repair_llm: llm_model_routing.LLMModel = "gpt-mini"
-                    _log(
-                        feature,
-                        "JSON解析失敗、GPT mini で修復を試行",
-                        WARNING,
-                    )
-                    openai_repair = await _repair_json_with_openai_model(
-                        raw_response=repair_source,
-                        json_schema=json_schema,
-                        feature=feature,
-                        repair_model=repair_llm,
-                        use_responses_api=use_responses_api,
-                        parse_retry_instructions=parse_retry_instructions,
-                    )
-                    if openai_repair and openai_repair.success and openai_repair.data:
-                        _log(feature, "OpenAI でJSON修復成功", SUCCESS)
-                        return openai_repair
-
-                if target.provider == "anthropic" and not settings.openai_api_key:
-                    # OpenAI キーが無い環境では Claude で修復
-                    _log(feature, "JSON修復を実行（Claude）", WARNING)
-                    repair_prompt = _json_repair_user_prompt(repair_source)
-                    repair_model = settings.claude_sonnet_model
-                    if "haiku" in repair_model.lower():
-                        repair_model = "claude-sonnet-4-5-20250929"
-                    raw_repair, repair_usage = await _call_claude_raw(
-                        system_prompt=_json_repair_system_prompt(),
-                        user_message=repair_prompt,
-                        messages=None,
-                        max_tokens=min(max_tokens, 2000),
-                        temperature=0.1,
-                        model=repair_model,
-                        feature=feature,
-                    )
-                    log_llm_cost_event(
-                        feature=feature,
-                        provider="anthropic",
-                        resolved_model=repair_model,
-                        call_kind="json_repair",
-                        usage=repair_usage,
-                    )
-                    repair_parsed = _parse_json_response(raw_repair)
-                    if repair_parsed is not None:
-                        _log(feature, f"{model_display} でJSON修復成功", SUCCESS)
-                        return LLMResult(
-                            success=True,
-                            data=repair_parsed,
-                            raw_text=raw_repair,
-                            resolved_model=repair_model,
-                        )
-                elif target.provider == "google":
-                    # Google（OpenAI キーが無い、または mini 失敗後の再試行）
-                    _log(feature, "JSON修復を実行（同一プロバイダー）", WARNING)
-                    same_model_repair = await _repair_json_with_same_model(
-                        provider=target.provider,
-                        requested_model=requested_model,
-                        raw_response=repair_source,
-                        json_schema=json_schema,
-                        feature=feature,
-                        use_responses_api=use_responses_api,
-                    )
-                    if same_model_repair and same_model_repair.success and same_model_repair.data:
-                        _log(feature, f"{model_display} でJSON修復成功", SUCCESS)
-                        return same_model_repair
+            repaired = await _repair_after_parse_failure(
+                target=target,
+                requested_model=requested_model,
+                raw_response=raw_response,
+                json_schema=json_schema,
+                feature=feature,
+                max_tokens=max_tokens,
+                model_display=model_display,
+                use_responses_api=use_responses_api,
+                parse_retry_instructions=parse_retry_instructions,
+            )
+            if repaired and repaired.success and repaired.data:
+                return repaired
 
         error = _create_error("parse", target.provider, feature, "空または解析不能なレスポンス")
         _log(feature, "応答の解析に失敗しました", ERROR)
         return LLMResult(success=False, error=error, raw_text=raw_response)
 
-    except OpenAIResponsesRefusalError as e:
-        error = _create_error("refusal", target.provider, feature, str(e))
-        _log(feature, f"{_provider_display_name(target.provider)} refusal: {e}", WARNING)
+    except OpenAIResponsesRefusalError as exc:
+        error = _create_error("refusal", target.provider, feature, str(exc))
+        _log(feature, f"{_provider_display_name(target.provider)} refusal: {exc}", WARNING)
         return LLMResult(success=False, error=error)
-
-    except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as e:
-        error_type, detail = _classify_error_for_provider(target.provider, e)
-        fallback_model = None
-        if not disable_fallback and error_type not in {"billing"}:
-            fallback_model = llm_model_routing._feature_cross_fallback_model(feature, target.provider)
-        if fallback_model:
-            latency_ms = int((time.monotonic() - start) * 1000)
-            _emit_fallback_event(
+    except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as exc:
+        return await _handle_provider_error(
+            exc,
+            target=target,
+            requested_model=requested_model,
+            feature=feature,
+            start=start,
+            disable_fallback=disable_fallback,
+            retry_call=lambda fallback_model: call_llm_with_error(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                model=fallback_model,
                 feature=feature,
-                primary_model=str(requested_model),
-                selected_model=fallback_model,
-                failure_reason=error_type,
-                latency_ms=latency_ms,
-                primary_provider=target.provider,
-            )
-            _log(
-                feature,
-                f"{_provider_display_name(target.provider)} {error_type}、{fallback_model} にフォールバック",
-                WARNING,
-            )
-            try:
-                fallback_result = await call_llm_with_error(
-                    system_prompt=system_prompt,
-                    user_message=user_message,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    model=fallback_model,
-                    feature=feature,
-                    response_format=response_format,
-                    json_schema=json_schema,
-                    use_responses_api=use_responses_api,
-                    retry_on_parse=retry_on_parse,
-                    parse_retry_instructions=parse_retry_instructions,
-                    disable_fallback=True,
-                )
-                if fallback_result.success and fallback_result.data:
-                    _log(feature, f"{fallback_model} へのフォールバック成功", SUCCESS)
-                    return fallback_result
-            except Exception as fallback_err:
-                _log(feature, f"{fallback_model} フォールバック失敗: {fallback_err}", ERROR)
-
+                response_format=response_format,
+                json_schema=json_schema,
+                use_responses_api=use_responses_api,
+                retry_on_parse=retry_on_parse,
+                parse_retry_instructions=parse_retry_instructions,
+                disable_fallback=True,
+            ),
+        )
+    except Exception as exc:
+        error_type, detail = _classify_error_for_provider(target.provider, exc)
         error = _create_error(error_type, target.provider, feature, detail)
-        _log(feature, f"{_provider_display_name(target.provider)} APIエラー: {detail}", ERROR)
+        _log(feature, f"{_provider_display_name(target.provider)} 予期しないエラー: {exc}", ERROR)
         return LLMResult(success=False, error=error)
 
-    except Exception as e:
-        error_type, detail = _classify_error_for_provider(target.provider, e)
-        error = _create_error(error_type, target.provider, feature, detail)
-        _log(feature, f"{_provider_display_name(target.provider)} 予期しないエラー: {e}", ERROR)
-        return LLMResult(success=False, error=error)
+
+async def _repair_after_parse_failure(
+    *,
+    target: llm_model_routing.ResolvedModelTarget,
+    requested_model: llm_model_routing.LLMModel,
+    raw_response: str | None,
+    json_schema: dict | None,
+    feature: str,
+    max_tokens: int,
+    model_display: str,
+    use_responses_api: bool,
+    parse_retry_instructions: Optional[str],
+) -> LLMResult | None:
+    repair_source = raw_response or ""
+    if not repair_source:
+        return None
+    if settings.openai_api_key:
+        _log(feature, "JSON解析失敗、GPT mini で修復を試行", WARNING)
+        openai_repair = await _repair_json_with_openai_model(
+            raw_response=repair_source,
+            json_schema=json_schema,
+            feature=feature,
+            repair_model="gpt-mini",
+            use_responses_api=use_responses_api,
+            parse_retry_instructions=parse_retry_instructions,
+        )
+        if openai_repair and openai_repair.success and openai_repair.data:
+            _log(feature, "OpenAI でJSON修復成功", SUCCESS)
+            return openai_repair
+
+    if target.provider == "anthropic" and not settings.openai_api_key:
+        _log(feature, "JSON修復を実行（Claude）", WARNING)
+        repair_model = settings.claude_sonnet_model
+        if "haiku" in repair_model.lower():
+            repair_model = "claude-sonnet-4-5-20250929"
+        raw_repair, repair_usage = await _call_claude_raw(
+            system_prompt=_json_repair_system_prompt(),
+            user_message=_json_repair_user_prompt(repair_source),
+            messages=None,
+            max_tokens=min(max_tokens, 2000),
+            temperature=0.1,
+            model=repair_model,
+            feature=feature,
+        )
+        log_llm_cost_event(
+            feature=feature,
+            provider="anthropic",
+            resolved_model=repair_model,
+            call_kind="json_repair",
+            usage=repair_usage,
+        )
+        repair_parsed = _parse_json_response(raw_repair)
+        if repair_parsed is not None:
+            _log(feature, f"{model_display} でJSON修復成功", SUCCESS)
+            return LLMResult(
+                success=True,
+                data=repair_parsed,
+                raw_text=raw_repair,
+                resolved_model=repair_model,
+            )
+    elif target.provider == "google":
+        _log(feature, "JSON修復を実行（同一プロバイダー）", WARNING)
+        same_model_repair = await _repair_json_with_same_model(
+            provider=target.provider,
+            requested_model=requested_model,
+            raw_response=repair_source,
+            json_schema=json_schema,
+            feature=feature,
+            use_responses_api=use_responses_api,
+        )
+        if same_model_repair and same_model_repair.success and same_model_repair.data:
+            _log(feature, f"{model_display} でJSON修復成功", SUCCESS)
+            return same_model_repair
+    return None
 
 
 async def call_llm_text_with_error(
@@ -1322,7 +736,6 @@ async def call_llm_text_with_error(
     use_responses_api: bool = False,
     disable_fallback: bool = False,
 ) -> LLMResult:
-    """Plain text response path with provider fallback and no JSON parsing."""
     feature = feature or "unknown"
     requested_model = model or llm_model_routing.get_model_config().get(feature, "claude-sonnet")
     start = time.monotonic()
@@ -1345,22 +758,18 @@ async def call_llm_text_with_error(
 
     model_display = llm_model_routing.get_model_display_name(target.actual_model)
     _log(feature, f"{model_display} を呼び出し中...")
-
     normalized_messages, used_user_message = _normalize_chat_messages(messages, user_message)
-    if used_user_message:
-        message_count = 1
-        message_chars = len(user_message or "")
-        message_mode = "user_message"
-    else:
-        message_count = len(normalized_messages)
-        message_chars = sum(len(str(m.get("content", ""))) for m in normalized_messages)
-        message_mode = "messages"
-
+    message_count = 1 if used_user_message else len(normalized_messages)
+    message_chars = (
+        len(user_message or "")
+        if used_user_message
+        else sum(len(str(m.get("content", ""))) for m in normalized_messages)
+    )
     _log_debug(
         feature,
         "LLM input size: "
         f"system={len(system_prompt)} chars, "
-        f"{message_mode}={message_count} items/{message_chars} chars, "
+        f"{'user_message' if used_user_message else 'messages'}={message_count} items/{message_chars} chars, "
         f"max_tokens={max_tokens}, temperature={temperature}, model={target.actual_model}",
     )
 
@@ -1376,6 +785,12 @@ async def call_llm_text_with_error(
                 temperature,
                 target.actual_model,
                 feature=feature,
+            )
+            _emit_output_leakage_event(
+                feature=feature,
+                model=target.actual_model or "",
+                provider="anthropic",
+                raw_text=raw_response,
             )
         elif target.provider == "google":
             raw_response, payload = await _call_google_generate_content(
@@ -1449,1404 +864,123 @@ async def call_llm_text_with_error(
                 resolved_model=target.actual_model,
             )
 
-        fallback_model = None if disable_fallback else llm_model_routing._feature_cross_fallback_model(
-            feature, target.provider
-        )
-        if fallback_model:
-            _log(feature, f"空応答、{fallback_model} にフォールバック", WARNING)
-            try:
-                fallback_result = await call_llm_text_with_error(
-                    system_prompt=system_prompt,
-                    user_message=user_message,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    model=fallback_model,
-                    feature=feature,
-                    use_responses_api=use_responses_api,
-                    disable_fallback=True,
-                )
-                if fallback_result.success and fallback_result.data:
-                    _log(feature, f"{fallback_model} へのフォールバック成功", SUCCESS)
-                    return fallback_result
-            except Exception as fallback_err:
-                _log(feature, f"{fallback_model} フォールバック失敗: {fallback_err}", ERROR)
+        if not disable_fallback:
+            fallback_result = await _try_text_fallback(
+                feature=feature,
+                target=target,
+                system_prompt=system_prompt,
+                user_message=user_message,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                use_responses_api=use_responses_api,
+            )
+            if fallback_result:
+                return fallback_result
 
         error = _create_error("parse", target.provider, feature, "空のテキストレスポンス")
         _log(feature, "応答の解析に失敗しました", ERROR)
         return LLMResult(success=False, error=error, raw_text=raw_response)
 
-    except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as e:
-        error_type, detail = _classify_error_for_provider(target.provider, e)
-        if not disable_fallback and error_type not in {"billing"}:
-            fallback_model = llm_model_routing._feature_cross_fallback_model(feature, target.provider)
-            if fallback_model:
-                latency_ms = int((time.monotonic() - start) * 1000)
-                _emit_fallback_event(
-                    feature=feature,
-                    primary_model=str(requested_model),
-                    selected_model=fallback_model,
-                    failure_reason=error_type,
-                    latency_ms=latency_ms,
-                    primary_provider=target.provider,
-                )
-                _log(
-                    feature,
-                    f"{_provider_display_name(target.provider)} {error_type}、{fallback_model} にフォールバック",
-                    WARNING,
-                )
-                try:
-                    fallback_result = await call_llm_text_with_error(
-                        system_prompt=system_prompt,
-                        user_message=user_message,
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        model=fallback_model,
-                        feature=feature,
-                        use_responses_api=use_responses_api,
-                        disable_fallback=True,
-                    )
-                    if fallback_result.success and fallback_result.data:
-                        _log(feature, f"{fallback_model} へのフォールバック成功", SUCCESS)
-                        return fallback_result
-                except Exception as fallback_err:
-                    _log(feature, f"{fallback_model} フォールバック失敗: {fallback_err}", ERROR)
+    except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as exc:
+        return await _handle_provider_error(
+            exc,
+            target=target,
+            requested_model=requested_model,
+            feature=feature,
+            start=start,
+            disable_fallback=disable_fallback,
+            retry_call=lambda fallback_model: call_llm_text_with_error(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                model=fallback_model,
+                feature=feature,
+                use_responses_api=use_responses_api,
+                disable_fallback=True,
+            ),
+        )
+    except Exception as exc:
+        error_type, detail = _classify_error_for_provider(target.provider, exc)
         error = _create_error(error_type, target.provider, feature, detail)
-        _log(feature, f"{_provider_display_name(target.provider)} APIエラー: {detail}", ERROR)
-        return LLMResult(success=False, error=error)
-
-    except Exception as e:
-        error_type, detail = _classify_error_for_provider(target.provider, e)
-        error = _create_error(error_type, target.provider, feature, detail)
-        _log(feature, f"{_provider_display_name(target.provider)} 予期しないエラー: {e}", ERROR)
+        _log(feature, f"{_provider_display_name(target.provider)} 予期しないエラー: {exc}", ERROR)
         return LLMResult(success=False, error=error)
 
 
-def _is_rag_feature(feature: str) -> bool:
-    """機能がRAG関連かどうかを判定（短いタイムアウトを使用）。"""
-    return feature in ("rag_query_expansion", "rag_hyde", "rag_classify")
-
-
-def _normalize_chat_messages(
-    messages: list[dict] | None,
-    user_message: str,
-) -> tuple[list[dict], bool]:
-    """Treat an empty chat history the same as an omitted one."""
-    if messages:
-        return messages, False
-    return [{"role": "user", "content": user_message}], True
-
-
-async def _call_claude_raw(
+async def _try_text_fallback(
+    *,
+    feature: str,
+    target: llm_model_routing.ResolvedModelTarget,
     system_prompt: str,
     user_message: str,
     messages: list[dict] | None,
     max_tokens: int,
     temperature: float,
-    model: str | None = None,
-    feature: str = "unknown",
-) -> tuple[str, dict[str, int] | None]:
-    """Claude APIを呼び出し、生のテキストを返す。"""
-    client = await get_anthropic_client(for_rag=_is_rag_feature(feature))
-    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-
-    # 指定されたモデルを使用、なければclaude_model（Sonnet）をデフォルトに
-    actual_model = model or settings.claude_sonnet_model
-
-    response = await client.messages.create(
-        model=actual_model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        system=system_prompt,
-        messages=normalized_messages,
-    )
-
-    if not response.content:
-        print("[Claude] 空のレスポンスを受信")
-        return "", _extract_anthropic_usage_summary(response)
-
-    return response.content[0].text or "", _extract_anthropic_usage_summary(response)
-
-
-async def _call_claude_raw_stream(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str | None = None,
-    feature: str = "unknown",
-    on_complete: Callable[[dict[str, int] | None], None] | None = None,
-) -> AsyncGenerator[str, None]:
-    """Claude APIをストリーミングで呼び出し、テキストチャンクを逐次返す。"""
-    client = await get_anthropic_client(for_rag=_is_rag_feature(feature))
-    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-
-    actual_model = model or settings.claude_sonnet_model
-
-    async with client.messages.stream(
-        model=actual_model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        system=system_prompt,
-        messages=normalized_messages,
-    ) as stream:
-        async for text in stream.text_stream:
-            yield text
-        final_message = await stream.get_final_message()
-        if on_complete:
-            on_complete(_extract_anthropic_usage_summary(final_message))
-        stop_reason = getattr(final_message, "stop_reason", None)
-        stop_sequence = getattr(final_message, "stop_sequence", None)
-        if stop_reason:
-            _log(feature, f"{llm_model_routing.get_model_display_name(actual_model)} stop_reason={stop_reason}", INFO)
-        if stop_sequence:
-            _log_debug(feature, f"stop_sequence={stop_sequence}")
-        if stop_reason == "max_tokens":
-            _log(feature, f"{llm_model_routing.get_model_display_name(actual_model)} が max_tokens={max_tokens} に到達", WARNING)
-
-
-async def call_llm_streaming(
-    system_prompt: str,
-    user_message: str,
-    max_tokens: int = 2000,
-    temperature: float = 0.3,
-    model: llm_model_routing.LLMModel | None = None,
-    feature: str | None = None,
-    on_chunk: Optional[Callable[[str, int], None]] = None,
-) -> LLMResult:
-    """
-    ストリーミングでLLMを呼び出し、チャンクごとにon_chunkコールバックを実行。
-    最終的にJSON解析して結果を返す。
-
-    Args:
-        on_chunk: コールバック(chunk_text, accumulated_length)
-    """
-    feature = feature or "unknown"
-
-    if model is None:
-        model = llm_model_routing.get_model_config().get(feature, "claude-sonnet")
-
-    target = llm_model_routing._resolve_model_target(feature, model)
-
-    # Only Anthropic models support token streaming in this implementation
-    if target.provider != "anthropic":
-        # Fall back to non-streaming for non-Claude models
-        return await call_llm_with_error(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            model=model,
-            feature=feature,
-        )
-
-    actual_model = target.actual_model
-
-    model_display = llm_model_routing.get_model_display_name(actual_model)
-    _log(feature, f"{model_display} をストリーミング呼び出し中...")
-
+    use_responses_api: bool,
+) -> LLMResult | None:
+    fallback_model = llm_model_routing._feature_cross_fallback_model(feature, target.provider)
+    if not fallback_model:
+        return None
+    _log(feature, f"空応答、{fallback_model} にフォールバック", WARNING)
     try:
-        accumulated = ""
-        usage_summary: dict[str, int] | None = None
-
-        def _capture_usage(usage: dict[str, int] | None) -> None:
-            nonlocal usage_summary
-            usage_summary = usage
-
-        async for chunk in _call_claude_raw_stream(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            messages=None,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            model=actual_model,
-            feature=feature,
-            on_complete=_capture_usage,
-        ):
-            accumulated += chunk
-            if on_chunk:
-                on_chunk(chunk, len(accumulated))
-
-        if not accumulated:
-            error = _create_error("parse", "anthropic", feature, "空のストリーミングレスポンス")
-            return LLMResult(success=False, error=error)
-
-        if settings.debug:
-            _log_debug(
-                feature,
-                f"Streaming response complete: chars={len(accumulated)}",
-            )
-
-        log_llm_cost_event(
-            feature=feature,
-            provider=target.provider,
-            resolved_model=actual_model,
-            call_kind="stream",
-            usage=usage_summary,
-        )
-
-        _emit_output_leakage_event(
-            feature=feature, model=actual_model or "", provider="anthropic", raw_text=accumulated,
-        )
-
-        result = _parse_json_response(accumulated)
-        if result is not None:
-            _log(feature, f"{model_display} ストリーミング成功", SUCCESS)
-            return LLMResult(
-                success=True,
-                data=result,
-                usage=usage_summary,
-                resolved_model=actual_model,
-            )
-
-        # JSON parse failed - try repair via non-streaming call
-        _log(feature, "ストリーミング応答のJSON解析失敗、修復を試行", WARNING)
-        repair_prompt = _json_repair_user_prompt(accumulated[:3000])
-        repair_result = await _call_claude(
-            system_prompt=_json_repair_system_prompt(),
-            user_message=repair_prompt,
-            messages=None,
-            max_tokens=max_tokens,
-            temperature=0.1,
-            feature=feature,
-        )
-        if repair_result is not None:
-            _log(feature, f"{model_display} JSON修復成功", SUCCESS)
-            return LLMResult(success=True, data=repair_result)
-
-        error = _create_error("parse", "anthropic", feature, "ストリーミング応答の解析に失敗")
-        return LLMResult(success=False, error=error)
-
-    except AnthropicAPIError as e:
-        error_type, detail = _classify_anthropic_error(e)
-        error = _create_error(error_type, "anthropic", feature, detail)
-        _log(feature, f"Anthropic ストリーミングエラー: {detail}", ERROR)
-        return LLMResult(success=False, error=error)
-
-    except Exception as e:
-        error = _create_error("unknown", "anthropic", feature, str(e))
-        _log(feature, f"ストリーミング予期しないエラー: {e}", ERROR)
-        return LLMResult(success=False, error=error)
-
-
-# ── Token-level streaming with field extraction ──────────────────────────
-
-
-@dataclass
-class StreamFieldEvent:
-    """Event emitted during token-level streaming."""
-
-    type: str  # "chunk", "string_chunk", "field_complete", "array_item_complete", "complete", "error"
-    path: str = ""  # e.g., "scores", "top3.0", "rewrites.1"
-    text: str = ""  # For chunk/string_chunk events
-    value: object = None  # For field_complete/array_item_complete events
-    result: Optional["LLMResult"] = None  # For complete event
-
-
-async def call_llm_streaming_fields(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None = None,
-    max_tokens: int = 2000,
-    temperature: float = 0.3,
-    model: llm_model_routing.LLMModel | None = None,
-    feature: str | None = None,
-    schema_hints: dict[str, str] | None = None,
-    stream_string_fields: list[str] | None = None,
-    response_format: llm_model_routing.ResponseFormat = "json_object",
-    json_schema: dict | None = None,
-    use_responses_api: bool = False,
-    attempt_repair_on_parse_failure: bool = True,
-    partial_required_fields: tuple[str, ...] | None = None,
-) -> AsyncGenerator["StreamFieldEvent", None]:
-    """Stream LLM response with incremental JSON field extraction.
-
-    Yields StreamFieldEvent instances:
-    - "chunk": Raw text fragment from LLM
-    - "string_chunk": Partial content of a streamed string field (e.g., question text)
-    - "field_complete": A top-level JSON field finished parsing
-    - "array_item_complete": An array element finished parsing
-    - "complete": Final validated LLMResult (always the last event on success)
-    - "error": An error occurred
-
-    The "complete" event carries the authoritative final result parsed via
-    the full 6-layer JSON recovery chain. Frontend should treat field_complete
-    events as progressive previews and overwrite with complete's result.
-    """
-    from app.utils.streaming_json import StreamingJSONExtractor, StreamEventType
-
-    feature = feature or "unknown"
-
-    if model is None:
-        model = llm_model_routing.get_model_config().get(feature, "claude-sonnet")
-
-    target = llm_model_routing._resolve_model_target(feature, model)
-
-    # Non-Anthropic models: fall back to non-streaming
-    if target.provider != "anthropic":
-        result = await call_llm_with_error(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            model=model,
-            feature=feature,
-            response_format=response_format,
-            json_schema=json_schema,
-            use_responses_api=use_responses_api,
-        )
-        yield StreamFieldEvent(type="complete", result=result)
-        return
-
-    actual_model = target.actual_model
-
-    model_display = llm_model_routing.get_model_display_name(actual_model)
-    _log(feature, f"{model_display} をフィールドストリーミング呼び出し中...")
-
-    extractor = StreamingJSONExtractor(
-        schema_hints=schema_hints,
-        stream_string_fields=stream_string_fields,
-    )
-    partial_required_fields = partial_required_fields or ()
-
-    try:
-        usage_summary: dict[str, int] | None = None
-
-        def _capture_usage(usage: dict[str, int] | None) -> None:
-            nonlocal usage_summary
-            usage_summary = usage
-
-        async for chunk in _call_claude_raw_stream(
+        fallback_result = await call_llm_text_with_error(
             system_prompt=system_prompt,
             user_message=user_message,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
-            model=actual_model,
+            model=fallback_model,
             feature=feature,
-            on_complete=_capture_usage,
-        ):
-            # Emit raw chunk event
-            yield StreamFieldEvent(type="chunk", text=chunk)
-
-            # Feed to JSON extractor
-            field_events = extractor.feed(chunk)
-            for fe in field_events:
-                if fe.type == StreamEventType.STRING_CHUNK:
-                    yield StreamFieldEvent(
-                        type="string_chunk", path=fe.path, text=fe.text
-                    )
-                elif fe.type == StreamEventType.FIELD_COMPLETE:
-                    yield StreamFieldEvent(
-                        type="field_complete", path=fe.path, value=fe.value
-                    )
-                elif fe.type == StreamEventType.ARRAY_ITEM_COMPLETE:
-                    yield StreamFieldEvent(
-                        type="array_item_complete", path=fe.path, value=fe.value
-                    )
-
-        # Stream finished — parse the full accumulated text
-        accumulated = extractor.get_accumulated()
-
-        if not accumulated:
-            error = _create_error("parse", "anthropic", feature, "空のストリーミングレスポンス")
-            yield StreamFieldEvent(
-                type="error",
-                result=LLMResult(success=False, error=error),
-            )
-            return
-
-        if settings.debug:
-            _log_debug(feature, f"Field streaming complete: chars={len(accumulated)}")
-
-        log_llm_cost_event(
-            feature=feature,
-            provider=target.provider,
-            resolved_model=actual_model,
-            call_kind="stream_fields",
-            usage=usage_summary,
+            use_responses_api=use_responses_api,
+            disable_fallback=True,
         )
-
-        _emit_output_leakage_event(
-            feature=feature, model=actual_model or "", provider="anthropic", raw_text=accumulated,
-        )
-
-        result = _parse_json_response(accumulated)
-        if result is not None:
-            _log(feature, f"{model_display} フィールドストリーミング成功", SUCCESS)
-            llm_client_registry.get_circuit_breaker("anthropic").record_success()
-            yield StreamFieldEvent(
-                type="complete",
-                result=LLMResult(
-                    success=True,
-                    data=result,
-                    raw_text=accumulated,
-                    usage=usage_summary,
-                    resolved_model=actual_model,
-                ),
-            )
-            return
-
-        partial = extractor.get_completed_fields()
-        if partial and partial_required_fields and all(
-            field in partial for field in partial_required_fields
-        ):
-            _log(
-                feature,
-                f"部分フィールドをフォールバックとして使用 (fields={list(partial.keys())})",
-                WARNING,
-            )
-            yield StreamFieldEvent(
-                type="complete",
-                result=LLMResult(
-                    success=True,
-                    data=partial,
-                    raw_text=accumulated,
-                    usage=usage_summary,
-                    resolved_model=actual_model,
-                ),
-            )
-            return
-
-        if not attempt_repair_on_parse_failure:
-            if partial and partial_required_fields:
-                missing_required = [
-                    field for field in partial_required_fields if field not in partial
-                ]
-                if missing_required:
-                    _log(
-                        feature,
-                        f"フォールバック時に必須フィールド欠落: {missing_required}",
-                        WARNING,
-                    )
-            error = _create_error(
-                "parse",
-                "anthropic",
-                feature,
-                "フィールドストリーミング応答の解析に失敗",
-            )
-            yield StreamFieldEvent(
-                type="error",
-                result=LLMResult(success=False, error=error, raw_text=accumulated),
-            )
-            return
-
-        # JSON parse failed — try repair
-        _log(feature, "フィールドストリーミング応答のJSON解析失敗、修復を試行", WARNING)
-        repair_prompt = _json_repair_user_prompt(accumulated[:3000])
-        repair_result = await _call_claude(
-            system_prompt=_json_repair_system_prompt(),
-            user_message=repair_prompt,
-            messages=None,
-            max_tokens=max_tokens,
-            temperature=0.1,
-            feature=feature,
-        )
-        if repair_result is not None:
-            _log(feature, f"{model_display} JSON修復成功", SUCCESS)
-            yield StreamFieldEvent(
-                type="complete",
-                result=LLMResult(
-                    success=True,
-                    data=repair_result,
-                    raw_text=accumulated,
-                    usage=usage_summary,
-                    resolved_model=actual_model,
-                ),
-            )
-            return
-
-        # Use partial fields as best-effort fallback
-        if partial:
-            _log(
-                feature,
-                f"部分フィールドをフォールバックとして使用 (fields={list(partial.keys())})",
-                WARNING,
-            )
-            yield StreamFieldEvent(
-                type="complete",
-                result=LLMResult(
-                    success=True,
-                    data=partial,
-                    raw_text=accumulated,
-                    usage=usage_summary,
-                    resolved_model=actual_model,
-                ),
-            )
-            return
-
-        error = _create_error("parse", "anthropic", feature, "フィールドストリーミング応答の解析に失敗")
-        yield StreamFieldEvent(
-            type="error",
-            result=LLMResult(success=False, error=error, raw_text=accumulated),
-        )
-
-    except AnthropicAPIError as e:
-        error_type, detail = _classify_anthropic_error(e)
-        error = _create_error(error_type, "anthropic", feature, detail)
-        _log(feature, f"Anthropic フィールドストリーミングエラー: {detail}", ERROR)
-        llm_client_registry.get_circuit_breaker("anthropic").record_failure()
-        yield StreamFieldEvent(
-            type="error",
-            result=LLMResult(success=False, error=error),
-        )
-
-    except Exception as e:
-        error = _create_error("unknown", "anthropic", feature, str(e))
-        _log(feature, f"フィールドストリーミング予期しないエラー: {e}", ERROR)
-        yield StreamFieldEvent(
-            type="error",
-            result=LLMResult(success=False, error=error),
-        )
-
-
-async def _call_claude(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str | None = None,
-    feature: str = "unknown",
-) -> dict | None:
-    """Claude APIを呼び出し、JSONレスポンスを解析して返す。"""
-    content, _ = await _call_claude_raw(
-        system_prompt=system_prompt,
-        user_message=user_message,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        model=model,
-        feature=feature,
-    )
-    if not content:
-        return None
-    _emit_output_leakage_event(
-        feature=feature, model=model or "", provider="anthropic", raw_text=content,
-    )
-    return _parse_json_response(content)
-
-
-async def _call_openai(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str,
-    response_format: llm_model_routing.ResponseFormat = "json_object",
-    json_schema: dict | None = None,
-    feature: str = "unknown",
-) -> dict | None:
-    """OpenAI Chat Completions APIを呼び出す。"""
-    result, _ = await _call_openai_compatible(
-        provider="openai",
-        system_prompt=system_prompt,
-        user_message=user_message,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        model=model,
-        response_format=response_format,
-        json_schema=json_schema,
-        feature=feature,
-    )
-    return result
-
-
-async def _call_openai_raw_text(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str,
-    feature: str = "unknown",
-) -> tuple[str, dict[str, int] | None]:
-    """OpenAI Chat Completions APIを呼び出し、生テキストを返す。"""
-    return await _call_openai_compatible_raw_text(
-        provider="openai",
-        system_prompt=system_prompt,
-        user_message=user_message,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        model=model,
-        feature=feature,
-    )
-
-
-def _should_use_openai_responses_api(
-    *,
-    provider: llm_model_routing.LLMProvider,
-    feature: str,
-    use_responses_api: bool,
-) -> bool:
-    if provider != "openai":
-        return False
-    return use_responses_api or feature in {"es_review", "interview", "interview_feedback"}
-
-
-def _extract_openai_chat_usage_summary(response: Any) -> dict[str, int]:
-    usage = getattr(response, "usage", None) or {}
-
-    def _get(obj: Any, key: str) -> Any:
-        if isinstance(obj, dict):
-            return obj.get(key)
-        return getattr(obj, key, None)
-
-    prompt_details = _get(usage, "prompt_tokens_details") or {}
-    completion_details = _get(usage, "completion_tokens_details") or {}
-
-    return {
-        "input_tokens": int(_get(usage, "prompt_tokens") or 0),
-        "output_tokens": int(_get(usage, "completion_tokens") or 0),
-        "reasoning_tokens": int(_get(completion_details, "reasoning_tokens") or 0),
-        "cached_input_tokens": int(_get(prompt_details, "cached_tokens") or 0),
-    }
-
-
-def _openai_incomplete_due_to_max_output(response: Any) -> bool:
-    if getattr(response, "status", None) != "incomplete":
-        return False
-    details = getattr(response, "incomplete_details", None)
-    if details is None:
-        return False
-    reason = getattr(details, "reason", None)
-    if reason is None and isinstance(details, dict):
-        reason = details.get("reason")
-    return reason == "max_output_tokens"
-
-
-def _openai_structured_retry_max_output(feature: str, current_max: int) -> int:
-    if feature == "es_review":
-        return min(max(current_max * 4, 2048), 16384)
-    if feature == "interview_feedback":
-        return min(max(current_max * 2, 2000), 2400)
-    if feature == "interview":
-        return min(max(current_max * 2, 1400), 2400)
-    return current_max
-
-
-def _extract_openai_visible_text(response: Any) -> str:
-    """Collect user-visible text from a Responses API result (output_text or message items)."""
-    out = getattr(response, "output_text", None)
-    if isinstance(out, str) and out.strip():
-        return out
-    parts: list[str] = []
-    for block in getattr(response, "output", None) or []:
-        btype = getattr(block, "type", None)
-        if btype is None and isinstance(block, dict):
-            btype = block.get("type")
-        if btype == "reasoning":
-            continue
-        content_items = getattr(block, "content", None)
-        if content_items is None and isinstance(block, dict):
-            content_items = block.get("content")
-        if not content_items:
-            continue
-        for item in content_items:
-            if isinstance(item, dict):
-                t = item.get("text") or item.get("output_text")
-            else:
-                t = getattr(item, "text", None) or getattr(item, "output_text", None)
-            if isinstance(t, str) and t:
-                parts.append(t)
-    return "".join(parts) if parts else ""
-
-
-def _extract_openai_usage_summary(response: Any) -> dict[str, int]:
-    usage = getattr(response, "usage", None) or {}
-
-    def _extract(value: Any, *keys: str) -> int:
-        current = value
-        for key in keys:
-            if isinstance(current, dict):
-                current = current.get(key)
-            else:
-                current = getattr(current, key, None)
-            if current is None:
-                return 0
-        return int(current or 0)
-
-    return {
-        "input_tokens": _extract(usage, "input_tokens"),
-        "output_tokens": _extract(usage, "output_tokens"),
-        "reasoning_tokens": _extract(usage, "output_tokens_details", "reasoning_tokens"),
-        "cached_input_tokens": _extract(usage, "input_tokens_details", "cached_tokens"),
-    }
-
-
-def _log_openai_usage_summary(feature: str, response: Any) -> None:
-    usage_summary = _extract_openai_usage_summary(response)
-    _log_debug(
-        feature,
-        "OpenAI Responses API usage: "
-        f"input={usage_summary['input_tokens']}, "
-        f"output={usage_summary['output_tokens']}, "
-        f"reasoning={usage_summary['reasoning_tokens']}, "
-        f"cached_input={usage_summary['cached_input_tokens']}",
-    )
-
-
-def _parse_openai_responses_json_payload(
-    response: Any,
-    feature: str,
-) -> tuple[dict | None, list[object]]:
-    """Return parsed JSON dict if found, else None and candidate fragments for logging."""
-    parsed_early = getattr(response, "output_parsed", None)
-    if isinstance(parsed_early, dict):
-        return parsed_early, []
-
-    candidates: list[object] = []
-    try:
-        output_items = getattr(response, "output", None) or []
-        for output in output_items:
-            content_items = getattr(output, "content", None)
-            if content_items is None and isinstance(output, dict):
-                content_items = output.get("content")
-            if not content_items:
-                continue
-
-            for item in content_items:
-                if isinstance(item, dict):
-                    parsed_payload = item.get("parsed")
-                    if isinstance(parsed_payload, dict):
-                        return parsed_payload, candidates
-                    json_payload = item.get("json")
-                    if json_payload is not None:
-                        if isinstance(json_payload, dict):
-                            return json_payload, candidates
-                        if isinstance(json_payload, str):
-                            candidates.append(json_payload)
-                        elif not callable(json_payload):
-                            candidates.append(str(json_payload))
-                    text_payload = item.get("text") or item.get("output_text")
-                    if isinstance(text_payload, str) and text_payload:
-                        candidates.append(text_payload)
-                else:
-                    parsed_payload = getattr(item, "parsed", None)
-                    if isinstance(parsed_payload, dict):
-                        return parsed_payload, candidates
-                    json_payload = getattr(item, "json", None)
-                    if json_payload is not None:
-                        if isinstance(json_payload, dict):
-                            return json_payload, candidates
-                        if isinstance(json_payload, str):
-                            candidates.append(json_payload)
-                        elif not callable(json_payload):
-                            candidates.append(str(json_payload))
-                    text_payload = getattr(item, "text", None) or getattr(
-                        item, "output_text", None
-                    )
-                    if isinstance(text_payload, str) and text_payload:
-                        candidates.append(text_payload)
-
-        content = getattr(response, "output_text", None)
-        if isinstance(content, str) and content.strip():
-            candidates.append(content)
-
-        for candidate in candidates:
-            if isinstance(candidate, dict):
-                return candidate, candidates
-            if isinstance(candidate, str):
-                parsed = _parse_json_response(candidate)
-                if parsed is not None:
-                    return parsed, candidates
-    except Exception as e:
-        _log(feature, f"Responses API JSON抽出エラー: {e}", ERROR)
-
-    return None, candidates
-
-
-def _extract_openai_responses_refusal(response: Any) -> str | None:
-    refusal = getattr(response, "refusal", None)
-    if isinstance(refusal, str) and refusal.strip():
-        return refusal.strip()
-
-    for output in getattr(response, "output", None) or []:
-        block_refusal = getattr(output, "refusal", None)
-        if isinstance(block_refusal, str) and block_refusal.strip():
-            return block_refusal.strip()
-        if isinstance(output, dict):
-            dict_refusal = output.get("refusal")
-            if isinstance(dict_refusal, str) and dict_refusal.strip():
-                return dict_refusal.strip()
-
-        content_items = getattr(output, "content", None)
-        if content_items is None and isinstance(output, dict):
-            content_items = output.get("content")
-        if not content_items:
-            continue
-
-        for item in content_items:
-            if isinstance(item, dict):
-                item_refusal = item.get("refusal")
-                if isinstance(item_refusal, str) and item_refusal.strip():
-                    return item_refusal.strip()
-                if item.get("type") == "refusal":
-                    text = item.get("text") or item.get("output_text")
-                    if isinstance(text, str) and text.strip():
-                        return text.strip()
-                    return "refusal"
-            else:
-                item_refusal = getattr(item, "refusal", None)
-                if isinstance(item_refusal, str) and item_refusal.strip():
-                    return item_refusal.strip()
-                if getattr(item, "type", None) == "refusal":
-                    text = getattr(item, "text", None) or getattr(item, "output_text", None)
-                    if isinstance(text, str) and text.strip():
-                        return text.strip()
-                    return "refusal"
-
+        if fallback_result.success and fallback_result.data:
+            _log(feature, f"{fallback_model} へのフォールバック成功", SUCCESS)
+            return fallback_result
+    except Exception as fallback_err:
+        _log(feature, f"{fallback_model} フォールバック失敗: {fallback_err}", ERROR)
     return None
 
 
-def _log_openai_empty_json_attempt(
-    feature: str,
-    response: Any,
-    candidates: list[object],
-) -> None:
-    if candidates:
-        _log(
-            feature,
-            f"OpenAI Responses 空のJSON (候補数={len(candidates)})",
-            WARNING,
-        )
-        for i, c in enumerate(candidates[:2]):
-            preview = str(c)[:200] if c else "(empty)"
-            _log(feature, f"候補{i + 1}プレビュー: {preview}...", WARNING)
-    else:
-        output_text = getattr(response, "output_text", None) if response else None
-        _log(
-            feature,
-            "OpenAI Responses から空のJSON "
-            f"(output_text: {str(output_text)[:100] if output_text else 'None'})",
-            WARNING,
-        )
-
-
-async def _call_openai_responses(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str,
-    response_format: llm_model_routing.ResponseFormat = "json_schema",
-    json_schema: dict | None = None,
-    feature: str = "unknown",
-) -> tuple[dict | None, dict[str, int] | None]:
-    """OpenAI Responses APIを呼び出す（オプションでStructured Outputs対応）。"""
-    client = await get_openai_client(for_rag=_is_rag_feature(feature))
-    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-    input_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
-
-    text_format = None
-    if response_format == "json_schema" and json_schema:
-        schema_name = json_schema.get("name", "response")
-        schema_body = json_schema.get("schema", json_schema)
-        text_format = {
-            "type": "json_schema",
-            "name": schema_name,
-            "schema": schema_body,
-            "strict": True,
-        }
-    elif response_format == "text":
-        text_format = {"type": "text"}
-
-    request_kwargs: dict[str, Any] = {
-        "model": model,
-        "input": input_messages,
-        "max_output_tokens": max_tokens,
-    }
-    if _openai_supports_temperature(model):
-        request_kwargs["temperature"] = temperature
-    if text_format:
-        request_kwargs["text"] = {"format": text_format}
-
-    effective_max = max_tokens
-    last_candidates: list[object] = []
-    response: Any = None
-    usage_summary: dict[str, int] | None = None
-
-    for attempt in range(2):
-        request_kwargs["max_output_tokens"] = effective_max
-        response = await client.responses.create(**request_kwargs)
-        _log_openai_usage_summary(feature, response)
-        usage_summary = _extract_openai_usage_summary(response)
-
-        if settings.debug:
-            output_text = getattr(response, "output_text", None)
-            output_text_len = len(output_text) if isinstance(output_text, str) else 0
-            _log_debug(
-                feature,
-                f"OpenAI Responses API summary: output_text_len={output_text_len}",
-            )
-
-        refusal = _extract_openai_responses_refusal(response)
-        if refusal:
-            raise OpenAIResponsesRefusalError(refusal)
-
-        parsed, last_candidates = _parse_openai_responses_json_payload(response, feature)
-        if parsed is not None:
-            return parsed, usage_summary
-
-        if settings.debug:
-            _log_debug(
-                feature,
-                f"OpenAI Responses API candidates: count={len(last_candidates)}",
-            )
-
-        if (
-            attempt == 0
-            and _openai_incomplete_due_to_max_output(response)
-            and feature in {"es_review", "interview", "interview_feedback"}
-        ):
-            boosted = _openai_structured_retry_max_output(feature, effective_max)
-            if boosted > effective_max:
-                _log(
-                    feature,
-                    f"OpenAI Responses incomplete (max_output_tokens); "
-                    f"内部リトライ max_output_tokens={boosted}",
-                    WARNING,
-                )
-                effective_max = boosted
-                continue
-        break
-
-    _log_openai_empty_json_attempt(feature, response, last_candidates)
-    return None, usage_summary
-
-
-async def _call_openai_responses_raw_text(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str,
-    feature: str = "unknown",
-) -> tuple[str, dict[str, int] | None]:
-    """OpenAI Responses APIを呼び出し、生テキストを返す。"""
-    client = await get_openai_client(for_rag=_is_rag_feature(feature))
-    normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-    input_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
-
-    async def _create(max_out: int) -> Any:
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "input": input_messages,
-            "max_output_tokens": max_out,
-            "text": {"format": {"type": "text"}},
-        }
-        if feature == "es_review":
-            kwargs["verbosity"] = "medium"
-        if _openai_supports_temperature(model):
-            kwargs["temperature"] = temperature
-        return await client.responses.create(**kwargs)
-
-    effective_max = max_tokens
-    usage_summary: dict[str, int] | None = None
-    response: Any = None
-
-    for attempt in range(2):
-        response = await _create(effective_max)
-
-        _log_openai_usage_summary(feature, response)
-        usage_summary = _extract_openai_usage_summary(response)
-
-        text = _extract_openai_visible_text(response)
-        if text.strip():
-            return text, usage_summary
-
-        if (
-            attempt == 0
-            and _openai_incomplete_due_to_max_output(response)
-            and feature == "es_review"
-        ):
-            boosted = min(max(effective_max * 4, 2048), 16384)
-            if boosted > effective_max:
-                _log(
-                    feature,
-                    f"OpenAI Responses テキスト incomplete (max_output_tokens); "
-                    f"内部リトライ max_output_tokens={boosted}",
-                    WARNING,
-                )
-                effective_max = boosted
-                continue
-        break
-
-    if response is not None:
-        _log(
-            feature,
-            "OpenAI Responses テキストが空 (output 走査後も未取得)",
-            WARNING,
-        )
-    return "", usage_summary
-
-
-async def extract_text_from_pdf_with_openai(
-    pdf_bytes: bytes,
-    filename: str,
+async def _handle_provider_error(
+    exc: Exception,
     *,
-    model: str | None = None,
-    max_output_tokens: int = 12000,
-    feature: str = "company_info",
-    timeout_seconds: float | None = None,
-) -> tuple[str, dict[str, int], str]:
-    """
-    Extract readable text from a PDF using OpenAI Responses API.
-
-    Used as an OCR-capable fallback for uploaded PDFs, including scanned
-    documents where local text extraction is unavailable or insufficient.
-
-    Returns (text, usage_summary, resolved_model_id). usage_summary is zeroed when no API call.
-    """
-    empty_usage: dict[str, int] = {
-        "input_tokens": 0,
-        "output_tokens": 0,
-        "reasoning_tokens": 0,
-        "cached_input_tokens": 0,
-    }
-    if not pdf_bytes:
-        return "", empty_usage, ""
-
-    client = await get_openai_client(for_rag=_is_rag_feature(feature))
-    model_name = model or llm_model_routing._resolve_openai_model(feature)
-    file_b64 = base64.b64encode(pdf_bytes).decode("ascii")
-
-    request_kwargs = {
-        "model": model_name,
-        "input": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": (
-                            "以下のPDFから、読める本文をできるだけ漏れなく抽出してください。"
-                            "見出し・箇条書き・表の主要テキストは保持し、説明や要約は加えず、"
-                            "プレーンテキストのみを返してください。"
-                        ),
-                    },
-                    {
-                        "type": "input_file",
-                        "filename": filename or "document.pdf",
-                        "file_data": f"data:application/pdf;base64,{file_b64}",
-                    },
-                ],
-            }
-        ],
-        "max_output_tokens": max_output_tokens,
-        "text": {"format": {"type": "text"}},
-    }
-    if _openai_supports_temperature(model_name):
-        request_kwargs["temperature"] = 0
-
-    timeout = timeout_seconds
-    if timeout is None:
-        timeout = float(settings.rag_pdf_ocr_timeout_seconds)
-
-    try:
-        response = await asyncio.wait_for(
-            client.responses.create(**request_kwargs),
-            timeout=timeout,
+    target: llm_model_routing.ResolvedModelTarget,
+    requested_model: llm_model_routing.LLMModel,
+    feature: str,
+    start: float,
+    disable_fallback: bool,
+    retry_call: Any,
+) -> LLMResult:
+    error_type, detail = _classify_error_for_provider(target.provider, exc)
+    fallback_model = None
+    if not disable_fallback and error_type not in {"billing"}:
+        fallback_model = llm_model_routing._feature_cross_fallback_model(feature, target.provider)
+    if fallback_model:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        _emit_fallback_event(
+            feature=feature,
+            primary_model=str(requested_model),
+            selected_model=fallback_model,
+            failure_reason=error_type,
+            latency_ms=latency_ms,
+            primary_provider=target.provider,
         )
-    except asyncio.TimeoutError:
-        _log(feature, f"OpenAI PDF OCR timed out after {timeout}s", WARNING)
-        return "", empty_usage, model_name
-
-    pdf_usage = _extract_openai_usage_summary(response)
-    log_llm_cost_event(
-        feature=feature,
-        provider="openai",
-        resolved_model=model_name,
-        call_kind="pdf_ocr",
-        usage=pdf_usage,
-    )
-    output_text = getattr(response, "output_text", None)
-    if isinstance(output_text, str) and output_text.strip():
-        return output_text, pdf_usage, model_name
-
-    output_items = getattr(response, "output", None) or []
-    for output in output_items:
-        content_items = getattr(output, "content", None)
-        if content_items is None and isinstance(output, dict):
-            content_items = output.get("content")
-        if not content_items:
-            continue
-        for item in content_items:
-            if isinstance(item, dict):
-                text_payload = item.get("text") or item.get("output_text")
-            else:
-                text_payload = getattr(item, "text", None) or getattr(
-                    item, "output_text", None
-                )
-            if isinstance(text_payload, str) and text_payload.strip():
-                return text_payload, pdf_usage, model_name
-
-    return "", pdf_usage, model_name
-
-
-def _openai_supports_temperature(model: str) -> bool:
-    """temperature設定を拒否するOpenAIモデル（例: GPT-5）の場合はFalseを返す。"""
-    model_lower = (model or "").lower()
-    return not model_lower.startswith("gpt-5")
-
-
-def _openai_uses_max_completion_tokens(model: str) -> bool:
-    """max_completion_tokensを必要とするOpenAIモデル（例: GPT-5）の場合はTrueを返す。"""
-    model_lower = (model or "").lower()
-    return model_lower.startswith("gpt-5")
-
-
-def _detect_truncation(content: str) -> bool:
-    """レスポンスが切り詰められた可能性を検出。"""
-    if not content:
-        return False
-
-    stripped = content.rstrip()
-
-    # 1. 明示的な切り詰め記号をチェック
-    truncation_indicators = ("...", "…", "...")
-    if stripped.endswith(truncation_indicators):
-        return True
-
-    # 2. 閉じ括弧の不足をチェック
-    open_braces = content.count("{") - content.count("}")
-    open_brackets = content.count("[") - content.count("]")
-    if open_braces > 0 or open_brackets > 0:
-        return True
-
-    # 3. 長いレスポンスで文字列途中で終わっている（引用符が奇数）
-    quote_count = content.count('"') - content.count('\\"')
-    if quote_count % 2 != 0:
-        return True
-
-    return False
-
-
-def _parse_json_response(content: str) -> dict | None:
-    """JSONレスポンスを解析（マークダウンブロックなど様々な形式に対応）。"""
-    import re
-
-    if not content:
-        if settings.debug:
-            print("[JSON解析] 空のコンテンツ")
-        return None
-
-    original_content = content
-
-    # トランケーション検出
-    if _detect_truncation(content):
-        open_braces = content.count("{") - content.count("}")
-        if settings.debug:
-            print(
-                f"[JSON解析] ⚠️ 切り詰められたレスポンスの可能性 (未閉じブレース: {open_braces}, 長さ: {len(content)}文字)"
-            )
-
-    def extract_first_balanced_object(raw: str) -> str | None:
-        start = raw.find("{")
-        if start == -1:
-            return None
-        in_string = False
-        escape_next = False
-        depth = 0
-        for idx in range(start, len(raw)):
-            ch = raw[idx]
-            if escape_next:
-                escape_next = False
-                continue
-            if ch == "\\":
-                if in_string:
-                    escape_next = True
-                continue
-            if ch == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    return raw[start : idx + 1]
-        return None
-
-    def repair_unbalanced_object(raw: str) -> str | None:
-        stripped = raw.strip()
-        if not stripped.startswith("{"):
-            return None
-        in_string = False
-        escape_next = False
-        depth = 0
-        for ch in stripped:
-            if escape_next:
-                escape_next = False
-                continue
-            if ch == "\\":
-                if in_string:
-                    escape_next = True
-                continue
-            if ch == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth = max(depth - 1, 0)
-        if in_string:
-            return None
-        if depth <= 0:
-            return stripped
-        return stripped + ("}" * depth)
-
-    def strip_trailing_commas(raw: str) -> str:
-        return re.sub(r",\s*([}\]])", r"\1", raw)
-
-    def sanitize_json_string(raw: str) -> str:
-        """JSON文字列リテラル内のエスケープされていない改行/タブをエスケープ。"""
-        result = []
-        in_string = False
-        escape_next = False
-
-        for ch in raw:
-            if escape_next:
-                result.append(ch)
-                escape_next = False
-                continue
-
-            if ch == "\\":
-                result.append(ch)
-                escape_next = True
-                continue
-
-            if ch == '"':
-                in_string = not in_string
-                result.append(ch)
-                continue
-
-            if in_string:
-                if ch == "\n":
-                    result.append("\\n")
-                    continue
-                if ch == "\r":
-                    result.append("\\r")
-                    continue
-                if ch == "\t":
-                    result.append("\\t")
-                    continue
-
-            result.append(ch)
-
-        return "".join(result)
-
-    # 1. まず直接解析を試行
-    try:
-        return json.loads(content.strip())
-    except json.JSONDecodeError:
+        _log(
+            feature,
+            f"{_provider_display_name(target.provider)} {error_type}、{fallback_model} にフォールバック",
+            WARNING,
+        )
         try:
-            return json.loads(sanitize_json_string(content.strip()))
-        except json.JSONDecodeError:
-            pass
+            fallback_result = await retry_call(fallback_model)
+            if fallback_result.success and fallback_result.data:
+                _log(feature, f"{fallback_model} へのフォールバック成功", SUCCESS)
+                return fallback_result
+        except Exception as fallback_err:
+            _log(feature, f"{fallback_model} フォールバック失敗: {fallback_err}", ERROR)
 
-    # 2. ```jsonブロックから抽出（閉じ```がない切り詰められたレスポンスも対応）
-    if "```json" in content:
-        try:
-            parts = content.split("```json", 1)
-            if len(parts) > 1:
-                json_part = parts[1]
-                # 閉じ```が存在するかチェック
-                if "```" in json_part:
-                    json_str = json_part.split("```")[0]
-                else:
-                    # 切り詰められたレスポンス - 残りのコンテンツを全て使用
-                    json_str = json_part
-                try:
-                    return json.loads(json_str.strip())
-                except json.JSONDecodeError:
-                    # サニタイズを試行
-                    try:
-                        return json.loads(sanitize_json_string(json_str.strip()))
-                    except json.JSONDecodeError:
-                        # 切り詰められたブロックから不均衡なJSONを修復
-                        repaired = repair_unbalanced_object(json_str.strip())
-                        if repaired:
-                            return json.loads(repaired)
-        except (json.JSONDecodeError, IndexError):
-            pass
-
-    # 3. ```ブロックから抽出（汎用コードブロック、切り詰められたレスポンスも対応）
-    if "```" in content:
-        try:
-            parts = content.split("```", 1)
-            if len(parts) > 1:
-                json_part = parts[1]
-                # 閉じ```が存在するかチェック
-                if "```" in json_part:
-                    json_str = json_part.split("```")[0]
-                else:
-                    # 切り詰められたレスポンス - 残りのコンテンツを全て使用
-                    json_str = json_part
-                try:
-                    return json.loads(json_str.strip())
-                except json.JSONDecodeError:
-                    # サニタイズを試行
-                    try:
-                        return json.loads(sanitize_json_string(json_str.strip()))
-                    except json.JSONDecodeError:
-                        # 切り詰められたブロックから不均衡なJSONを修復
-                        repaired = repair_unbalanced_object(json_str.strip())
-                        if repaired:
-                            return json.loads(repaired)
-        except (json.JSONDecodeError, IndexError):
-            pass
-
-    # 4. 正規表現でJSONオブジェクトを抽出（最も外側の { ... } を検索）
-    json_match = re.search(r"\{[\s\S]*\}", content)
-    if json_match:
-        try:
-            try:
-                return json.loads(json_match.group())
-            except json.JSONDecodeError:
-                return json.loads(sanitize_json_string(json_match.group()))
-        except json.JSONDecodeError:
-            pass
-
-    # 4.5 最初のバランスの取れたJSONオブジェクトを抽出
-    balanced = extract_first_balanced_object(content)
-    if balanced:
-        candidate = strip_trailing_commas(balanced)
-        try:
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError:
-                return json.loads(sanitize_json_string(candidate))
-        except json.JSONDecodeError:
-            pass
-
-    # 4.6 不均衡なJSONオブジェクトを閉じ括弧で修復
-    repaired = repair_unbalanced_object(content)
-    if repaired:
-        candidate = strip_trailing_commas(repaired)
-        try:
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError:
-                return json.loads(sanitize_json_string(candidate))
-        except json.JSONDecodeError:
-            pass
-
-    # 5. 解析失敗 - デバッグ用にログ出力
-    preview = (
-        original_content[:200] if len(original_content) > 200 else original_content
-    )
-    if settings.debug:
-        print(f"[JSON解析] ⚠️ 解析失敗（{len(original_content)}文字）: {preview[:100]}...")
-    return None
+    error = _create_error(error_type, target.provider, feature, detail)
+    _log(feature, f"{_provider_display_name(target.provider)} APIエラー: {detail}", ERROR)
+    return LLMResult(success=False, error=error)

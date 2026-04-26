@@ -18,11 +18,8 @@ from app.prompts.gakuchika_prompt_builder import (
 )
 from app.prompts.gakuchika_prompts import INITIAL_QUESTION_USER_MESSAGE
 from app.routers.gakuchika_retry import _retry_question_generation
-from app.utils.llm import (
-    call_llm_streaming_fields,
-    call_llm_with_error,
-    consume_request_llm_cost_summary,
-)
+from app.utils.llm import call_llm_with_error, consume_request_llm_cost_summary
+from app.utils.llm_streaming import call_llm_streaming_fields
 from app.utils.llm_prompt_safety import sanitize_prompt_input
 from app.utils.secure_logger import get_logger
 

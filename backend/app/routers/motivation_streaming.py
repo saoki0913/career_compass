@@ -13,7 +13,8 @@ import asyncio
 import json
 from typing import AsyncGenerator
 
-from app.utils.llm import call_llm_streaming_fields, consume_request_llm_cost_summary
+from app.utils.llm import consume_request_llm_cost_summary
+from app.utils.llm_streaming import call_llm_streaming_fields
 from app.routers.motivation_contract import build_stream_complete_event
 from app.routers.motivation_models import NextQuestionRequest
 from app.routers.motivation_summarize import (

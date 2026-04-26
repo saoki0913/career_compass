@@ -230,7 +230,7 @@ class TestSemanticConfirmSelfConnection:
 @pytest.mark.asyncio
 class TestSemanticAnswerConfirmation:
     async def test_yes_response_returns_true(self) -> None:
-        from app.utils.llm import LLMResult
+        from app.utils.llm_providers import LLMResult
 
         with patch(
             "app.routers.motivation.call_llm_with_error",
@@ -244,7 +244,7 @@ class TestSemanticAnswerConfirmation:
             )
 
     async def test_no_response_returns_false(self) -> None:
-        from app.utils.llm import LLMResult
+        from app.utils.llm_providers import LLMResult
 
         with patch(
             "app.routers.motivation.call_llm_with_error",
@@ -256,7 +256,7 @@ class TestSemanticAnswerConfirmation:
             )
 
     async def test_llm_failure_returns_false(self) -> None:
-        from app.utils.llm import LLMResult
+        from app.utils.llm_providers import LLMResult
 
         with patch(
             "app.routers.motivation.call_llm_with_error",

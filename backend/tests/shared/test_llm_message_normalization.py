@@ -1,4 +1,4 @@
-from app.utils.llm import _normalize_chat_messages
+from app.utils.llm_providers import _normalize_chat_messages
 
 
 def test_normalize_chat_messages_treats_empty_list_as_user_message():

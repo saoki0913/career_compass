@@ -15,7 +15,8 @@ from app.routers.gakuchika import (
     _normalize_deepdive_payload,
     _normalize_es_build_payload,
 )
-from app.utils.llm import LLMResult, call_llm_streaming_fields
+from app.utils.llm_providers import LLMResult
+from app.utils.llm_streaming import call_llm_streaming_fields
 
 
 def test_is_deepdive_request_true_for_draft_ready_without_draft_text() -> None:

@@ -47,7 +47,7 @@ from app.routers.es_review import (
     deterministic_compress_variant,
     review_section_with_template,
 )
-from app.utils.llm import LLMError
+from app.utils.llm_providers import LLMError
 from app.utils.llm_prompt_safety import detect_es_injection_risk
 
 

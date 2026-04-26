@@ -120,11 +120,9 @@ async def _call_explanation_llm(
     progress_queue: "asyncio.Queue[tuple[str, dict[str, Any]]] | None",
 ) -> str:
     """Call GPT-5.4-mini and forward streamed deltas to the SSE queue."""
-    from app.utils.llm import (
-        _extract_openai_usage_summary,
-        _openai_supports_temperature,
-        log_llm_cost_event,
-    )
+    from app.utils.llm import log_llm_cost_event
+    from app.utils.llm_providers import _openai_supports_temperature
+    from app.utils.llm_responses import _extract_openai_usage_summary
 
     client = await get_openai_client(for_rag=False)
     request_kwargs: dict[str, Any] = {
