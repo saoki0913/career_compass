@@ -2,198 +2,22 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useState } from "react";
-import { ActivationChecklistCard } from "@/components/dashboard/ActivationChecklistCard";
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
-import { DeadlineList } from "@/components/dashboard/DeadlineList";
-import { EmptyState } from "@/components/dashboard/EmptyState";
+import { useState, useMemo } from "react";
+import { CompanyProgressCard } from "@/components/dashboard/CompanyListCard";
+import { DeadlineCard } from "@/components/dashboard/DeadlineCard";
+import { WeeklyScheduleView, getWeekDays } from "@/components/dashboard/WeeklyScheduleView";
+import { TodayTasksCard } from "@/components/dashboard/TodayTasksCard";
 import { QuickActions } from "@/components/dashboard/QuickActions";
-import { StatsCard } from "@/components/dashboard/StatsCard";
-import { IncompleteTasksCard } from "@/components/dashboard/IncompleteTasksCard";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useActivation, type ActivationProgress } from "@/hooks/useActivation";
 import { useCompanies, type Company } from "@/hooks/useCompanies";
 import { useDeadlines, type Deadline } from "@/hooks/useDeadlines";
-import { useEsStats } from "@/hooks/useDocuments";
-import { type IncompleteItemsData } from "@/hooks/useIncompleteItems";
-import {
-  useTasks,
-  useTodayTask,
-  TASK_TYPE_LABELS,
-  type Task,
-  type TaskType,
-  type TodayTask,
-} from "@/hooks/useTasks";
-import { cn } from "@/lib/utils";
+import { useCalendarEvents } from "@/hooks/useCalendar";
+import { useTasks, useTodayTask, type Task, type TodayTask } from "@/hooks/useTasks";
 import { DashboardSkeleton } from "@/components/skeletons/DashboardSkeleton";
 
 const CompanySelectModal = dynamic(() =>
   import("@/components/dashboard/CompanySelectModal").then((mod) => mod.CompanySelectModal)
 );
-
-const CompanyIcon = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-    />
-  </svg>
-);
-
-const CalendarIcon = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-    />
-  </svg>
-);
-
-const DocumentIcon = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-    />
-  </svg>
-);
-
-const SparklesIcon = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"
-    />
-  </svg>
-);
-
-const PlusIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-);
-
-const StarIcon = () => (
-  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-  </svg>
-);
-
-const ClockIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-const EmptyTasksIcon = () => (
-  <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"
-    />
-  </svg>
-);
-
-const HeartIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
-    />
-  </svg>
-);
-
-const ChevronRightIcon = ({ className }: { className?: string }) => (
-  <svg className={cn("w-4 h-4", className)} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-  </svg>
-);
-
-const taskTypeBarColors: Record<TaskType, string> = {
-  es: "bg-blue-500",
-  web_test: "bg-purple-500",
-  self_analysis: "bg-emerald-500",
-  gakuchika: "bg-amber-500",
-  video: "bg-pink-500",
-  other: "bg-slate-400",
-};
-
-const taskTypeBadgeStyles: Record<TaskType, { bg: string; text: string }> = {
-  es: { bg: "bg-blue-100", text: "text-blue-700" },
-  web_test: { bg: "bg-purple-100", text: "text-purple-700" },
-  self_analysis: { bg: "bg-emerald-100", text: "text-emerald-700" },
-  gakuchika: { bg: "bg-amber-100", text: "text-amber-700" },
-  video: { bg: "bg-pink-100", text: "text-pink-700" },
-  other: { bg: "bg-gray-100", text: "text-gray-700" },
-};
-
-function getOpenTaskDueDaysLeft(task: Task): number | null {
-  const raw = task.dueDate ?? task.deadline?.dueDate ?? null;
-  if (!raw) return null;
-  const due = new Date(raw);
-  const now = new Date();
-  return Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-const baseQuickActions = [
-  {
-    title: "企業を追加",
-    description: "新しい企業を登録",
-    href: "/companies/new",
-    icon: <PlusIcon />,
-    color: "indigo" as const,
-  },
-  {
-    title: "ES作成/添削",
-    description: "書いて整える",
-    href: "/es?new=1",
-    icon: <DocumentIcon />,
-    color: "orange" as const,
-  },
-  {
-    title: "面接対策",
-    description: "企業別に模擬面接",
-    icon: <SparklesIcon />,
-    color: "emerald" as const,
-  },
-  {
-    title: "ガクチカ作成",
-    description: "経験を言語化する",
-    href: "/gakuchika",
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-        />
-      </svg>
-    ),
-    color: "rose" as const,
-  },
-];
-
-const deadlineTypeLabels: Record<string, string> = {
-  es_submission: "ES提出",
-  interview: "面接",
-  test: "テスト",
-  offer_response: "内定返答",
-  other: "その他",
-};
 
 function getGreeting() {
   const hour = new Date().getHours();
@@ -203,358 +27,83 @@ function getGreeting() {
 }
 
 type DashboardPageClientProps = {
-  viewer: {
-    displayName: string;
-    isGuest: boolean;
-    companyLimitText: string;
-  };
-  initialCompanies?: {
-    companies: Company[];
-    count: number;
-    limit: number | null;
-    canAddMore: boolean;
-  };
-  initialEsStats?: {
-    draftCount: number;
-    publishedCount: number;
-    total: number;
-  };
-  initialDeadlines?: {
-    deadlines: Deadline[];
-    count: number;
-    periodDays: number;
-  };
+  viewer: { displayName: string; isGuest: boolean; companyLimitText: string };
+  initialCompanies?: { companies: Company[]; count: number; limit: number | null; canAddMore: boolean };
+  initialDeadlines?: { deadlines: Deadline[]; count: number; periodDays: number };
   initialTodayTask?: TodayTask;
-  initialActivationData?: ActivationProgress | null;
-  initialIncompleteItems?: IncompleteItemsData | null;
-  /** 認証済みダッシュボードではサーバーから常に配列で渡す（空配列可） */
   initialOpenTasks?: Task[];
 };
 
 export function DashboardPageClient({
-  viewer,
-  initialCompanies,
-  initialEsStats,
-  initialDeadlines,
-  initialTodayTask,
-  initialActivationData,
-  initialIncompleteItems,
-  initialOpenTasks,
+  viewer, initialCompanies, initialDeadlines,
+  initialTodayTask, initialOpenTasks,
 }: DashboardPageClientProps) {
-  const [showCompanySelect, setShowCompanySelect] = useState(false);
   const [showInterviewCompanySelect, setShowInterviewCompanySelect] = useState(false);
-  const { count: companyCount, isLoading: companiesLoading } = useCompanies(
-    initialCompanies ? { initialData: initialCompanies } : {}
-  );
-  const { draftCount, publishedCount, total: esTotal, isLoading: esStatsLoading } = useEsStats(
-    initialEsStats ? { initialData: initialEsStats } : {}
-  );
-  const { deadlines, count: deadlineCount, isLoading: deadlinesLoading } = useDeadlines(
-    7,
-    initialDeadlines ? { initialData: initialDeadlines } : {}
-  );
+  const [showMotivationCompanySelect, setShowMotivationCompanySelect] = useState(false);
+  const { companies, isLoading: companiesLoading } = useCompanies(initialCompanies ? { initialData: initialCompanies } : {});
+  const { deadlines, isLoading: deadlinesLoading } = useDeadlines(7, initialDeadlines ? { initialData: initialDeadlines } : {});
   const todayTask = useTodayTask(initialTodayTask ? { initialData: initialTodayTask } : {});
-  const { data: activationData, isLoading: activationLoading } = useActivation(
-    initialActivationData !== undefined ? { initialData: initialActivationData } : {}
-  );
-  const {
-    tasks: openTasks,
-    isLoading: openTasksLoading,
-  } = useTasks(
-    initialOpenTasks !== undefined ? { status: "open", initialData: initialOpenTasks } : { status: "open" }
-  );
-  const openTaskCount = openTasks.length;
+  const { tasks: openTasks, isLoading: openTasksLoading } = useTasks(initialOpenTasks !== undefined ? { status: "open", initialData: initialOpenTasks } : { status: "open" });
 
-  if (
-    !initialCompanies &&
-    companiesLoading &&
-    esStatsLoading &&
-    deadlinesLoading &&
-    todayTask.isLoading &&
-    activationLoading &&
-    (initialOpenTasks === undefined ? openTasksLoading : false)
-  ) {
-    return (
-      <DashboardSkeleton showTodayTaskSkeleton={Boolean(initialTodayTask?.task)} />
-    );
+  const weekDays = useMemo(() => getWeekDays(), []);
+  const weekStart = weekDays[0].toISOString();
+  const weekEnd = weekDays[6].toISOString();
+  const { events: calendarEvents } = useCalendarEvents({
+    start: weekStart,
+    end: weekEnd,
+    enabled: !viewer.isGuest,
+  });
+
+  const scheduleDeadlines = useMemo(() => deadlines.map((d) => ({ id: d.id, companyId: d.companyId, company: d.company, type: d.type, title: d.title, dueDate: d.dueDate, daysLeft: d.daysLeft })), [deadlines]);
+
+  if (!initialCompanies && companiesLoading && deadlinesLoading && todayTask.isLoading && (initialOpenTasks === undefined ? openTasksLoading : false)) {
+    return <DashboardSkeleton />;
   }
 
-  const quickActions = [
-    ...baseQuickActions.map((action) =>
-      action.title === "面接対策"
-        ? {
-            ...action,
-            onClick: () => setShowInterviewCompanySelect(true),
-          }
-        : action
-    ),
-    {
-      title: "AIで志望動機",
-      description: "志望動機を作成",
-      onClick: () => setShowCompanySelect(true),
-      icon: <HeartIcon />,
-      color: "sky" as const,
-    },
-  ];
-
   const greeting = getGreeting();
-  const formattedDeadlines = deadlines.slice(0, 5).map((deadline) => ({
-    id: deadline.id,
-    company: deadline.company,
-    type: deadlineTypeLabels[deadline.type] || deadline.type,
-    date: new Date(deadline.dueDate),
-    daysLeft: deadline.daysLeft,
-  }));
+
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-6 flex min-h-[4.5rem] flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">
-                {greeting}、{viewer.displayName}さん
-              </h1>
-              {viewer.isGuest && (
-                <span className="rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
-                  ゲストモードで利用中
-                </span>
-              )}
-            </div>
-            <p className="mt-1 text-muted-foreground">今日も就活を一歩前へ進めましょう</p>
+      <main className="mx-auto max-w-7xl px-4 py-1 sm:px-6 lg:px-8 flex flex-col gap-1">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-bold tracking-tight">{greeting}、{viewer.displayName}さん</h1>
+            {viewer.isGuest && (
+              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">ゲスト</span>
+            )}
           </div>
-
-          {todayTask.task ? (
-            <Card
-              data-testid="dashboard-today-task-card"
-              className="w-full max-h-24 shrink-0 gap-0 overflow-hidden border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 py-0 sm:w-[36rem] sm:max-w-[min(36rem,calc(100vw-2rem))] sm:flex-none"
-            >
-              <CardContent className="p-0 px-3 py-1.5">
-                <div className="flex items-start gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => void todayTask.markComplete()}
-                    className="mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 border-primary transition-colors hover:bg-primary/10"
-                    title="完了にする"
-                  />
-                  <div className="min-w-0 flex-1 space-y-0.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-1 text-primary">
-                        <span className="inline-flex shrink-0 scale-90">
-                          <StarIcon />
-                        </span>
-                        <span className="truncate text-[10px] font-medium leading-tight sm:text-xs">
-                          今日の最重要タスク
-                          {todayTask.mode === "DEADLINE" && " · 締切優先"}
-                          {todayTask.mode === "DEEP_DIVE" && " · 深掘り"}
-                        </span>
-                      </div>
-                      <Button variant="outline" size="sm" className="h-6 shrink-0 px-2 text-[10px]" asChild>
-                        <Link href="/tasks">一覧</Link>
-                      </Button>
-                    </div>
-                    <div className="flex min-w-0 flex-nowrap items-center gap-x-2 overflow-hidden text-[10px] sm:text-xs">
-                      <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-primary">
-                        {TASK_TYPE_LABELS[todayTask.task.type]}
-                      </span>
-                      {todayTask.task.company && (
-                        <Link
-                          href={`/companies/${todayTask.task.company.id}`}
-                          className="flex min-w-0 flex-1 items-center gap-0.5 truncate text-muted-foreground hover:text-primary [&_svg]:h-3 [&_svg]:w-3"
-                        >
-                          <CompanyIcon />
-                          <span className="truncate">{todayTask.task.company.name}</span>
-                        </Link>
-                      )}
-                      {todayTask.task.deadline && (
-                        <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground [&_svg]:h-3 [&_svg]:w-3">
-                          <ClockIcon />
-                          {new Date(todayTask.task.deadline.dueDate).toLocaleDateString("ja-JP", {
-                            month: "long",
-                            day: "numeric",
-                          })}
-                          まで
-                        </span>
-                      )}
-                    </div>
-                    <p className="truncate text-sm font-medium leading-snug">{todayTask.task.title}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ) : null}
+          <p className="mt-0.5 text-sm text-muted-foreground">今日も就活を一歩前へ進めましょう</p>
         </div>
 
-        {activationData && activationData.completedSteps < activationData.totalSteps ? (
-          <ActivationChecklistCard progress={activationData} isGuest={viewer.isGuest} />
-        ) : null}
+        <QuickActions
+          onInterviewClick={() => setShowInterviewCompanySelect(true)}
+          onMotivationClick={() => setShowMotivationCompanySelect(true)}
+        />
 
-        <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-3 lg:gap-6">
-          <StatsCard
-            title="登録企業"
-            value={companyCount}
-            subtitle={viewer.companyLimitText}
-            icon={<CompanyIcon />}
-            variant="primary"
-            href="/companies"
-          />
-          <StatsCard
-            title="ES作成数"
-            value={esTotal}
-            subtitle={`完了 ${publishedCount} / 下書き ${draftCount}`}
-            icon={<DocumentIcon />}
-            href="/es"
-          />
-          <StatsCard
-            title="今週の締切"
-            value={deadlineCount}
-            subtitle="直近7日間"
-            icon={<CalendarIcon />}
-            href="/calendar"
-            className="col-span-2 lg:col-span-1"
-          />
+        <div className="grid grid-cols-1 gap-1 lg:grid-cols-[7fr_3fr] lg:items-start">
+          <WeeklyScheduleView deadlines={scheduleDeadlines} calendarEvents={viewer.isGuest ? [] : calendarEvents} isGuest={viewer.isGuest} />
+          <TodayTasksCard todayTask={todayTask} openTasks={openTasks} />
         </div>
 
-        <section className="mb-8">
-          <h2 className="mb-4 text-lg font-semibold">クイックアクション</h2>
-          <QuickActions actions={quickActions}>
-            <IncompleteTasksCard variant="quickAction" initialData={initialIncompleteItems} />
-          </QuickActions>
-        </section>
-
-        <CompanySelectModal
-          open={showCompanySelect}
-          onOpenChange={setShowCompanySelect}
-          mode="motivation"
-        />
-        <CompanySelectModal
-          open={showInterviewCompanySelect}
-          onOpenChange={setShowInterviewCompanySelect}
-          mode="interview"
-        />
-
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-          <Card className="border-border/50">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">タスク一覧</CardTitle>
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/tasks">すべて見る</Link>
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {openTaskCount > 0 ? (
-                <div className="space-y-2">
-                  {openTasks.slice(0, 3).map((task) => {
-                    const badge = taskTypeBadgeStyles[task.type];
-                    const daysLeft = getOpenTaskDueDaysLeft(task);
-                    const contextLabel = task.company?.name ?? task.application?.name ?? null;
-                    return (
-                      <Link
-                        key={task.id}
-                        href="/tasks"
-                        className="group flex items-center gap-3 rounded-lg border border-transparent p-3 transition-all hover:border-border hover:bg-muted/30"
-                      >
-                        <div
-                          className={cn("h-10 w-1 shrink-0 rounded-full", taskTypeBarColors[task.type])}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="truncate font-medium">{task.title}</p>
-                            <span
-                              className={cn(
-                                "shrink-0 rounded px-1.5 py-0.5 text-xs",
-                                badge.bg,
-                                badge.text
-                              )}
-                            >
-                              {TASK_TYPE_LABELS[task.type]}
-                            </span>
-                          </div>
-                          <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                            {contextLabel ? <span className="truncate">{contextLabel}</span> : null}
-                            {daysLeft !== null ? (
-                              <>
-                                {contextLabel ? <span className="shrink-0">•</span> : null}
-                                <span
-                                  className={cn(
-                                    "shrink-0",
-                                    (daysLeft <= 3 || daysLeft < 0) && "font-medium text-red-500"
-                                  )}
-                                >
-                                  {daysLeft}日後 締切
-                                </span>
-                              </>
-                            ) : null}
-                          </div>
-                        </div>
-                        <ChevronRightIcon className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-                      </Link>
-                    );
-                  })}
-                  {openTaskCount > 3 && (
-                    <Link
-                      href="/tasks"
-                      className="flex items-center justify-center gap-1 pt-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                      <span>他 {openTaskCount - 3} 件を見る</span>
-                      <ChevronRightIcon className="w-3 h-3" />
-                    </Link>
-                  )}
-                </div>
-              ) : (
-                <EmptyState
-                  icon={<EmptyTasksIcon />}
-                  title="未完了のタスクはありません"
-                  description="タスク一覧で追加すると、ここに表示されます"
-                  action={{ label: "タスク一覧を開く", href: "/tasks" }}
-                />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">近日の締切</CardTitle>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" asChild>
-                  <Link href="/deadlines">すべて見る</Link>
-                </Button>
-                <Button variant="outline" size="sm" asChild>
-                  <Link href="/calendar">カレンダー</Link>
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {deadlineCount > 0 ? (
-                <DeadlineList deadlines={formattedDeadlines} />
-              ) : (
-                <EmptyState
-                  icon={<CalendarIcon />}
-                  title="締切がありません"
-                  description="企業を登録すると、ESや面接の締切が自動で抽出されます"
-                  action={{ label: "企業を追加する", href: "/companies/new" }}
-                />
-              )}
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-1 gap-1 lg:grid-cols-[7fr_3fr] lg:items-start">
+          <CompanyProgressCard companies={companies} />
+          <DeadlineCard deadlines={deadlines} />
         </div>
 
         {viewer.isGuest && (
-          <div className="mt-8 rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/10 via-accent/10 to-primary/10 p-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="rounded-xl border border-primary/20 bg-gradient-to-r from-primary/10 via-accent/10 to-primary/10 p-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="font-semibold">ゲストモードで利用中</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  ログインすると、データの保存やカレンダー連携が使えるようになります
-                </p>
+                <h3 className="text-sm font-semibold">ゲストモードで利用中</h3>
+                <p className="mt-0.5 text-xs text-muted-foreground">ログインすると、データの保存やカレンダー連携が使えます</p>
               </div>
-              <Button asChild>
-                <Link href="/login">ログインする</Link>
-              </Button>
+              <Button size="sm" asChild><Link href="/login">ログインする</Link></Button>
             </div>
           </div>
         )}
+
+        <CompanySelectModal open={showInterviewCompanySelect} onOpenChange={setShowInterviewCompanySelect} mode="interview" />
+        <CompanySelectModal open={showMotivationCompanySelect} onOpenChange={setShowMotivationCompanySelect} mode="motivation" />
       </main>
     </div>
   );
