@@ -1,3 +1,5 @@
+import process from "node:process";
+
 export const LOCAL_ALL_COMMAND = "make test-e2e-functional-local";
 export const STAGING_ALL_COMMAND = "make test-e2e-functional";
 
@@ -86,7 +88,7 @@ const FEATURE_CONFIG = {
       /^src\/app\/api\/interview\/.+/u,
       /^src\/app\/\(product\)\/companies\/\[id\]\/interview\/.+/u,
       /^src\/app\/\(product\)\/interview\/.+/u,
-      /^e2e\/interview-dashboard\.spec\.ts$/u,
+      /^e2e\/functional\/interview-dashboard\.spec\.ts$/u,
     ],
   },
   "company-info-search": {
@@ -104,7 +106,7 @@ const FEATURE_CONFIG = {
       /^src\/app\/api\/companies\/\[id\]\/search-pages\/.+/u,
       /^src\/app\/api\/companies\/\[id\]\/search-corporate-pages\/.+/u,
       /^src\/components\/companies\/FetchInfoButton\.tsx$/u,
-      /^e2e\/company-info-search\.spec\.ts$/u,
+      /^e2e\/functional\/company-info-search\.spec\.ts$/u,
     ],
   },
   "rag-ingest": {
@@ -121,7 +123,7 @@ const FEATURE_CONFIG = {
       /^src\/app\/api\/companies\/\[id\]\/fetch-corporate-site-pdf\/.+/u,
       /^src\/components\/companies\/CorporateInfoSection\.tsx$/u,
       /^src\/components\/companies\/corporate-info-section\/.+/u,
-      /^e2e\/company-info-rag\.spec\.ts$/u,
+      /^e2e\/functional\/company-info-rag\.spec\.ts$/u,
     ],
   },
   "selection-schedule": {
@@ -134,7 +136,7 @@ const FEATURE_CONFIG = {
       /^src\/app\/api\/companies\/\[id\]\/fetch-info\/route\.ts$/u,
       /^src\/app\/api\/companies\/\[id\]\/save-deadline\/route\.ts$/u,
       /^src\/app\/api\/companies\/\[id\]\/applications\/.+/u,
-      /^e2e\/company-info-search\.spec\.ts$/u,
+      /^e2e\/functional\/company-info-search\.spec\.ts$/u,
     ],
   },
   calendar: {
@@ -145,7 +147,7 @@ const FEATURE_CONFIG = {
       /^src\/app\/api\/calendar\/.+/u,
       /^src\/app\/\(product\)\/calendar\/.+/u,
       /^src\/components\/calendar\/.+/u,
-      /^e2e\/deadlines-calendar\.spec\.ts$/u,
+      /^e2e\/functional\/deadlines-calendar\.spec\.ts$/u,
     ],
   },
   "tasks-deadlines": {
@@ -158,13 +160,13 @@ const FEATURE_CONFIG = {
       /^src\/app\/\(product\)\/deadlines\/.+/u,
       /^src\/app\/\(product\)\/tasks\/.+/u,
       /^src\/components\/deadlines\/.+/u,
-      /^e2e\/deadlines-calendar\.spec\.ts$/u,
+      /^e2e\/functional\/deadlines-calendar\.spec\.ts$/u,
     ],
   },
   notifications: {
     localCommand: "make test-e2e-functional-local-notifications",
     stagingCommand: "make test-e2e-functional-notifications",
-    browserRequired: false,
+    browserRequired: true,
     patterns: [
       /^src\/app\/api\/notifications\/.+/u,
       /^src\/app\/\(product\)\/notifications\/.+/u,
@@ -172,37 +174,41 @@ const FEATURE_CONFIG = {
       /^src\/app\/api\/settings\/.+/u,
       /^src\/app\/\(product\)\/profile\/.+/u,
       /^src\/app\/\(product\)\/settings\/.+/u,
+      /^e2e\/functional\/notifications\.spec\.ts$/u,
     ],
   },
   "company-crud": {
     localCommand: "make test-e2e-functional-local-company-crud",
     stagingCommand: "make test-e2e-functional-company-crud",
-    browserRequired: false,
+    browserRequired: true,
     patterns: [
       /^src\/app\/api\/companies\/route\.ts$/u,
       /^src\/app\/api\/companies\/\[id\]\/route\.ts$/u,
       /^src\/app\/\(product\)\/companies\/page\.tsx$/u,
       /^src\/app\/\(product\)\/companies\/new\/.+/u,
+      /^e2e\/functional\/company-crud\.spec\.ts$/u,
     ],
   },
   billing: {
     localCommand: "make test-e2e-functional-local-billing",
     stagingCommand: "make test-e2e-functional-billing",
-    browserRequired: false,
+    browserRequired: true,
     patterns: [
       /^src\/app\/api\/credits\/.+/u,
       /^src\/app\/api\/stripe\/.+/u,
       /^src\/lib\/stripe\/.+/u,
       /^src\/app\/api\/webhooks\/stripe\/.+/u,
+      /^e2e\/functional\/billing\.spec\.ts$/u,
     ],
   },
   "search-query": {
     localCommand: "make test-e2e-functional-local-search-query",
     stagingCommand: "make test-e2e-functional-search-query",
-    browserRequired: false,
+    browserRequired: true,
     patterns: [
       /^src\/app\/api\/search\/.+/u,
       /^src\/app\/\(product\)\/search\/.+/u,
+      /^e2e\/functional\/search-query\.spec\.ts$/u,
     ],
   },
   "pages-smoke": {
@@ -212,8 +218,14 @@ const FEATURE_CONFIG = {
     patterns: [
       /^src\/app\/\(product\)\/dashboard\/.+/u,
       /^src\/app\/\(product\)\/companies\/page\.tsx$/u,
+      /^src\/app\/\(product\)\/es\/(?:page|layout|loading)\.tsx$/u,
+      /^src\/app\/\(product\)\/gakuchika\/(?:page|layout|loading)\.tsx$/u,
+      /^src\/app\/\(product\)\/calendar\/(?:page|layout|loading)\.tsx$/u,
+      /^src\/app\/\(product\)\/notifications\/(?:page|layout|loading)\.tsx$/u,
+      /^src\/app\/\(product\)\/settings\/(?:page|layout|loading)\.tsx$/u,
       /^src\/components\/dashboard\/.+/u,
       /^src\/components\/layout\/.+/u,
+      /^e2e\/live-smoke\/live-ai-pages\.spec\.ts$/u,
     ],
   },
 };
@@ -227,11 +239,13 @@ export const AI_FEATURES = [
 ];
 
 export const SHARED_TRIGGER_PATTERNS = [
-  /^e2e\/live-ai-.*\.spec\.ts$/u,
+  /^e2e\/live-smoke\/live-ai-.*\.spec\.ts$/u,
   /^e2e\/fixtures\/auth\.ts$/u,
+  /^e2e\/fixtures\/cleanup\.ts$/u,
   /^scripts\/ci\/run-ai-live\.sh$/u,
   /^scripts\/ci\/run-e2e-functional\.sh$/u,
   /^playwright\.live\.config\.ts$/u,
+  /^playwright\.config\.ts$/u,
 ];
 
 export const LLM_SHARED_TRIGGER_PATTERNS = [
@@ -315,4 +329,3 @@ export function getAllE2EFunctionalFeatureConfigs() {
     ...FEATURE_CONFIG[feature],
   }));
 }
-import process from "node:process";

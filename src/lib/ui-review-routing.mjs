@@ -93,6 +93,9 @@ function uniqueStrings(values) {
   return [...new Set(values.filter(Boolean))];
 }
 
+/**
+ * @param {"all" | "public" | "product"} [kind]
+ */
 export function getUiReviewFallbackRoutes(kind = "all") {
   if (kind === "public") {
     return PUBLIC_MARKETING_ROUTES;
@@ -105,6 +108,9 @@ export function getUiReviewFallbackRoutes(kind = "all") {
   return ALL_REVIEW_ROUTES;
 }
 
+/**
+ * @param {string} body
+ */
 export function parseUiReviewRoutesFromBody(body) {
   if (!body?.trim()) {
     return [];
@@ -131,6 +137,9 @@ export function parseUiReviewRoutesFromBody(body) {
   return uniqueStrings(routes.map(normalizeReviewRoute));
 }
 
+/**
+ * @param {string} route
+ */
 export function normalizeReviewRoute(route) {
   const trimmed = route.trim();
   if (!trimmed) {
@@ -145,6 +154,9 @@ export function normalizeReviewRoute(route) {
   return pathname === "/" ? "/" : pathname.replace(/\/+$/, "");
 }
 
+/**
+ * @param {string[]} routes
+ */
 export function classifyUiReviewAuthMode(routes) {
   const normalizedRoutes = uniqueStrings(routes.map(normalizeReviewRoute));
   const hasProductRoute = normalizedRoutes.some((route) => isProductReviewRoute(route));
@@ -163,6 +175,9 @@ export function classifyUiReviewAuthMode(routes) {
   return hasProductRoute ? "guest" : "none";
 }
 
+/**
+ * @param {string[]} routes
+ */
 export function getPreferredLocalUiReviewAuthMode(routes) {
   const normalizedRoutes = uniqueStrings(routes.map(normalizeReviewRoute));
   if (normalizedRoutes.length === 0) {
@@ -184,6 +199,15 @@ export function getPreferredLocalUiReviewAuthMode(routes) {
   return classified || "none";
 }
 
+/**
+ * @typedef {Object} UiReviewRouteInput
+ * @property {string[]} [changedFiles]
+ * @property {string} [prBody]
+ */
+
+/**
+ * @param {UiReviewRouteInput} [input]
+ */
 export function resolveUiReviewRoutes({
   changedFiles = [],
   prBody = "",
@@ -263,6 +287,9 @@ export function resolveUiReviewRoutes({
   };
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ */
 export function resolveUiReviewScopeFromContext(env = process.env) {
   const event = readGitHubEventPayload(env);
   const prBody = event?.pull_request?.body ?? "";
@@ -273,6 +300,9 @@ export function resolveUiReviewScopeFromContext(env = process.env) {
   });
 }
 
+/**
+ * @param {string[]} changedFiles
+ */
 export function deriveRoutesFromFiles(changedFiles) {
   const routeSet = new Set();
   let kind = null;

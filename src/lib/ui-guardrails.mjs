@@ -34,6 +34,16 @@ const ACCENT_UTILITY_PATTERN = new RegExp(
   "g"
 );
 
+/**
+ * @typedef {Object} UiGuardrailInput
+ * @property {string[]} [files]
+ * @property {NodeJS.ProcessEnv} [env]
+ * @property {string} [cwd]
+ */
+
+/**
+ * @param {UiGuardrailInput} [input]
+ */
 export function collectUiGuardrailFindings({ files = [], env = process.env, cwd = process.cwd() } = {}) {
   const changedFiles = files.length > 0 ? files : collectChangedFiles({ env, cwd });
   const findings = [];

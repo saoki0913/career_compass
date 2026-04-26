@@ -36,7 +36,7 @@ function runAuthCapture(authStatePath) {
 
 function launchUiReview(authStatePath) {
   const config = parseUiReviewArgs(process.argv.slice(2));
-  const args = ["playwright", "test", "e2e/ui-review.spec.ts"];
+  const args = ["playwright", "test", "e2e/tooling/ui-review.spec.ts"];
   if (config.headed) {
     args.push("--headed");
   }

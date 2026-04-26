@@ -33,7 +33,7 @@ skip_es_review_playwright="${AI_LIVE_LOCAL_SKIP_ES_REVIEW_PLAYWRIGHT:-0}"
 skip_all_playwright="${AI_LIVE_SKIP_ALL_PLAYWRIGHT:-0}"
 web_port=""
 base_url=""
-fastapi_health_url="${AI_LIVE_LOCAL_FASTAPI_HEALTH_URL:-http://localhost:8000/health}"
+fastapi_health_url="${AI_LIVE_LOCAL_FASTAPI_HEALTH_URL:-http://localhost:8000/health/ready}"
 expected_features_csv="company_info_search,selection_schedule,rag_ingest,gakuchika,motivation,interview,es_review"
 feature_workspace_root="${output_dir%/}/_feature_runs"
 next_log_path="${output_dir%/}/next-dev.log"
@@ -603,6 +603,7 @@ run_feature_isolated() {
   local feature_workspace="${feature_workspace_root%/}/${feature}"
   local feature_run_dir=""
   local feature_failed=0
+  local target_env_args=()
 
   mkdir -p "$feature_workspace"
 
@@ -614,14 +615,25 @@ run_feature_isolated() {
   fi
 
   log "running feature=${feature} suite=${suite} (timeout=${feature_timeout}s)"
+  case "$feature" in
+    es-review|company-info-search|rag-ingest|selection-schedule|gakuchika|motivation|interview)
+      target_env_args=(
+        LIVE_AI_CONVERSATION_TARGET_ENV="local"
+        LIVE_COMPANY_INFO_TARGET_ENV="local"
+      )
+      ;;
+    *)
+      target_env_args=()
+      ;;
+  esac
+
   local feature_rc=0
   timeout --kill-after=30 "$feature_timeout" env \
     CI_E2E_AUTH_SECRET="$ci_e2e_auth_secret" \
     PLAYWRIGHT_BASE_URL="$base_url" \
     PLAYWRIGHT_SKIP_WEBSERVER=1 \
     PLAYWRIGHT_HTML_OPEN=never \
-    LIVE_AI_CONVERSATION_TARGET_ENV="local" \
-    LIVE_COMPANY_INFO_TARGET_ENV="local" \
+    "${target_env_args[@]}" \
     CI_E2E_SCOPE="$scope" \
     bash scripts/ci/run-ai-live.sh \
       --suite "$suite" \
@@ -752,7 +764,7 @@ principal_preflight_status="passed"
 
 export AI_LIVE_SKIP_ALL_PLAYWRIGHT="$skip_all_playwright"
 export AI_LIVE_SKIP_ES_REVIEW_PLAYWRIGHT="$skip_es_review_playwright"
-if [[ "$suite" == "extended" ]]; then
+if [[ "$suite" == "extended" && "${AI_LIVE_TEST_CATEGORY:-functional}" == "quality" ]]; then
   # Align with extended ES review pytest: record quality/state in JSON/MD; fail Playwright only on infra-like failures.
   export LIVE_AI_CONVERSATION_BLOCKING_FAILURES=0
   # Include last turns of failed cases in per-feature Markdown reports (bounded size).
@@ -766,6 +778,9 @@ if [[ "$suite" == "extended" ]]; then
   fi
   # Relax LLM judge thresholds for local pre-commit testing (all≥2, avg≥3.0)
   export LLM_JUDGE_LOCAL_MODE=1
+else
+  export LIVE_AI_CONVERSATION_LLM_JUDGE="${LIVE_AI_CONVERSATION_LLM_JUDGE:-0}"
+  export LIVE_ES_REVIEW_ENABLE_JUDGE="${LIVE_ES_REVIEW_ENABLE_JUDGE:-0}"
 fi
 
 run_features_parallel() {

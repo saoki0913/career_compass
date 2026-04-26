@@ -35,7 +35,7 @@ describe("resolveE2EFunctionalScope", () => {
 
   it("treats shared llm and live e2e files as all features", () => {
     const scope = resolveE2EFunctionalScope({
-      changedFiles: ["backend/app/utils/llm.py", "e2e/live-ai-conversations.spec.ts"],
+      changedFiles: ["backend/app/utils/llm.py", "e2e/live-smoke/live-ai-conversations.spec.ts"],
     });
 
     expect(scope.features).toEqual([
@@ -86,6 +86,21 @@ describe("resolveE2EFunctionalScope", () => {
       "rag-ingest",
       "selection-schedule",
     ]);
+  });
+
+  it("maps product page smoke targets to pages-smoke", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: [
+        "src/app/(product)/es/page.tsx",
+        "src/app/(product)/gakuchika/page.tsx",
+        "src/app/(product)/calendar/page.tsx",
+        "src/app/(product)/notifications/page.tsx",
+        "src/app/(product)/settings/page.tsx",
+        "e2e/live-smoke/live-ai-pages.spec.ts",
+      ],
+    });
+
+    expect(scope.features).toContain("pages-smoke");
   });
 
   it("maps absolute repo paths for shell hooks", () => {

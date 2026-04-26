@@ -88,9 +88,9 @@ load_ci_e2e_auth_secret_if_available
 capture_google_auth_if_needed
 
 if [[ "$environment" == "staging" ]]; then
-  run_playwright_args e2e/guest-major.spec.ts
+  run_playwright_args e2e/functional/guest-major.spec.ts
   if [[ -n "${CI_E2E_AUTH_SECRET:-}" || -n "${PLAYWRIGHT_AUTH_STATE:-}" ]]; then
-    run_playwright_args e2e/user-major.spec.ts
+    run_playwright_args e2e/functional/user-major.spec.ts
   else
     release_warn "Neither CI_E2E_AUTH_SECRET nor PLAYWRIGHT_AUTH_STATE is set. Skipping authenticated staging suite."
   fi
@@ -105,4 +105,4 @@ if [[ "$environment" == "staging" ]]; then
   exit 0
 fi
 
-run_playwright_args e2e/release-production-readonly.spec.ts
+run_playwright_args e2e/functional/release-production-readonly.spec.ts
