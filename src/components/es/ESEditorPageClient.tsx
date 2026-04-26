@@ -3,7 +3,6 @@
 import { startTransition, useState, useEffect, useCallback, useRef, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -803,7 +802,6 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
   if (error || !document) {
     return (
       <div className="min-h-screen bg-background">
-        <DashboardHeader />
         <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <Card className="border-red-200 bg-red-50/50">
             <CardContent className="py-8 text-center">
@@ -824,12 +822,8 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
     <>
     <NavigationGuard />
     <div className="es-editor-print-scope h-screen bg-background flex flex-col overflow-hidden print:block print:h-auto print:min-h-0 print:max-h-none print:overflow-visible">
-      <div className="print:hidden">
-        <DashboardHeader />
-      </div>
-
       {/* Header Bar */}
-      <div className="sticky top-16 z-40 bg-background/95 backdrop-blur border-b border-border print:hidden">
+      <div className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-14 flex-col gap-2 py-2 lg:h-14 lg:flex-row lg:items-center lg:justify-between lg:gap-0 lg:py-0">
             <div className="flex min-w-0 items-center gap-2 sm:gap-4">

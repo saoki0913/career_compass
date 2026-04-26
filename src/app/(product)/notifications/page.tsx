@@ -1,5 +1,4 @@
 import { headers } from "next/headers";
-import { DashboardHeader } from "@/components/dashboard";
 import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
 import { getNotificationsPageData } from "@/lib/server/notification-loaders";
 import { NotificationsPageClient } from "@/components/notifications/NotificationsPageClient";
@@ -11,10 +10,6 @@ export default async function NotificationsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader
-        notificationsInitialData={initialData}
-        notificationsLimit={50}
-      />
       <NotificationsPageClient initialData={initialData} />
     </div>
   );

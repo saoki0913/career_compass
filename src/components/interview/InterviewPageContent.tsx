@@ -10,7 +10,6 @@ import {
   ConversationWorkspaceShell,
 } from "@/components/chat/ConversationWorkspaceShell";
 import { ChatInput, ChatMessage, ThinkingIndicator } from "@/components/chat";
-import { DashboardHeader } from "@/components/dashboard";
 import { DrillPanel } from "@/components/interview/DrillPanel";
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import { InterviewConversationSkeleton } from "@/components/skeletons/InterviewConversationSkeleton";
@@ -317,8 +316,8 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
   useEffect(() => { if (!autoScrollEnabledRef.current) return; conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages.length, streamingText, streamingFeedback?.overall_comment, streamingFeedback?.improved_answer, streamingFeedback?.strengths.length, streamingFeedback?.improvements.length, streamingFeedback?.next_preparation.length, streamingFeedback?.consistency_risks.length]);
   useEffect(() => { if (!feedback || feedbackCompletionCount <= lastAnnouncedFeedbackCompletionCountRef.current) return; lastAnnouncedFeedbackCompletionCountRef.current = feedbackCompletionCount; notifySuccess({ title: "最終講評を生成しました", description: "講評カードを表示しました。内容を確認しながら振り返れます。", duration: 4200 }); requestAnimationFrame(() => { feedbackCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }); }, [feedback, feedbackCompletionCount]);
 
-  if (isLoading) { return (<div className="min-h-screen bg-background"><DashboardHeader /><main><InterviewConversationSkeleton accent="面接の準備を進めています" /></main></div>); }
-  if (!normalizedCompanyId) { return (<div className="min-h-screen bg-background"><DashboardHeader /><main className="mx-auto max-w-2xl px-4 py-10 sm:px-6"><Card className="border-border/60"><CardHeader><CardTitle className="text-base">企業を特定できません</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">URLが不完全な可能性があります。企業一覧から対象の企業を開き直してください。</p><Button asChild className="w-full sm:w-auto"><Link href="/companies">企業一覧へ</Link></Button></CardContent></Card></main></div>); }
+  if (isLoading) { return (<div className="min-h-screen bg-background"><main><InterviewConversationSkeleton accent="面接の準備を進めています" /></main></div>); }
+  if (!normalizedCompanyId) { return (<div className="min-h-screen bg-background"><main className="mx-auto max-w-2xl px-4 py-10 sm:px-6"><Card className="border-border/60"><CardHeader><CardTitle className="text-base">企業を特定できません</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">URLが不完全な可能性があります。企業一覧から対象の企業を開き直してください。</p><Button asChild className="w-full sm:w-auto"><Link href="/companies">企業一覧へ</Link></Button></CardContent></Card></main></div>); }
 
   return (
     <>

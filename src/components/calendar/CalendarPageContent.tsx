@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -458,9 +457,7 @@ export default function CalendarPage() {
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">
-      <DashboardHeader />
-
-      <main className="flex max-w-7xl flex-1 flex-col overflow-hidden px-4 pt-4 max-lg:pb-[calc(1rem+var(--mobile-bottom-nav-offset))] sm:px-6 lg:px-8 lg:pb-4">
+      <main className="flex max-w-7xl flex-1 flex-col overflow-hidden px-4 pt-4 max-lg:pb-4 sm:px-6 lg:px-8 lg:pb-4">
         {/* Header */}
         <div className="mb-4 flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -706,7 +703,7 @@ export default function CalendarPage() {
             </SheetTrigger>
             <SheetContent
               side="bottom"
-              className="max-h-[80vh] overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom,0px),var(--mobile-bottom-nav-offset))]"
+              className="max-h-[80vh] overflow-y-auto pb-4"
             >
               <SheetHeader>
                 <SheetTitle>カレンダー情報</SheetTitle>

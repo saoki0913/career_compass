@@ -135,7 +135,7 @@ export function ConversationWorkspaceShell({
               {conversation}
             </div>
             {composer ? (
-              <div className="shrink-0 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-[calc(0.75rem+var(--mobile-bottom-nav-offset))] lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
+              <div className="shrink-0 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-3 lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
                 {composer}
               </div>
             ) : null}

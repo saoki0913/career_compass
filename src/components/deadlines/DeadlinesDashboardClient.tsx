@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { DashboardHeader } from "@/components/dashboard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -105,7 +104,6 @@ export function DeadlinesDashboardClient({
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         {/* Page heading */}
         <div className="mb-6">

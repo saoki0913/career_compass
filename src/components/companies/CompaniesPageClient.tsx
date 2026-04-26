@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Building2, LayoutGrid, Layers } from "lucide-react";
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { CompanyGrid } from "@/components/companies/CompanyGrid";
 import { IndustryGroup } from "@/components/companies/IndustryGroup";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -137,8 +136,6 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-
       <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
         {isLoading ? (
           <CompaniesListContentSkeleton />

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -328,8 +327,6 @@ export default function CalendarSettingsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Link href="/calendar" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
           <ArrowLeftIcon />

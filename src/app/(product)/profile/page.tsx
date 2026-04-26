@@ -1,13 +1,9 @@
-import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
-import { buildNotificationPreviewData } from "@/components/notifications/notifications-data";
-import { getNotificationsPageData } from "@/lib/server/notification-loaders";
 import { getProfilePageData } from "@/lib/server/account-loaders";
 
 const ArrowLeftIcon = () => (
@@ -103,10 +99,7 @@ export default async function ProfilePage() {
     redirect("/login?redirect=/profile");
   }
 
-  const [profileData, notificationsData] = await Promise.all([
-    getProfilePageData(identity.userId),
-    getNotificationsPageData(identity, 5),
-  ]);
+  const profileData = await getProfilePageData(identity.userId);
 
   const profile = profileData?.profile ?? {
     name: "",
@@ -125,7 +118,6 @@ export default async function ProfilePage() {
   const draftCount = profileData?.esStats.draftCount ?? 0;
   const publishedCount = profileData?.esStats.publishedCount ?? 0;
   const esTotal = profileData?.esStats.total ?? 0;
-  const notificationsInitialData = buildNotificationPreviewData(notificationsData, 5);
 
   const formatDate = (dateString?: string | null) => {
     if (!dateString) return "不明";
@@ -138,11 +130,6 @@ export default async function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader
-        notificationsInitialData={notificationsInitialData}
-        creditsInitialData={profileData?.creditsInitialData}
-      />
-
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <Link
           href="/dashboard"
@@ -168,12 +155,13 @@ export default async function ProfilePage() {
           <CardContent>
             <div className="flex items-center gap-4">
               {profile.image ? (
-                <Image
+                <img
                   src={profile.image}
                   alt=""
                   width={80}
                   height={80}
-                  className="h-20 w-20 rounded-full ring-4 ring-muted"
+                  className="h-20 w-20 rounded-full object-cover ring-4 ring-muted"
+                  referrerPolicy="no-referrer"
                 />
               ) : (
                 <div className="flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-2xl font-bold text-primary ring-4 ring-muted">

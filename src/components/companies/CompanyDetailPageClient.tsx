@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
@@ -567,7 +566,6 @@ export default function CompanyDetailPageClient({
   if (error && !company) {
     return (
       <div className="min-h-screen bg-background">
-        <DashboardHeader />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <Card className="border-red-200 bg-red-50/50 max-w-xl mx-auto">
             <CardContent className="py-6 text-center">
@@ -590,8 +588,6 @@ export default function CompanyDetailPageClient({
     <OperationLockProvider>
     <NavigationGuard />
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* Back button */}
         <Link

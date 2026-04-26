@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -670,7 +669,6 @@ export default function GakuchikaListPage() {
   if (!isReady) {
     return (
       <div className="min-h-screen bg-background">
-        <DashboardHeader />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
           <GakuchikaListPageHeaderSkeleton />
           <ListPageFilterBarSkeleton variant="gakuchika" />
@@ -683,7 +681,6 @@ export default function GakuchikaListPage() {
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-background">
-        <DashboardHeader />
         <main className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8 max-lg:max-w-full max-lg:px-3">
           <LoginRequiredForAi title="ガクチカ作成はログイン後にご利用いただけます" />
         </main>
@@ -693,8 +690,6 @@ export default function GakuchikaListPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Header（取得中は実データのチラ見えを避けスケルトン） */}
         {isLoading ? (
@@ -883,7 +878,7 @@ export default function GakuchikaListPage() {
           <Button
             onClick={() => setShowNewModal(true)}
             disabled={isAtLimit}
-            className="fixed right-4 z-40 h-14 w-14 rounded-full shadow-lg bottom-[calc(var(--mobile-bottom-nav-offset)+1rem)] sm:hidden"
+            className="fixed right-4 z-40 h-14 w-14 rounded-full shadow-lg bottom-4 sm:hidden"
             size="icon"
             title={isAtLimit ? "上限に達しました" : "新規作成"}
           >

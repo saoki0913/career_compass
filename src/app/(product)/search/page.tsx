@@ -1,5 +1,4 @@
 import { headers } from "next/headers";
-import { DashboardHeader } from "@/components/dashboard";
 import { SearchPageClient } from "@/components/search/SearchPageClient";
 import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
 import { getInitialSearchResults } from "@/lib/server/search-loader";
@@ -23,7 +22,6 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
       <SearchPageClient initialQuery={initialQuery} initialResults={initialResults} />
     </div>
   );

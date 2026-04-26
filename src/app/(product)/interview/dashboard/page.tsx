@@ -4,7 +4,6 @@ import Link from "next/link";
 
 import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
-import { DashboardHeader } from "@/components/dashboard";
 import { CompanyHeatmap } from "@/components/interview/dashboard/CompanyHeatmap";
 import { FormatHeatmap } from "@/components/interview/dashboard/FormatHeatmap";
 import { RecurringIssuesList } from "@/components/interview/dashboard/RecurringIssuesList";
@@ -64,7 +63,6 @@ export default async function InterviewDashboardPage() {
   if (!identity?.userId) {
     return (
       <div className="min-h-screen bg-background">
-        <DashboardHeader />
         <main>
           <LoginRequiredForAi
             title="成長ダッシュボードはログイン後に利用できます"
@@ -79,7 +77,6 @@ export default async function InterviewDashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
       <main className="mx-auto w-full max-w-5xl space-y-6 px-4 py-8 sm:px-6">
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end justify-between gap-4">

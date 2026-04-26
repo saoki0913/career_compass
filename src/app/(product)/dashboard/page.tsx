@@ -4,10 +4,7 @@ import { auth } from "@/lib/auth";
 import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
 import type { RequestIdentity } from "@/app/api/_shared/request-identity";
 import {
-  getActivationData,
   getCompaniesPageData,
-  getDashboardIncompleteData,
-  getEsStats,
   getUpcomingDeadlinesData,
   getTodayTaskData,
   getViewerPlan,
@@ -65,20 +62,14 @@ async function DashboardAuthenticatedContent({
   const [
     planResult,
     companiesResult,
-    esStatsResult,
     deadlinesResult,
     todayTaskResult,
-    activationResult,
-    incompleteResult,
     openTasksResult,
   ] = await Promise.all([
     safeLoad("plan", () => getViewerPlan(identity)),
     safeLoad("companies", () => getCompaniesPageData(identity)),
-    safeLoad("esStats", () => getEsStats(identity)),
     safeLoad("deadlines", () => getUpcomingDeadlinesData(identity, 7)),
     safeLoad("todayTask", () => getTodayTaskData(identity)),
-    safeLoad("activation", () => getActivationData(identity)),
-    safeLoad("incomplete", () => getDashboardIncompleteData(identity)),
     safeLoad("openTasks", () => getTasksPageData(identity, { status: "open" })),
   ]);
 
@@ -96,11 +87,8 @@ async function DashboardAuthenticatedContent({
         companyLimitText,
       }}
       initialCompanies={companiesResult.data ?? undefined}
-      initialEsStats={esStatsResult.data ?? undefined}
       initialDeadlines={deadlinesResult.data ?? undefined}
       initialTodayTask={todayTaskResult.data ?? undefined}
-      initialActivationData={activationResult.data ?? undefined}
-      initialIncompleteItems={incompleteResult.data ?? undefined}
       initialOpenTasks={openTasksResult.data?.tasks ?? undefined}
     />
   );
