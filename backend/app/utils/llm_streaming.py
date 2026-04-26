@@ -74,6 +74,8 @@ async def call_llm_streaming(
     """
     from app.utils.llm import (  # local import to break cycle with llm.py
         _call_claude,
+        _call_claude_raw_stream,
+        _emit_output_leakage_event,
         _json_repair_system_prompt,
         _json_repair_user_prompt,
         call_llm_with_error,
@@ -142,6 +144,12 @@ async def call_llm_streaming(
             resolved_model=actual_model,
             call_kind="stream",
             usage=usage_summary,
+        )
+        _emit_output_leakage_event(
+            feature=feature,
+            model=actual_model or "",
+            provider="anthropic",
+            raw_text=accumulated,
         )
 
         result = _parse_json_response(accumulated)
@@ -219,6 +227,8 @@ async def call_llm_streaming_fields(
     """
     from app.utils.llm import (  # local import to break cycle with llm.py
         _call_claude,
+        _call_claude_raw_stream,
+        _emit_output_leakage_event,
         _json_repair_system_prompt,
         _json_repair_user_prompt,
         call_llm_with_error,
@@ -317,6 +327,12 @@ async def call_llm_streaming_fields(
             resolved_model=actual_model,
             call_kind="stream_fields",
             usage=usage_summary,
+        )
+        _emit_output_leakage_event(
+            feature=feature,
+            model=actual_model or "",
+            provider="anthropic",
+            raw_text=accumulated,
         )
 
         result = _parse_json_response(accumulated)

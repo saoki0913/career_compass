@@ -17,6 +17,7 @@ import {
   buildDeterministicGakuchikaFollowupAnswer,
   buildDeterministicMotivationFollowupAnswer,
   collectStaleLiveAiCompanyIds,
+  parseSseEvents,
   runMotivationSetupWithRequest,
   runGakuchikaSetupWithRequest,
 } from "../../../e2e/helpers/live-ai-conversation-utils";
@@ -30,9 +31,26 @@ describe("live ai conversation helpers", () => {
         { id: "company-3", name: "別企業_motivation_company_reason_live-ai-conversations-456" },
       ],
       ["interview_company_fit_and_depth", "motivation_company_reason"],
+      "live-ai-conversations-123",
     );
 
-    expect(staleIds).toEqual(["company-1", "company-3"]);
+    expect(staleIds).toEqual(["company-1"]);
+  });
+
+  it("parses multi-line SSE data payloads", () => {
+    const events = parseSseEvents(
+      [
+        'data: {"type":"complete",',
+        'data: "data":{"ok":true}}',
+        "",
+      ].join("\n"),
+    );
+
+    expect(events).toEqual([{ type: "complete", data: { ok: true } }]);
+  });
+
+  it("throws on malformed SSE data instead of silently dropping events", () => {
+    expect(() => parseSseEvents("data: {not-json}\n\n")).toThrow(/Malformed SSE event JSON/);
   });
 
   it("builds deterministic gakuchika follow-up answers from transcript context", () => {

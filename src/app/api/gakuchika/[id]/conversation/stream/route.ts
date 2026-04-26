@@ -19,9 +19,11 @@ import { getViewerPlan } from "@/lib/server/loader-helpers";
 import { getRequestId, logAiCreditCostSummary, splitInternalTelemetry, type InternalCostTelemetry } from "@/lib/ai/cost-summary-log";
 import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
-import { fetchUpstreamSSE } from "@/lib/fastapi/stream-transport";
-import { createSSEProxyStream } from "@/lib/fastapi/sse-proxy";
-import { SSE_RESPONSE_HEADERS } from "@/lib/fastapi/stream-config";
+import { STREAM_FEATURE_CONFIGS } from "@/lib/fastapi/stream-config";
+import {
+  createConfiguredSSEProxyResponse,
+  fetchConfiguredUpstreamSSE,
+} from "@/lib/fastapi/stream-pipeline";
 import { createGakuchikaStreamStateMachine } from "@/lib/gakuchika/stream-state-machine";
 
 const jsonErr = (msg: string, status: number) =>
@@ -96,10 +98,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const principalPlan = await getViewerPlan(identity);
-    let upstream: Awaited<ReturnType<typeof fetchUpstreamSSE>>;
+    const streamConfig = STREAM_FEATURE_CONFIGS.gakuchika;
+    let upstream: Awaited<ReturnType<typeof fetchConfiguredUpstreamSSE>>;
     try {
-      upstream = await fetchUpstreamSSE({
-        path: "/api/gakuchika/next-question/stream", requestId,
+      upstream = await fetchConfiguredUpstreamSSE({
+        config: streamConfig,
+        requestId,
         principal: { scope: "ai-stream", actor: userId ? { kind: "user", id: userId } : { kind: "guest", id: guestId! }, companyId: null, plan: principalPlan },
         payload: {
           gakuchika_title: gakuchika.title, gakuchika_content: gakuchika.content || null,
@@ -132,8 +136,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       logAiCreditCostSummary({ feature: "gakuchika", requestId, status: st, creditsUsed: cr, telemetry: latestTelemetry });
     };
 
-    const stream = createSSEProxyStream(upstream.response, {
-      feature: "gakuchika", requestId,
+    return createConfiguredSSEProxyResponse({
+      config: streamConfig,
+      upstreamResponse: upstream.response,
+      clearUpstreamTimeout: upstream.clearTimeout,
+      requestId,
       onProgress: (ev) => {
         if (ev.type === "string_chunk" && ev.path === "question" && typeof ev.text === "string") streamedQ += ev.text;
         return sm.processEvent(ev);
@@ -168,10 +175,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         } } };
       },
       onError: async () => { logOnce("failed", 0); },
-      onFinally: async () => { upstream.clearTimeout(); if (!summaryLogged) logOnce("cancelled", 0); },
+      onFinally: async () => { if (!summaryLogged) logOnce("cancelled", 0); },
     });
-
-    return new Response(stream, { headers: SSE_RESPONSE_HEADERS });
   } catch (error) {
     console.error("Error in gakuchika stream:", error);
     return jsonErr("Internal server error", 500);

@@ -2,9 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import { appendOptimisticUserMessage, rollbackOptimisticMessageById } from "./optimistic-message";
 
+type TestMessage = {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+  isOptimistic?: boolean;
+};
+
 describe("optimistic message helpers", () => {
   it("appends an optimistic user message and returns its id", () => {
-    const result = appendOptimisticUserMessage(
+    const result = appendOptimisticUserMessage<TestMessage>(
       [{ id: "a", role: "assistant", content: "質問" }],
       "optimistic",
       (id) => ({ id, role: "user" as const, content: "回答です", isOptimistic: true }),

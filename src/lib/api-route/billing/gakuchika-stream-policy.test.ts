@@ -29,7 +29,7 @@ describe("gakuchikaStreamPolicy", () => {
   it("consumes credits only for billable success", async () => {
     const credits = await import("@/lib/credits");
     vi.mocked(credits.hasEnoughCredits).mockResolvedValue(true);
-    vi.mocked(credits.consumeCredits).mockResolvedValue({ success: true, remainingCredits: 9 });
+    vi.mocked(credits.consumeCredits).mockResolvedValue({ success: true, newBalance: 9 });
     const { gakuchikaStreamPolicy } = await import("./gakuchika-stream-policy");
 
     await gakuchikaStreamPolicy.confirm(

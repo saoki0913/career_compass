@@ -18,16 +18,17 @@ describe("es-review transport", () => {
 
     const seen: string[] = [];
     const result: ReviewResult = {
-      original_content: "before",
       rewrites: ["after"],
-      overall_comment: "ok",
       improvement_explanation: "理由を補強した",
       template_review: {
         template_type: "self_pr",
+        variants: [],
         keyword_sources: [
           {
             title: "source",
-            url: "https://example.com",
+            source_id: "source-1",
+            source_url: "https://example.com",
+            content_type: "corporate_site",
             excerpt: "evidence",
           },
         ],
@@ -43,7 +44,7 @@ describe("es-review transport", () => {
               'data: {"type":"progress","step":"analysis","progress":42}',
               'data: {"type":"string_chunk","path":"streaming_rewrite","text":"after"}',
               'data: {"type":"string_chunk","path":"improvement_explanation","text":"理由を"}',
-              'data: {"type":"complete","result":{"original_content":"before","rewrites":["after"],"overall_comment":"ok","improvement_explanation":"理由を補強した","template_review":{"template_type":"self_pr","keyword_sources":[{"title":"source","url":"https://example.com","excerpt":"evidence"}]}},"creditCost":7}',
+              'data: {"type":"complete","result":{"rewrites":["after"],"improvement_explanation":"理由を補強した","template_review":{"template_type":"self_pr","variants":[],"keyword_sources":[{"title":"source","source_id":"source-1","source_url":"https://example.com","content_type":"corporate_site","excerpt":"evidence"}]}},"creditCost":7}',
               "",
             ].join("\n\n"),
           ),

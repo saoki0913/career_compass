@@ -12,6 +12,7 @@ const {
   createInterviewUpstreamStreamMock,
   normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponseMock,
+  consumeCreditsMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
@@ -23,6 +24,7 @@ const {
   createInterviewUpstreamStreamMock: vi.fn(),
   normalizeInterviewPersistenceErrorMock: vi.fn(),
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
+  consumeCreditsMock: vi.fn(),
 }));
 
 vi.mock("@/app/api/_shared/request-identity", () => ({
@@ -54,7 +56,7 @@ vi.mock("@/lib/credits", () => ({
   CONVERSATION_CREDITS_PER_TURN: 1,
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
   hasEnoughCredits: vi.fn(async () => true),
-  consumeCredits: vi.fn(async () => undefined),
+  consumeCredits: consumeCreditsMock,
 }));
 
 describe("api/companies/[id]/interview/stream", () => {
@@ -69,6 +71,8 @@ describe("api/companies/[id]/interview/stream", () => {
     createInterviewUpstreamStreamMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
+    consumeCreditsMock.mockReset();
+    consumeCreditsMock.mockResolvedValue(undefined);
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
@@ -241,6 +245,51 @@ describe("api/companies/[id]/interview/stream", () => {
       companyId: "company-1",
       answer: "A2",
     });
+  });
+
+  it("consumes credits only after the streamed turn is persisted", async () => {
+    const { POST } = await import("./route");
+
+    await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/stream", {
+        method: "POST",
+        body: JSON.stringify({ answer: "A2" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    await onComplete({
+      question: "なぜ当社ですか。",
+      turn_state: { turnCount: 2, currentTopic: "志望動機", nextAction: "ask" },
+    });
+
+    expect(saveInterviewConversationProgressMock.mock.invocationCallOrder[0]).toBeLessThan(
+      consumeCreditsMock.mock.invocationCallOrder[0],
+    );
+    expect(saveInterviewTurnEventMock.mock.invocationCallOrder[0]).toBeLessThan(
+      consumeCreditsMock.mock.invocationCallOrder[0],
+    );
+    expect(consumeCreditsMock).toHaveBeenCalledWith("user-1", 1, "interview", "company-1");
+  });
+
+  it("does not consume credits when streamed turn persistence fails", async () => {
+    const { POST } = await import("./route");
+    saveInterviewConversationProgressMock.mockRejectedValueOnce(new Error("db unavailable"));
+
+    await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/stream", {
+        method: "POST",
+        body: JSON.stringify({ answer: "A2" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    await expect(onComplete({ question: "なぜ当社ですか。" })).rejects.toThrow("db unavailable");
+    expect(consumeCreditsMock).not.toHaveBeenCalled();
   });
 
   it("returns 503 when interview persistence is unavailable", async () => {

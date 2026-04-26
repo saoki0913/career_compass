@@ -4,6 +4,7 @@ import {
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
+import { readSSEDataEvents } from "@/lib/fastapi/sse-proxy";
 import type { Identity } from "@/app/api/gakuchika/access";
 import { getViewerPlan } from "@/lib/server/loader-helpers";
 import {
@@ -26,37 +27,6 @@ export interface GakuchikaData {
 export const FASTAPI_GAKUCHIKA_STREAM_TIMEOUT_MS = 60_000;
 
 const FASTAPI_ERROR_MESSAGE = "AIサービスに接続できませんでした。しばらくしてからもう一度お試しください。";
-
-export async function* iterateGakuchikaFastApiSseEvents(
-  body: ReadableStream<Uint8Array>,
-): AsyncGenerator<{ event: Record<string, unknown>; telemetry: InternalCostTelemetry | null }> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const jsonStr = line.slice(6).trim();
-        if (!jsonStr) continue;
-        try {
-          const rawEvent = JSON.parse(jsonStr) as Record<string, unknown>;
-          const { payload, telemetry } = splitInternalTelemetry(rawEvent);
-          yield { event: payload as Record<string, unknown>, telemetry };
-        } catch {
-          continue;
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
 
 export type ConsumeGakuchikaNextQuestionSseResult =
   | {
@@ -109,7 +79,7 @@ export async function consumeGakuchikaNextQuestionSse(
   let latestTelemetry: InternalCostTelemetry | null = null;
   const partialState: Partial<ConversationState> = {};
 
-  for await (const { event, telemetry } of iterateGakuchikaFastApiSseEvents(body)) {
+  for await (const { event, telemetry } of readSSEDataEvents(body)) {
     latestTelemetry = telemetry ?? latestTelemetry;
     const type = event.type;
 

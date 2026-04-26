@@ -50,6 +50,85 @@ export interface SSEProxyOptions {
   onFinally?: (summary: { success: boolean }) => void | Promise<void>;
 }
 
+export interface SSEDataEvent {
+  event: Record<string, unknown>;
+  telemetry: InternalCostTelemetry | null;
+}
+
+type SSEBlockParseResult =
+  | { kind: "event"; event: Record<string, unknown>; telemetry: InternalCostTelemetry | null }
+  | { kind: "raw"; text: string }
+  | null;
+
+function parseSSEDataBlock(block: string): SSEBlockParseResult {
+  const trimmed = block.trim();
+  if (!trimmed) return null;
+
+  const lines = block.split(/\r?\n/);
+  const dataLines = lines.filter((line) => line.startsWith("data:"));
+  if (dataLines.length === 0) {
+    return { kind: "raw", text: `${block}\n\n` };
+  }
+
+  const jsonStr = dataLines
+    .map((line) => line.slice(5).trim())
+    .join("\n")
+    .trim();
+  if (!jsonStr) return null;
+
+  try {
+    const rawEvent = JSON.parse(jsonStr) as Record<string, unknown>;
+    const { payload, telemetry } = splitInternalTelemetry(rawEvent);
+    return {
+      kind: "event",
+      event: payload as Record<string, unknown>,
+      telemetry,
+    };
+  } catch {
+    return { kind: "raw", text: `${dataLines[0]}\n\n` };
+  }
+}
+
+export async function* readSSEDataEvents(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<SSEDataEvent> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split("\n\n");
+      buffer = blocks.pop() || "";
+
+      for (const block of blocks) {
+        const parsed = parseSSEDataBlock(block);
+        if (parsed?.kind === "event") {
+          yield { event: parsed.event, telemetry: parsed.telemetry };
+        }
+      }
+    }
+
+    buffer += decoder.decode();
+    if (buffer.trim()) {
+      const parsed = parseSSEDataBlock(buffer);
+      if (parsed?.kind === "event") {
+        yield { event: parsed.event, telemetry: parsed.telemetry };
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // releaseLock can throw if reader is already cancelled — ignore.
+    }
+  }
+}
+
 /**
  * Wrap a FastAPI SSE response and produce a ReadableStream that re-emits
  * sanitized events suitable for the browser.
@@ -135,42 +214,19 @@ export function createSSEProxyStream(
         );
       };
 
-      /**
-       * Process a single SSE event block (already split on `\n\n`).
-       * Returns `true` if the caller should stop reading (cancel).
-       */
       const processEventBlock = async (block: string): Promise<boolean> => {
-        const trimmed = block.trim();
-        if (!trimmed) return false;
-
-        // Find the data: line within the block. SSE event blocks may contain
-        // event:/id:/retry: lines too, but FastAPI here only emits `data: ...`.
-        const lines = block.split("\n");
-        const dataLine = lines.find((line) => line.startsWith("data:"));
-        if (!dataLine) {
-          // Not a data event — forward as-is to preserve any upstream framing.
-          forwardRaw(`${block}\n\n`);
+        const parsed = parseSSEDataBlock(block);
+        if (!parsed) return false;
+        if (parsed.kind === "raw") {
+          forwardRaw(parsed.text);
           return false;
         }
 
-        const jsonStr = dataLine.slice(5).trim();
-        if (!jsonStr) return false;
-
-        let rawEvent: Record<string, unknown>;
-        try {
-          rawEvent = JSON.parse(jsonStr) as Record<string, unknown>;
-        } catch {
-          // Unparseable — forward raw line.
-          forwardRaw(`${dataLine}\n\n`);
-          return false;
-        }
-
-        const { payload, telemetry } = splitInternalTelemetry(rawEvent);
+        const { event: sanitized, telemetry } = parsed;
         if (onCostTelemetry && telemetry) {
           onCostTelemetry(telemetry);
         }
 
-        const sanitized = payload as Record<string, unknown>;
         const eventType = sanitized.type;
 
         if (eventType === "complete") {
