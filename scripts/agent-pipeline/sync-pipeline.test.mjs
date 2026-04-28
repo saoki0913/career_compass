@@ -19,7 +19,7 @@ const EXPECTED_HARNESS_INVENTORY = {
   agents: 13,
   opusAgents: 11,
   sonnetAgents: 2,
-  claudeSkills: 41,
+  claudeSkills: 42,
   canonicalSkills: 19,
 };
 
