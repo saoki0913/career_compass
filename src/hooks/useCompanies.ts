@@ -37,6 +37,10 @@ export interface Company {
   infoFetchedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  // Estimated logo candidates for companies without reliable stored URL
+  estimatedLogoDomains?: string[];
+  // Estimated favicon for fallback display
+  estimatedFaviconUrl?: string | null;
   // Aggregate fields
   nearestDeadline: NearestDeadline | null;
   applicationCount: number;

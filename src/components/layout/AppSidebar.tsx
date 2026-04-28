@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -21,6 +21,18 @@ export const SIDEBAR_WIDTH_EXPANDED = 256;
 export const SIDEBAR_WIDTH_COLLAPSED = 48;
 
 const LG_BREAKPOINT = 1024;
+
+function subscribeHydration() {
+  return () => {};
+}
+
+function getClientHydrationSnapshot() {
+  return true;
+}
+
+function getServerHydrationSnapshot() {
+  return false;
+}
 
 // ---------------------------------------------------------------------------
 // Icons
@@ -65,6 +77,14 @@ function FileTextIcon() {
   return (
     <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+    </svg>
+  );
+}
+
+function HeartIcon() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20.8 4.6a5.5 5.5 0 00-7.8 0L12 5.6l-1-1a5.5 5.5 0 00-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 000-7.8z" />
     </svg>
   );
 }
@@ -135,21 +155,23 @@ function CloseIcon() {
 
 interface NavItem {
   label: string;
-  href?: string;
   icon: React.ComponentType;
-  isModal?: boolean;
+  action:
+    | { type: "link"; href: string }
+    | { type: "modal"; modal: "interview" | "motivation" };
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "ホーム", href: "/dashboard", icon: HomeIcon },
-  { label: "企業管理", href: "/companies", icon: BuildingIcon },
-  { label: "ES添削", href: "/es", icon: FileTextIcon },
-  { label: "ガクチカ", href: "/gakuchika", icon: BookOpenIcon },
-  { label: "面接対策", icon: MicIcon, isModal: true },
-  { label: "カレンダー", href: "/calendar", icon: CalendarIcon },
-  { label: "締切管理", href: "/deadlines", icon: ClockIcon },
-  { label: "タスク", href: "/tasks", icon: CheckSquareIcon },
-  { label: "設定", href: "/settings", icon: CogIcon },
+  { label: "ホーム", action: { type: "link", href: "/dashboard" }, icon: HomeIcon },
+  { label: "企業管理", action: { type: "link", href: "/companies" }, icon: BuildingIcon },
+  { label: "ES添削", action: { type: "link", href: "/es" }, icon: FileTextIcon },
+  { label: "志望動機作成", action: { type: "modal", modal: "motivation" }, icon: HeartIcon },
+  { label: "ガクチカ", action: { type: "link", href: "/gakuchika" }, icon: BookOpenIcon },
+  { label: "面接対策", action: { type: "modal", modal: "interview" }, icon: MicIcon },
+  { label: "カレンダー", action: { type: "link", href: "/calendar" }, icon: CalendarIcon },
+  { label: "締切管理", action: { type: "link", href: "/deadlines" }, icon: ClockIcon },
+  { label: "タスク", action: { type: "link", href: "/tasks" }, icon: CheckSquareIcon },
+  { label: "設定", action: { type: "link", href: "/settings" }, icon: CogIcon },
 ];
 
 // ---------------------------------------------------------------------------
@@ -161,10 +183,14 @@ export function AppSidebar() {
   const { isOpen, isCollapsed, setOpen, collapse, expand } = useSidebar();
   const collapsed = isCollapsed;
 
-  const [hydrated, setHydrated] = useState(false);
+  const hydrated = useSyncExternalStore(
+    subscribeHydration,
+    getClientHydrationSnapshot,
+    getServerHydrationSnapshot
+  );
   const [showInterviewModal, setShowInterviewModal] = useState(false);
+  const [showMotivationModal, setShowMotivationModal] = useState(false);
 
-  useEffect(() => { setHydrated(true); }, []);
   useEffect(() => { setOpen(false); }, [pathname, setOpen]);
 
   useEffect(() => {
@@ -193,9 +219,18 @@ export function AppSidebar() {
   }, [isOpen, setOpen]);
 
   function isActive(item: NavItem): boolean {
-    if (item.isModal || !item.href) return false;
-    if (item.href === "/dashboard") return pathname === "/dashboard";
-    return pathname === item.href || pathname.startsWith(item.href + "/");
+    if (item.action.type !== "link") return false;
+    if (item.action.href === "/dashboard") return pathname === "/dashboard";
+    return pathname === item.action.href || pathname.startsWith(item.action.href + "/");
+  }
+
+  function handleModalAction(modal: "interview" | "motivation") {
+    setOpen(false);
+    if (modal === "interview") {
+      setShowInterviewModal(true);
+      return;
+    }
+    setShowMotivationModal(true);
   }
 
   function renderSidebarContent(isMobile: boolean) {
@@ -244,7 +279,7 @@ export function AppSidebar() {
 
         {/* Search */}
         <div className={cn("shrink-0 px-2 pt-2", isCol && "px-1")}>
-          <SidebarSearch collapsed={isCol} />
+          <SidebarSearch collapsed={isCol} onNavigate={() => setOpen(false)} />
         </div>
 
         {/* Navigation */}
@@ -253,7 +288,6 @@ export function AppSidebar() {
             {NAV_ITEMS.map((item) => {
               const active = isActive(item);
               const Icon = item.icon;
-              const isLink = !item.isModal && item.href;
 
               const content = (
                 <>
@@ -285,25 +319,30 @@ export function AppSidebar() {
                 </span>
               );
 
-              return (
-                <li key={item.label} className="relative">
-                  {isLink ? (
-                    <Link href={item.href!} className={itemClassName} aria-current={active ? "page" : undefined}>
+              if (item.action.type === "link") {
+                return (
+                  <li key={item.label} className="relative">
+                    <Link href={item.action.href} className={itemClassName} aria-current={active ? "page" : undefined}>
                       {activeIndicator}
                       {content}
                       {tooltip}
                     </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setShowInterviewModal(true)}
-                      className={cn(itemClassName, "w-full cursor-pointer")}
-                    >
-                      {activeIndicator}
-                      {content}
-                      {tooltip}
-                    </button>
-                  )}
+                  </li>
+                );
+              }
+
+              const modal = item.action.modal;
+              return (
+                <li key={item.label} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => handleModalAction(modal)}
+                    className={cn(itemClassName, "w-full cursor-pointer")}
+                  >
+                    {activeIndicator}
+                    {content}
+                    {tooltip}
+                  </button>
                 </li>
               );
             })}
@@ -362,6 +401,11 @@ export function AppSidebar() {
         open={showInterviewModal}
         onOpenChange={setShowInterviewModal}
         mode="interview"
+      />
+      <CompanySelectModal
+        open={showMotivationModal}
+        onOpenChange={setShowMotivationModal}
+        mode="motivation"
       />
     </>
   );

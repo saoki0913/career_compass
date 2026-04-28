@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useGoogleCalendar } from "@/hooks/useCalendar";
 import type { CalendarEvent } from "@/hooks/useCalendar";
 
 export interface ScheduleDeadline {
@@ -23,6 +22,12 @@ export interface WeeklyScheduleViewProps {
   deadlines: ScheduleDeadline[];
   calendarEvents?: CalendarEvent[];
   isGuest?: boolean;
+  isConnected?: boolean;
+  weekDays: Date[];
+  weekOffset: number;
+  onPrevWeek: () => void;
+  onNextWeek: () => void;
+  onToday: () => void;
 }
 
 const typeColors: Record<string, { bg: string; text: string; dot: string }> = {
@@ -57,14 +62,13 @@ const typeLabels: Record<string, string> = {
 };
 
 const DAY_NAMES = ["月", "火", "水", "木", "金", "土", "日"] as const;
-const TIME_SLOTS_FULL = ["09", "11", "13", "15", "17"] as const;
-const TIME_SLOTS_COMPACT = ["09", "11", "13"] as const;
+const TIME_SLOTS = ["09", "10", "11", "12", "13", "14", "15", "16", "17"] as const;
 
 function toJSTDateKey(date: Date): string {
   return date.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 }
 
-export function getWeekDays(): Date[] {
+export function getWeekDays(weekOffset: number = 0): Date[] {
   const now = new Date();
   const jstParts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Tokyo",
@@ -80,7 +84,7 @@ export function getWeekDays(): Date[] {
   const dayOfWeek = today.getDay();
   const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
   const monday = new Date(today);
-  monday.setDate(today.getDate() + mondayOffset);
+  monday.setDate(today.getDate() + mondayOffset + weekOffset * 7);
 
   return Array.from({ length: 7 }, (_, i) => {
     const day = new Date(monday);
@@ -100,19 +104,27 @@ function getJSTHour(isoDatetime: string): number {
 }
 
 function getNearestSlot(hour: number): string {
-  for (let i = TIME_SLOTS_FULL.length - 1; i >= 0; i--) {
-    if (hour >= parseInt(TIME_SLOTS_FULL[i], 10)) return TIME_SLOTS_FULL[i];
+  for (let i = TIME_SLOTS.length - 1; i >= 0; i--) {
+    if (hour >= parseInt(TIME_SLOTS[i], 10)) return TIME_SLOTS[i];
   }
-  return TIME_SLOTS_FULL[0];
+  return TIME_SLOTS[0];
 }
 
 function getColorForType(type: string) {
   return typeColors[type] ?? typeColors.other;
 }
 
-const CalendarIcon = ({ className }: { className?: string }) => (
-  <svg className={cn("h-5 w-5", className)} fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+const GoogleCalendarIcon = ({ className }: { className?: string }) => (
+  <svg className={cn("h-5 w-5", className)} viewBox="0 0 200 200" aria-hidden="true">
+    <path d="M152.637 43.363H47.363v109.274h105.274z" fill="#fff" />
+    <path d="M152.637 200L200 152.637h-47.363z" fill="#1a73e8" />
+    <path d="M200 47.363h-47.363v105.274H200z" fill="#4285f4" />
+    <path d="M152.637 152.637H47.363V200h105.274z" fill="#34a853" />
+    <path d="M0 152.637v31.576A15.79 15.79 0 0015.787 200H47.363v-47.363z" fill="#188038" />
+    <path d="M200 47.363V15.787A15.79 15.79 0 00184.213 0H152.637v47.363z" fill="#1967d2" />
+    <path d="M152.637 0H15.787A15.79 15.79 0 000 15.787V152.637h47.363V47.363h105.274z" fill="#fbbc04" />
+    <path d="M76.17 132.34a27.3 27.3 0 01-10.6-7.86l8.37-6.89a18.07 18.07 0 006.45 5.65 17.1 17.1 0 008.22 2.14 14.49 14.49 0 009.91-3.47 11.08 11.08 0 003.99-8.53 11.49 11.49 0 00-4.2-9.07 16.35 16.35 0 00-10.72-3.55h-6.51v-10.2h5.84a14.17 14.17 0 009.38-3.26 10.36 10.36 0 003.78-8.16 9.67 9.67 0 00-3.47-7.65 12.92 12.92 0 00-8.79-3.05c-3.38 0-6.22.83-8.54 2.51a18.38 18.38 0 00-5.1 5.1l-8.37-6.89a28.14 28.14 0 019.07-8.53 26.67 26.67 0 0113.9-3.57 26.83 26.83 0 0111.66 2.51 20.64 20.64 0 018.22 7.1 18.14 18.14 0 013.05 10.37c0 4.1-1.2 7.72-3.62 10.87a19.3 19.3 0 01-8.9 6.82v.57a21.2 21.2 0 0110.56 7.36 19.27 19.27 0 014.1 12.34 21.15 21.15 0 01-3.36 11.76 22.58 22.58 0 01-9.38 8.1 30.38 30.38 0 01-13.84 2.96 30.22 30.22 0 01-13.89-3.37z" fill="#4285f4" />
+    <path d="M128.23 57.84l10.07-7.56 12.6-2.45-5.65 10.24V131.9h-11.49V68.77l-5.53 4.17z" fill="#4285f4" />
   </svg>
 );
 
@@ -122,9 +134,19 @@ interface SlotEvent {
   type: string;
 }
 
-export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = false }: WeeklyScheduleViewProps) {
-  const { isConnected } = useGoogleCalendar();
-  const weekDays = useMemo(() => getWeekDays(), []);
+const ChevronLeftIcon = () => (
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+  </svg>
+);
+
+const ChevronRightNavIcon = () => (
+  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+  </svg>
+);
+
+export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = false, isConnected = false, weekDays, weekOffset, onPrevWeek, onNextWeek, onToday }: WeeklyScheduleViewProps) {
   const todayKey = useMemo(() => toJSTDateKey(new Date()), []);
 
   const deadlinesByDate = useMemo(() => {
@@ -163,10 +185,10 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
   );
 
   return (
-    <Card className="border-border/50 py-1.5 gap-1.5">
-      <CardHeader className="flex flex-row items-center justify-between">
+    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1.5">
+      <CardHeader className="flex shrink-0 flex-col gap-2 px-4 sm:flex-row sm:items-center sm:justify-between lg:px-5">
         <div className="flex items-center gap-2">
-          <CalendarIcon className="text-muted-foreground" />
+          <GoogleCalendarIcon />
           <CardTitle className="text-lg">スケジュール・選考管理</CardTitle>
           {!isGuest && (
             isConnected ? (
@@ -181,16 +203,32 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
             )
           )}
         </div>
-        <CardAction>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/calendar">カレンダー</Link>
-          </Button>
+        <CardAction className="w-full self-auto justify-self-auto sm:w-auto">
+          <div className="flex items-center gap-1 sm:justify-end">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrevWeek}>
+              <ChevronLeftIcon />
+            </Button>
+            <Button
+              variant={weekOffset === 0 ? "default" : "outline"}
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={onToday}
+            >
+              今日
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNextWeek}>
+              <ChevronRightNavIcon />
+            </Button>
+            <Button variant="outline" size="sm" className="hidden h-7 sm:inline-flex" asChild>
+              <Link href="/calendar">カレンダー</Link>
+            </Button>
+          </div>
         </CardAction>
       </CardHeader>
 
-      <CardContent>
-        <div className="overflow-x-auto" role="grid" aria-label="週間スケジュール">
-          <div className="grid min-w-[480px] grid-cols-[2.5rem_repeat(7,1fr)]">
+      <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
+        <div className="h-full overflow-x-auto lg:overflow-hidden" role="grid" aria-label="週間スケジュール">
+          <div className="grid h-full min-w-[480px] grid-cols-[2.5rem_repeat(7,minmax(0,1fr))] grid-rows-[auto_repeat(10,minmax(0,1fr))] lg:min-w-0">
             {/* Day headers */}
             <div />
             {weekDays.map((date, i) => {
@@ -227,7 +265,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
             <div className="flex items-center justify-center border-t border-border/30 py-1">
               <span className="text-[9px] font-medium text-muted-foreground">終日</span>
             </div>
-            {weekDays.map((date, i) => {
+            {weekDays.map((date) => {
               const key = toJSTDateKey(date);
               const isToday = key === todayKey;
               const dayDeadlines = deadlinesByDate.get(key) ?? [];
@@ -235,7 +273,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
                 <div
                   key={`allday-${key}`}
                   className={cn(
-                    "flex min-h-[24px] flex-wrap items-start gap-0.5 border-t border-border/30 px-0.5 py-0.5",
+                    "flex min-h-0 flex-wrap items-start gap-0.5 overflow-hidden border-t border-border/30 px-0.5 py-0.5",
                     isToday && "bg-blue-50/30",
                   )}
                 >
@@ -267,12 +305,12 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
             })}
 
             {/* Time slot rows */}
-            {(hasContent ? TIME_SLOTS_FULL : TIME_SLOTS_COMPACT).map((slot) => (
+            {TIME_SLOTS.map((slot) => (
               <Fragment key={slot}>
                 <div className="flex items-start justify-center border-t border-border/20 pt-1">
                   <span className="text-[9px] font-medium text-muted-foreground">{slot}</span>
                 </div>
-                {weekDays.map((date, i) => {
+                {weekDays.map((date) => {
                   const dateKey = toJSTDateKey(date);
                   const isToday = dateKey === todayKey;
                   const cellKey = `${dateKey}_${slot}`;
@@ -281,7 +319,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
                     <div
                       key={`slot-${cellKey}`}
                       className={cn(
-                        "min-h-[24px] border-t border-border/20 px-0.5 py-0.5",
+                        "min-h-0 overflow-hidden border-t border-border/20 px-0.5 py-0.5",
                         isToday && "bg-blue-50/30",
                       )}
                     >

@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { SearchResponse } from "@/lib/search/utils";
+import { sanitizeSearchInput, type SearchResponse } from "@/lib/search/utils";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 
@@ -26,6 +26,8 @@ export interface UseSearchOptions {
   debounceMs?: number;
   /** Auto-search when query changes */
   autoSearch?: boolean;
+  /** Minimum sanitized query length before a search is issued */
+  minQueryLength?: number;
   /** Initial query shown in the input */
   initialQuery?: string;
   /** Initial results rendered before any client-side request */
@@ -57,6 +59,7 @@ export function useSearch(options: UseSearchOptions = {}): UseSearchResult {
     limit = 5,
     debounceMs = DEBOUNCE_MS,
     autoSearch = true,
+    minQueryLength = 1,
     initialQuery = "",
     initialResults = null,
     initialLoading = false,
@@ -90,10 +93,13 @@ export function useSearch(options: UseSearchOptions = {}): UseSearchResult {
         abortControllerRef.current.abort();
       }
 
+      const sanitizedQuery = sanitizeSearchInput(searchQuery);
+
       // Don't search for empty or very short queries
-      if (!searchQuery || searchQuery.trim().length < 1) {
+      if (!sanitizedQuery || sanitizedQuery.length < minQueryLength) {
         setResults(null);
         setError(null);
+        setIsLoading(false);
         return;
       }
 
@@ -106,7 +112,7 @@ export function useSearch(options: UseSearchOptions = {}): UseSearchResult {
 
       try {
         const params = new URLSearchParams({
-          q: searchQuery.trim(),
+          q: sanitizedQuery,
           types,
           limit: limit.toString(),
         });
@@ -158,12 +164,12 @@ export function useSearch(options: UseSearchOptions = {}): UseSearchResult {
         }
       }
     },
-    [types, limit]
+    [types, limit, minQueryLength]
   );
 
   // Auto-search when debounced query changes
   useEffect(() => {
-    if (autoSearch && debouncedQuery) {
+    if (autoSearch) {
       executeSearch(debouncedQuery);
     }
   }, [debouncedQuery, executeSearch, autoSearch]);

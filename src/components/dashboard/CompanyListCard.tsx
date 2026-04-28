@@ -5,26 +5,28 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/dashboard/EmptyState";
-import { getCompanyFaviconUrl, getCompanyAvatarColor, groupCompaniesByPipeline } from "@/lib/dashboard-utils";
+import { getCompanyLogoSources, getCompanyAvatarColor, groupCompaniesByPipeline } from "@/lib/dashboard-utils";
 import { getStatusConfig, type CompanyStatus } from "@/lib/constants/status";
 import type { Company } from "@/hooks/useCompanies";
 import { cn } from "@/lib/utils";
 
-function CompanyFavicon({ url, name }: { url: string | null; name: string }) {
-  const [hasError, setHasError] = useState(false);
+function CompanyFavicon({ urls, name }: { urls: ReturnType<typeof getCompanyLogoSources>; name: string }) {
+  const [sourceIndex, setSourceIndex] = useState(0);
   const avatarColor = getCompanyAvatarColor(name);
+  const sources = urls ? [urls.primary, ...urls.fallbacks] : [];
+  const src = sources[sourceIndex];
 
-  if (!url || hasError) {
+  if (!src) {
     return (
-      <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold", avatarColor)}>
+      <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[10px] font-bold", avatarColor)}>
         {name.charAt(0)}
       </span>
     );
   }
 
   return (
-    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-muted">
-      <img src={url} alt="" width={20} height={20} className="h-5 w-5 rounded-sm" loading="lazy" onError={() => setHasError(true)} />
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white shadow-sm ring-1 ring-border/50">
+      <img src={src} alt="" width={24} height={24} className="h-5 w-5 rounded-sm object-contain" loading="lazy" referrerPolicy="strict-origin-when-cross-origin" onError={() => setSourceIndex((i) => i + 1)} />
     </span>
   );
 }
@@ -56,8 +58,8 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
   const pipeline = useMemo(() => groupCompaniesByPipeline(companies), [companies]);
 
   return (
-    <Card className="border-border/50 py-2 gap-1.5">
-      <CardHeader className="flex flex-row items-center justify-between">
+    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1">
+      <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
         <CardTitle className="text-lg">選考の企業管理</CardTitle>
         <CardAction>
           <Button variant="outline" size="sm" asChild>
@@ -65,7 +67,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
         {pipeline.totalActive === 0 ? (
           <EmptyState
             icon={<CompanyEmptyIcon />}
@@ -75,13 +77,13 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
             className="py-2"
           />
         ) : (
-          <div className="overflow-x-auto">
-            <div className="grid min-w-[600px] grid-cols-5 gap-2">
+          <div className="h-full overflow-x-auto lg:overflow-hidden">
+            <div className="grid h-full min-w-[600px] grid-cols-5 gap-2 lg:min-w-0">
               {pipeline.columns.map((col) => (
-                <div key={col.key}>
+                <div key={col.key} className="flex min-h-0 flex-col">
                   <div
                     className={cn(
-                      "flex items-center justify-between rounded-lg px-2 py-1.5",
+                      "flex items-center justify-between rounded-lg px-2 py-1",
                       COLUMN_HEADER_COLORS[col.color] ?? COLUMN_HEADER_COLORS.slate,
                     )}
                   >
@@ -90,17 +92,22 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
                       {col.companies.length}
                     </span>
                   </div>
-                  <div className="mt-1 space-y-1">
+                  <div className="mt-1 min-h-0 flex-1 space-y-0.5 overflow-hidden">
                     {col.companies.slice(0, 3).map((company) => {
-                      const faviconUrl = getCompanyFaviconUrl(company.corporateUrl);
+                      const faviconUrls = getCompanyLogoSources(
+                        company.corporateUrl,
+                        company.estimatedFaviconUrl,
+                        company.name,
+                        company.estimatedLogoDomains,
+                      );
                       const status = getStatusConfig(company.status as CompanyStatus);
                       return (
                         <Link
                           key={company.id}
                           href={`/companies/${company.id}`}
-                          className="group flex items-center gap-1.5 rounded-md border border-border/40 bg-card p-1.5 transition-colors hover:border-primary/30 hover:bg-muted/30"
+                          className="group flex min-h-[42px] items-center gap-1.5 rounded-lg border border-border/40 bg-card px-1.5 py-1 transition-colors hover:border-primary/30 hover:bg-muted/30"
                         >
-                          <CompanyFavicon url={faviconUrl} name={company.name} />
+                          <CompanyFavicon urls={faviconUrls} name={company.name} />
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-medium">{company.name}</p>
                             <span

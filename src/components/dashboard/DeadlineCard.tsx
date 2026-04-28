@@ -33,14 +33,15 @@ const EmptyIcon = () => (
 
 interface DeadlineCardProps {
   deadlines: Deadline[];
+  maxVisible?: number;
 }
 
-export function DeadlineCard({ deadlines }: DeadlineCardProps) {
-  const visible = deadlines.slice(0, 3);
+export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
+  const visible = deadlines.slice(0, maxVisible);
 
   return (
-    <Card className="border-border/50 py-2 gap-1.5">
-      <CardHeader className="flex flex-row items-center justify-between">
+    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1">
+      <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
         <CardTitle className="text-lg">締切</CardTitle>
         <CardAction>
           <Button variant="outline" size="sm" asChild>
@@ -48,14 +49,14 @@ export function DeadlineCard({ deadlines }: DeadlineCardProps) {
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
         {visible.length === 0 ? (
           <div className="flex flex-col items-center gap-1.5 py-2 text-center">
             <EmptyIcon />
             <p className="text-sm text-muted-foreground">今週の締切はありません</p>
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-1 overflow-hidden">
             {visible.map((dl) => {
               const due = new Date(dl.dueDate);
               const color = getDaysLeftColor(dl.daysLeft);
@@ -63,9 +64,9 @@ export function DeadlineCard({ deadlines }: DeadlineCardProps) {
                 <Link
                   key={dl.id}
                   href={`/companies/${dl.companyId}`}
-                  className="group flex items-center gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-muted/40"
+                  className="group flex items-center gap-2 rounded-lg px-2 py-0.5 transition-colors hover:bg-muted/40"
                 >
-                  <span className="flex h-7 w-7 shrink-0 flex-col items-center justify-center rounded-md bg-muted text-[10px] font-medium leading-none">
+                  <span className="flex h-6 w-6 shrink-0 flex-col items-center justify-center rounded-md bg-muted text-[10px] font-medium leading-none">
                     <span>{due.getMonth() + 1}/{due.getDate()}</span>
                   </span>
                   <div className="min-w-0 flex-1">

@@ -79,24 +79,27 @@ interface TodayTasksCardProps {
     markComplete: () => Promise<boolean>;
   };
   openTasks: Task[];
+  maxOpenTasks?: number;
 }
 
-export function TodayTasksCard({ todayTask, openTasks }: TodayTasksCardProps) {
+export function TodayTasksCard({ todayTask, openTasks, maxOpenTasks = 2 }: TodayTasksCardProps) {
   const hasTodayTask = !!todayTask.task;
   const hasOpenTasks = openTasks.length > 0;
   const showSeparator = hasTodayTask && hasOpenTasks;
+  const visibleOpenTasks = openTasks.slice(0, maxOpenTasks);
+  const hiddenOpenTaskCount = Math.max(0, openTasks.length - visibleOpenTasks.length);
 
   return (
-    <Card className="border-border/50 py-1.5 gap-1.5">
-      <CardHeader className="flex flex-row items-center justify-between">
+    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1.5">
+      <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
         <CardTitle className="text-lg">今日のタスク</CardTitle>
         <Button variant="outline" size="sm" asChild>
           <Link href="/tasks">すべて見る</Link>
         </Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
         {hasTodayTask && todayTask.task ? (
-          <div className="rounded-lg border border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 p-3">
+          <div className="rounded-lg border border-primary/20 bg-gradient-to-br from-primary/5 via-transparent to-accent/5 p-2">
             <div className="flex items-start gap-2.5">
               <button
                 type="button"
@@ -145,11 +148,11 @@ export function TodayTasksCard({ todayTask, openTasks }: TodayTasksCardProps) {
           </div>
         ) : null}
 
-        {showSeparator && <div className="h-px bg-border/50 my-3" />}
+        {showSeparator && <div className="h-px bg-border/50 my-1.5" />}
 
         {hasOpenTasks ? (
-          <div className="space-y-1">
-            {openTasks.slice(0, 2).map((task) => {
+          <div className="space-y-1 overflow-hidden">
+            {visibleOpenTasks.map((task) => {
               const badge = taskTypeBadgeStyles[task.type];
               const daysLeft = getOpenTaskDueDaysLeft(task);
               const contextLabel = task.company?.name ?? task.application?.name ?? null;
@@ -157,9 +160,9 @@ export function TodayTasksCard({ todayTask, openTasks }: TodayTasksCardProps) {
                 <Link
                   key={task.id}
                   href="/tasks"
-                  className="group flex items-center gap-3 rounded-lg border border-transparent p-2.5 transition-all hover:border-border hover:bg-muted/30"
+                  className="group flex items-center gap-3 rounded-lg border border-transparent p-2 transition-all hover:border-border hover:bg-muted/30"
                 >
-                  <div className={cn("h-8 w-1 shrink-0 rounded-full", taskTypeBarColors[task.type])} />
+                  <div className={cn("h-6 w-1 shrink-0 rounded-full", taskTypeBarColors[task.type])} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <p className="truncate text-sm font-medium">{task.title}</p>
@@ -194,12 +197,12 @@ export function TodayTasksCard({ todayTask, openTasks }: TodayTasksCardProps) {
                 </Link>
               );
             })}
-            {openTasks.length > 2 && (
+            {hiddenOpenTaskCount > 0 && (
               <Link
                 href="/tasks"
                 className="flex items-center justify-center gap-1 pt-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
-                <span>+{openTasks.length - 2}件</span>
+                <span>+{hiddenOpenTaskCount}件</span>
                 <ChevronRightIcon className="w-3 h-3" />
               </Link>
             )}

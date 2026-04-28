@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 import { SearchResults } from "@/components/search";
 import { Input } from "@/components/ui/input";
 import { useSearch } from "@/hooks/useSearch";
-import type { SearchResponse } from "@/lib/search/utils";
+import { sanitizeSearchInput, type SearchResponse } from "@/lib/search/utils";
 
 type SearchPageClientProps = {
   initialQuery: string;
@@ -16,7 +17,10 @@ export function SearchPageClient({
   initialQuery,
   initialResults,
 }: SearchPageClientProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const initialSearchTriggeredRef = useRef(false);
+  const syncedUrlQueryRef = useRef(initialQuery);
   const { query, setQuery, results, isLoading, error, search, clear } = useSearch({
     limit: 10,
     autoSearch: false,
@@ -24,6 +28,21 @@ export function SearchPageClient({
     initialResults,
     initialLoading: Boolean(initialQuery && !initialResults),
   });
+
+  useEffect(() => {
+    const urlQuery = sanitizeSearchInput(searchParams.get("q") || "");
+    if (urlQuery === syncedUrlQueryRef.current) {
+      return;
+    }
+
+    syncedUrlQueryRef.current = urlQuery;
+    setQuery(urlQuery);
+    if (urlQuery) {
+      void search(urlQuery);
+    } else {
+      clear();
+    }
+  }, [clear, search, searchParams, setQuery]);
 
   useEffect(() => {
     if (initialSearchTriggeredRef.current || !initialQuery || initialResults) {
@@ -39,17 +58,19 @@ export function SearchPageClient({
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
 
-    void search(trimmedQuery);
-    const url = new URL(window.location.href);
-    url.searchParams.set("q", trimmedQuery);
-    window.history.pushState({}, "", url.toString());
+    const sanitizedQuery = sanitizeSearchInput(trimmedQuery);
+    if (!sanitizedQuery) return;
+
+    syncedUrlQueryRef.current = sanitizedQuery;
+    setQuery(sanitizedQuery);
+    void search(sanitizedQuery);
+    router.push(`/search?q=${encodeURIComponent(sanitizedQuery)}`);
   };
 
   const handleClear = () => {
+    syncedUrlQueryRef.current = "";
     clear();
-    const url = new URL(window.location.href);
-    url.searchParams.delete("q");
-    window.history.pushState({}, "", url.toString());
+    router.push("/search");
   };
 
   return (

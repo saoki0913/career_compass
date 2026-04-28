@@ -5,15 +5,18 @@ import { getInitialSearchResults } from "@/lib/server/search-loader";
 import { sanitizeSearchInput } from "@/lib/search/utils";
 
 type SearchPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     q?: string | string[];
-  };
+  }>;
 };
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const requestHeaders = await headers();
   const identity = await getHeadersIdentity(requestHeaders);
-  const rawQuery = Array.isArray(searchParams?.q) ? searchParams?.q[0] : searchParams?.q;
+  const resolvedSearchParams = await searchParams;
+  const rawQuery = Array.isArray(resolvedSearchParams?.q)
+    ? resolvedSearchParams?.q[0]
+    : resolvedSearchParams?.q;
   const initialQuery = sanitizeSearchInput(rawQuery || "");
   const initialResults = await getInitialSearchResults(identity, initialQuery, {
     types: "all",

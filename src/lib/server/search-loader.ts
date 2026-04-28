@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import type { RequestIdentity } from "@/app/api/_shared/request-identity";
 import { db } from "@/lib/db";
 import { companies, deadlines, documents } from "@/lib/db/schema";
@@ -15,6 +15,8 @@ import {
 } from "@/lib/search/utils";
 
 const ALLOWED_SEARCH_TYPES = new Set(["companies", "documents", "deadlines"]);
+const DEFAULT_SEARCH_LIMIT = 5;
+const MAX_SEARCH_LIMIT = 20;
 
 type SearchQueryInput = {
   q: string;
@@ -34,6 +36,15 @@ function buildDocumentOwnerCondition(identity: RequestIdentity) {
     : eq(documents.guestId, identity.guestId!);
 }
 
+function clampSearchLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit)) return DEFAULT_SEARCH_LIMIT;
+  return Math.min(MAX_SEARCH_LIMIT, Math.max(1, Math.trunc(limit ?? DEFAULT_SEARCH_LIMIT)));
+}
+
+function likeEscaped(column: SQLWrapper, pattern: string): SQL {
+  return sql`${column} LIKE ${pattern} ESCAPE '\\'`;
+}
+
 function getSearchTypes(typesParam?: string) {
   if (!typesParam || typesParam === "all") {
     return ["companies", "documents", "deadlines"];
@@ -50,7 +61,7 @@ export async function performSearch(
   input: SearchQueryInput
 ): Promise<SearchResponse> {
   const query = sanitizeSearchInput(input.q);
-  const limit = input.limit ?? 5;
+  const limit = clampSearchLimit(input.limit);
   const searchTypes = getSearchTypes(input.types);
   const escapedPattern = buildSafeLikePattern(query);
 
@@ -63,9 +74,9 @@ export async function performSearch(
             and(
               buildOwnerCondition(identity),
               or(
-                like(companies.name, escapedPattern),
-                like(companies.industry, escapedPattern),
-                like(companies.notes, escapedPattern)
+                likeEscaped(companies.name, escapedPattern),
+                likeEscaped(companies.industry, escapedPattern),
+                likeEscaped(companies.notes, escapedPattern)
               )
             )
           )
@@ -78,7 +89,7 @@ export async function performSearch(
             id: documents.id,
             title: documents.title,
             contentForSnippet: sql<string | null>`CASE
-              WHEN ${documents.title} LIKE ${escapedPattern} THEN NULL
+              WHEN ${documents.title} LIKE ${escapedPattern} ESCAPE '\\' THEN NULL
               ELSE ${documents.content}
             END`,
             type: documents.type,
@@ -87,13 +98,13 @@ export async function performSearch(
             updatedAt: documents.updatedAt,
           })
           .from(documents)
-          .leftJoin(companies, eq(documents.companyId, companies.id))
+          .leftJoin(companies, and(eq(documents.companyId, companies.id), buildOwnerCondition(identity)))
           .where(
             and(
               buildDocumentOwnerCondition(identity),
               or(
-                like(documents.title, escapedPattern),
-                like(documents.content, escapedPattern)
+                likeEscaped(documents.title, escapedPattern),
+                likeEscaped(documents.content, escapedPattern)
               )
             )
           )
@@ -119,9 +130,9 @@ export async function performSearch(
             and(
               buildOwnerCondition(identity),
               or(
-                like(deadlines.title, escapedPattern),
-                like(deadlines.description, escapedPattern),
-                like(deadlines.memo, escapedPattern)
+                likeEscaped(deadlines.title, escapedPattern),
+                likeEscaped(deadlines.description, escapedPattern),
+                likeEscaped(deadlines.memo, escapedPattern)
               )
             )
           )
