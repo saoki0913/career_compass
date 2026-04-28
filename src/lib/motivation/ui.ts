@@ -85,7 +85,7 @@ export const STAGE_ANSWER_GUIDE: Record<MotivationStageKey, string> = {
 
 export const CONVERSATION_MODE_LABELS: Record<ConversationMode, string> = {
   slot_fill: "材料を集めています",
-  deepdive: "弱い部分を補強しています",
+  deepdive: "補強ポイントを確認しています",
 };
 
 export const INTENT_LABELS: Record<string, string> = {
@@ -168,7 +168,7 @@ export function deriveMotivationModeLabel(params: {
   const { conversationMode, questionCount, isDraftReady, causalGapCount } = params;
 
   if (conversationMode === "deepdive") {
-    return causalGapCount > 0 ? `補強中（残り${causalGapCount}件）` : "補強完了";
+    return causalGapCount > 0 ? `補強中（残り${causalGapCount}件）` : "追加で補強できます";
   }
 
   if (isDraftReady) return "材料が揃いました";

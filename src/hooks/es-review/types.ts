@@ -199,7 +199,6 @@ export interface UseESReviewReturn {
     sectionTitle: string;
     sectionContent: string;
     sectionCharLimit?: number;
-    hasCompanyRag?: boolean;
     companyId?: string;
     templateType?: TemplateType;
     internName?: string;

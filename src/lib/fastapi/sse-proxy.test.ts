@@ -1,18 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createSSEProxyStream, type SSEProxyOptions } from "./sse-proxy";
 
-function makeSSEBody(events: string[]): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const ev of events) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(ev.startsWith("{") ? JSON.parse(ev) : ev)}\n\n`));
-      }
-      controller.close();
-    },
-  });
-}
-
 function makeSSEBodyFromObjects(events: Record<string, unknown>[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
   return new ReadableStream({
@@ -103,6 +91,30 @@ describe("createSSEProxyStream", () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(onError).toHaveBeenCalledWith({ type: "error", message: "something failed" });
     expect(events[0]).toEqual({ type: "error", message: "something failed" });
+  });
+
+  it("preserves sanitized FastAPI error metadata on error events", async () => {
+    const upstream = fakeResponse([
+      {
+        type: "error",
+        message: "tenant key is not configured",
+        error_type: "tenant_key_not_configured",
+        status_code: 503,
+        internal_telemetry: { input_tokens: 1, output_tokens: 0 },
+      },
+    ]);
+    const onCostTelemetry = vi.fn();
+
+    const stream = createSSEProxyStream(upstream, { ...baseOpts, onCostTelemetry });
+    const events = await collectEvents(stream);
+
+    expect(events[0]).toEqual({
+      type: "error",
+      message: "tenant key is not configured",
+      error_type: "tenant_key_not_configured",
+      status_code: 503,
+    });
+    expect(onCostTelemetry).toHaveBeenCalledOnce();
   });
 
   it("strips internal_telemetry before forwarding to client", async () => {

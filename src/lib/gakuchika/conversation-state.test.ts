@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildConversationStatePatch,
   getBuildItemStatus,
+  safeParseMessages,
   safeParseConversationState,
   serializeConversationState,
   type ConversationState,
@@ -40,6 +41,7 @@ function baseState(overrides: Partial<ConversationState> = {}): ConversationStat
     extendedDeepDiveRound: 0,
     coachProgressMessage: null,
     remainingQuestionsEstimate: null,
+    pausedQuestion: null,
     ...overrides,
   };
 }
@@ -89,6 +91,31 @@ describe("getBuildItemStatus", () => {
 });
 
 describe("conversation-state adapters", () => {
+  it("parses messages from parsed jsonb arrays", () => {
+    expect(safeParseMessages([
+      { id: "m1", role: "user", content: "学生時代に力を入れたことです。" },
+      { id: "m2", role: "assistant", content: "背景を教えてください。" },
+    ])).toEqual([
+      { id: "m1", role: "user", content: "学生時代に力を入れたことです。" },
+      { id: "m2", role: "assistant", content: "背景を教えてください。" },
+    ]);
+  });
+
+  it("parses messages from legacy JSON strings", () => {
+    const legacy = JSON.stringify([
+      { id: "m1", role: "user", content: "改善活動をしました。" },
+    ]);
+
+    expect(safeParseMessages(legacy)).toEqual([
+      { id: "m1", role: "user", content: "改善活動をしました。" },
+    ]);
+  });
+
+  it("returns an empty array for invalid legacy message payloads", () => {
+    expect(safeParseMessages(JSON.stringify("bad shape"))).toEqual([]);
+    expect(safeParseMessages("{")).toEqual([]);
+  });
+
   it("round-trips canonical conversation state through serialize and parse", () => {
     const state = baseState({
       stage: "draft_ready",
@@ -189,6 +216,41 @@ describe("remainingQuestionsEstimate normalization (M4)", () => {
     expect(
       safeParseConversationState(serializeConversationState(state)).remainingQuestionsEstimate,
     ).toBe(4);
+  });
+
+  it("round-trips pausedQuestion through snake_case serialization", () => {
+    const state = baseState({
+      stage: "draft_ready",
+      readyForDraft: true,
+      pausedQuestion: "面接で聞かれた場合、判断理由をどう説明しますか。",
+    });
+
+    const parsed = safeParseConversationState(serializeConversationState(state));
+
+    expect(parsed.pausedQuestion).toBe("面接で聞かれた場合、判断理由をどう説明しますか。");
+  });
+
+  it("parses paused_question and pausedQuestion aliases", () => {
+    const snake = safeParseConversationState(JSON.stringify({
+      stage: "draft_ready",
+      paused_question: "次に深掘る質問です。",
+    }));
+    const camel = safeParseConversationState(JSON.stringify({
+      stage: "interview_ready",
+      pausedQuestion: "完了後に残す質問です。",
+    }));
+
+    expect(snake.pausedQuestion).toBe("次に深掘る質問です。");
+    expect(camel.pausedQuestion).toBe("完了後に残す質問です。");
+  });
+
+  it("clears pausedQuestion when a patch explicitly sets null", () => {
+    const patched = buildConversationStatePatch(
+      baseState({ pausedQuestion: "残っている質問" }),
+      { pausedQuestion: null },
+    );
+
+    expect(patched.pausedQuestion).toBeNull();
   });
 
   it("late-wins on null in buildConversationStatePatch to clear the field", () => {

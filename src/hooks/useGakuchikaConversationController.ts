@@ -42,6 +42,16 @@ import {
 
 type GakuchikaSummary = ReturnType<typeof parseGakuchikaSummary>;
 
+type GakuchikaDraftQuality = {
+  status?: "passed" | "repaired" | "warning";
+  warnings?: string[];
+  retry_count?: number;
+  retryCount?: number;
+  failure_codes?: string[];
+  selection_reason?: string;
+  selectionReason?: string;
+} | null;
+
 type ControllerParams = {
   gakuchikaId: string;
 };
@@ -65,6 +75,7 @@ export function useGakuchikaConversationController({
   const [conversationState, setConversationState] = useState<ConversationState | null>(null);
   const [conversationStarted, setConversationStarted] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [isResumingSession, setIsResumingSession] = useState(false);
   const [gakuchikaTitle, setGakuchikaTitle] = useState("");
   const [gakuchikaContent, setGakuchikaContent] = useState<string | null>(null);
   const [showStarInfo, setShowStarInfo] = useState(false);
@@ -84,6 +95,7 @@ export function useGakuchikaConversationController({
   const [isDraftModalOpen, setIsDraftModalOpen] = useState(false);
   const [generatedDraftText, setGeneratedDraftText] = useState<string | null>(null);
   const [generatedDocumentId, setGeneratedDocumentId] = useState<string | null>(null);
+  const [generatedDraftQuality, setGeneratedDraftQuality] = useState<GakuchikaDraftQuality>(null);
 
   const { displayedText: streamingText, isPlaybackComplete } = useStreamingTextPlayback(
     streamingTargetText,
@@ -94,6 +106,7 @@ export function useGakuchikaConversationController({
     setIsDraftModalOpen(false);
     setGeneratedDraftText(null);
     setGeneratedDocumentId(null);
+    setGeneratedDraftQuality(null);
   }, []);
 
   const applyConversationUpdate = useCallback((update: ConversationUpdate) => {
@@ -486,7 +499,7 @@ export function useGakuchikaConversationController({
       }
       releaseLock();
     }
-  }, [acquireLock, answer, applyConversationUpdate, currentSessionId, gakuchikaId, isSending, releaseLock]);
+  }, [acquireLock, answer, applyConversationUpdate, currentSessionId, gakuchikaId, isSending, messages, releaseLock]);
 
   const selectSession = useCallback(async (sessionId: string) => {
     setCurrentSessionId(sessionId);
@@ -498,6 +511,7 @@ export function useGakuchikaConversationController({
   const resumeSession = useCallback(async () => {
     if (!acquireLock("深掘りを再開中")) return;
     clearDraftModalState();
+    setIsResumingSession(true);
     try {
       const response = await resumeGakuchikaConversation(gakuchikaId, {
         sessionId: currentSessionId,
@@ -543,6 +557,7 @@ export function useGakuchikaConversationController({
         ),
       );
     } finally {
+      setIsResumingSession(false);
       releaseLock();
     }
   }, [acquireLock, clearDraftModalState, currentSessionId, gakuchikaId, releaseLock]);
@@ -576,6 +591,7 @@ export function useGakuchikaConversationController({
       const data = await response.json();
       setGeneratedDraftText(data.draft ?? null);
       setGeneratedDocumentId(data.documentId ?? null);
+      setGeneratedDraftQuality(data.draftQuality ?? null);
       notifyGakuchikaDraftGenerated();
       setIsDraftModalOpen(true);
       await fetchConversation(currentSessionId || undefined);
@@ -648,6 +664,7 @@ export function useGakuchikaConversationController({
     conversationState,
     conversationStarted,
     isStarting,
+    isResumingSession,
     gakuchikaTitle,
     gakuchikaContent,
     showStarInfo,
@@ -672,6 +689,7 @@ export function useGakuchikaConversationController({
     isDraftModalOpen,
     generatedDraftText,
     generatedDocumentId,
+    generatedDraftQuality,
   }), [
     messages,
     nextQuestion,
@@ -687,6 +705,7 @@ export function useGakuchikaConversationController({
     conversationState,
     conversationStarted,
     isStarting,
+    isResumingSession,
     gakuchikaTitle,
     gakuchikaContent,
     showStarInfo,
@@ -711,6 +730,7 @@ export function useGakuchikaConversationController({
     isDraftModalOpen,
     generatedDraftText,
     generatedDocumentId,
+    generatedDraftQuality,
   ]);
 
   return {

@@ -49,6 +49,6 @@ describe("deriveMotivationModeLabel", () => {
       isDraftReady: true,
       causalGapCount: 0,
     });
-    expect(label).toBe("補強完了");
+    expect(label).toBe("追加で補強できます");
   });
 });

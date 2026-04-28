@@ -32,6 +32,7 @@ import {
 
 const RUN_ID = `live-ai-conversations-${Date.now()}`;
 const SSE_SMOKE_TIMEOUT_MS = 300_000;
+const SELECTED_CONVERSATION_FEATURE = process.env.LIVE_AI_CONVERSATION_FEATURE?.trim();
 
 // Case IDs used when building company names — needed for stale-cleanup matching.
 const SMOKE_CASE_IDS = ["sse_smoke_motivation", "sse_smoke_interview"];
@@ -49,6 +50,10 @@ const LLM_NON_DETERMINISM_PATTERNS = [
 
 function isLlmNonDeterminismError(message: string): boolean {
   return LLM_NON_DETERMINISM_PATTERNS.some((p) => message.includes(p));
+}
+
+function shouldRunFeature(feature: "gakuchika" | "motivation" | "interview") {
+  return !SELECTED_CONVERSATION_FEATURE || SELECTED_CONVERSATION_FEATURE === feature;
 }
 
 test.describe.serial("SSE Smoke Tests", () => {
@@ -75,6 +80,7 @@ test.describe.serial("SSE Smoke Tests", () => {
   // -------------------------------------------------------------------------
   // gakuchika: SSE stream + complete
   // -------------------------------------------------------------------------
+  if (shouldRunFeature("gakuchika")) {
   test("gakuchika: SSE stream delivers string_chunk and complete events", async ({ page }) => {
     test.setTimeout(SSE_SMOKE_TIMEOUT_MS);
 
@@ -135,10 +141,12 @@ test.describe.serial("SSE Smoke Tests", () => {
       await deleteOwnedGakuchika(page, gakuchika.id);
     }
   });
+  }
 
   // -------------------------------------------------------------------------
   // motivation: SSE stream + complete
   // -------------------------------------------------------------------------
+  if (shouldRunFeature("motivation")) {
   test("motivation: SSE stream delivers string_chunk and complete events", async ({ page }) => {
     test.setTimeout(SSE_SMOKE_TIMEOUT_MS);
 
@@ -202,10 +210,12 @@ test.describe.serial("SSE Smoke Tests", () => {
       await deleteOwnedCompany(page, company.id);
     }
   });
+  }
 
   // -------------------------------------------------------------------------
   // interview: SSE stream + complete (start endpoint emits SSE directly)
   // -------------------------------------------------------------------------
+  if (shouldRunFeature("interview")) {
   test("interview: SSE stream delivers string_chunk and complete events", async ({ page }) => {
     test.setTimeout(SSE_SMOKE_TIMEOUT_MS);
 
@@ -306,4 +316,5 @@ test.describe.serial("SSE Smoke Tests", () => {
       await deleteOwnedCompany(page, company.id);
     }
   });
+  }
 });

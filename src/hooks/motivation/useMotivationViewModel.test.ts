@@ -105,4 +105,33 @@ describe("useMotivationViewModel derivations", () => {
     });
     expect(vm.motivationModeLabel).toBe("補強中（残り2件）");
   });
+
+  it("allows draft regeneration after an existing draft is present", () => {
+    const vm = useMotivationViewModel({
+      ...baseInput,
+      isDraftReady: true,
+      generatedDraft: "既存の志望動機です。",
+      messages: [],
+    });
+    expect(vm.canGenerateDraft).toBe(true);
+  });
+
+  it("does not expose internal intent keys to the UI", () => {
+    const vm = useMotivationViewModel({
+      ...baseInput,
+      currentIntent: "self_connection",
+      currentSlot: "self_connection",
+      progress: {
+        completed: 3,
+        total: 6,
+        current_slot: "self_connection",
+        current_slot_label: "self_connection",
+        current_intent: "self_connection",
+        next_advance_condition: null,
+        mode: "deepdive",
+      },
+    });
+    expect(vm.currentIntentLabel).toBe("補強ポイントを確認します");
+    expect(vm.currentSlotLabel).toBe("自分との接続を整理中");
+  });
 });

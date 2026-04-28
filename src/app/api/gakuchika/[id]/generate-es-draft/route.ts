@@ -43,6 +43,13 @@ interface FastAPIDraftResponse {
   draft: string;
   char_count: number;
   followup_suggestion?: string;
+  draft_quality?: {
+    status?: "passed" | "repaired" | "warning";
+    warnings?: string[];
+    retry_count?: number;
+    failure_codes?: string[];
+    selection_reason?: string;
+  };
   draft_diagnostics?: {
     strength_tags?: string[];
     issue_tags?: string[];
@@ -365,6 +372,7 @@ export async function POST(
       charCount: data.char_count,
       followupSuggestion: data.followup_suggestion ?? "更に深掘りする",
       documentId: documentId,
+      draftQuality: data.draft_quality ?? null,
     });
   } catch (error) {
     if (reservationId) await cancelReservation(reservationId);

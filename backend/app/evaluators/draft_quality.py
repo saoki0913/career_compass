@@ -8,6 +8,8 @@ LLMs, requests, or responses.
 
 from __future__ import annotations
 
+import re
+
 from app.utils.gakuchika_text import (
     ACTION_PATTERNS,
     ACTION_REASON_PATTERNS,
@@ -23,6 +25,63 @@ from app.utils.gakuchika_text import (
     _normalize_text,
     _role_required,
 )
+
+
+_CRITIC_CLOSING_TERMS = (
+    "手法",
+    "重要性",
+    "強制力",
+    "段階的導入",
+    "品質維持",
+    "直結する",
+    "と言える",
+    "有効である",
+)
+_OWNED_ACTION_TERMS = (
+    "私",
+    "自分",
+    "取り組",
+    "見直",
+    "改善",
+    "提案",
+    "実行",
+    "進め",
+    "判断",
+    "担当",
+)
+
+
+def _last_sentence(text: str) -> str:
+    sentences = [s.strip() for s in re.split(r"[。！？]", text or "") if s.strip()]
+    return sentences[-1] if sentences else ""
+
+
+def _detect_gakuchika_critic_closing(draft_text: str, user_origin_text: str = "") -> dict[str, object]:
+    """Detect essay-like abstract generalization in the final sentence.
+
+    ガクチカ本文の末尾は、経験での結果・得た学び・身についた能力で締める。
+    「手法は〜に直結する」のような評論調は、会話由来でない限り警告対象にする。
+    """
+    last = _last_sentence(draft_text)
+    if not last:
+        return {"detected": False, "codes": [], "last_sentence": ""}
+
+    codes: list[str] = []
+    has_critic_term = any(term in last for term in _CRITIC_CLOSING_TERMS)
+    abstract_subject = bool(re.search(r"(手法|重要性|強制力|段階的導入|品質維持).{0,12}(は|が)", last))
+    generalization_shape = bool(re.search(r"ことで、.+(は|が).+(直結する|と言える|有効である)", last))
+    has_owned_action = any(term in last for term in _OWNED_ACTION_TERMS)
+
+    if has_critic_term and (abstract_subject or generalization_shape) and not has_owned_action:
+        codes.append("abstract_generalization_closing")
+    elif generalization_shape and has_critic_term:
+        codes.append("critic_closing")
+
+    return {
+        "detected": bool(codes),
+        "codes": codes,
+        "last_sentence": last,
+    }
 
 
 def _build_draft_quality_checks(text: str) -> dict[str, bool]:

@@ -179,8 +179,11 @@ def _build_user_origin_from_conversation(
     return joined
 
 
-async def generate_draft_impl(request: Any) -> Any:
-    company_context, company_sources = await _get_company_context(request.company_id)
+async def generate_draft_impl(request: Any, *, tenant_key: str | None = None) -> Any:
+    company_context, company_sources = await _get_company_context(
+        request.company_id,
+        tenant_key=tenant_key,
+    )
     conversation_text = request._format_conversation(request.conversation_history)
     char_min = int(request.char_limit * 0.9)
     industry_s = sanitize_prompt_input(request.industry or "不明", max_length=100)
@@ -378,8 +381,15 @@ async def generate_draft_impl(request: Any) -> Any:
     }
 
 
-async def generate_draft_from_profile_impl(request: Any) -> Any:
-    company_context, company_sources = await _get_company_context(request.company_id)
+async def generate_draft_from_profile_impl(
+    request: Any,
+    *,
+    tenant_key: str | None = None,
+) -> Any:
+    company_context, company_sources = await _get_company_context(
+        request.company_id,
+        tenant_key=tenant_key,
+    )
     char_min = int(request.char_limit * 0.9)
     profile_section = _format_profile_for_prompt(request.profile_context)
     gakuchika_section = _format_gakuchika_for_prompt(request.gakuchika_context)

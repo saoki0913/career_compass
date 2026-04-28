@@ -16,6 +16,7 @@ const {
   safeParseConversationContextMock,
   safeParseMessagesMock,
   fetchFastApiInternalMock,
+  buildMotivationUserEvidenceCardsMock,
 } = vi.hoisted(() => ({
   dbUpdateMock: vi.fn(),
   dbInsertMock: vi.fn(),
@@ -31,6 +32,7 @@ const {
   safeParseConversationContextMock: vi.fn(),
   safeParseMessagesMock: vi.fn(),
   fetchFastApiInternalMock: vi.fn(),
+  buildMotivationUserEvidenceCardsMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -64,6 +66,10 @@ vi.mock("@/lib/motivation/conversation-store", () => ({
   getMotivationConversationByCondition: getMotivationConversationByConditionMock,
 }));
 
+vi.mock("@/lib/motivation/conversation-payload", () => ({
+  buildMotivationUserEvidenceCards: buildMotivationUserEvidenceCardsMock,
+}));
+
 vi.mock("@/lib/rate-limit-spike", () => ({
   enforceRateLimitLayers: enforceRateLimitLayersMock,
   DRAFT_RATE_LAYERS: [],
@@ -84,6 +90,11 @@ vi.mock("@/lib/llm-cost-limit", () => ({
 
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
+  fetchFastApiWithPrincipal: fetchFastApiInternalMock,
+}));
+
+vi.mock("@/lib/server/loader-helpers", () => ({
+  getViewerPlan: vi.fn().mockResolvedValue("standard"),
 }));
 vi.mock("@/lib/motivation/motivation-input-resolver", () => ({
   buildMotivationOwnerCondition: buildMotivationOwnerConditionMock,
@@ -106,6 +117,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     safeParseConversationContextMock.mockReset();
     safeParseMessagesMock.mockReset();
     fetchFastApiInternalMock.mockReset();
+    buildMotivationUserEvidenceCardsMock.mockReset();
     vi.restoreAllMocks();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
@@ -151,6 +163,16 @@ describe("api/motivation/[companyId]/generate-draft", () => {
       { role: "assistant", content: "b" },
     ]);
     resolveDraftReadyStateMock.mockReturnValue({ isDraftReady: true, unlockedAt: null });
+    buildMotivationUserEvidenceCardsMock.mockReturnValue([
+      {
+        sourceId: "U1",
+        title: "企業を選ぶ理由",
+        contentType: "user_context",
+        excerpt: "DX支援を通じて顧客課題に向き合える点に惹かれています。",
+        sourceUrl: "",
+        relevanceLabel: "会話で確認",
+      },
+    ]);
   });
 
   it("returns 429 without reserving credits or calling backend when rate limited", async () => {
@@ -225,6 +247,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(response.status).toBe(200);
     expect(payload.draft).toBe("志望動機の下書きです。");
     expect(payload.nextQuestion).toBeNull();
+    expect(payload.userEvidenceCards).toHaveLength(1);
     expect(fetchFastApiInternalMock).toHaveBeenCalledTimes(1);
     expect(fetchFastApiInternalMock).toHaveBeenCalledWith(
       "/api/motivation/generate-draft",

@@ -8,6 +8,7 @@ from app.routers.gakuchika import (
     _build_causal_gaps,
     _build_draft_quality_checks,
     _build_known_facts,
+    _detect_gakuchika_critic_closing,
     _classify_input_richness,
     _evaluate_deepdive_completion,
 )
@@ -164,6 +165,44 @@ def test_result_traceability_still_requires_action_specific() -> None:
     checks = _build_draft_quality_checks(text)
     assert checks["action_ownership"] is False
     assert checks["result_traceability"] is False
+
+
+def test_detect_gakuchika_critic_closing_flags_abstract_generalization() -> None:
+    draft = (
+        "私は開発サークルでレビュー遅延の改善に取り組んだ。レビュー基準を整理し、担当者ごとの確認項目を明確にした。"
+        "設計の強制力と段階的導入を組み合わせることで、チームに無理なく浸透させる手法は、複数人が関わるシステム開発の品質維持に直結する。"
+    )
+
+    result = _detect_gakuchika_critic_closing(draft, user_origin_text="レビュー基準を整理しました。")
+
+    assert result["detected"] is True
+    assert "abstract_generalization_closing" in result["codes"]
+
+
+def test_detect_gakuchika_critic_closing_allows_owned_action_closing() -> None:
+    draft = (
+        "私は開発サークルでレビュー遅延の改善に取り組んだ。レビュー基準を整理し、担当者ごとの確認項目を明確にした。"
+        "この経験から、複数人で開発する際に最初に判断基準をそろえる力を身につけた。"
+    )
+
+    result = _detect_gakuchika_critic_closing(draft, user_origin_text="判断基準をそろえる力を身につけた。")
+
+    assert result["detected"] is False
+
+
+def test_detect_gakuchika_critic_closing_does_not_ignore_assistant_origin_terms() -> None:
+    draft = (
+        "私はレビュー基準を整理し、チーム内で確認の観点をそろえた。"
+        "設計の強制力と段階的導入を組み合わせることで、チームに無理なく浸透させる手法は、複数人が関わるシステム開発の品質維持に直結する。"
+    )
+
+    result = _detect_gakuchika_critic_closing(
+        draft,
+        user_origin_text="質問: どのような手法や重要性がありましたか。\n回答: レビュー基準を整理しました。",
+    )
+
+    assert result["detected"] is True
+    assert "abstract_generalization_closing" in result["codes"]
 
 
 def test_evaluate_deepdive_completion_is_server_side_and_requires_evidence() -> None:

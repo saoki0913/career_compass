@@ -51,6 +51,7 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     conversationState,
     conversationStarted,
     isStarting,
+    isResumingSession,
     gakuchikaTitle,
     gakuchikaContent,
     showStarInfo,
@@ -75,6 +76,7 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     isDraftModalOpen,
     generatedDraftText,
     generatedDocumentId,
+    generatedDraftQuality,
   } = state;
   const {
     setAnswer,
@@ -99,10 +101,12 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     messages,
     conversationState,
   });
+  const pausedQuestion = conversationState?.pausedQuestion?.trim() || null;
+  const displayedNextQuestion = nextQuestion || (shouldPauseConversation ? pausedQuestion : null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [assistantPhase, messages, nextQuestion, streamingText, isTextStreaming]);
+  }, [assistantPhase, displayedNextQuestion, messages, streamingText, isTextStreaming]);
 
   if (isLoading) {
     return (
@@ -151,11 +155,13 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                     key={n}
                     type="button"
                     onClick={() => setDraftCharLimit(n)}
+                    disabled={isGeneratingDraft}
                     className={cn(
-                      "rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
+                      "rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
                       draftCharLimit === n
                         ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background hover:bg-secondary"
+                        : "border-border bg-background hover:bg-secondary",
+                      isGeneratingDraft ? "cursor-not-allowed opacity-60" : "cursor-pointer",
                     )}
                   >
                     {n}字
@@ -178,13 +184,11 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
               {isAIPowered ? "AI" : "基本"}
             </Badge>
           </div>
-          {!interviewReady ? (
-            <NaturalProgressStatus
-              state={conversationState}
-              variant="inline"
-              answeredCount={answeredCount}
-            />
-          ) : null}
+          <NaturalProgressStatus
+            state={conversationState}
+            variant="inline"
+            answeredCount={answeredCount}
+          />
         </div>
       }
       conversation={
@@ -237,12 +241,11 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
             <StreamingChatMessage streamingText={streamingText} isStreaming={true} />
           ) : null}
 
-          {nextQuestion &&
-          !shouldPauseConversation &&
+          {displayedNextQuestion &&
           !isWaitingForResponse &&
           !isTextStreaming &&
-          !(messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === nextQuestion) ? (
-            <ChatMessage role="assistant" content={nextQuestion} />
+          !(messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === displayedNextQuestion) ? (
+            <ChatMessage role="assistant" content={displayedNextQuestion} />
           ) : null}
 
           <div ref={messagesEndRef} />
@@ -265,13 +268,13 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                   : "材料が揃いました。ESを作成するか、深掘りを続けて強化できます。"}
               </p>
               <Button
-                variant="outline"
+                variant={isResumingSession ? "default" : "outline"}
                 size="sm"
                 onClick={handleResumeSession}
-                disabled={isStarting || isSending || isGeneratingDraft}
-                className="shrink-0 rounded-xl"
+                disabled={isStarting || isSending || isGeneratingDraft || isResumingSession}
+                className="shrink-0 rounded-xl shadow-sm active:translate-y-px"
               >
-                深掘りを続ける
+                {isResumingSession ? "再開中..." : "深掘りを続ける"}
               </Button>
             </div>
           ) : null}
@@ -326,7 +329,7 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                   variant="outline"
                   size="sm"
                   onClick={handleRestartConversation}
-                  disabled={isStarting || isSending || isGeneratingDraft}
+                  disabled={isStarting || isSending || isGeneratingDraft || isResumingSession}
                   className="h-9 rounded-xl px-3 text-xs shadow-sm"
                 >
                   会話をやり直す
@@ -345,12 +348,10 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                   </Badge>
                 ) : null}
               </div>
-              {!interviewReady ? (
-                <NaturalProgressStatus
-                  state={conversationState}
-                  answeredCount={answeredCount}
-                />
-              ) : null}
+              <NaturalProgressStatus
+                state={conversationState}
+                answeredCount={answeredCount}
+              />
               {interviewReady ? (
                 <p className="text-xs leading-5 text-muted-foreground">
                   {conversationState?.progressLabel
@@ -406,6 +407,7 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       isOpen={isDraftModalOpen}
       draft={generatedDraftText ?? ""}
       charLimit={draftCharLimit}
+      draftQuality={generatedDraftQuality}
       isSaving={false}
       onSave={() => {
         setIsDraftModalOpen(false);

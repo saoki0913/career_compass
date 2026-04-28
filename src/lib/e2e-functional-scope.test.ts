@@ -33,6 +33,22 @@ describe("resolveE2EFunctionalScope", () => {
     expect(scope.features).toEqual(["gakuchika", "motivation"]);
   });
 
+  it("maps gakuchika draft quality evaluator changes to gakuchika", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: ["backend/app/evaluators/draft_quality.py"],
+    });
+
+    expect(scope.features).toEqual(["gakuchika"]);
+  });
+
+  it("includes gakuchika when shared ES template changes", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: ["backend/app/prompts/es_templates.py"],
+    });
+
+    expect(scope.features).toContain("gakuchika");
+  });
+
   it("treats shared llm and live e2e files as all features", () => {
     const scope = resolveE2EFunctionalScope({
       changedFiles: ["backend/app/utils/llm.py", "e2e/live-smoke/live-ai-conversations.spec.ts"],
@@ -86,6 +102,18 @@ describe("resolveE2EFunctionalScope", () => {
       "rag-ingest",
       "selection-schedule",
     ]);
+  });
+
+  it("maps RAG package changes to company-info search and ingest", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: [
+        "backend/app/rag/hybrid_search.py",
+        "backend/app/rag/vector_store.py",
+        "backend/app/rag/reference_es.py",
+      ],
+    });
+
+    expect(scope.features).toEqual(["company-info-search", "rag-ingest"]);
   });
 
   it("maps product page smoke targets to pages-smoke", () => {

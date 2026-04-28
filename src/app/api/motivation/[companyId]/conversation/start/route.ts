@@ -33,7 +33,9 @@ import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
 } from "@/lib/ai/cost-summary-log";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import type { CreateCareerPrincipalInput } from "@/lib/fastapi/career-principal";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
   ensureMotivationConversation,
@@ -145,6 +147,7 @@ async function getQuestionFromFastAPI(
   companyRoleCandidates: string[],
   requiresIndustrySelection: boolean,
   industryOptions: string[],
+  principal: CreateCareerPrincipalInput,
 ): Promise<{
   question: string | null;
   error: string | null;
@@ -169,12 +172,13 @@ async function getQuestionFromFastAPI(
   const timeoutId = setTimeout(() => controller.abort(), 60_000);
 
   try {
-    const response = await fetchFastApiInternal("/api/motivation/next-question", {
+    const response = await fetchFastApiWithPrincipal("/api/motivation/next-question", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "X-Request-Id": requestId,
       },
+      principal,
       body: JSON.stringify({
         company_id: company.id,
         company_name: company.name,
@@ -366,6 +370,7 @@ export async function POST(
       return NextResponse.json({ error: "先に業界・職種の設定を完了してください" }, { status: 400 });
     }
 
+    const principalPlan = await getViewerPlan(identity);
     const result = await getQuestionFromFastAPI(
       resolvedInputs.company,
       requestId,
@@ -377,6 +382,12 @@ export async function POST(
       resolvedInputs.companyRoleCandidates,
       resolvedInputs.requiresIndustrySelection,
       resolvedInputs.industryOptions,
+      {
+        scope: "ai-stream",
+        actor: userId ? { kind: "user", id: userId } : { kind: "guest", id: guestId! },
+        companyId,
+        plan: principalPlan,
+      },
     );
 
     if (result.error || !result.question) {

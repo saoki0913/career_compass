@@ -34,6 +34,24 @@ def test_gakuchika_draft_prompt_includes_template_rubric_and_json() -> None:
     assert DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA in user
 
 
+def test_gakuchika_draft_prompt_warns_against_critic_closing() -> None:
+    system, _ = build_template_draft_generation_prompt(
+        "gakuchika",
+        company_name=None,
+        industry=None,
+        question=DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA,
+        char_min=360,
+        char_max=400,
+        primary_material_heading="【テーマと会話】",
+        primary_material_body="テーマ: テスト\n\n回答: 私はレビュー基準を整理した。",
+        output_json_kind="gakuchika",
+    )
+
+    assert "評論調" in system
+    assert "抽象名詞を主語" in system
+    assert "直結する" in system
+
+
 def test_motivation_draft_prompt_includes_company_motivation_and_json() -> None:
     honorific = get_company_honorific("IT")
     q = draft_synthetic_question_company_motivation(honorific)

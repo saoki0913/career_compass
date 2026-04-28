@@ -52,7 +52,7 @@ export function MotivationSetupPanel({
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
         <div className="shrink-0 px-1 pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -69,11 +69,11 @@ export function MotivationSetupPanel({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-1">
-          <div className="grid gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-1">
+          <div className="grid gap-5 md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
             <div className="space-y-2">
               <p className="text-sm font-semibold text-foreground">企業</p>
-              <div className="rounded-2xl border border-border/50 bg-muted/15 px-4 py-3">
+              <div className="border-b border-border/60 pb-3">
                 <p className="text-sm font-medium text-foreground">{companyName}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {effectiveIndustry ? `業界: ${effectiveIndustry}` : "業界は次で指定します"}
@@ -107,7 +107,7 @@ export function MotivationSetupPanel({
                   </SelectContent>
                 </Select>
               ) : (
-                <div className="rounded-2xl border border-border/50 bg-muted/15 px-4 py-3">
+                <div className="border-b border-border/60 pb-3">
                   <p className="text-sm font-medium text-foreground">{effectiveIndustry || "業界未取得"}</p>
                 </div>
               )}

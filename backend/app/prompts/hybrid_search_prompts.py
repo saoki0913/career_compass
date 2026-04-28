@@ -2,7 +2,7 @@
 Hybrid search prompt templates (query expansion + HyDE).
 
 Used by:
-- backend/app/utils/hybrid_search.py
+- backend/app/rag/hybrid_search.py
 """
 
 QUERY_EXPANSION_SYSTEM_SHORT = """あなたは就活生の検索キーワードを企業の採用ページ・事業紹介で使われる語彙へ橋渡しする検索クエリ拡張アシスタントです。

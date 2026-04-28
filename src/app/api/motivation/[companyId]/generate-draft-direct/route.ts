@@ -13,11 +13,10 @@ import {
   DEFAULT_MOTIVATION_CONTEXT,
   mergeDraftReadyContext,
   safeParseConversationContext,
-  type CausalGap,
   type StageStatus,
   type MotivationConversationContext,
-  type MotivationStage,
 } from "@/lib/motivation/conversation";
+import { buildMotivationUserEvidenceCards } from "@/lib/motivation/conversation-payload";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
@@ -26,7 +25,8 @@ import {
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import {
   fetchGakuchikaContext,
@@ -50,31 +50,6 @@ interface FastAPIDraftResponse {
   key_points: string[];
   company_keywords: string[];
   internal_telemetry?: unknown;
-}
-
-interface EvidenceCard {
-  sourceId: string;
-  title: string;
-  contentType: string;
-  excerpt: string;
-  sourceUrl: string;
-  relevanceLabel: string;
-}
-
-interface FollowUpQuestionResponse {
-  question: string;
-  evidence_summary?: string | null;
-  evidence_cards?: EvidenceCard[];
-  coaching_focus?: string | null;
-  question_stage?: string | null;
-  conversation_mode?: "slot_fill" | "deepdive";
-  current_slot?: string | null;
-  current_intent?: string | null;
-  next_advance_condition?: string | null;
-  progress?: Record<string, unknown> | null;
-  causal_gaps?: unknown[];
-  stage_status?: unknown;
-  captured_context?: Record<string, unknown> | null;
 }
 
 const PROFILE_ONLY_PENDING_SLOTS: MotivationConversationContext["questionStage"][] = [
@@ -113,6 +88,48 @@ function hasDirectDraftMaterial(
   }
 
   return signalCount >= 2;
+}
+
+function normalizeUserAnchorText(text: string | null | undefined, maxLength = 120): string | null {
+  const normalized = text?.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.slice(0, maxLength);
+}
+
+function extractGakuchikaStrengths(items: GakuchikaContextItem[]): string[] {
+  const strengths: string[] = [];
+  for (const item of items) {
+    for (const raw of item.strengths ?? []) {
+      const value = typeof raw === "string" ? raw : raw.title || raw.description || "";
+      const normalized = normalizeUserAnchorText(value, 48);
+      if (normalized && !strengths.includes(normalized)) {
+        strengths.push(normalized);
+      }
+      if (strengths.length >= 4) return strengths;
+    }
+  }
+  return strengths;
+}
+
+function extractGakuchikaEpisodes(items: GakuchikaContextItem[]): string[] {
+  const episodes: string[] = [];
+  for (const item of items) {
+    const candidates = [
+      item.title,
+      item.action_text,
+      item.result_text,
+      item.content_excerpt,
+      ...(item.fact_spans ?? []),
+    ];
+    for (const candidate of candidates) {
+      const normalized = normalizeUserAnchorText(candidate);
+      if (normalized && !episodes.includes(normalized)) {
+        episodes.push(normalized);
+      }
+      if (episodes.length >= 4) return episodes;
+    }
+  }
+  return episodes;
 }
 
 export async function POST(
@@ -234,9 +251,17 @@ export async function POST(
   reservationId = reservation.reservationId;
 
   try {
-    const response = await fetchFastApiInternal("/api/motivation/generate-draft-from-profile", {
+    const principalPlan = await getViewerPlan(identity);
+    const actor = userId ? { kind: "user" as const, id: userId } : { kind: "guest" as const, id: guestId! };
+    const response = await fetchFastApiWithPrincipal("/api/motivation/generate-draft-from-profile", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+      principal: {
+        scope: "company",
+        actor,
+        companyId,
+        plan: principalPlan,
+      },
       body: JSON.stringify({
         company_id: company.id,
         company_name: company.name,
@@ -300,7 +325,7 @@ export async function POST(
       feature: "motivation_draft",
       requestId,
       status: "success",
-      creditsUsed: reservationId ? 2 : 0,
+      creditsUsed: reservationId ? 6 : 0,
       telemetry,
     });
     void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
@@ -315,6 +340,10 @@ export async function POST(
       ...DEFAULT_MOTIVATION_CONTEXT,
       ...prevCtx,
       draftSource: "profile_only",
+      userAnchorStrengths: extractGakuchikaStrengths(gakuchikaContext),
+      userAnchorEpisodes: extractGakuchikaEpisodes(gakuchikaContext),
+      profileAnchorIndustries: profileContext?.target_industries ?? [],
+      profileAnchorJobTypes: profileContext?.target_job_types ?? [],
       selectedIndustry: effectiveIndustry || prevCtx.selectedIndustry,
       selectedIndustrySource: industrySource,
       selectedRole,
@@ -328,85 +357,25 @@ export async function POST(
       conversationMode: "deepdive",
     };
     const mergedForFollowUp = mergeDraftReadyContext(baseCtx, true);
-
-    let nextQuestion: string | null = null;
-    let evidenceSummary: string | null = null;
-    let evidenceCards: EvidenceCard[] = [];
-    let coachingFocus: string | null = null;
-    let questionStage: MotivationStage | null = "company_reason";
-    let conversationMode: "slot_fill" | "deepdive" | null = "deepdive";
-    let currentSlot: MotivationStage | null = "company_reason";
-    let currentIntent: string | null = null;
-    let nextAdvanceCondition: string | null = null;
-    let progress: Record<string, unknown> | null = null;
-    let causalGaps: CausalGap[] = [];
-    let stageStatus: StageStatus | null = {
+    const evidenceCards: [] = [];
+    const stageStatus: StageStatus = {
       current: "company_reason",
       completed: [],
       pending: [...PROFILE_ONLY_PENDING_SLOTS],
     };
-    let updatedMessages: { role: "user" | "assistant"; content: string }[] = [];
-
-    const followUpResponse = await fetchFastApiInternal("/api/motivation/next-question", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
-      body: JSON.stringify({
-        company_id: company.id,
-        company_name: company.name,
-        industry: effectiveIndustry || company.industry,
-        generated_draft: draftNormalized,
-        conversation_history: [],
-        question_count: conversation.questionCount ?? 0,
-        conversation_context: mergedForFollowUp,
-        profile_context: profileContext,
-        gakuchika_context: gakuchikaContext.length > 0 ? gakuchikaContext : null,
-        application_job_candidates: applicationJobCandidates,
-        company_role_candidates: resolvedInputs.companyRoleCandidates,
-      }),
-    }).catch(() => null);
-
-    if (followUpResponse?.ok) {
-      const rawFollowUp = await followUpResponse.json().catch(() => null);
-      const followUpPayload =
-        rawFollowUp && typeof rawFollowUp === "object"
-          ? splitInternalTelemetry(rawFollowUp).payload
-          : null;
-      const followUp = followUpPayload as FollowUpQuestionResponse | null;
-
-      if (followUp?.question) {
-        nextQuestion = followUp.question;
-        evidenceSummary = typeof followUp.evidence_summary === "string" ? followUp.evidence_summary : null;
-        evidenceCards = Array.isArray(followUp.evidence_cards) ? followUp.evidence_cards : [];
-        coachingFocus = typeof followUp.coaching_focus === "string" ? followUp.coaching_focus : null;
-        questionStage = typeof followUp.question_stage === "string"
-          ? (followUp.question_stage as MotivationStage)
-          : null;
-        conversationMode = followUp.conversation_mode || null;
-        currentSlot = followUp.current_slot ? (followUp.current_slot as MotivationStage) : null;
-        currentIntent = followUp.current_intent || null;
-        nextAdvanceCondition = followUp.next_advance_condition || null;
-        progress = followUp.progress || null;
-        causalGaps = Array.isArray(followUp.causal_gaps) ? (followUp.causal_gaps as CausalGap[]) : [];
-        stageStatus = (followUp.stage_status as StageStatus | null) ?? stageStatus;
-        updatedMessages = [{ role: "assistant" as const, content: followUp.question }];
-      }
-    }
+    const updatedMessages: { role: "user" | "assistant"; content: string }[] = [];
 
     const conversationContextPersisted = mergeDraftReadyContext(
       {
         ...mergedForFollowUp,
-        conversationMode: conversationMode || mergedForFollowUp.conversationMode || "deepdive",
-        currentIntent: currentIntent || mergedForFollowUp.currentIntent || null,
-        nextAdvanceCondition: nextAdvanceCondition || mergedForFollowUp.nextAdvanceCondition || null,
-        causalGaps: (causalGaps as MotivationConversationContext["causalGaps"]) ?? [],
-        questionStage: (questionStage as MotivationConversationContext["questionStage"]) || "differentiation",
-        lastQuestionMeta: nextQuestion
-          ? {
-              ...(mergedForFollowUp.lastQuestionMeta || {}),
-              questionText: nextQuestion,
-              question_stage: (questionStage as MotivationConversationContext["questionStage"]) || "differentiation",
-            }
-          : mergedForFollowUp.lastQuestionMeta || null,
+        conversationMode: "slot_fill",
+        currentIntent: null,
+        nextAdvanceCondition: null,
+        causalGaps: [],
+        questionStage: "company_reason",
+        postDraftAwaitingResume: true,
+        deepdiveResumeCount: 0,
+        lastQuestionMeta: mergedForFollowUp.lastQuestionMeta || null,
       },
       true,
     );
@@ -418,7 +387,7 @@ export async function POST(
         charLimitType: String(charLimit) as "300" | "400" | "500",
         messages: updatedMessages,
         conversationContext: conversationContextPersisted,
-        questionStage: questionStage || conversation.questionStage || "differentiation",
+        questionStage: "company_reason",
         lastEvidenceCards: evidenceCards,
         stageStatus,
         selectedRole,
@@ -433,17 +402,18 @@ export async function POST(
       keyPoints: data.key_points,
       companyKeywords: data.company_keywords,
       documentId: null,
-      nextQuestion,
-      evidenceSummary,
+      nextQuestion: null,
+      evidenceSummary: null,
       evidenceCards,
-      coachingFocus,
-      questionStage,
-      conversationMode,
-      currentSlot,
-      currentIntent,
-      nextAdvanceCondition,
-      progress,
-      causalGaps,
+      userEvidenceCards: buildMotivationUserEvidenceCards(conversationContextPersisted),
+      coachingFocus: null,
+      questionStage: "company_reason",
+      conversationMode: "slot_fill",
+      currentSlot: "company_reason",
+      currentIntent: null,
+      nextAdvanceCondition: null,
+      progress: null,
+      causalGaps: [],
       stageStatus,
       messages: updatedMessages,
     });

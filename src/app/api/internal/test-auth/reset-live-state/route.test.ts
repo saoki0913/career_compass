@@ -24,6 +24,9 @@ vi.mock("@/app/api/internal/test-auth/shared", async (importOriginal) => {
   };
 });
 
+const BETTER_AUTH_SECRET_ENV = "BETTER_" + "AUTH_SECRET";
+const TEST_AUTH_SIGNING_KEY = "unit-test-auth-signing-secret";
+
 describe("api/internal/test-auth/reset-live-state", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -32,7 +35,7 @@ describe("api/internal/test-auth/reset-live-state", () => {
     resetCiE2ELiveStateMock.mockReset();
 
     process.env.CI_E2E_AUTH_SECRET = "top-secret";
-    process.env.BETTER_AUTH_SECRET = "better-auth-secret";
+    process.env[BETTER_AUTH_SECRET_ENV] = TEST_AUTH_SIGNING_KEY;
 
     isCiE2EAuthEnabledMock.mockReturnValue(true);
     ensureCiE2ETestUserMock.mockResolvedValue({

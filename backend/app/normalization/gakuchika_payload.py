@@ -400,6 +400,7 @@ def _default_state(stage: str = "es_building", **kwargs: Any) -> dict[str, Any]:
         "last_question_signature": kwargs.get("last_question_signature"),
         "extended_deep_dive_round": int(kwargs.get("extended_deep_dive_round", 0) or 0),
         "coach_progress_message": kwargs.get("coach_progress_message"),
+        "paused_question": kwargs.get("paused_question"),
         "remaining_questions_estimate": max(
             0, int(kwargs.get("remaining_questions_estimate", 0) or 0)
         ),
@@ -658,6 +659,7 @@ def _normalize_es_build_payload(
             last_question_signature=last_question_signature,
             extended_deep_dive_round=_ext_dr,
             coach_progress_message=coach_message,
+            paused_question=question or (fallback_state.paused_question if fallback_state else None),
             remaining_questions_estimate=remaining_estimate,
         )
         return "", state, "draft_ready"
@@ -712,6 +714,7 @@ def _normalize_es_build_payload(
         last_question_signature=last_question_signature,
         extended_deep_dive_round=_ext_dr,
         coach_progress_message=coach_message,
+        paused_question=None,
         remaining_questions_estimate=remaining_estimate,
     )
     return question, state, source
@@ -861,6 +864,7 @@ def _normalize_deepdive_payload(
             last_question_signature=last_question_signature,
             extended_deep_dive_round=_ext_dr,
             coach_progress_message=coach_message,
+            paused_question=question or (fallback_state.paused_question if fallback_state else None),
             remaining_questions_estimate=0,
         )
         return "", state, "interview_ready"
@@ -910,6 +914,7 @@ def _normalize_deepdive_payload(
         last_question_signature=last_question_signature,
         extended_deep_dive_round=_ext_dr,
         coach_progress_message=coach_message,
+        paused_question=None,
         remaining_questions_estimate=0,
     )
     return question, state, source

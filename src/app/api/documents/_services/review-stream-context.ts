@@ -189,11 +189,11 @@ export async function prepareReviewStreamContext(
 
   const body = await request.json();
   const {
-    content, sectionId, hasCompanyRag = false, companyId: requestCompanyId,
+    content, sectionId, companyId: requestCompanyId,
     sectionTitle, sectionCharLimit, templateType, internName, roleName,
     industryOverride, llmModel,
   } = body as {
-    content: string; sectionId?: string; hasCompanyRag?: boolean; companyId?: string;
+    content: string; sectionId?: string; companyId?: string;
     sectionTitle?: string; sectionCharLimit?: number; templateType?: TemplateType;
     internName?: string; roleName?: string; industryOverride?: string; llmModel?: string;
   };
@@ -294,7 +294,6 @@ export async function prepareReviewStreamContext(
     payload: {
       content,
       section_id: sectionId,
-      has_company_rag: hasCompanyRag,
       company_id: companyId || null,
       section_title: sectionTitle || null,
       section_char_limit: sectionCharLimit || null,

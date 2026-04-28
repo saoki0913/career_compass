@@ -65,6 +65,13 @@ if TYPE_CHECKING:
 
 QUESTION_DIFFICULTY_MAX = 3
 
+USER_CONTEXT_USAGE_RULES = """## ユーザー情報の利用制約
+- ガクチカ・プロフィール・応募職種候補は、対象 slot が self_connection の場合、またはユーザーが直近会話でその経験・強み・職種に触れた場合だけ質問の根拠にする
+- ユーザーが会話でまだ触れていないインターン、アルバイト、研究、サークル等の経験へ急に話題を飛ばさない
+- 登録済みユーザー情報を使う場合も、断定せず「登録情報では〜がありましたが、今回の志望理由とつながりますか」のように確認する
+- 質問に使ったユーザー情報は grounding_evidence に含め、企業情報と混同しない
+"""
+
 WEAKNESS_TAG_TO_STAGE = {
     "company_reason_generic": "company_reason",
     "desired_work_too_abstract": "desired_work",
@@ -582,7 +589,8 @@ def _build_motivation_question_system_prompt(
         "## 追加制約\n"
         f"- 再質問禁止 slot: {', '.join(prep.eval_result.get('do_not_ask_slots') or []) or 'なし'}\n"
         "- 同じ wording を再利用せず、質問レベルに応じて聞き方を変える\n"
-        "- 旧仕様のキーは出力しない"
+        "- 旧仕様のキーは出力しない\n\n"
+        f"{USER_CONTEXT_USAGE_RULES}"
     )
     if evidence_cards_section:
         return f"{base_prompt}\n\n{evidence_cards_section}"
@@ -627,7 +635,8 @@ def _build_motivation_deepdive_system_prompt(
         "- 1弱点につき1質問だけ作る\n"
         "- 通常の slot 補完ではなく、既出内容を前提にした補強質問にする\n"
         "- 新しい論点や新事実を増やさない\n"
-        "- 選択肢の生成には触れない"
+        "- 選択肢の生成には触れない\n\n"
+        f"{USER_CONTEXT_USAGE_RULES}"
     )
 
 
@@ -924,6 +933,7 @@ async def _assemble_regular_next_question_response(
     prep.conversation_context["lastQuestionSignature"] = _question_signature(validated_question)
     prep.conversation_context["lastQuestionSemanticSignature"] = semantic_signature
     prep.conversation_context["lastQuestionMeta"] = {
+        "questionText": validated_question,
         "question_signature": _question_signature(validated_question),
         "semantic_question_signature": semantic_signature,
         "question_stage": stage,

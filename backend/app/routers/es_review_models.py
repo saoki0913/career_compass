@@ -172,7 +172,6 @@ class ReviewRequest(BaseModel):
     content: str
     section_id: Optional[str] = None
     document_id: Optional[str] = None
-    has_company_rag: bool = False
     company_id: Optional[str] = None
     section_title: Optional[str] = None
     section_char_limit: Optional[int] = None
@@ -267,6 +266,7 @@ class ReviewContext:
     reference_quality_profile: dict | None = None
     reference_quality_block: str = ""
     reference_outline_used: bool = False
+    reference_es_mode: str = "quality_profile_only"
 
     # Misc
     generic_role_mode: bool = False

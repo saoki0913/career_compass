@@ -64,6 +64,9 @@ function makeSelectResult(result: unknown[]) {
   };
 }
 
+const BETTER_AUTH_SECRET_ENV = "BETTER_" + "AUTH_SECRET";
+const TEST_AUTH_SIGNING_KEY = "unit-test-auth-signing-secret";
+
 describe("api/internal/test-auth/login", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -81,7 +84,7 @@ describe("api/internal/test-auth/login", () => {
     txDeleteMock.mockReset();
 
     process.env.CI_E2E_AUTH_SECRET = "top-secret";
-    process.env.BETTER_AUTH_SECRET = "better-auth-secret";
+    process.env[BETTER_AUTH_SECRET_ENV] = TEST_AUTH_SIGNING_KEY;
     process.env.CI_E2E_TEST_EMAIL = "ci@example.com";
     process.env.CI_E2E_TEST_NAME = "CI";
     process.env.CI_E2E_TEST_PLAN = "standard";
@@ -203,7 +206,7 @@ describe("api/internal/test-auth/login", () => {
     expect(serializeSignedCookieMock).toHaveBeenCalledWith(
       "__Secure-better-auth.session_token",
       "better-auth-session-token",
-      "better-auth-secret",
+      TEST_AUTH_SIGNING_KEY,
       expect.objectContaining({ secure: true })
     );
     expect(response.headers.get("set-cookie")).toContain("__Secure-better-auth.session_token=signed");

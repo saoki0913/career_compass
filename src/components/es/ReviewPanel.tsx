@@ -755,7 +755,6 @@ export function ReviewPanel({
         sectionTitle: sectionReviewRequest.sectionTitle,
         sectionContent: sectionReviewRequest.sectionContent,
         sectionCharLimit: sectionReviewRequest.sectionCharLimit,
-        hasCompanyRag: companyReviewStatus === "ready_for_es_review",
         companyId,
         templateType: selectedTemplate ?? undefined,
         internName: requiresInternName ? internName || undefined : undefined,

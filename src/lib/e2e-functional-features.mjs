@@ -45,7 +45,9 @@ const FEATURE_CONFIG = {
     browserRequired: true,
     patterns: [
       /^backend\/app\/routers\/gakuchika\.py$/u,
+      /^backend\/app\/evaluators\/draft_quality\.py$/u,
       /^backend\/app\/prompts\/gakuchika[^/]*\.py$/u,
+      /^backend\/app\/prompts\/es_templates\.py$/u,
       /^backend\/app\/normalization\/gakuchika_payload\.py$/u,
       /^backend\/app\/utils\/gakuchika_text\.py$/u,
       /^src\/components\/gakuchika\/.+/u,
@@ -97,7 +99,7 @@ const FEATURE_CONFIG = {
     browserRequired: true,
     patterns: [
       /^backend\/app\/routers\/company_info(?:_search|_candidate_scoring|_scoring|_url_utils)?\.py$/u,
-      /^backend\/app\/utils\/hybrid_search\.py$/u,
+      /^backend\/app\/rag\/.+\.py$/u,
       /^backend\/app\/utils\/bm25_store\.py$/u,
       /^backend\/app\/utils\/reranker\.py$/u,
       /^backend\/app\/utils\/japanese_tokenizer\.py$/u,
@@ -115,7 +117,7 @@ const FEATURE_CONFIG = {
     browserRequired: true,
     patterns: [
       /^backend\/app\/routers\/company_info_(?:ingest_service|rag_service|pdf)\.py$/u,
-      /^backend\/app\/utils\/vector_store\.py$/u,
+      /^backend\/app\/rag\/.+\.py$/u,
       /^backend\/app\/utils\/embeddings\.py$/u,
       /^backend\/app\/utils\/text_chunker\.py$/u,
       /^backend\/tests\/company_info\/integration\/test_live_rag_ingest_report\.py$/u,

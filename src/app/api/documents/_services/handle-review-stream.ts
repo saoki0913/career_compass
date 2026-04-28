@@ -24,6 +24,32 @@ import { prepareReviewStreamContext } from "./review-stream-context";
 const jsonErr = (msg: string, status: number) =>
   new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
 
+function getCompleteResult(event: Record<string, unknown>): Record<string, unknown> | null {
+  const direct = event.result;
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) {
+    return direct as Record<string, unknown>;
+  }
+
+  const data = event.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const nested = (data as Record<string, unknown>).result;
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      return nested as Record<string, unknown>;
+    }
+  }
+
+  return null;
+}
+
+function isValidReviewCompleteEvent(event: Record<string, unknown>): boolean {
+  const result = getCompleteResult(event);
+  if (!result) return false;
+
+  const rewrites = result.rewrites;
+  return Array.isArray(rewrites)
+    && rewrites.some((rewrite) => typeof rewrite === "string" && rewrite.trim().length > 0);
+}
+
 export async function handleReviewStream(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -92,7 +118,17 @@ export async function handleReviewStream(
       clearUpstreamTimeout: upstream.clearTimeout,
       requestId,
       onCostTelemetry: (telemetry) => { latestTelemetry = telemetry ?? latestTelemetry; },
-      onComplete: async () => {
+      onComplete: async (event) => {
+        if (!isValidReviewCompleteEvent(event)) {
+          logOnce("failed", 0);
+          return {
+            cancel: true,
+            replaceEvent: {
+              type: "error",
+              message: "添削結果の形式が不正です。クレジットは消費されません。",
+            },
+          };
+        }
         if (creditConfirmed) return;
         await esReviewStreamPolicy.confirm(
           prepared.billingContext,

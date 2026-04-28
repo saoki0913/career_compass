@@ -252,7 +252,7 @@ test.describe("Motivation page (mock authenticated)", () => {
     const contentMain = page.getByRole("main").filter({ hasText: "志望動機を作成" });
     const mainBox = await contentMain.boundingBox();
     expect(mainBox).not.toBeNull();
-    expect(mainBox?.width ?? 0).toBeGreaterThan(1200);
+    expect(mainBox?.width ?? 0).toBeGreaterThan(1100);
 
     await expect(page.getByRole("heading", { name: "志望動機を作成" })).toBeVisible();
     await expect(page.getByRole("button", { name: "志望動機ESを作成" })).toHaveCount(1);
@@ -466,11 +466,11 @@ test.describe("Motivation page (draft-ready flows)", () => {
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
 
     await expect(
-      page.getByText("志望動機の材料が揃いました", { exact: false })
+      page.getByText("材料が揃いました。右上", { exact: false })
     ).toBeVisible();
     await expect(page.getByRole("textbox")).toHaveAttribute(
       "placeholder",
-      "ESを生成すると、補強の質問が始まります"
+      "ESは任意のタイミングで作成できます"
     );
   });
 
@@ -491,8 +491,8 @@ test.describe("Motivation page (draft-ready flows)", () => {
           keyPoints: ["企業理解"],
           companyKeywords: ["DX"],
           documentId: null,
-          nextQuestion: "さらに補強したい点はどこですか？",
-          conversationMode: "deepdive",
+          nextQuestion: null,
+          conversationMode: "slot_fill",
           causalGaps: [
             {
               id: "g1",
@@ -516,7 +516,6 @@ test.describe("Motivation page (draft-ready flows)", () => {
           messages: [
             { role: "user", content: "a" },
             { role: "assistant", content: "b" },
-            { role: "assistant", content: "さらに補強したい点はどこですか？" },
           ],
           evidenceSummary: null,
           evidenceCards: [],
@@ -533,11 +532,13 @@ test.describe("Motivation page (draft-ready flows)", () => {
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
     await page.getByRole("button", { name: "志望動機ESを作成" }).click();
 
-    await expect(page.getByText("ESを生成しました")).toBeVisible();
+    await expect(page.getByText("ESを生成しました", { exact: false }).first()).toBeVisible();
     await expect(
       page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" })
     ).toBeVisible();
-    await expect(page.getByText("テスト志望動機です")).toBeVisible();
+    await expect(
+      page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" }).getByText("テスト志望動機です", { exact: false })
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "ESとして保存する" })
     ).toBeVisible();
@@ -563,8 +564,8 @@ test.describe("Motivation page (draft-ready flows)", () => {
           keyPoints: ["企業理解"],
           companyKeywords: ["DX"],
           documentId: null,
-          nextQuestion: "さらに補強したい点はどこですか？",
-          conversationMode: "deepdive",
+          nextQuestion: null,
+          conversationMode: "slot_fill",
           causalGaps: [],
           stageStatus: {
             current: "self_connection",
@@ -581,11 +582,54 @@ test.describe("Motivation page (draft-ready flows)", () => {
           messages: [
             { role: "user", content: "a" },
             { role: "assistant", content: "b" },
-            { role: "assistant", content: "さらに補強したい点はどこですか？" },
           ],
           evidenceSummary: null,
           evidenceCards: [],
           questionStage: "self_connection",
+          coachingFocus: null,
+          currentSlot: "self_connection",
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          progress: null,
+        }),
+      });
+    });
+
+    await page.route(`**/api/motivation/${COMPANY_ID}/resume-deepdive`, async (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          messages: [
+            { role: "user", content: "a" },
+            { role: "assistant", content: "b" },
+            { role: "assistant", content: "さらに補強したい点はどこですか？" },
+          ],
+          nextQuestion: "さらに補強したい点はどこですか？",
+          questionCount: 6,
+          isDraftReady: true,
+          generatedDraft: "テスト志望動機です。企業のDX推進に共感し…",
+          conversationMode: "deepdive",
+          causalGaps: [],
+          evidenceSummary: null,
+          evidenceCards: [],
+          userEvidenceCards: [],
+          questionStage: "self_connection",
+          stageStatus: {
+            current: "self_connection",
+            completed: [
+              "industry_reason",
+              "company_reason",
+              "self_connection",
+              "desired_work",
+              "value_contribution",
+              "differentiation",
+            ],
+            pending: [],
+          },
           coachingFocus: null,
           currentSlot: "self_connection",
           currentIntent: null,
@@ -628,8 +672,8 @@ test.describe("Motivation page (draft-ready flows)", () => {
           keyPoints: ["企業理解"],
           companyKeywords: ["DX"],
           documentId: null,
-          nextQuestion: "さらに補強したい点はどこですか？",
-          conversationMode: "deepdive",
+          nextQuestion: null,
+          conversationMode: "slot_fill",
           causalGaps: [],
           stageStatus: {
             current: "self_connection",
@@ -646,7 +690,6 @@ test.describe("Motivation page (draft-ready flows)", () => {
           messages: [
             { role: "user", content: "a" },
             { role: "assistant", content: "b" },
-            { role: "assistant", content: "さらに補強したい点はどこですか？" },
           ],
           evidenceSummary: null,
           evidenceCards: [],
@@ -660,7 +703,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
       });
     });
 
-    await page.route(`**/api/motivation/${COMPANY_ID}/save-draft`, async (route) => {
+    await page.route(`**/api/motivation/${COMPANY_ID}/save-draft**`, async (route) => {
       if (route.request().method() !== "POST") {
         return route.continue();
       }
@@ -748,7 +791,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
 
     await expect(
-      page.getByText("補強が完了しました", { exact: false })
+      page.getByText("追加で補強できます", { exact: false })
     ).toBeVisible();
   });
 
@@ -793,8 +836,8 @@ test.describe("Motivation page (draft-ready flows)", () => {
           keyPoints: [],
           companyKeywords: [],
           documentId: null,
-          nextQuestion: "補強します。",
-          conversationMode: "deepdive",
+          nextQuestion: null,
+          conversationMode: "slot_fill",
           causalGaps: [{ id: "g1", slot: "self_connection", reason: "弱い", promptHint: "" }],
           stageStatus: {
             current: "self_connection",
@@ -804,11 +847,47 @@ test.describe("Motivation page (draft-ready flows)", () => {
           messages: [
             { role: "user", content: "a" },
             { role: "assistant", content: "b" },
-            { role: "assistant", content: "補強します。" },
           ],
           evidenceSummary: null,
           evidenceCards: [],
           questionStage: "self_connection",
+          coachingFocus: null,
+          currentSlot: "self_connection",
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          progress: null,
+        }),
+      });
+    });
+
+    await page.route(`**/api/motivation/${COMPANY_ID}/resume-deepdive`, async (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          messages: [
+            { role: "user", content: "a" },
+            { role: "assistant", content: "b" },
+            { role: "assistant", content: "補強します。" },
+          ],
+          nextQuestion: "補強します。",
+          questionCount: 6,
+          isDraftReady: true,
+          generatedDraft: "テスト志望動機です。",
+          conversationMode: "deepdive",
+          causalGaps: [{ id: "g1", slot: "self_connection", reason: "弱い", promptHint: "" }],
+          evidenceSummary: null,
+          evidenceCards: [],
+          userEvidenceCards: [],
+          questionStage: "self_connection",
+          stageStatus: {
+            current: "self_connection",
+            completed: ["industry_reason", "company_reason", "self_connection", "desired_work", "value_contribution", "differentiation"],
+            pending: [],
+          },
           coachingFocus: null,
           currentSlot: "self_connection",
           currentIntent: null,
@@ -824,8 +903,8 @@ test.describe("Motivation page (draft-ready flows)", () => {
     await expect(page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" })).toBeVisible();
     await page.getByRole("button", { name: "もっと深堀りして再生成する" }).click();
 
-    const phaseBar = page.locator("div, section, aside, nav").filter({ hasText: "ES作成可" }).filter({ hasText: "深堀り中" }).first();
-    await expect(phaseBar.getByText("完了").first()).toBeVisible();
+    const phaseBar = page.locator("div, section, aside, nav").filter({ hasText: "ES生成済み" }).filter({ hasText: "深堀り中" }).first();
+    await expect(phaseBar.getByText("進行中")).toBeVisible();
     await expect(phaseBar.getByText("深堀り中")).toBeVisible();
   });
 

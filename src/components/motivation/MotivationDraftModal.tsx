@@ -32,6 +32,7 @@ interface MotivationDraftModalProps {
   isSaving: boolean;
   onSave: () => void;
   onDeepDive: () => void;
+  onResumeDeepDive: () => void | Promise<void>;
 }
 
 const MOBILE_MEDIA_QUERY = "(max-width: 1023px)";
@@ -95,12 +96,12 @@ const DraftBody = memo(function DraftBody({
 const DraftFooter = memo(function DraftFooter({
   isSaving,
   onSave,
-  onDeepDive,
+  onResumeDeepDive,
   mobile,
 }: {
   isSaving: boolean;
   onSave: () => void;
-  onDeepDive: () => void;
+  onResumeDeepDive: () => void | Promise<void>;
   mobile: boolean;
 }) {
   return (
@@ -129,7 +130,9 @@ const DraftFooter = memo(function DraftFooter({
         <Button
           variant="outline"
           className="rounded-full"
-          onClick={onDeepDive}
+          onClick={() => {
+            void onResumeDeepDive();
+          }}
           disabled={isSaving}
         >
           もっと深堀りして再生成する
@@ -150,6 +153,7 @@ export const MotivationDraftModal = memo(function MotivationDraftModal({
   isSaving,
   onSave,
   onDeepDive,
+  onResumeDeepDive,
 }: MotivationDraftModalProps) {
   const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY);
 
@@ -176,7 +180,7 @@ export const MotivationDraftModal = memo(function MotivationDraftModal({
           <DraftFooter
             isSaving={isSaving}
             onSave={onSave}
-            onDeepDive={onDeepDive}
+            onResumeDeepDive={onResumeDeepDive}
             mobile
           />
         </SheetContent>
@@ -189,7 +193,7 @@ export const MotivationDraftModal = memo(function MotivationDraftModal({
       open={isOpen}
       onOpenChange={(open) => { if (!open) onDeepDive(); }}
     >
-      <DialogContent className="flex max-h-[min(85vh,840px)] max-w-4xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
+      <DialogContent className="flex max-h-[min(90vh,900px)] max-w-5xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
         <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4">
           <DialogTitle className="text-xl">{title}</DialogTitle>
           <DialogDescription className="mt-2 text-base leading-snug text-muted-foreground">
@@ -200,7 +204,7 @@ export const MotivationDraftModal = memo(function MotivationDraftModal({
         <DraftFooter
           isSaving={isSaving}
           onSave={onSave}
-          onDeepDive={onDeepDive}
+          onResumeDeepDive={onResumeDeepDive}
           mobile={false}
         />
       </DialogContent>

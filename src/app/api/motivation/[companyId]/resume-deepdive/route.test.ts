@@ -21,6 +21,8 @@ const {
   resolveMotivationInputsMock,
   isMotivationSetupCompleteMock,
   fetchMotivationApplicationJobCandidatesMock,
+  fetchProfileContextMock,
+  fetchGakuchikaContextMock,
 } = vi.hoisted(() => ({
   dbUpdateMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
@@ -41,6 +43,8 @@ const {
   resolveMotivationInputsMock: vi.fn(),
   isMotivationSetupCompleteMock: vi.fn(),
   fetchMotivationApplicationJobCandidatesMock: vi.fn(),
+  fetchProfileContextMock: vi.fn(),
+  fetchGakuchikaContextMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -99,6 +103,16 @@ vi.mock("@/lib/llm-cost-limit", () => ({
 
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
+  fetchFastApiWithPrincipal: fetchFastApiInternalMock,
+}));
+
+vi.mock("@/lib/ai/user-context", () => ({
+  fetchProfileContext: fetchProfileContextMock,
+  fetchGakuchikaContext: fetchGakuchikaContextMock,
+}));
+
+vi.mock("@/lib/server/loader-helpers", () => ({
+  getViewerPlan: vi.fn().mockResolvedValue("standard"),
 }));
 
 vi.mock("@/lib/motivation/motivation-input-resolver", () => ({
@@ -156,6 +170,8 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     resolveMotivationInputsMock.mockReset();
     isMotivationSetupCompleteMock.mockReset();
     fetchMotivationApplicationJobCandidatesMock.mockReset();
+    fetchProfileContextMock.mockReset();
+    fetchGakuchikaContextMock.mockReset();
     vi.restoreAllMocks();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
@@ -194,6 +210,8 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     });
     isMotivationSetupCompleteMock.mockReturnValue(true);
     fetchMotivationApplicationJobCandidatesMock.mockResolvedValue([]);
+    fetchProfileContextMock.mockResolvedValue(null);
+    fetchGakuchikaContextMock.mockResolvedValue([]);
     buildMotivationConversationPayloadMock.mockImplementation((args) => ({
       nextQuestion: args?.messages?.at(-1)?.content ?? null,
       isDraftReady: args?.isDraftReady ?? false,
@@ -300,7 +318,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
 
   it("returns 503 when FastAPI fails", async () => {
     fetchFastApiInternalMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ detail: "Service Unavailable" }), {
+      new Response(JSON.stringify({ detail: "tenant key is not configured" }), {
         status: 503,
         headers: { "Content-Type": "application/json" },
       }),
@@ -322,7 +340,66 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     });
 
     expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error.code).toBe("FASTAPI_TENANT_KEY_NOT_CONFIGURED");
+    expect(body.error.llmErrorType).toBe("tenant_key_not_configured");
+    expect(body.error.userMessage).toBe("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。");
     expect(reserveCreditsMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves FastAPI 429 status for concurrency errors", async () => {
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: { code: "sse_concurrency_exceeded", limit: 1 } }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(429);
+    const body = await response.json();
+    expect(body.error.code).toBe("AI_STREAM_CONCURRENCY_EXCEEDED");
+    expect(body.error.retryable).toBe(true);
+  });
+
+  it("returns structured 503 when principal secret is missing", async () => {
+    fetchFastApiInternalMock.mockRejectedValueOnce(
+      new Error("CAREER_PRINCIPAL_HMAC_SECRET is not configured"),
+    );
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error.code).toBe("FASTAPI_SECRET_NOT_CONFIGURED");
+    expect(body.error.userMessage).toBe("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。");
   });
 
   it("returns 429 when deepdiveResumeCount exceeds limit", async () => {

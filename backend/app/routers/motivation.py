@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -16,9 +16,14 @@ from app.prompts.es_templates import (
     get_company_honorific,
 )
 from app.prompts.reference_es import build_reference_quality_block
-from app.security.career_principal import CareerPrincipal, require_career_principal
+from app.security.career_principal import (
+    CareerPrincipal,
+    require_career_principal,
+    require_tenant_key,
+)
 from app.security.sse_concurrency import SseConcurrencyExceeded, SseLease
 from app.utils.es_draft_text import normalize_es_draft_single_paragraph
+from app.utils import llm_model_routing
 from app.utils.llm import (
     call_llm_with_error,
     consume_request_llm_cost_summary,
@@ -31,18 +36,12 @@ from app.routers.motivation_summarize import (
     maybe_summarize_older_messages,
 )
 from app.routers.motivation_models import (
-    DeepDiveGap,
-    EvidenceCard,
     GenerateDraftFromProfileRequest,
     GenerateDraftRequest,
     GenerateDraftResponse,
     Message,
-    MotivationEvaluation,
-    MotivationScores,
-    MotivationScoresInput,
     NextQuestionRequest,
     NextQuestionResponse,
-    StageStatus,
 )
 from app.routers.motivation_sanitizers import (
     format_conversation as _format_conversation,
@@ -139,6 +138,67 @@ router = APIRouter(prefix="/api/motivation", tags=["motivation"])
 logger = get_logger(__name__)
 
 
+def _motivation_question_error_type(error_type: str | None) -> str:
+    if error_type == "parse":
+        return "question_parse_failure"
+    return "question_provider_failure"
+
+
+def _motivation_question_parse_fallback_model(provider: str) -> str | None:
+    if provider not in ("anthropic", "openai", "google"):
+        return None
+
+    fallback_model = llm_model_routing._feature_cross_fallback_model("motivation", provider)
+    if fallback_model:
+        return fallback_model
+
+    primary_model = llm_model_routing.get_model_config().get("motivation", "")
+    if (
+        provider == "anthropic"
+        and llm_model_routing._capability_class(primary_model) == "haiku_tier"
+        and llm_model_routing._provider_has_api_key("anthropic")
+    ):
+        return "claude-sonnet"
+
+    return None
+
+
+async def _retry_motivation_question_parse_fallback(
+    *,
+    llm_result: Any,
+    prompt: str,
+    user_message: str,
+    messages: list[dict] | None,
+) -> Any:
+    error = getattr(llm_result, "error", None)
+    if getattr(error, "error_type", None) != "parse":
+        return llm_result
+
+    provider = getattr(error, "provider", "anthropic")
+    fallback_model = _motivation_question_parse_fallback_model(provider)
+    if not fallback_model:
+        return llm_result
+
+    logger.warning(
+        "[Motivation] question parse failure; retrying with fallback model %s",
+        fallback_model,
+    )
+    retry_result = await call_llm_with_error(
+        system_prompt=prompt,
+        user_message=user_message,
+        messages=messages,
+        max_tokens=700,
+        temperature=0.4,
+        model=fallback_model,
+        feature="motivation",
+        retry_on_parse=True,
+        disable_fallback=True,
+    )
+    if retry_result.success and retry_result.data:
+        return retry_result
+    return llm_result
+
+
 @router.post("/evaluate")
 @limiter.limit("60/minute")
 async def evaluate_motivation_endpoint(payload: NextQuestionRequest, request: Request) -> dict:
@@ -148,7 +208,11 @@ async def evaluate_motivation_endpoint(payload: NextQuestionRequest, request: Re
 
 @router.post("/next-question", response_model=NextQuestionResponse)
 @limiter.limit("60/minute")
-async def get_next_question(payload: NextQuestionRequest, request: Request):
+async def get_next_question(
+    payload: NextQuestionRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("ai-stream")),
+):
     request = payload
     if not request.company_name:
         raise HTTPException(status_code=400, detail="企業名が指定されていません")
@@ -157,13 +221,17 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
+    if request.company_id and principal.company_id != request.company_id:
+        raise HTTPException(status_code=403, detail="career principal company_id mismatch")
+    tenant_key = require_tenant_key(principal) if request.company_id else None
+
     trimmed_messages, summary_text = await maybe_summarize_older_messages(
         request.conversation_history,
         request.conversation_context,
         company_name=request.company_name,
     )
 
-    prep = await _prepare_motivation_next_question(request)
+    prep = await _prepare_motivation_next_question(request, tenant_key=tenant_key)
     if prep.is_complete and not prep.was_draft_ready:
         return _build_draft_ready_unlock_response(prep=prep)
     if prep.is_complete:
@@ -190,14 +258,22 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
         retry_on_parse=True,
         disable_fallback=True,
     )
+    llm_result = await _retry_motivation_question_parse_fallback(
+        llm_result=llm_result,
+        prompt=prompt,
+        user_message=user_message,
+        messages=messages,
+    )
 
     if not llm_result.success:
         error = llm_result.error
+        upstream_error_type = error.error_type if error else None
         raise HTTPException(
             status_code=503,
             detail={
                 "error": error.message if error else "AIサービスに接続できませんでした。",
-                "error_type": error.error_type if error else "unknown",
+                "error_type": _motivation_question_error_type(upstream_error_type),
+                "upstream_error_type": upstream_error_type or "unknown",
             },
         )
 
@@ -205,7 +281,10 @@ async def get_next_question(payload: NextQuestionRequest, request: Request):
     if not data or not data.get("question"):
         raise HTTPException(
             status_code=503,
-            detail={"error": "AIから有効な質問を取得できませんでした。"},
+            detail={
+                "error": "AIから有効な質問を取得できませんでした。",
+                "error_type": "question_parse_failure",
+            },
         )
 
     return await _assemble_regular_next_question_response(request=request, prep=prep, data=data)
@@ -224,7 +303,7 @@ async def get_next_question_stream(
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    if request.company_id and principal.company_id and principal.company_id != request.company_id:
+    if request.company_id and principal.company_id != request.company_id:
         raise HTTPException(status_code=403, detail="career principal company_id mismatch")
 
     from app.routers.motivation_streaming import (
@@ -243,9 +322,14 @@ async def get_next_question_stream(
             headers={"Retry-After": str(exc.rejection.retry_after_seconds)},
         )
 
+    tenant_key = require_tenant_key(principal) if request.company_id else None
+
     async def _stream_with_lease() -> AsyncGenerator[str, None]:
         async with lease:
-            async for chunk in _generate_next_question_progress_canonical(request):
+            async for chunk in _generate_next_question_progress_canonical(
+                request,
+                tenant_key=tenant_key,
+            ):
                 await lease.heartbeat_if_due()
                 yield chunk
 
@@ -262,7 +346,11 @@ async def get_next_question_stream(
 
 @router.post("/generate-draft", response_model=GenerateDraftResponse)
 @limiter.limit("60/minute")
-async def generate_draft(payload: GenerateDraftRequest, request: Request):
+async def generate_draft(
+    payload: GenerateDraftRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     request = payload
     if not request.conversation_history:
         raise HTTPException(status_code=400, detail="会話履歴がありません")
@@ -278,7 +366,13 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
         None,
         company_name=request.company_name,
     )
-    company_context, company_sources = await _get_company_context(request.company_id)
+    if principal.company_id != request.company_id:
+        raise HTTPException(status_code=403, detail="career principal company_id mismatch")
+    tenant_key = require_tenant_key(principal)
+    company_context, company_sources = await _get_company_context(
+        request.company_id,
+        tenant_key=tenant_key,
+    )
     conversation_text = _format_conversation(trimmed_messages)
     if summary_text:
         conversation_text = f"【会話前半の要約】\n{summary_text}\n\n{conversation_text}"
@@ -488,7 +582,11 @@ async def generate_draft(payload: GenerateDraftRequest, request: Request):
 
 @router.post("/generate-draft-from-profile", response_model=GenerateDraftResponse)
 @limiter.limit("60/minute")
-async def generate_draft_from_profile(payload: GenerateDraftFromProfileRequest, request: Request):
+async def generate_draft_from_profile(
+    payload: GenerateDraftFromProfileRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     request = payload
     role = (request.selected_role or "").strip()
     if not role:
@@ -500,7 +598,13 @@ async def generate_draft_from_profile(payload: GenerateDraftFromProfileRequest, 
     except PromptSafetyError:
         raise _prompt_safety_http_error()
 
-    company_context, company_sources = await _get_company_context(request.company_id)
+    if principal.company_id != request.company_id:
+        raise HTTPException(status_code=403, detail="career principal company_id mismatch")
+    tenant_key = require_tenant_key(principal)
+    company_context, company_sources = await _get_company_context(
+        request.company_id,
+        tenant_key=tenant_key,
+    )
     char_min = int(request.char_limit * 0.9)
     profile_section = _format_profile_for_prompt(request.profile_context)
     gakuchika_section = _format_gakuchika_for_prompt(request.gakuchika_context)

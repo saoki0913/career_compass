@@ -25,10 +25,12 @@ import {
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
 import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
+import { buildMotivationUserEvidenceCards } from "@/lib/motivation/conversation-payload";
 import {
   buildMotivationOwnerCondition,
   getOwnedMotivationCompanyData,
@@ -140,9 +142,18 @@ export async function POST(
       char_limit: charLimit,
     });
 
-    let response = await fetchFastApiInternal("/api/motivation/generate-draft", {
+    const principalPlan = await getViewerPlan(identity);
+    const principal = {
+      scope: "company" as const,
+      actor: userId ? { kind: "user" as const, id: userId } : { kind: "guest" as const, id: guestId! },
+      companyId,
+      plan: principalPlan,
+    };
+
+    let response = await fetchFastApiWithPrincipal("/api/motivation/generate-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+      principal,
       body: fastApiBody,
     });
 
@@ -151,9 +162,10 @@ export async function POST(
       if (response.ok) break;
       if (response.status !== 502 && response.status !== 503) break;
       await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[r]));
-      response = await fetchFastApiInternal("/api/motivation/generate-draft", {
+      response = await fetchFastApiWithPrincipal("/api/motivation/generate-draft", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+        principal,
         body: fastApiBody,
       });
     }
@@ -238,6 +250,7 @@ export async function POST(
       companyKeywords: data.company_keywords,
       documentId: null,
       nextQuestion: null,
+      userEvidenceCards: buildMotivationUserEvidenceCards(conversationContext),
       messages,
     });
   } catch (error) {

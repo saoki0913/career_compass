@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { fetchGakuchikaContext, fetchProfileContext } from "@/lib/ai/user-context";
 import { motivationStreamPolicy } from "@/lib/api-route/billing/motivation-stream-policy";
 import { STREAM_FEATURE_CONFIGS } from "@/lib/fastapi/stream-config";
@@ -6,6 +7,7 @@ import {
   createConfiguredSSEProxyResponse,
   fetchConfiguredUpstreamSSE,
 } from "@/lib/fastapi/stream-pipeline";
+import { buildFastApiErrorResponseOptions } from "@/lib/server/fastapi-detail-message";
 import { type Message, safeParseConversationContext as parseConversationContext, safeParseMessages, safeParseScores } from "@/lib/motivation/conversation";
 import { getMotivationConversationByCondition as getConversationByCondition } from "@/lib/motivation/conversation-store";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
@@ -34,8 +36,21 @@ import {
   type MotivationStreamCompleteData,
 } from "./stream-service";
 
-const jsonErr = (msg: string, status: number) =>
-  new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
+const apiErr = (
+  request: NextRequest,
+  status: number,
+  code: string,
+  userMessage: string,
+  action?: string,
+  retryable = false,
+) =>
+  createApiErrorResponse(request, {
+    status,
+    code,
+    userMessage,
+    action,
+    retryable,
+  });
 
 export async function POST(
   request: NextRequest,
@@ -45,9 +60,9 @@ export async function POST(
     const { companyId } = await params;
     const requestId = getRequestId(request);
     const identity = await getRequestIdentity(request);
-    if (!identity) return jsonErr("認証が必要です", 401);
+    if (!identity) return apiErr(request, 401, "MOTIVATION_STREAM_AUTH_REQUIRED", "認証が必要です");
     const { userId, guestId } = identity;
-    if (!userId) return jsonErr("志望動機のAI支援はログインが必要です", 401);
+    if (!userId) return apiErr(request, 401, "MOTIVATION_STREAM_AUTH_REQUIRED", "志望動機のAI支援はログインが必要です");
 
     const limitResponse = await guardDailyTokenLimit(identity);
     if (limitResponse) return limitResponse;
@@ -56,15 +71,17 @@ export async function POST(
 
     const body = await request.json();
     const { answer } = body;
-    if (!answer || typeof answer !== "string" || !answer.trim()) return jsonErr("回答を入力してください", 400);
+    if (!answer || typeof answer !== "string" || !answer.trim()) {
+      return apiErr(request, 400, "MOTIVATION_STREAM_EMPTY_ANSWER", "回答を入力してください");
+    }
 
     const company = await getOwnedMotivationCompanyData(companyId, identity);
-    if (!company) return jsonErr("企業が見つかりません", 404);
+    if (!company) return apiErr(request, 404, "MOTIVATION_COMPANY_NOT_FOUND", "企業が見つかりません");
 
     const conversation = await getConversationByCondition(
       buildMotivationOwnerCondition(companyId, userId, guestId),
     );
-    if (!conversation) return jsonErr("会話が見つかりません", 404);
+    if (!conversation) return apiErr(request, 404, "MOTIVATION_CONVERSATION_NOT_FOUND", "会話が見つかりません");
 
     const messages = safeParseMessages(conversation.messages);
     const currentQuestionCount = conversation.questionCount ?? 0;
@@ -78,9 +95,9 @@ export async function POST(
     );
 
     if (!isMotivationSetupComplete(resolvedInputs.conversationContext, resolvedInputs.requiresIndustrySelection)) {
-      return jsonErr("先に業界・職種の設定を完了してください", 400);
+      return apiErr(request, 400, "MOTIVATION_SETUP_INCOMPLETE", "先に業界・職種の設定を完了してください");
     }
-    if (messages.length === 0) return jsonErr("先に質問を開始してください", 400);
+    if (messages.length === 0) return apiErr(request, 400, "MOTIVATION_CONVERSATION_NOT_STARTED", "先に質問を開始してください");
 
     const shouldConsumeCredit = !!userId;
     const billingContext = { userId: userId!, newQuestionCount, companyId };
@@ -121,10 +138,25 @@ export async function POST(
     } catch (fetchError) {
       logAiCreditCostSummary({ feature: "motivation", requestId, status: "failed", creditsUsed: 0, telemetry: null });
       if (isSecretMissingError(fetchError)) {
-        return jsonErr("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。", 503);
+        return createApiErrorResponse(request, {
+          status: 503,
+          code: "FASTAPI_SECRET_NOT_CONFIGURED",
+          userMessage: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。",
+          action: "管理側で AI 認証設定を確認してから、もう一度お試しください。",
+          error: fetchError,
+          logContext: "motivation-conversation-stream:secret",
+        });
       }
       const s = fetchError instanceof Error && fetchError.name === "AbortError" ? 504 : 502;
-      return jsonErr(s === 504 ? "AIの応答がタイムアウトしました。再度お試しください。" : "AIサービスに接続できませんでした", s);
+      return createApiErrorResponse(request, {
+        status: s,
+        code: s === 504 ? "FASTAPI_TIMEOUT" : "MOTIVATION_CONVERSATION_STREAM_FAILED",
+        userMessage: s === 504 ? "AIの応答がタイムアウトしました。再度お試しください。" : "AIサービスに接続できませんでした",
+        action: "時間をおいて、もう一度お試しください。",
+        retryable: true,
+        error: fetchError,
+        logContext: "motivation-conversation-stream:fetch",
+      });
     }
 
     if (!upstream.response.ok) {
@@ -134,10 +166,16 @@ export async function POST(
         ? splitInternalTelemetry(raw as Record<string, unknown>)
         : { payload: raw, telemetry: null as InternalCostTelemetry | null };
       logAiCreditCostSummary({ feature: "motivation", requestId, status: "failed", creditsUsed: 0, telemetry });
-      return jsonErr(
-        (payload as { detail?: { error?: string } } | null)?.detail?.error || "AIサービスに接続できませんでした",
-        upstream.response.status,
-      );
+      return createApiErrorResponse(request, {
+        ...buildFastApiErrorResponseOptions({
+          status: upstream.response.status,
+          payload,
+          defaultCode: "MOTIVATION_CONVERSATION_STREAM_FAILED",
+          defaultUserMessage: "AIサービスに接続できませんでした",
+          defaultAction: "時間をおいて、もう一度お試しください。",
+        }),
+        logContext: "motivation-conversation-stream:fastapi",
+      });
     }
 
     let latestTelemetry: InternalCostTelemetry | null = null;
@@ -185,7 +223,13 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error("Error in motivation stream:", error);
-    return jsonErr("Internal server error", 500);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "MOTIVATION_CONVERSATION_STREAM_INTERNAL_ERROR",
+      userMessage: "ストリーミング処理中にエラーが発生しました。",
+      action: "時間をおいて、もう一度お試しください。",
+      error,
+      logContext: "motivation-conversation-stream",
+    });
   }
 }

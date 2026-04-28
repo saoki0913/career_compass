@@ -76,6 +76,15 @@ vi.mock("@/lib/es-review/es-document-section-titles", () => ({
   buildGakuchikaEsSectionTitle: vi.fn(() => "ガクチカ"),
 }));
 
+vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+  guardDailyTokenLimit: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@/lib/llm-cost-limit", () => ({
+  computeTotalTokens: vi.fn(() => 0),
+  incrementDailyTokenCount: vi.fn(),
+}));
+
 describe("api/gakuchika/[id]/generate-es-draft", () => {
   beforeEach(() => {
     dbSelectMock.mockReset();

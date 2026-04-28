@@ -88,6 +88,11 @@ export interface ConversationState {
    * 値がある場合、UI は `missingElements.length` などの client heuristic より優先する。
    */
   remainingQuestionsEstimate: number | null;
+  /**
+   * draft_ready / interview_ready で入力を一時停止しても、LLM が返した
+   * 次の深掘り質問を会話内に残すための表示用テキスト。
+   */
+  pausedQuestion: string | null;
 }
 
 export const BUILD_TRACK_KEYS: Array<Extract<BuildElement, "context" | "task" | "action" | "result">> = [
@@ -140,6 +145,7 @@ export function getDefaultConversationState(): ConversationState {
     extendedDeepDiveRound: 0,
     coachProgressMessage: null,
     remainingQuestionsEstimate: null,
+    pausedQuestion: null,
   };
 }
 
@@ -294,6 +300,7 @@ function parseLegacyState(value: Record<string, unknown>, status: string | null 
     extendedDeepDiveRound: 0,
     coachProgressMessage: null,
     remainingQuestionsEstimate: status === "completed" ? 0 : null,
+    pausedQuestion: null,
   };
 }
 
@@ -308,6 +315,7 @@ export function safeParseConversationState(json: string | null, status?: string 
           resolvedFocuses: ["context", "task", "action", "result"],
           deferredFocuses: ["learning"],
           remainingQuestionsEstimate: 0,
+          pausedQuestion: null,
         }
       : getDefaultConversationState();
   }
@@ -361,6 +369,7 @@ export function safeParseConversationState(json: string | null, status?: string 
       remainingQuestionsEstimate: normalizeRemainingQuestionsEstimate(
         parsed.remaining_questions_estimate ?? parsed.remainingQuestionsEstimate,
       ),
+      pausedQuestion: normalizeString(parsed.paused_question ?? parsed.pausedQuestion),
     };
   } catch {
     return getDefaultConversationState();
@@ -399,6 +408,7 @@ export function serializeConversationState(state: ConversationState): string {
     extended_deep_dive_round: state.extendedDeepDiveRound,
     coach_progress_message: state.coachProgressMessage,
     remaining_questions_estimate: state.remainingQuestionsEstimate,
+    paused_question: state.pausedQuestion,
   });
 }
 
@@ -438,6 +448,9 @@ export function buildConversationStatePatch(
     remainingQuestionsEstimate: Object.prototype.hasOwnProperty.call(patch, "remainingQuestionsEstimate")
       ? (patch.remainingQuestionsEstimate ?? null)
       : current.remainingQuestionsEstimate,
+    pausedQuestion: Object.prototype.hasOwnProperty.call(patch, "pausedQuestion")
+      ? (patch.pausedQuestion ?? null)
+      : current.pausedQuestion,
   };
 }
 

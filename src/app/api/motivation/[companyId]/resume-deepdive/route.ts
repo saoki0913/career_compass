@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -32,8 +33,12 @@ import {
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
+import { buildFastApiErrorResponseOptions } from "@/lib/server/fastapi-detail-message";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
+import { fetchGakuchikaContext, fetchProfileContext } from "@/lib/ai/user-context";
 import {
   buildMotivationOwnerCondition,
   getOwnedMotivationCompanyData,
@@ -68,6 +73,22 @@ interface FollowUpQuestionResponse {
   captured_context?: Record<string, unknown> | null;
 }
 
+const apiErr = (
+  request: NextRequest,
+  status: number,
+  code: string,
+  userMessage: string,
+  action?: string,
+  retryable = false,
+) =>
+  createApiErrorResponse(request, {
+    status,
+    code,
+    userMessage,
+    action,
+    retryable,
+  });
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ companyId: string }> }
@@ -76,16 +97,13 @@ export async function POST(
   const requestId = getRequestId(request);
   const identity = await getRequestIdentity(request);
   if (!identity) {
-    return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
+    return apiErr(request, 401, "MOTIVATION_RESUME_AUTH_REQUIRED", "認証が必要です");
   }
 
   const { userId, guestId } = identity;
 
   if (!userId) {
-    return NextResponse.json(
-      { error: "志望動機の深掘り再開はログインが必要です" },
-      { status: 401 },
-    );
+    return apiErr(request, 401, "MOTIVATION_RESUME_AUTH_REQUIRED", "志望動機の深掘り再開はログインが必要です");
   }
 
   // Rate limit (lighter than draft generation — use conversation-level layers)
@@ -106,7 +124,7 @@ export async function POST(
   // Get company
   const company = await getOwnedMotivationCompanyData(companyId, identity);
   if (!company) {
-    return NextResponse.json({ error: "企業が見つかりません" }, { status: 404 });
+    return apiErr(request, 404, "MOTIVATION_COMPANY_NOT_FOUND", "企業が見つかりません");
   }
 
   // Get conversation
@@ -114,34 +132,61 @@ export async function POST(
     buildMotivationOwnerCondition(companyId, userId, guestId),
   );
   if (!conversation) {
-    return NextResponse.json({ error: "会話が見つかりません" }, { status: 404 });
+    return apiErr(request, 404, "MOTIVATION_CONVERSATION_NOT_FOUND", "会話が見つかりません");
   }
 
   // Validate: a draft must already exist (this endpoint recovers a failed follow-up)
   if (!conversation.generatedDraft) {
-    return NextResponse.json(
-      { error: "ES下書きがまだ生成されていません。先にES生成を行ってください。" },
-      { status: 409 },
+    return apiErr(
+      request,
+      409,
+      "MOTIVATION_DRAFT_NOT_GENERATED",
+      "ES下書きがまだ生成されていません。先にES生成を行ってください。",
     );
   }
 
   const messages = safeParseMessages(conversation.messages);
   const conversationContext = safeParseConversationContext(conversation.conversationContext ?? null);
+  const profileContext = await fetchProfileContext(userId);
+  const gakuchikaContext = await fetchGakuchikaContext(userId);
+  let applicationJobCandidatesForPrompt: string[] = [];
+  try {
+    applicationJobCandidatesForPrompt = await fetchMotivationApplicationJobCandidates(
+      companyId,
+      userId,
+      guestId,
+    );
+  } catch (error) {
+    logError("resume-deepdive:prompt-application-job-candidates", error, {
+      companyId,
+      userId: userId ?? undefined,
+      guestId: guestId ?? undefined,
+    });
+  }
 
   const MAX_DEEPDIVE_RESUMES = 3;
   const resumeCount = conversationContext.deepdiveResumeCount ?? 0;
   if (resumeCount >= MAX_DEEPDIVE_RESUMES) {
-    return NextResponse.json(
-      { error: `深掘り再開は1回のES生成につき${MAX_DEEPDIVE_RESUMES}回までです。` },
-      { status: 429 },
+    return apiErr(
+      request,
+      429,
+      "MOTIVATION_RESUME_LIMIT_EXCEEDED",
+      `深掘り再開は1回のES生成につき${MAX_DEEPDIVE_RESUMES}回までです。`,
     );
   }
 
   try {
     // Call FastAPI for follow-up question
-    const followUpResponse = await fetchFastApiInternal("/api/motivation/next-question", {
+    const principalPlan = await getViewerPlan(identity);
+    const followUpResponse = await fetchFastApiWithPrincipal("/api/motivation/next-question", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
+      principal: {
+        scope: "ai-stream",
+        actor: userId ? { kind: "user", id: userId } : { kind: "guest", id: guestId! },
+        companyId,
+        plan: principalPlan,
+      },
       body: JSON.stringify({
         company_id: company.id,
         company_name: company.name,
@@ -153,21 +198,35 @@ export async function POST(
           ...conversationContext,
           draftReady: true,
         },
+        profile_context: profileContext,
+        gakuchika_context: gakuchikaContext.length > 0 ? gakuchikaContext : null,
+        application_job_candidates:
+          applicationJobCandidatesForPrompt.length > 0 ? applicationJobCandidatesForPrompt : null,
       }),
     });
 
     if (!followUpResponse.ok) {
+      const rawError = await followUpResponse.json().catch(() => ({}));
+      const { payload: errorPayload, telemetry } = rawError && typeof rawError === "object"
+        ? splitInternalTelemetry(rawError as Record<string, unknown>)
+        : { payload: rawError, telemetry: null };
       logAiCreditCostSummary({
         feature: "motivation_resume_deepdive",
         requestId,
         status: "failed",
         creditsUsed: 0,
-        telemetry: null,
+        telemetry,
       });
-      return NextResponse.json(
-        { error: "深掘り質問の取得に失敗しました" },
-        { status: 503 },
-      );
+      return createApiErrorResponse(request, {
+        ...buildFastApiErrorResponseOptions({
+          status: followUpResponse.status,
+          payload: errorPayload,
+          defaultCode: "MOTIVATION_RESUME_DEEPDIVE_FAILED",
+          defaultUserMessage: "深掘り質問の取得に失敗しました",
+          defaultAction: "時間をおいて、もう一度お試しください。",
+        }),
+        logContext: "motivation-resume-deepdive:fastapi",
+      });
     }
 
     const rawFollowUp = await followUpResponse.json();
@@ -182,10 +241,15 @@ export async function POST(
         creditsUsed: 0,
         telemetry,
       });
-      return NextResponse.json(
-        { error: "深掘り質問を生成できませんでした" },
-        { status: 503 },
-      );
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "MOTIVATION_RESUME_DEEPDIVE_EMPTY_QUESTION",
+        userMessage: "深掘り質問を生成できませんでした",
+        action: "時間をおいて、もう一度お試しください。",
+        retryable: true,
+        llmErrorType: "question_parse_failure",
+        logContext: "motivation-resume-deepdive:empty-question",
+      });
     }
 
     // Extract follow-up fields
@@ -277,24 +341,10 @@ export async function POST(
     };
     const scores = safeParseScores(conversation.motivationScores);
     const evidenceCardsFromDb = safeParseEvidenceCards(evidenceCards);
-    let applicationJobCandidates: string[] = [];
-    try {
-      applicationJobCandidates = await fetchMotivationApplicationJobCandidates(
-        companyId,
-        userId,
-        guestId,
-      );
-    } catch (error) {
-      logError("resume-deepdive:application-job-candidates", error, {
-        companyId,
-        userId: userId ?? undefined,
-        guestId: guestId ?? undefined,
-      });
-    }
     const resolvedInputs = resolveMotivationInputs(
       { id: company.id, name: company.name, industry: company.industry },
       updatedConversationContext,
-      applicationJobCandidates,
+      applicationJobCandidatesForPrompt,
     );
     const mergedConversationContext = resolvedInputs.conversationContext;
     const setupComplete = isMotivationSetupComplete(
@@ -335,7 +385,10 @@ export async function POST(
       ...payload,
     });
   } catch (error) {
-    logError("motivation-resume-deepdive", error, { companyId, userId, requestId });
+    const secretMissing = isSecretMissingError(error);
+    if (!secretMissing) {
+      logError("motivation-resume-deepdive", error, { companyId, userId, requestId });
+    }
     logAiCreditCostSummary({
       feature: "motivation_resume_deepdive",
       requestId,
@@ -343,9 +396,24 @@ export async function POST(
       creditsUsed: 0,
       telemetry: null,
     });
-    return NextResponse.json(
-      { error: "深掘り再開中にエラーが発生しました" },
-      { status: 503 },
-    );
+    if (secretMissing) {
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "FASTAPI_SECRET_NOT_CONFIGURED",
+        userMessage: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。",
+        action: "管理側で AI 認証設定を確認してから、もう一度お試しください。",
+        error,
+        logContext: "motivation-resume-deepdive:secret",
+      });
+    }
+    return createApiErrorResponse(request, {
+      status: 503,
+      code: "MOTIVATION_RESUME_DEEPDIVE_FAILED",
+      userMessage: "深掘り再開中にエラーが発生しました",
+      action: "時間をおいて、もう一度お試しください。",
+      retryable: true,
+      error,
+      logContext: "motivation-resume-deepdive",
+    });
   }
 }

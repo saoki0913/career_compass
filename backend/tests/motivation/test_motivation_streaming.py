@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from app.routers.motivation import NextQuestionRequest
 from app.routers.motivation_streaming import _generate_next_question_progress
@@ -94,3 +95,102 @@ async def test_streaming_emits_only_final_canonical_question(
     # D-1 (P2-8): 選択型/機械的ペアリングを撤廃したフォールバック候補の 1 つ目
     assert canonical_question == "株式会社テストの事業や取り組みで、気になっている点はありますか？"
     assert canonical_question
+
+
+@pytest.mark.asyncio
+async def test_streaming_http_exception_error_event_includes_error_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_prepare(*args, **kwargs):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "tenant key is not configured",
+                "error_type": "tenant_key_not_configured",
+            },
+        )
+
+    monkeypatch.setattr("app.routers.motivation_pipeline._prepare_motivation_next_question", fake_prepare)
+
+    request = NextQuestionRequest(
+        company_id="company_test",
+        company_name="株式会社テスト",
+        industry="IT・通信",
+        conversation_history=[],
+        question_count=0,
+        conversation_context={},
+    )
+
+    events: list[dict] = []
+    async for payload in _generate_next_question_progress(request, tenant_key=None):
+        events.append(json.loads(payload.removeprefix("data: ").strip()))
+
+    error_events = [event for event in events if event["type"] == "error"]
+    assert error_events
+    assert error_events[0]["message"] == "tenant key is not configured"
+    assert error_events[0]["error_type"] == "tenant_key_not_configured"
+    assert error_events[0]["status_code"] == 503
+
+
+@pytest.mark.asyncio
+async def test_streaming_llm_error_event_uses_stable_question_error_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_company_context(*args, **kwargs):
+        return "", []
+
+    async def fake_evaluate(*args, **kwargs):
+        return {
+            "evaluation_status": "ok",
+            "scores": {
+                "company_understanding": 32,
+                "self_analysis": 28,
+                "career_vision": 24,
+                "differentiation": 20,
+            },
+            "weakest_element": "company_understanding",
+            "is_complete": False,
+            "missing_aspects": {},
+            "risk_flags": [],
+        }
+
+    async def fake_stream(*args, **kwargs):
+        yield SimpleNamespace(
+            type="error",
+            result=SimpleNamespace(
+                error=SimpleNamespace(
+                    message="AIサービスに接続できませんでした。",
+                    error_type="network",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr("app.routers.motivation._get_company_context", fake_company_context)
+    monkeypatch.setattr("app.routers.motivation._evaluate_motivation_internal", fake_evaluate)
+    monkeypatch.setattr("app.routers.motivation_streaming.call_llm_streaming_fields", fake_stream)
+
+    request = NextQuestionRequest(
+        company_id="company_test",
+        company_name="株式会社テスト",
+        industry="IT・通信",
+        conversation_history=[
+            {"role": "assistant", "content": "志望理由を教えてください。"},
+            {"role": "user", "content": "事業に興味があります。"},
+        ],
+        question_count=1,
+        conversation_context={
+            "selectedIndustry": "IT・通信",
+            "selectedRole": "企画職",
+            "industryReason": "事業に興味があるから",
+            "questionStage": "industry_reason",
+        },
+    )
+
+    events: list[dict] = []
+    async for payload in _generate_next_question_progress(request, tenant_key="tenant-test"):
+        events.append(json.loads(payload.removeprefix("data: ").strip()))
+
+    error_events = [event for event in events if event["type"] == "error"]
+    assert error_events
+    assert error_events[0]["error_type"] == "question_provider_failure"
+    assert error_events[0]["upstream_error_type"] == "network"

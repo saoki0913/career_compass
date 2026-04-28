@@ -18,6 +18,7 @@ const {
   getOwnedMotivationCompanyDataMock,
   resolveMotivationInputsMock,
   resolveMotivationRoleSelectionSourceMock,
+  buildMotivationUserEvidenceCardsMock,
 } = vi.hoisted(() => ({
   dbUpdateMock: vi.fn(),
   dbInsertMock: vi.fn(),
@@ -35,6 +36,7 @@ const {
   getOwnedMotivationCompanyDataMock: vi.fn(),
   resolveMotivationInputsMock: vi.fn(),
   resolveMotivationRoleSelectionSourceMock: vi.fn(),
+  buildMotivationUserEvidenceCardsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -83,6 +85,10 @@ vi.mock("@/lib/motivation/conversation", () => ({
   safeParseConversationContext: safeParseConversationContextMock,
 }));
 
+vi.mock("@/lib/motivation/conversation-payload", () => ({
+  buildMotivationUserEvidenceCards: buildMotivationUserEvidenceCardsMock,
+}));
+
 vi.mock("@/lib/rate-limit-spike", () => ({
   enforceRateLimitLayers: enforceRateLimitLayersMock,
   DRAFT_RATE_LAYERS: [],
@@ -90,6 +96,11 @@ vi.mock("@/lib/rate-limit-spike", () => ({
 
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
+  fetchFastApiWithPrincipal: fetchFastApiInternalMock,
+}));
+
+vi.mock("@/lib/server/loader-helpers", () => ({
+  getViewerPlan: vi.fn().mockResolvedValue("standard"),
 }));
 
 vi.mock("@/lib/ai/user-context", () => ({
@@ -123,6 +134,7 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
     getOwnedMotivationCompanyDataMock.mockReset();
     resolveMotivationInputsMock.mockReset();
     resolveMotivationRoleSelectionSourceMock.mockReset();
+    buildMotivationUserEvidenceCardsMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     dbUpdateMock.mockReturnValue({
@@ -153,7 +165,15 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
       target_job_types: ["企画職"],
       target_industries: ["IT"],
     });
-    fetchGakuchikaContextMock.mockResolvedValue([]);
+    fetchGakuchikaContextMock.mockResolvedValue([
+      {
+        title: "学園祭運営",
+        source_status: "structured_summary",
+        strengths: [{ title: "課題整理力" }],
+        action_text: "申請フローを整理しました。",
+        result_text: "確認漏れを減らしました。",
+      },
+    ]);
     fetchMotivationApplicationJobCandidatesMock.mockResolvedValue(["企画職"]);
     resolveMotivationInputsMock.mockReturnValue({
       requiresIndustrySelection: false,
@@ -162,30 +182,30 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
       companyRoleCandidates: ["企画職"],
     });
     resolveMotivationRoleSelectionSourceMock.mockReturnValue("profile");
+    buildMotivationUserEvidenceCardsMock.mockReturnValue([
+      {
+        sourceId: "U1",
+        title: "登録済みの強み",
+        contentType: "user_context",
+        excerpt: "課題整理力",
+        sourceUrl: "",
+        relevanceLabel: "プロフィール/ガクチカ",
+      },
+    ]);
   });
 
   it("returns a temporary draft without creating an ES document", async () => {
-    fetchFastApiInternalMock
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            draft: "会話なしの下書きです。",
-            char_count: 120,
-            key_points: ["企業理解"],
-            company_keywords: ["DX支援"],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            question: "この志望動機でさらに補強したい観点はどこですか？",
-            evidence_cards: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          draft: "会話なしの下書きです。",
+          char_count: 120,
+          key_points: ["企業理解"],
+          company_keywords: ["DX支援"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
     const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft-direct/route");
     const response = await POST(
@@ -201,6 +221,18 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
 
     expect(response.status).toBe(200);
     expect(payload.documentId).toBeNull();
+    expect(payload.nextQuestion).toBeNull();
+    expect(payload.userEvidenceCards).toHaveLength(1);
+    expect(buildMotivationUserEvidenceCardsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftSource: "profile_only",
+        userAnchorStrengths: ["課題整理力"],
+        userAnchorEpisodes: expect.arrayContaining(["学園祭運営"]),
+        profileAnchorIndustries: ["IT"],
+        profileAnchorJobTypes: ["企画職"],
+      }),
+    );
+    expect(fetchFastApiInternalMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns 409 before consuming credits when profile-only material is too thin", async () => {

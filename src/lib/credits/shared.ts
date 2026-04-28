@@ -27,6 +27,9 @@ export type TransactionType =
   | "refund";
 
 export const CONVERSATION_CREDITS_PER_TURN = 1;
+export const INTERVIEW_START_CREDIT_COST = 2;
+export const INTERVIEW_TURN_CREDIT_COST = 1;
+export const INTERVIEW_CONTINUE_CREDIT_COST = 1;
 export const DEFAULT_INTERVIEW_SESSION_CREDIT_COST = 6;
 
 export async function getCreditRow(userId: string) {

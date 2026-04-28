@@ -75,11 +75,11 @@ export function CompletionSummary({
 
   return (
     <div className="space-y-4">
-      <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-3 text-sm text-foreground/90">
+      <div className="w-full rounded-xl border border-success/20 bg-success/5 px-4 py-3 text-sm leading-6 text-foreground/90">
         {leadText}
       </div>
 
-      <Card className="border-border/60 bg-background shadow-sm">
+      <Card className="overflow-hidden border-border/60 bg-background shadow-sm">
         <CardContent className="space-y-6 p-5 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-2">
@@ -134,11 +134,11 @@ export function CompletionSummary({
                 structured.likely_followup_questions?.length ||
                 structured.weak_points_to_prepare?.length) && (
                 <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                  <section className="space-y-4 rounded-2xl border border-border bg-background p-4 sm:p-5">
+                  <section className="min-w-0 space-y-4 rounded-xl border border-border bg-background p-4 sm:p-5">
                     <div className="space-y-2">
                       <SectionTitle>まず話す核</SectionTitle>
                       {structured.one_line_core_answer ? (
-                        <p className="rounded-2xl border border-primary/15 bg-primary/5 px-4 py-4 text-sm font-medium leading-7 text-foreground">
+                        <p className="break-words rounded-xl border border-primary/15 bg-primary/5 px-4 py-4 text-sm font-medium leading-7 text-foreground">
                           {structured.one_line_core_answer}
                         </p>
                       ) : null}
@@ -151,12 +151,12 @@ export function CompletionSummary({
                           {structured.two_minute_version_outline.map((item, index) => (
                             <li
                               key={`${item}-${index}`}
-                              className="flex gap-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-3 text-sm leading-6 text-foreground/90"
+                              className="flex min-w-0 gap-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-3 text-sm leading-6 text-foreground/90"
                             >
                               <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
                                 {index + 1}
                               </span>
-                              <span>{item}</span>
+                              <span className="min-w-0 break-words">{item}</span>
                             </li>
                           ))}
                         </ol>
@@ -200,14 +200,14 @@ export function CompletionSummary({
                   if (!text) return null;
 
                   return (
-                    <section key={element.key} className="rounded-2xl border border-border bg-muted/20 p-4">
+                      <section key={element.key} className="min-w-0 rounded-xl border border-border bg-muted/20 p-4">
                       <div className="mb-2 flex items-center gap-2">
                         <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
                           {element.shortLabel}
                         </span>
                         <SectionTitle>{element.label}</SectionTitle>
                       </div>
-                      <p className="text-sm leading-6 text-foreground/90">{text}</p>
+                      <p className="break-words text-sm leading-6 text-foreground/90">{text}</p>
                     </section>
                   );
                 })}
@@ -215,7 +215,7 @@ export function CompletionSummary({
 
               <div className="grid gap-4 lg:grid-cols-2">
                 {structured.strengths.length > 0 && (
-                  <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                  <section className="min-w-0 space-y-3 rounded-xl border border-border bg-background p-4">
                     <SectionTitle>強み</SectionTitle>
                     <div className="space-y-2">
                       {structured.strengths.map((item, index) => (
@@ -223,9 +223,9 @@ export function CompletionSummary({
                           key={`${item.title}-${index}`}
                           className="rounded-xl border border-success/15 bg-success/5 p-3"
                         >
-                          <p className="text-sm font-medium text-foreground">{item.title}</p>
+                          <p className="break-words text-sm font-medium text-foreground">{item.title}</p>
                           {item.description && (
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p>
+                            <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.description}</p>
                           )}
                         </div>
                       ))}
@@ -234,7 +234,7 @@ export function CompletionSummary({
                 )}
 
                 {structured.learnings.length > 0 && (
-                  <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                  <section className="min-w-0 space-y-3 rounded-xl border border-border bg-background p-4">
                     <SectionTitle>学び</SectionTitle>
                     <div className="space-y-2">
                       {structured.learnings.map((item, index) => (
@@ -242,9 +242,9 @@ export function CompletionSummary({
                           key={`${item.title}-${index}`}
                           className="rounded-xl border border-info/15 bg-info/5 p-3"
                         >
-                          <p className="text-sm font-medium text-foreground">{item.title}</p>
+                          <p className="break-words text-sm font-medium text-foreground">{item.title}</p>
                           {item.description && (
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p>
+                            <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.description}</p>
                           )}
                         </div>
                       ))}

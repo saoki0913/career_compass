@@ -31,7 +31,7 @@
 この機能は次の順序で進みます。
 
 1. ES 作成前は深掘りしすぎず、`状況 / 課題 / 行動 / 結果` の 4 要素を短い会話で揃える
-2. `ready_for_draft=true` に達したら FastAPI `POST /api/gakuchika/generate-es-draft` が **`build_template_draft_generation_prompt`（`TEMPLATE_DEFS` の `gakuchika` と同一ソース）** を使って ES 下書きを生成する。入力は会話全文だけでなく `known_facts` と `draft_material` を含み、短すぎる・浅すぎる draft には 1 回だけ品質 retry を入れる
+2. `ready_for_draft=true` に達したら FastAPI `POST /api/gakuchika/generate-es-draft` が **`build_template_draft_generation_prompt`（`TEMPLATE_DEFS` の `gakuchika` と同一ソース）** を使って ES 下書きを生成する。入力は会話全文だけでなく `known_facts` と `draft_material` を含み、短すぎる・浅すぎる draft、AI 臭が強い draft、評論調の結びには 1 回だけ品質 retry を入れる
 3. その後は同一セッションを再開して面接向けに深掘りする
 4. 十分に進んだら `STRUCTURED_SUMMARY_PROMPT` で STAR と面接メモへ整理する
 
@@ -77,11 +77,12 @@
   "completion_reasons": [],
   "extended_deep_dive_round": 0,
   "coach_progress_message": "いま状況を一緒に整理しています。",
+  "paused_question": null,
   "remaining_questions_estimate": 3
 }
 ```
 
-> **注**: `coach_progress_message`（≤ 30 字の決定論的な進捗キュー）と `remaining_questions_estimate`（整数 ≥ 0、readiness gate と同じ入力から算出）は `backend/app/normalization/gakuchika_payload.py` の pure function で生成される。SSE では `field_complete` partial と `complete` の最終スナップショット双方で送られ、`NaturalProgressStatus` コンポーネントが両方を消費する。SSE 契約の詳細は `docs/architecture/GAKUCHIKA_SSE_CONTRACT.md` 参照。
+> **注**: `coach_progress_message`（≤ 30 字の決定論的な進捗キュー）と `remaining_questions_estimate`（整数 ≥ 0、readiness gate と同じ入力から算出）は `backend/app/normalization/gakuchika_payload.py` の pure function で生成される。`paused_question` は `draft_ready` / `interview_ready` で入力欄を閉じても、LLM が返した次の深掘り候補を会話内に残すための表示用 state。SSE では `field_complete` partial と `complete` の最終スナップショット双方で送られ、`NaturalProgressStatus` コンポーネントが両方を消費する。SSE 契約の詳細は `docs/architecture/GAKUCHIKA_SSE_CONTRACT.md` 参照。
 
 ### ES 作成フェーズ
 
@@ -115,15 +116,16 @@
 - 段階は `draft_ready`
 - UI では `ES作成可` と表示する
 - `progress_label` は `ESを作成できます`
-- この段階では follow-up question を出さず、会話入力欄を閉じる
-- コンパクトなインライン導線で「深掘りを続ける」ボタンを表示し、ユーザーは `deep_dive_active` へ遷移して会話を再開できる
+- この段階では会話入力欄を閉じる。ただし LLM が返した次の深掘り候補は `paused_question` として会話内に残し、CTA 表示で消さない
+- コンパクトなインライン導線で「深掘りを続ける」ボタンを表示し、押下中は `再開中...` に変えてユーザーは `deep_dive_active` へ遷移して会話を再開できる
 - **ES 作成ボタン**は右上アクションバーに常設（`draftReady` かつ `!interviewReady` で活性化）
-- **文字数**: アクションバー内の文字数セレクターで **300 / 400 / 500** 字を選べる。`POST /api/gakuchika/[id]/generate-es-draft` の JSON ボディ `charLimit`（300 / 400 / 500）に対応。初期値は `gakuchika_contents.charLimitType` に追従
+- **文字数**: アクションバー内の文字数セレクターで **300 / 400 / 500** 字を選べる。`POST /api/gakuchika/[id]/generate-es-draft` の JSON ボディ `charLimit`（300 / 400 / 500）に対応。初期値は `gakuchika_contents.charLimitType` に追従し、ES 下書き生成中は変更不可
 - `POST /api/gakuchika/[id]/generate-es-draft` は `completed` セッション限定ではなく、`ready_for_draft=true` を条件に実行する
 - DB 上の `gakuchika_conversations.status` はまだ `in_progress` のまま保つ
 - ES 生成成功時は draft を ES ドキュメントへ保存し、同じセッションの `draft_text` にも保持する
 - ES 下書き生成成功直後に deterministic evaluator を走らせ、`strength_tags / issue_tags / deepdive_recommendation_tags / credibility_risk_tags` を state に保存する
 - Next API から FastAPI へは `known_facts` に加えて `draft_material` を渡し、`input_richness_mode / missing_elements / draft_quality_checks / causal_gaps / deferred_focuses / issue_tags / draft_readiness_reason` を prompt material に含める
+- FastAPI は生成後に `draft_quality` を返す。`under_char_min / over_char_max / ai_smell_high / critic_closing / low_fact_overlap` を検出し、改善できた場合は `status=repaired`、残る場合は `status=warning` として UI に注意を出す。結びは「本人の次の行動」ではなく、この経験での結果・得た学び・身についた能力で締める
 
 ### 深掘りフェーズ
 
@@ -227,9 +229,9 @@
 - ES 作成フェーズでは会話と進捗を同じ画面で見せる
 - 進捗の主表示は `状況 / 課題 / 行動 / 結果` の 4 要素に寄せる
 - `focus_key` に対応する `answer_hint` と `progress_label` をそのまま表示する
-- `draft_ready` 到達後は右上アクションバーの `ガクチカESを作成` ボタンが活性化し、入力欄は閉じる。インライン導線の「深掘りを続ける」で会話を再開できる
+- `draft_ready` 到達後は右上アクションバーの `ガクチカESを作成` ボタンが活性化し、入力欄は閉じる。`paused_question` があれば会話内に表示し続け、インライン導線の「深掘りを続ける」で会話を再開できる
 - ES 生成後はモーダル（`GakuchikaDraftModal`）で生成テキストを確認し、「ESを開く」で `/es/${documentId}` へ遷移するか、「もっと深堀りして再生成する」で深掘りを続行する
-- `interview_ready` 到達後は構造化サマリーを表示する
+- `interview_ready` 到達後は構造化サマリーを表示する。進捗 UI は同じ領域に残し、完了時だけレイアウトが飛ばないようにする
 - 面接準備パックでは `one_line_core_answer` と `two_minute_version_outline` を主表示にし、`likely_followup_questions` と `weak_points_to_prepare` を補助表示にする
 
 ### 一覧画面

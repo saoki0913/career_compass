@@ -168,7 +168,7 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
   });
 
   const canGenerateDraft =
-    isDraftReady && messages.length >= 2 && !showSetupScreen;
+    isDraftReady && (messages.length >= 2 || Boolean(generatedDraft)) && !showSetupScreen;
 
   // --- Stage context ---
   const activeStage: Exclude<MotivationStageKey, "closing"> | null =
@@ -182,13 +182,15 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
     : "1~2文で答えてください。";
 
   const currentIntentLabel = currentIntent
-    ? INTENT_LABELS[currentIntent] || currentIntent
+    ? INTENT_LABELS[currentIntent] || "補強ポイントを確認します"
     : null;
 
   const currentSlotLabel =
     questionStage === "closing"
       ? CONVERSATION_MODE_LABELS[conversationMode]
-      : progress?.current_slot_label ||
+      : (progress?.current_slot_label && !progress.current_slot_label.includes("_")
+          ? progress.current_slot_label
+          : null) ||
         (activeStage ? STAGE_LABELS[activeStage] : null);
 
   // --- Draft helper text ---

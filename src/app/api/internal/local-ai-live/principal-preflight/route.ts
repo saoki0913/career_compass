@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
         status: company.status >= 500 ? 503 : company.status,
         code: "LOCAL_AI_LIVE_PRINCIPAL_PREFLIGHT_FAILED",
         userMessage: "local principal preflight に失敗しました。",
-        action: "CAREER_PRINCIPAL_HMAC_SECRET を Next/FastAPI で揃えて再起動してください。",
+        action: "CAREER_PRINCIPAL_HMAC_SECRET と TENANT_KEY_SECRET を Next/FastAPI で揃えて再起動してください。",
         developerMessage: "company principal probe failed",
         details: company.rawText,
         extra: {
@@ -101,7 +101,7 @@ export async function GET(request: NextRequest) {
       status: 503,
       code: "LOCAL_AI_LIVE_PRINCIPAL_PREFLIGHT_FAILED",
       userMessage: "local principal preflight に失敗しました。",
-      action: "CAREER_PRINCIPAL_HMAC_SECRET と FastAPI 接続を確認して再起動してください。",
+      action: "CAREER_PRINCIPAL_HMAC_SECRET、TENANT_KEY_SECRET、FastAPI 接続を確認して再起動してください。",
       error,
       logContext: "local-ai-live-principal-preflight",
     });

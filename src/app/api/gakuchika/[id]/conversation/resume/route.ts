@@ -88,6 +88,50 @@ export async function POST(
       conversationState.stage === "draft_ready" || conversationState.stage === "interview_ready";
 
     if (shouldFetchNextQuestion) {
+      const pausedQuestion = conversationState.pausedQuestion?.trim();
+      if (pausedQuestion) {
+        const stateForResume: ConversationState = {
+          ...conversationState,
+          stage: "deep_dive_active",
+          deepdiveComplete: false,
+          deepdiveStage: "es_aftercare",
+          progressLabel:
+            conversationState.stage === "interview_ready" ? "さらに深掘り中" : "深掘り中",
+          pausedQuestion: null,
+          extendedDeepDiveRound:
+            conversationState.stage === "interview_ready"
+              ? (conversationState.extendedDeepDiveRound ?? 0) + 1
+              : conversationState.extendedDeepDiveRound,
+        };
+        const alreadyLastAssistant =
+          messages.length > 0 &&
+          messages[messages.length - 1].role === "assistant" &&
+          messages[messages.length - 1].content === pausedQuestion;
+        messages = alreadyLastAssistant
+          ? messages
+          : [
+              ...messages,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: pausedQuestion,
+              },
+            ];
+        conversationState = stateForResume;
+        nextAction = "ask";
+        status = "in_progress";
+
+        await db
+          .update(gakuchikaConversations)
+          .set({
+            messages,
+            questionCount: finalQuestionCount,
+            status,
+            starScores: serializeConversationState(conversationState),
+            updatedAt: new Date(),
+          })
+          .where(eq(gakuchikaConversations.id, sessionId));
+      } else {
       const stateForApi: ConversationState =
         conversationState.stage === "interview_ready"
           ? {
@@ -169,6 +213,7 @@ export async function POST(
         telemetry: result.telemetry,
       });
       void incrementDailyTokenCount(identity, computeTotalTokens(result.telemetry));
+      }
     }
 
     const allConversations = await db

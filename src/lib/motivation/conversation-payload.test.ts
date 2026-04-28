@@ -4,6 +4,7 @@ import type { MotivationConversationContext, MotivationScores } from "./conversa
 import {
   buildMotivationConversationPayload,
   buildMotivationEvidenceSummaryFromCards,
+  buildMotivationUserEvidenceCards,
 } from "./conversation-payload";
 
 const BASE_CONTEXT: MotivationConversationContext = {
@@ -132,6 +133,33 @@ describe("motivation conversation payload helpers", () => {
       hasSavedConversation: true,
     });
     expect(payload.evidenceSummary).toBe("S1 採用ページ: DX支援を通じて顧客課題に向き合う。");
+    expect(payload.userEvidenceCards).toEqual([]);
+  });
+
+  it("builds user evidence cards from confirmed slot summaries without internal keys", () => {
+    const cards = buildMotivationUserEvidenceCards({
+      ...BASE_CONTEXT,
+      slotSummaries: {
+        self_connection: "学園祭で関係者を巻き込み、課題を整理した経験があります。",
+      },
+      userAnchorStrengths: ["課題整理力"],
+    });
+
+    expect(cards).toEqual([
+      expect.objectContaining({
+        sourceId: "U1",
+        title: "自分との接点",
+        excerpt: "学園祭で関係者を巻き込み、課題を整理した経験があります。",
+        relevanceLabel: "会話で確認",
+      }),
+      expect.objectContaining({
+        sourceId: "U2",
+        title: "登録済みの強み",
+        excerpt: "課題整理力",
+        relevanceLabel: "プロフィール/ガクチカ",
+      }),
+    ]);
+    expect(cards.map((card) => card.title).join(" ")).not.toContain("self_connection");
   });
 
   it("builds a compact evidence summary from the first two cards", () => {

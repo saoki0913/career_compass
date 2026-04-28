@@ -172,7 +172,7 @@ describe("handleReviewStream", () => {
       new Response(
         new ReadableStream<Uint8Array>({
           start(controller) {
-            controller.enqueue(new TextEncoder().encode('data: {"type":"complete","data":{"ok":true}}\n\n'));
+            controller.enqueue(new TextEncoder().encode('data: {"type":"complete","result":{"rewrites":["改善後の本文"]}}\n\n'));
             controller.close();
           },
         }),
@@ -203,6 +203,45 @@ describe("handleReviewStream", () => {
       "res-1",
     );
     expect(cancelMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels the reservation when the complete event has no valid result payload", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"type":"complete","data":{"ok":true}}\n\n'));
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    const text = await response.text();
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(cancelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: "doc-1" }),
+      "res-1",
+      "stream_ended_without_complete",
+    );
+    expect(text).toContain("添削結果の形式が不正です");
   });
 
   it("cancels the reservation and strips telemetry when upstream is not ok", async () => {

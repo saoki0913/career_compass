@@ -147,6 +147,7 @@ ensure_required_env() {
   local required_envs=(
     "BETTER_AUTH_SECRET"
     "CAREER_PRINCIPAL_HMAC_SECRET"
+    "TENANT_KEY_SECRET"
     "OPENAI_API_KEY"
     "ANTHROPIC_API_KEY"
     "GOOGLE_API_KEY"
@@ -170,6 +171,9 @@ ensure_required_env() {
             ;;
           CAREER_PRINCIPAL_HMAC_SECRET)
             log "- ${name}: Next.js -> FastAPI principal HMAC signing for local AI routes"
+            ;;
+          TENANT_KEY_SECRET)
+            log "- ${name}: per-user tenant key derivation for company RAG / AI routes"
             ;;
           OPENAI_API_KEY)
             log "- ${name}: ES review / embeddings / company info live calls"

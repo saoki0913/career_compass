@@ -63,6 +63,7 @@ describe("api/gakuchika/shared conversation state", () => {
       extendedDeepDiveRound: 0,
       coachProgressMessage: "あと1問で材料が揃いそうです。",
       remainingQuestionsEstimate: 1,
+      pausedQuestion: null,
     };
 
     const parsed = safeParseConversationState(serializeConversationState(state));

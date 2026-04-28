@@ -134,7 +134,6 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
       sectionTitle: string;
       sectionContent: string;
       sectionCharLimit?: number;
-      hasCompanyRag?: boolean;
       companyId?: string;
       templateType?: TemplateType;
       internName?: string;
@@ -193,7 +192,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
       try {
         trackEvent("ai_review_start", {
           templateType: params.templateType ?? null,
-          hasCompanyRag: params.hasCompanyRag ?? false,
+          companyId: params.companyId ?? null,
           reviewMode: effectiveReviewMode,
         });
 
@@ -206,7 +205,6 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
           signal: controller.signal,
           body: JSON.stringify({
             content: params.sectionContent,
-            hasCompanyRag: params.hasCompanyRag || false,
             companyId: params.companyId,
             sectionTitle: params.sectionTitle,
             sectionCharLimit: params.sectionCharLimit,

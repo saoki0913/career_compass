@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.security.career_principal import CareerPrincipal, require_career_principal
+from app.security.career_principal import CareerPrincipal, require_career_principal, require_tenant_key
 
 router = APIRouter(prefix="/internal/local-ai-live", tags=["local-ai-live"])
 
@@ -40,6 +40,7 @@ async def principal_preflight_company(
     principal: CareerPrincipal = Depends(require_career_principal("company")),
 ):
     _ensure_local_host(request)
+    require_tenant_key(principal)
     return {
         "success": True,
         "scope": principal.scope,
@@ -47,4 +48,5 @@ async def principal_preflight_company(
         "actorId": principal.actor_id,
         "plan": principal.plan,
         "companyId": principal.company_id,
+        "tenantKeyConfigured": True,
     }

@@ -46,6 +46,7 @@ function toSnakeState(s: ConversationState): Record<string, unknown> {
     recent_question_texts: s.recentQuestionTexts, loop_blocked_focuses: s.loopBlockedFocuses,
     focus_attempt_counts: s.focusAttemptCounts, last_question_signature: s.lastQuestionSignature,
     extended_deep_dive_round: s.extendedDeepDiveRound,
+    paused_question: s.pausedQuestion,
   };
 }
 
@@ -149,9 +150,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       onComplete: async (ev) => {
         const d = (ev as { data: { question?: string; conversation_state?: Record<string, unknown>; next_action?: string } }).data;
         const qText = typeof d.question === "string" && d.question ? d.question : streamedQ;
-        const ns = d.conversation_state ? safeParseConversationState(JSON.stringify(d.conversation_state)) : sm.getMergedState();
-        const na = typeof d.next_action === "string" ? d.next_action : getGakuchikaNextAction(ns);
+        const parsedState = d.conversation_state ? safeParseConversationState(JSON.stringify(d.conversation_state)) : sm.getMergedState();
+        const na = typeof d.next_action === "string" ? d.next_action : getGakuchikaNextAction(parsedState);
         const ask = na === "ask";
+        const ns = {
+          ...parsedState,
+          pausedQuestion: ask ? null : qText.trim() || parsedState.pausedQuestion,
+        };
         const done = ns.stage === "interview_ready";
         if (ask && qText) messages.push({ id: crypto.randomUUID(), role: "assistant", content: qText });
         await db.update(gakuchikaConversations).set({

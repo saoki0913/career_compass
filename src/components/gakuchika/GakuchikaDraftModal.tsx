@@ -25,6 +25,15 @@ interface GakuchikaDraftModalProps {
   isOpen: boolean;
   draft: string;
   charLimit: 300 | 400 | 500;
+  draftQuality?: {
+    status?: "passed" | "repaired" | "warning";
+    warnings?: string[];
+    retry_count?: number;
+    retryCount?: number;
+    failure_codes?: string[];
+    selection_reason?: string;
+    selectionReason?: string;
+  } | null;
   isSaving: boolean;
   onSave: () => void;
   onDeepDive: () => void;
@@ -50,13 +59,18 @@ const CharCountBadge = memo(function CharCountBadge({
 const DraftBody = memo(function DraftBody({
   draft,
   charLimit,
+  draftQuality,
   mobile,
 }: {
   draft: string;
   charLimit: number;
+  draftQuality?: GakuchikaDraftModalProps["draftQuality"];
   mobile: boolean;
 }) {
   const charCount = draft.length;
+  const qualityWarnings = draftQuality?.warnings?.filter(Boolean) ?? [];
+  const retryCount = draftQuality?.retry_count ?? draftQuality?.retryCount ?? 0;
+  const shouldShowQualityNotice = draftQuality?.status === "warning" || draftQuality?.status === "repaired" || qualityWarnings.length > 0;
 
   return (
     <div
@@ -68,6 +82,24 @@ const DraftBody = memo(function DraftBody({
       <div className="mb-3 flex items-center justify-end">
         <CharCountBadge actual={charCount} limit={charLimit} />
       </div>
+      {shouldShowQualityNotice ? (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+          <p className="font-medium">
+            {draftQuality?.status === "repaired"
+              ? "品質チェックで一度整え直しました。"
+              : "提出前に本文の自然さを確認してください。"}
+          </p>
+          {qualityWarnings.length > 0 ? (
+            <ul className="mt-1 list-disc space-y-1 pl-4">
+              {qualityWarnings.map((warning, index) => (
+                <li key={`${warning}-${index}`}>{warning}</li>
+              ))}
+            </ul>
+          ) : retryCount > 0 ? (
+            <p className="mt-1">文字数や結びの表現を再確認しています。</p>
+          ) : null}
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/50 bg-card px-4 py-4 shadow-sm">
         <p className="whitespace-pre-wrap text-base leading-relaxed text-foreground">
           {draft.trim() || "本文がありません。"}
@@ -128,6 +160,7 @@ export const GakuchikaDraftModal = memo(function GakuchikaDraftModal({
   isOpen,
   draft,
   charLimit,
+  draftQuality,
   isSaving,
   onSave,
   onDeepDive,
@@ -154,7 +187,7 @@ export const GakuchikaDraftModal = memo(function GakuchikaDraftModal({
               {description}
             </SheetDescription>
           </SheetHeader>
-          <DraftBody draft={draft} charLimit={charLimit} mobile />
+          <DraftBody draft={draft} charLimit={charLimit} draftQuality={draftQuality} mobile />
           <DraftFooter
             isSaving={isSaving}
             onSave={onSave}
@@ -178,7 +211,7 @@ export const GakuchikaDraftModal = memo(function GakuchikaDraftModal({
             {description}
           </DialogDescription>
         </DialogHeader>
-        <DraftBody draft={draft} charLimit={charLimit} mobile={false} />
+        <DraftBody draft={draft} charLimit={charLimit} draftQuality={draftQuality} mobile={false} />
         <DraftFooter
           isSaving={isSaving}
           onSave={onSave}
