@@ -1,26 +1,54 @@
 #!/bin/bash
-# Codex wrapper for guarding dangerous git push commands.
-set -e
+# Codex wrapper for guarding git push commands.
+set -euo pipefail
 INPUT=$(cat)
-CMD=$(echo "$INPUT" | jq -r '.tool_input.command // .command // empty')
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/codex-hook-utils.sh
+. "$SCRIPT_DIR/lib/codex-hook-utils.sh"
+CMD=$(codex_tool_command "$INPUT")
+SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
+PROJECT_DIR=$(codex_project_dir "$INPUT")
+# shellcheck source=../../scripts/harness/guard-core.sh
+. "$PROJECT_DIR/scripts/harness/guard-core.sh"
 if [ -z "$CMD" ]; then
   exit 0
 fi
 
-if ! echo "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+push'; then
+if ! guard_command_is_git_push "$CMD"; then
   exit 0
 fi
 
-if echo "$CMD" | grep -qE 'git[[:space:]]+push([[:space:]].*)?(--force|--force-with-lease|[[:space:]]-f([[:space:]]|$))'; then
+if guard_command_is_force_push "$CMD"; then
   cat >&2 <<'EOF'
 ⛔ git push --force 系は Codex でも禁止です。追加コミットか、明示承認つきの限定的な操作に切り替えてください。
 EOF
   exit 2
 fi
 
-if echo "$CMD" | grep -qE 'git[[:space:]]+push.*[[:space:]](main|develop)([[:space:]]|$)'; then
-  cat >&2 <<'EOF'
-⚠ main / develop への直接 push を検知しました。release は `make deploy` 系の導線を優先してください。
-EOF
+if [ -z "$SESSION_ID" ]; then
+  echo "git push blocked: session_id is unavailable, so push approval cannot be verified." >&2
+  exit 2
 fi
+
+STATE_DIR=$(guard_state_dir_for_runtime codex)
+PUSH_FLAG="$STATE_DIR/push-approved-$SESSION_ID"
+HEAD_SHA=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "")
+
+if [ ! -f "$PUSH_FLAG" ]; then
+  cat >&2 <<EOF
+git push blocked by Codex hook.
+
+Create an explicit approval checkpoint before pushing:
+  node scripts/harness/diff-snapshot.mjs checkpoint --kind push --decision approved --project "$PROJECT_DIR" > "$PUSH_FLAG"
+EOF
+  exit 2
+fi
+
+APPROVED_HEAD=$(jq -r '.headSha // empty' "$PUSH_FLAG" 2>/dev/null || echo "")
+DECISION=$(jq -r '.decision // empty' "$PUSH_FLAG" 2>/dev/null || echo "")
+if [ "$DECISION" != "approved" ] || [ -z "$HEAD_SHA" ] || [ "$APPROVED_HEAD" != "$HEAD_SHA" ]; then
+  echo "git push blocked: approval checkpoint does not match current HEAD." >&2
+  exit 2
+fi
+
 exit 0

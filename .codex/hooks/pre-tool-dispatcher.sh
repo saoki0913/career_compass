@@ -10,6 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)
 CMD=$(codex_tool_command "$INPUT")
 FILE_PATH=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // .file_path // empty' 2>/dev/null || true)
+PROJECT_DIR=$(codex_project_dir "$INPUT")
+# shellcheck source=../../scripts/harness/guard-core.sh
+. "$PROJECT_DIR/scripts/harness/guard-core.sh"
 
 run_hook() {
   local hook_name="$1"
@@ -22,29 +25,29 @@ case "$TOOL" in
       exit 0
     fi
 
-    if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])(cat|head|tail|less|more|bat|sed|awk|grep|rg)([[:space:]].*)?codex-company/\.secrets/'; then
+    if guard_command_reads_sensitive_path "$CMD"; then
       run_hook "secrets-guard.sh"
     fi
 
-    if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+push'; then
+    if guard_command_is_git_push "$CMD"; then
       run_hook "git-push-guard.sh"
     fi
 
-    if printf '%s' "$CMD" | grep -qE '(^|[;&|]|`|\$\()\s*rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|-r\s+-f|-f\s+-r)'; then
+    if guard_command_has_destructive_delete "$CMD"; then
       run_hook "destructive-rm-guard.sh"
+    fi
+
+    if guard_command_is_release_or_provider "$CMD"; then
+      run_hook "release-provider-guard.sh"
     fi
 
     if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit'; then
       run_hook "commit-codex-gate.sh"
     fi
-
-    if printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*make\s+(test-e2e-functional-local|ai-live-local)\b|(^|[;&|])\s*(bash\s+)?scripts/dev/run-ai-live-local\.sh\b|(^|[;&|])\s*make\s+test-quality-|(^|[;&|])\s*bash\s+scripts/ci/run-ai-live\.sh\b|(^|[;&|])\s*npx\s+tsc\s+--noEmit\b|(^|[;&|])\s*npm\s+run\s+lint\b|(^|[;&|])\s*make\s+security-scan\b|(^|[;&|])\s*(bash\s+)?security/scan/run-lightweight-scan\.sh\b'; then
-      run_hook "test-category-gate.sh"
-    fi
     ;;
 
   Read|mcp__filesystem__*)
-    if [ -n "$FILE_PATH" ] && printf '%s' "$FILE_PATH" | grep -q 'codex-company/\.secrets/'; then
+    if [ -n "$FILE_PATH" ] && guard_path_is_sensitive "$FILE_PATH"; then
       run_hook "secrets-guard.sh"
     fi
     ;;
@@ -52,7 +55,6 @@ case "$TOOL" in
   apply_patch|Edit|Write)
     run_hook "prompt-edit-confirm-guard.sh"
     run_hook "bandaid-guard.sh"
-    run_hook "ui-preflight-reminder.sh"
     ;;
 esac
 

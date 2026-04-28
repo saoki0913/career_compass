@@ -6,6 +6,13 @@ set -euo pipefail
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../.codex/hooks/lib/codex-hook-utils.sh
+. "$HOOK_DIR/../../.codex/hooks/lib/codex-hook-utils.sh"
+if [ -z "$FILE_PATH" ]; then
+  FILE_PATH=$(codex_primary_file_path "$INPUT")
+fi
 
 if [ -z "$SESSION_ID" ] || [ -z "$FILE_PATH" ]; then
   exit 0

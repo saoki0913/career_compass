@@ -48,7 +48,7 @@ if printf '%s' "$PROMPT" | grep -qE 'backend/app/prompts/|utils/llm\.py|プロ�
 fi
 
 if printf '%s' "$PROMPT" | grep -qE 'src/components/|page\.tsx|layout\.tsx|loading\.tsx|UI|LP|デザイン|見た目'; then
-  CONTEXT="${CONTEXT}UI task: run ui:preflight before editing, lint:ui:guardrails during work, and test:ui:review after changes.\n"
+  CONTEXT="${CONTEXT}UI task: prefer the ui-designer agent. Optionally run ui:preflight when design decisions matter. After edits, lint:ui:guardrails and test:ui:review -- <route> are recommended.\n"
 fi
 
 if printf '%s' "$PROMPT" | grep -qE 'auth|csrf|stripe|webhook|security|セキュリティ'; then

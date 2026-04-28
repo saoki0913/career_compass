@@ -4,6 +4,8 @@ set -euo pipefail
 
 INPUT=$(cat)
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+# shellcheck source=../../scripts/harness/guard-core.sh
+. "$PROJECT_DIR/scripts/harness/guard-core.sh"
 
 TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)
 CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // .command // empty' 2>/dev/null || true)
@@ -20,16 +22,20 @@ case "$TOOL" in
       exit 0
     fi
 
-    if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])(cat|head|tail|less|more|bat|sed|awk|grep|rg)([[:space:]].*)?codex-company/\.secrets/'; then
+    if guard_command_reads_sensitive_path "$CMD"; then
       run_hook "secrets-guard.sh"
     fi
 
-    if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+push'; then
+    if guard_command_is_git_push "$CMD"; then
       run_hook "git-push-guard.sh"
     fi
 
-    if printf '%s' "$CMD" | grep -qE '(^|[;&|]|`|\$\()\s*rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|-r\s+-f|-f\s+-r)'; then
+    if guard_command_has_destructive_delete "$CMD"; then
       run_hook "destructive-rm-guard.sh"
+    fi
+
+    if guard_command_is_release_or_provider "$CMD"; then
+      run_hook "release-provider-guard.sh"
     fi
 
     if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit'; then
@@ -42,16 +48,15 @@ case "$TOOL" in
     ;;
 
   Read|mcp__filesystem__*)
-    if [ -n "$FILE_PATH" ] && printf '%s' "$FILE_PATH" | grep -q 'codex-company/\.secrets/'; then
+    if [ -n "$FILE_PATH" ] && guard_path_is_sensitive "$FILE_PATH"; then
       run_hook "secrets-guard.sh"
     fi
     ;;
 
-  Edit|Write)
+  apply_patch|Edit|Write|MultiEdit)
     run_hook "impl-start-codex-gate.sh"
     run_hook "prompt-edit-confirm-guard.sh"
     run_hook "bandaid-guard.sh"
-    run_hook "ui-preflight-reminder.sh"
     run_hook "tdd-enforcement-guard.sh"
     ;;
 

@@ -55,7 +55,7 @@ fi
 
 # ─── Guardrails ───────────────────────────────────────────────────
 if [ -n "$CONTEXT_FILE" ] && [ -f "$CONTEXT_FILE" ]; then
-  if grep -qiE 'codex-company/\.secrets|\.env\b|\.pem\b|\.key\b|\.p12\b' "$CONTEXT_FILE"; then
+  if grep -qiE 'codex-company/\.secrets|(^|/)\.env([^/[:space:]]*)?(\b|$)|\.(pem|key|p12)\b|(^|/)secrets/|(^|/)private/|OPENAI_API_KEY|ANTHROPIC_API_KEY|STRIPE_[A-Z_]*KEY|SUPABASE_[A-Z_]*KEY' "$CONTEXT_FILE"; then
     echo "ERROR: context file references secrets or sensitive files. Aborting." >&2
     exit 1
   fi
@@ -63,6 +63,15 @@ fi
 
 if ! command -v codex >/dev/null 2>&1; then
   echo "ERROR: codex CLI not found. Install with: npm install -g @openai/codex" >&2
+  exit 1
+fi
+
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT_BIN="gtimeout"
+else
+  echo "ERROR: neither timeout nor gtimeout is available. Install coreutils on macOS or adjust the wrapper." >&2
   exit 1
 fi
 
@@ -136,7 +145,7 @@ fi
 
 case "$MODE" in
   plan_review)
-    timeout "$TIMEOUT_SEC" codex exec \
+    "$TIMEOUT_BIN" "$TIMEOUT_SEC" codex exec \
       --sandbox read-only \
       -m "$MODEL" \
       -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
@@ -146,7 +155,7 @@ case "$MODE" in
       "$PROMPT" 2>"$RESULT_DIR/stderr.tmp" || EXIT_CODE=$?
     ;;
   implementation)
-    timeout "$TIMEOUT_SEC" codex exec \
+    "$TIMEOUT_BIN" "$TIMEOUT_SEC" codex exec \
       --sandbox workspace-write \
       -m "$MODEL" \
       -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
@@ -158,12 +167,13 @@ case "$MODE" in
   post_review)
     # codex exec review: --uncommitted と PROMPT は排他。
     # レビュー指針は .codex/skills/code-reviewer/SKILL.md が自動参照される。
-    timeout "$TIMEOUT_SEC" codex exec review \
+    "$TIMEOUT_BIN" "$TIMEOUT_SEC" codex exec review \
       --uncommitted \
       -m "$MODEL" \
       -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
       -o "$RESULT_DIR/result.md" \
       --ephemeral \
+      -C "$PROJECT_DIR" \
       2>"$RESULT_DIR/stderr.tmp" || EXIT_CODE=$?
     ;;
   imagegen)
@@ -176,7 +186,7 @@ case "$MODE" in
       git init "$IMAGEGEN_WORKSPACE" >/dev/null 2>&1
       git -C "$IMAGEGEN_WORKSPACE" -c core.hooksPath=/dev/null commit --allow-empty -m "init" >/dev/null 2>&1
     fi
-    timeout "$TIMEOUT_SEC" codex exec \
+    "$TIMEOUT_BIN" "$TIMEOUT_SEC" codex exec \
       --sandbox workspace-write \
       -m "$MODEL" \
       -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
@@ -248,20 +258,29 @@ if [ "$STATUS" = "SUCCESS" ]; then
 fi
 
 # ─── Write meta.json ─────────────────────────────────────────────
-cat > "$RESULT_DIR/meta.json" <<METAEOF
-{
-  "mode": "$MODE",
-  "request_id": "$REQUEST_ID",
-  "model": "$MODEL",
-  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "exit_code": $EXIT_CODE,
-  "duration_ms": $DURATION_MS,
-  "status": "$STATUS",
-  "context_file": "${CONTEXT_FILE:-null}",
-  "timeout_sec": $TIMEOUT_SEC,
-  "image_count": $IMAGE_COUNT
-}
-METAEOF
+jq -n \
+  --arg mode "$MODE" \
+  --arg request_id "$REQUEST_ID" \
+  --arg model "$MODEL" \
+  --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg status "$STATUS" \
+  --arg context_file "$CONTEXT_FILE" \
+  --argjson exit_code "$EXIT_CODE" \
+  --argjson duration_ms "$DURATION_MS" \
+  --argjson timeout_sec "$TIMEOUT_SEC" \
+  --argjson image_count "$IMAGE_COUNT" \
+  '{
+    mode: $mode,
+    request_id: $request_id,
+    model: $model,
+    timestamp: $timestamp,
+    exit_code: $exit_code,
+    duration_ms: $duration_ms,
+    status: $status,
+    context_file: (if $context_file == "" then null else $context_file end),
+    timeout_sec: $timeout_sec,
+    image_count: $image_count
+  }' > "$RESULT_DIR/meta.json"
 
 # ─── Output summary ──────────────────────────────────────────────
 echo "Codex delegation complete: mode=$MODE status=$STATUS request_id=$REQUEST_ID" >&2

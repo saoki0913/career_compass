@@ -40,32 +40,33 @@ FLAG="$STATE_DIR/test-categories-$SESSION_ID"
 if [ ! -f "$FLAG" ]; then
   cat >&2 <<EOF
 Test command blocked by Codex hook. Choose categories first and record:
-  echo "e2e-functional=run:<features>,quality=skip,static=run,security=run" > $FLAG
+  node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project "$(pwd)" \
+    --categories "e2e-functional=run:<features>,quality=skip,static=run,security=run" > $FLAG
 EOF
   exit 2
 fi
 
-CONTENT=$(tr -d '[:space:]' < "$FLAG" 2>/dev/null || echo "")
-if [ -z "$CONTENT" ]; then
-  echo "Test category checkpoint is empty: $FLAG" >&2
+if ! jq -e . "$FLAG" >/dev/null 2>&1; then
+  echo "Test category checkpoint must be JSON: $FLAG" >&2
   exit 2
 fi
 
-if ! printf '%s' "$CONTENT" | grep -qE '(e2e-functional|quality|static|security)=(run|skip|partial)'; then
-  echo "Invalid test category checkpoint: $CONTENT" >&2
+PROJECT_DIR=$(codex_project_dir "$INPUT")
+if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$FLAG" >/dev/null; then
+  echo "Test category checkpoint is stale for the current staged diff." >&2
   exit 2
 fi
 
-category_value="$(printf '%s' "$CONTENT" | tr ',' '\n' | awk -F= -v key="$COMMAND_CATEGORY" '$1 == key {print $2; exit}')"
+category_value="$(jq -r --arg key "$COMMAND_CATEGORY" '.categories[$key] // .[$key] // empty' "$FLAG" 2>/dev/null || echo "")"
 if [ -z "$category_value" ]; then
-  echo "$COMMAND_CATEGORY is missing from test category checkpoint: $CONTENT" >&2
+  echo "$COMMAND_CATEGORY is missing from test category checkpoint: $FLAG" >&2
   exit 2
 fi
 
 case "$category_value" in
   run|run:*|partial:*) ;;
   skip|skip:*)
-    echo "$COMMAND_CATEGORY is marked skip in checkpoint: $CONTENT" >&2
+    echo "$COMMAND_CATEGORY is marked skip in checkpoint: $FLAG" >&2
     exit 2
     ;;
   *)

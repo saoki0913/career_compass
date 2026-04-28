@@ -59,7 +59,7 @@ export PATH="/Users/saoki/work/career_compass/tools/cli-safe/bin:$PATH"
 - `stripe` のリソース削除系
 - `modal` / `hf` / `gcloud` の削除系
 
-> Claude Code 側では `.claude/hooks/git-push-guard.sh` が `git push --force` 系を block、`git push ... main|develop` を警告する。詳細は [`docs/ops/AI_HARNESS.md`](./AI_HARNESS.md) 5.3 節を参照。
+> Claude Code / Codex 側では `git push` 系を JSON approval checkpoint 付きの HEAD 固定操作に限定し、force push は常に block する。詳細は [`docs/ops/AI_HARNESS.md`](./AI_HARNESS.md) 5.3 節を参照。
 
 ## 使うコマンド
 

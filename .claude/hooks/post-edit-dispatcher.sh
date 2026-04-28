@@ -11,6 +11,11 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
+# shellcheck source=../../.codex/hooks/lib/codex-hook-utils.sh
+. "$(dirname "$0")/../../.codex/hooks/lib/codex-hook-utils.sh"
+if [ -z "$FILE_PATH" ]; then
+  FILE_PATH=$(codex_primary_file_path "$INPUT")
+fi
 
 if [ -z "$FILE_PATH" ]; then
   exit 0
@@ -144,6 +149,24 @@ EOF
     fi
     ;;
 esac
+
+if echo "$FILE_PATH" | grep -qE '(^|/)src/(components/|app/(.*/)?(page|layout|loading)\.tsx$)' && ! echo "$FILE_PATH" | grep -qE '(^|/)src/app/api/'; then
+  UI_REMIND_DIR="$HOME/.claude/sessions/career_compass"
+  mkdir -p "$UI_REMIND_DIR"
+  UI_REMIND_FLAG="$UI_REMIND_DIR/ui-reminded-$SESSION_ID"
+  if [ ! -f "$UI_REMIND_FLAG" ]; then
+    : > "$UI_REMIND_FLAG"
+    cat >&2 <<EOF
+🎨 UI ファイルを変更しました: ${FILE_PATH}
+
+   推奨 (block しません、session 1 回のみ表示):
+     - npm run lint:ui:guardrails
+     - npm run test:ui:review -- <route>
+     - 大幅変更なら ui-designer agent への委譲を検討
+   詳細: docs/architecture/FRONTEND_UI_GUIDELINES.md
+EOF
+  fi
+fi
 
 if echo "$FILE_PATH" | grep -qE '(^|/)src/lib/db/schema\.ts$'; then
   cat >&2 <<'EOF'

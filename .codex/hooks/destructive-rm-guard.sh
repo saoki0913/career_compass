@@ -8,48 +8,29 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/lib/codex-hook-utils.sh"
 
 CMD=$(codex_tool_command "$INPUT")
+PROJECT_DIR=$(codex_project_dir "$INPUT")
+# shellcheck source=../../scripts/harness/guard-core.sh
+. "$PROJECT_DIR/scripts/harness/guard-core.sh"
 if [ -z "$CMD" ]; then
   exit 0
 fi
 
-if ! printf '%s' "$CMD" | grep -qE '(^|[;&|]|`|\$\()\s*rm\s'; then
+if ! guard_command_has_destructive_delete "$CMD"; then
   exit 0
 fi
 
-if ! printf '%s' "$CMD" | grep -qE '(^|[;&|]|`|\$\()\s*rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r|-r\s+-f|-f\s+-r)'; then
-  exit 0
-fi
-
-SAFE_TARGETS='(node_modules|\.next|build|dist|__pycache__|coverage|\.turbo|\.cache|\.pytest_cache|\.mypy_cache|\.ruff_cache|out|\.parcel-cache|\.vercel|target|tmp|\.output|\.nuxt|\.svelte-kit)'
-TARGETS=$(printf '%s' "$CMD" | grep -oE '(^|[;&|]|`|\$\()\s*rm\s+[^;&|]*' | sed -E 's/.*rm[[:space:]]+//' | tr ' ' '\n' | grep -v '^-' | grep -v '^$' || true)
-
-if [ -z "$TARGETS" ]; then
-  echo "rm -rf target is unclear. Provide an explicit safe path." >&2
-  exit 2
-fi
-
-ALL_SAFE=true
-while IFS= read -r target; do
-  case "$target" in
-    /*) ALL_SAFE=false; break ;;
-  esac
-  BASENAME=$(basename "${target%/}")
-  if ! printf '%s' "$BASENAME" | grep -qE "^${SAFE_TARGETS}$"; then
-    ALL_SAFE=false
-    break
-  fi
-done <<< "$TARGETS"
-
-if [ "$ALL_SAFE" = true ]; then
+if guard_rm_rf_all_targets_safe "$CMD"; then
   exit 0
 fi
 
 cat >&2 <<'EOF'
-Unsafe rm -rf blocked by Codex hook.
+Unsafe destructive delete blocked by Codex hook.
 
 Allowed targets are build/cache artifacts only:
   node_modules, .next, build, dist, __pycache__, coverage,
   .turbo, .cache, .pytest_cache, .mypy_cache, .ruff_cache,
   out, .parcel-cache, .vercel, target, tmp
+
+git clean -fdx and find -delete are blocked.
 EOF
 exit 2

@@ -20,7 +20,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Read|mcp__filesystem__.*|Edit|Write|ExitPlanMode",
+        "matcher": "Bash|Read|mcp__filesystem__.*|apply_patch|Edit|Write|MultiEdit|ExitPlanMode",
         "hooks": [
           {
             "type": "command",
@@ -31,7 +31,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "apply_patch|Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",

@@ -43,6 +43,17 @@ test("git-push-guard blocks force push", () => {
   assert.match(result.stderr, /force/i);
 });
 
+test("git-push-guard blocks normal push without approval checkpoint", () => {
+  const result = runHook(".codex/hooks/git-push-guard.sh", JSON.stringify({
+    session_id: "sess-push",
+    tool_name: "Bash",
+    tool_input: { command: "git push origin develop" },
+  }));
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /approval checkpoint/i);
+});
+
 test("secrets-guard blocks direct secret reads", () => {
   const result = runHook(".codex/hooks/secrets-guard.sh", JSON.stringify({
     tool_name: "Read",
@@ -50,7 +61,7 @@ test("secrets-guard blocks direct secret reads", () => {
   }));
 
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /\.secrets/);
+  assert.match(result.stderr, /secrets|env|key/i);
 });
 
 test("secrets-guard blocks filesystem MCP secret reads", () => {
@@ -60,7 +71,27 @@ test("secrets-guard blocks filesystem MCP secret reads", () => {
   }));
 
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /\.secrets/);
+  assert.match(result.stderr, /secrets|env|key/i);
+});
+
+test("secrets-guard blocks bash reads of env files", () => {
+  const result = runHook(".codex/hooks/secrets-guard.sh", JSON.stringify({
+    tool_name: "Bash",
+    tool_input: { command: "cat .env.local" },
+  }));
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /env|key|secrets/i);
+});
+
+test("secrets-guard allows non-secret private project files", () => {
+  const result = runHook(".codex/hooks/secrets-guard.sh", JSON.stringify({
+    tool_name: "Bash",
+    tool_input: { command: "sed -n '1,20p' private/agent-pipeline/skills/grill-me.md" },
+  }));
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, "");
 });
 
 test("codex-start wrapper prints codex agent specs", () => {
@@ -163,6 +194,16 @@ test("codex lifecycle hooks are wired for safety and quality gates", () => {
   assert.match(source, /stop-plaintext-confirm-guard\.sh/);
 });
 
+test("codex bash post-tool triage stays visually quiet on normal commands", () => {
+  const source = readFileSync(path.join(repoRoot, ".codex/hooks.json"), "utf8");
+  const config = JSON.parse(source);
+  const bashPostToolEntry = config.hooks.PostToolUse.find((entry) => entry.matcher === "Bash");
+
+  assert.ok(bashPostToolEntry);
+  assert.match(bashPostToolEntry.hooks[0].command, /post-tool-failure-triage\.sh/);
+  assert.equal(bashPostToolEntry.hooks[0].statusMessage, undefined);
+});
+
 test("codex pre-tool dispatcher keeps harmless bash commands quiet", () => {
   const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
     tool_name: "Bash",
@@ -182,6 +223,24 @@ test("codex pre-tool dispatcher still blocks force push", () => {
 
   assert.equal(result.status, 2);
   assert.match(result.stderr, /force/i);
+});
+
+test("codex pre-tool dispatcher blocks provider CLI but allows static checks", () => {
+  const provider = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+    session_id: "sess-release",
+    tool_name: "Bash",
+    tool_input: { command: "vercel deploy --prod" },
+  }));
+  assert.equal(provider.status, 2);
+  assert.match(provider.stderr, /provider|deploy|release/i);
+
+  const staticCheck = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+    session_id: "sess-static",
+    tool_name: "Bash",
+    tool_input: { command: "npx tsc --noEmit" },
+  }));
+  assert.equal(staticCheck.status, 0);
+  assert.equal(staticCheck.stderr, "");
 });
 
 test("codex user-prompt router treats hook stalls as harness diagnostics", () => {
@@ -394,7 +453,17 @@ test("codex destructive rm guard blocks unsafe recursive deletion", () => {
   }));
 
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /Unsafe rm -rf/i);
+  assert.match(result.stderr, /Unsafe destructive delete/i);
+});
+
+test("codex destructive guard blocks git clean", () => {
+  const result = runHook(".codex/hooks/destructive-rm-guard.sh", JSON.stringify({
+    tool_name: "Bash",
+    tool_input: { command: "git clean -fdx" },
+  }));
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /destructive|git clean/i);
 });
 
 test("codex permission request guard denies force push approval", () => {

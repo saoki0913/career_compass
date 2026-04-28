@@ -26,6 +26,8 @@ test("claude settings define shared policy and new hook events", () => {
   assert.ok(settings.hooks?.PostToolUseFailure);
   assert.equal(settings.env?.BASH_DEFAULT_TIMEOUT_MS, "3600000");
   assert.equal(settings.env?.BASH_MAX_TIMEOUT_MS, "7200000");
+  assert.match(JSON.stringify(settings.hooks.PreToolUse), /apply_patch/);
+  assert.match(JSON.stringify(settings.hooks.PostToolUse), /apply_patch/);
 });
 
 test("claude harness scripts and docs exist", () => {
@@ -93,6 +95,81 @@ test("pre-tool dispatcher still blocks force push", () => {
 
   assert.equal(result.status, 2);
   assert.match(result.stderr, /force/i);
+});
+
+test("pre-tool dispatcher blocks env reads, normal push, and provider CLI", () => {
+  const envRead = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      session_id: "sess-env",
+      tool_name: "Bash",
+      tool_input: { command: "cat .env.local" },
+    }),
+  );
+  assert.equal(envRead.status, 2);
+  assert.match(envRead.stderr, /env|key|secrets/i);
+
+  const push = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      session_id: "sess-push",
+      tool_name: "Bash",
+      tool_input: { command: "git push origin develop" },
+    }),
+  );
+  assert.equal(push.status, 2);
+  assert.match(push.stderr, /push/i);
+
+  const provider = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      session_id: "sess-release",
+      tool_name: "Bash",
+      tool_input: { command: "railway redeploy" },
+    }),
+  );
+  assert.equal(provider.status, 2);
+  assert.match(provider.stderr, /release|provider|deploy/i);
+});
+
+test("pre-tool dispatcher allows non-secret private project files", () => {
+  const result = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      session_id: "sess-private",
+      tool_name: "Bash",
+      tool_input: { command: "sed -n '1,20p' private/agent-pipeline/skills/grill-me.md" },
+    }),
+  );
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, "");
+});
+
+test("claude bandaid guard handles apply_patch edits", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-hook-home-"));
+  const riskyLine = "+const value = input as " + "any;";
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/bandaid-guard.sh")], {
+    cwd: repoRoot,
+    input: JSON.stringify({
+      session_id: "sess-apply-patch",
+      tool_name: "apply_patch",
+      tool_input: {
+        command: [
+          "*** Begin Patch",
+          "*** Update File: src/lib/example.ts",
+          "@@",
+          riskyLine,
+          "*** End Patch",
+        ].join("\n"),
+      },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: repoRoot },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Band-aid/i);
 });
 
 test("tdd guard records test edits before implementation edits", () => {

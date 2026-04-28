@@ -2,7 +2,7 @@
 description: Codex CLI に実装タスクを委譲する（workspace-write sandbox）
 ---
 
-Codex CLI (GPT-5.4) に独立性の高い実装タスクを委譲する。
+Codex CLI (GPT-5.5) に独立性の高い実装タスクを委譲する。
 
 手順:
 1. 実装対象のタスク記述をユーザーから受け取るか、docs/issues/ から特定する

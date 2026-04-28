@@ -1,14 +1,17 @@
 #!/bin/bash
-# PreToolUse (Read|Bash): codex-company/.secrets/ への直接アクセスを block。
+# PreToolUse (Read|Bash): sensitive file direct access を block。
 set -e
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty')
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+# shellcheck source=../../scripts/harness/guard-core.sh
+. "$PROJECT_DIR/scripts/harness/guard-core.sh"
 
 if [ "$TOOL" = "Read" ]; then
   FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
-  if [ -n "$FILE_PATH" ] && echo "$FILE_PATH" | grep -q 'codex-company/\.secrets/'; then
+  if [ -n "$FILE_PATH" ] && guard_path_is_sensitive "$FILE_PATH"; then
     cat >&2 <<'EOF'
-⛔ codex-company/.secrets/ の直接 Read は禁止されています（CLAUDE.md ルール）。
+⛔ secrets / env / key ファイルの直接 Read は禁止されています（CLAUDE.md ルール）。
 
 許可される操作:
   - zsh scripts/release/sync-career-compass-secrets.sh --check
@@ -20,9 +23,9 @@ EOF
   fi
 elif [ "$TOOL" = "Bash" ]; then
   CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
-  if [ -n "$CMD" ] && echo "$CMD" | grep -qE '(^|[^a-zA-Z_])(cat|head|tail|less|more|bat|sed|awk|grep|rg)([[:space:]].*)?codex-company/\.secrets/'; then
+  if [ -n "$CMD" ] && guard_command_reads_sensitive_path "$CMD"; then
     cat >&2 <<'EOF'
-⛔ codex-company/.secrets/ 配下を cat/head/tail/less/grep 等で読むのは禁止です。
+⛔ secrets / env / key ファイルを cat/head/tail/less/grep 等で読むのは禁止です。
 
 許可される操作:
   - zsh scripts/release/sync-career-compass-secrets.sh --check

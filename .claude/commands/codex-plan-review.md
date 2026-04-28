@@ -2,7 +2,7 @@
 description: Codex CLI に設計/計画の read-only レビューを委譲する
 ---
 
-Codex CLI (GPT-5.4) に設計レビューを委譲して、マルチモデルの second opinion を得る。
+Codex CLI (GPT-5.5) に設計レビューを委譲して、マルチモデルの second opinion を得る。
 
 手順:
 1. レビュー対象の設計文書を特定する（docs/prd/, docs/rfc/, docs/issues/, または現在のプラン）

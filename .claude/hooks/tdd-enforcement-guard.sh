@@ -6,10 +6,16 @@ set -euo pipefail
 INPUT=$(cat)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || echo "")
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || echo "")
+REPO_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../.codex/hooks/lib/codex-hook-utils.sh
+. "$HOOK_DIR/../../.codex/hooks/lib/codex-hook-utils.sh"
+if [ -z "$FILE_PATH" ]; then
+  FILE_PATH=$(codex_primary_file_path "$INPUT")
+fi
 
 if [ -z "$FILE_PATH" ]; then exit 0; fi
 
-REPO_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 REL_PATH="${FILE_PATH#$REPO_ROOT/}"
 
 record_tdd_edit() {

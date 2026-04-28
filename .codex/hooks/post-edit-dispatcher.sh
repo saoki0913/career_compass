@@ -97,6 +97,19 @@ EOF
     ;;
   esac
 
+  if printf '%s' "$REL_PATH" | grep -qE '^src/(components/|app/(.*/)?(page|layout|loading)\.tsx$)' && ! printf '%s' "$REL_PATH" | grep -qE '^src/app/api/'; then
+    UI_REMIND_DIR=$(codex_session_state_dir)
+    UI_REMIND_FLAG="$UI_REMIND_DIR/ui-reminded-$SESSION_ID"
+    if [ ! -f "$UI_REMIND_FLAG" ]; then
+      : > "$UI_REMIND_FLAG"
+      cat >&2 <<EOF
+Codex UI reminder: edited UI file $REL_PATH (shown once per session).
+  Suggested: npm run lint:ui:guardrails / npm run test:ui:review -- <route>
+  Details: docs/architecture/FRONTEND_UI_GUIDELINES.md
+EOF
+    fi
+  fi
+
   if printf '%s' "$REL_PATH" | grep -qE '^src/lib/db/schema\.ts$'; then
   cat >&2 <<'EOF'
 Codex DB reminder: schema.ts changed. Run npm run db:generate and review the generated SQL.

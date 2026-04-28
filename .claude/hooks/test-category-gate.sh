@@ -3,9 +3,8 @@
 # AskUserQuestion によるカテゴリ選択は Claude orchestration が担当し、
 # このhookは checkpoint の存在とフォーマットのみ検証する。
 #
-# Checkpoint format:
-#   e2e-functional=run:<features>,quality=skip,static=run,security=run
-#   e2e-functional=skip,quality=run,static=skip,security=skip
+# Checkpoint format: JSON generated from scripts/harness/diff-snapshot.mjs checkpoint,
+# plus a categories object, bound to the staged diff hash.
 #
 # 旧 e2e-confirm-guard.sh + e2e-options-guard.sh を統合・置換。
 set -euo pipefail
@@ -50,36 +49,35 @@ test-category-gate: テスト実行をブロック。カテゴリ選択が未完
      - Quality Tests (LLM品質)
      - Static Analysis (lint/型チェック)
      - Security Scan (Trace-core/secrets)
-  3. 選択結果を checkpoint に記録:
-     echo "e2e-functional=run:<features>,quality=skip,static=run,security=run" > $FLAG
+  3. 選択結果を staged diff に結び付いた JSON checkpoint に記録:
+     node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project "$(pwd)" \
+       --categories "e2e-functional=run:<features>,quality=skip,static=run,security=run" > $FLAG
   4. テストコマンドを再実行
 EOF
   exit 2
 fi
 
-# --- 2. Non-empty check ---
-CONTENT=$(tr -d '[:space:]' < "$FLAG" 2>/dev/null || echo "")
-if [ -z "$CONTENT" ]; then
-  echo "test-category-gate: checkpoint is empty. Re-confirm via AskUserQuestion." >&2
+# --- 2. JSON + staged diff validation ---
+if ! jq -e . "$FLAG" >/dev/null 2>&1; then
+  echo "test-category-gate: checkpoint must be JSON. Re-confirm via AskUserQuestion." >&2
   exit 2
 fi
 
-# --- 3. Format validation ---
-# At least one category must be present
-if ! echo "$CONTENT" | grep -qE '(e2e-functional|quality|static|security)=(run|skip|partial)'; then
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$FLAG" >/dev/null; then
   cat >&2 <<EOF
-test-category-gate: checkpoint format invalid: "$CONTENT"
-Expected format: e2e-functional=run:<features>,quality=skip,static=run,security=run
-Each category: run / run:<features> / skip / partial:<runFeatures>:<skipFeatures>
+test-category-gate: checkpoint 作成後に staged diff が変わりました。
+AskUserQuestion でカテゴリ選択をやり直してください。
+checkpoint=$FLAG
 EOF
   exit 2
 fi
 
-category_value="$(printf '%s' "$CONTENT" | tr ',' '\n' | awk -F= -v key="$COMMAND_CATEGORY" '$1 == key {print $2; exit}')"
+category_value="$(jq -r --arg key "$COMMAND_CATEGORY" '.categories[$key] // .[$key] // empty' "$FLAG" 2>/dev/null || echo "")"
 if [ -z "$category_value" ]; then
   cat >&2 <<EOF
 test-category-gate: $COMMAND_CATEGORY の選択が checkpoint にありません。
-checkpoint="$CONTENT"
+checkpoint="$FLAG"
 EOF
   exit 2
 fi
@@ -90,7 +88,7 @@ case "$category_value" in
     cat >&2 <<EOF
 test-category-gate: $COMMAND_CATEGORY は checkpoint で skip されています。
 AskUserQuestion で run に変更してからコマンドを実行してください。
-checkpoint="$CONTENT"
+checkpoint="$FLAG"
 EOF
     exit 2
     ;;

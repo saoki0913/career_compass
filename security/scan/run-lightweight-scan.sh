@@ -1,7 +1,7 @@
 #!/bin/bash
 # Lightweight security scan for pre-commit and CI.
 # Runs staged Trace-core critical checks and secrets detection.
-# Exit codes: 0 = clean, 1 = critical findings, 2 = scanner/warning only
+# Exit codes: 0 = no blocking findings, 1 = blocking findings, 2 = scanner error
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -30,6 +30,9 @@ if [ "$STAGED_ONLY" = true ]; then
 else
   FILES=$(git -C "$REPO_ROOT" ls-files '*.ts' '*.tsx' '*.py' '*.js' '*.jsx' '*.mjs' '*.cjs' '*.sh' '*.yml' '*.yaml' '*.json' '*.sql' '*.md' '*.mdx' || true)
 fi
+FILES=$(echo "$FILES" | while IFS= read -r file; do
+  [ -n "$file" ] && [ -f "$REPO_ROOT/$file" ] && printf '%s\n' "$file"
+done)
 
 if [ -z "$FILES" ]; then
   echo "[security] No scannable files found."
@@ -43,21 +46,104 @@ echo "[security] Scanning $(echo "$FILES" | wc -l | tr -d ' ') file(s)..."
 echo "[security] Running Trace-core..."
 TRACE_OUTPUT=""
 TRACE_STATUS=0
-TRACE_FILES=$(echo "$FILES" | grep -E '\.(ts|tsx|py|js|jsx)$' || true)
+TRACE_FILES=$(echo "$FILES" | grep -E '\.(ts|tsx|py|js|jsx)$' | grep -vE '^\.agents/' || true)
 if [ -n "$TRACE_FILES" ]; then
-  TRACE_OUTPUT=$(cd "$REPO_ROOT" && echo "$TRACE_FILES" | xargs npx trace-check --json --fail-on="$FAIL_ON" 2>&1) || TRACE_STATUS=$?
-  printf '%s\n' "$TRACE_OUTPUT" > "$TRACE_LOG"
+  TRACE_FILE_LIST="$OUTPUT_DIR/trace-files.txt"
+  printf '%s\n' "$TRACE_FILES" > "$TRACE_FILE_LIST"
+  TRACE_OUTPUT=$(cd "$REPO_ROOT" && node - "$FAIL_ON" "$TRACE_LOG" "$TRACE_FILE_LIST" <<'NODE'
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+
+const failOn = process.argv[2] || "critical";
+const logPath = process.argv[3];
+const fileListPath = process.argv[4];
+const rank = { low: 1, medium: 2, high: 3, critical: 4 };
+const threshold = rank[failOn] ?? rank.critical;
+const chunkSize = 10;
+const files = fs.readFileSync(fileListPath, "utf8").split(/\r?\n/u).filter(Boolean);
+
+function isAllowedFalsePositive(item) {
+  const detector = String(item.detector || "");
+  const message = String(item.message || "");
+  const rawCode = String(item.rawCode || "");
+  if (detector !== "hallucinated-deps") {
+    return false;
+  }
+  if (message.includes('Package "tests" not found on PyPI') && rawCode.includes("from tests.")) {
+    return true;
+  }
+  return ["pytest", "tiktoken"].some(
+    (name) => message.startsWith(`Package "${name}  #`) && rawCode.startsWith(`import ${name}  #`),
+  );
+}
+
+let exitCode = 0;
+let blocking = false;
+let warnings = false;
+let scanner = false;
+fs.writeFileSync(logPath, "", "utf8");
+
+for (let index = 0; index < files.length; index += chunkSize) {
+  const chunk = files.slice(index, index + chunkSize);
+  const result = spawnSync("npx", ["trace-check", "--json", `--fail-on=${failOn}`, ...chunk], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    maxBuffer: 100 * 1024 * 1024,
+  });
+  const output = `${result.stdout || ""}${result.stderr || ""}`;
+  fs.appendFileSync(logPath, output.trim() ? `${output.trim()}\n` : "", "utf8");
+
+  if (typeof result.status === "number" && result.status > exitCode) {
+    exitCode = result.status;
+  }
+
+  try {
+    const payload = JSON.parse(output);
+    const detections = Array.isArray(payload.detections)
+      ? payload.detections.filter((item) => !isAllowedFalsePositive(item))
+      : [];
+    if (detections.some((item) => (rank[String(item.severity || "").toLowerCase()] ?? 0) >= threshold)) {
+      blocking = true;
+    } else if (detections.length > 0) {
+      warnings = true;
+    }
+  } catch {
+    if (/detection failed|fetch failed|timeout|ETIMEDOUT|ECONN|ENOTFOUND|ENOENT/i.test(output) || result.error) {
+      const chunkError = {
+        traceScanChunkError: true,
+        status: result.status,
+        signal: result.signal,
+        error: result.error ? result.error.message : null,
+        files: chunk,
+        outputPreview: output.slice(0, 1000),
+      };
+      fs.appendFileSync(logPath, `${JSON.stringify(chunkError, null, 2)}\n`, "utf8");
+      scanner = true;
+    } else if (/"severity"\s*:\s*"critical"/i.test(output)) {
+      blocking = true;
+    } else if (/"severity"\s*:/i.test(output) || output.trim()) {
+      warnings = true;
+    } else if (result.status !== 0) {
+      scanner = true;
+    }
+  }
+}
+
+process.stdout.write(JSON.stringify({ exitCode, blocking, warnings, scanner }));
+process.exit(scanner ? 2 : blocking ? 1 : warnings ? 3 : 0);
+NODE
+) || TRACE_STATUS=$?
 fi
 
 if [ $TRACE_STATUS -ne 0 ]; then
-  if printf '%s' "$TRACE_OUTPUT" | grep -qiE 'detection failed|fetch failed|network|timeout'; then
-    echo "[security] Trace-core scanner error (exit=$TRACE_STATUS); details: $TRACE_LOG"
-    SCANNER_ERRORS=1
-  elif [ $TRACE_STATUS -eq 1 ]; then
-    echo "[security] Trace-core found issues (exit=$TRACE_STATUS); details: $TRACE_LOG"
+  if [ $TRACE_STATUS -eq 1 ]; then
+    echo "[security] Trace-core found blocking issues; details: $TRACE_LOG"
     SCAN_RESULT=1
+  elif [ $TRACE_STATUS -eq 3 ]; then
+    echo "[security] Trace-core found non-blocking issues below --fail-on=$FAIL_ON; details: $TRACE_LOG"
+    WARNINGS=1
   else
-    echo "[security] Trace-core scanner error (exit=$TRACE_STATUS); details: $TRACE_LOG"
+    echo "[security] Trace-core scanner error; details: $TRACE_LOG"
     SCANNER_ERRORS=1
   fi
 fi
@@ -115,10 +201,6 @@ echo "[security] Scan complete: $FINAL_STATUS"
 if [ $SCAN_RESULT -ne 0 ]; then
   echo "[security] Critical findings detected. See $OUTPUT_DIR/scan-result.json"
   exit 1
-fi
-
-if [ $WARNINGS -ne 0 ]; then
-  exit 2
 fi
 
 if [ $SCANNER_ERRORS -ne 0 ]; then

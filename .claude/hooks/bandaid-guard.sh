@@ -7,6 +7,13 @@ INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../.codex/hooks/lib/codex-hook-utils.sh
+. "$HOOK_DIR/../../.codex/hooks/lib/codex-hook-utils.sh"
+if [ -z "$FILE_PATH" ]; then
+  FILE_PATH=$(codex_primary_file_path "$INPUT")
+fi
 
 if [ -z "$SESSION_ID" ] || [ -z "$FILE_PATH" ]; then
   exit 0
@@ -39,6 +46,12 @@ if [ "$TOOL_NAME" = "Edit" ]; then
 elif [ "$TOOL_NAME" = "Write" ]; then
   NEW_STRING=$(echo "$INPUT" | jq -r '.tool_input.content // empty')
   OLD_STRING=""
+elif [ "$TOOL_NAME" = "apply_patch" ]; then
+  NEW_STRING=$(codex_added_patch_text "$INPUT")
+  OLD_STRING=$(codex_old_patch_text "$INPUT")
+elif [ "$TOOL_NAME" = "MultiEdit" ]; then
+  NEW_STRING=$(echo "$INPUT" | jq -r '[.tool_input.edits[]?.new_string // empty] | join("\n")' 2>/dev/null || echo "")
+  OLD_STRING=$(echo "$INPUT" | jq -r '[.tool_input.edits[]?.old_string // empty] | join("\n")' 2>/dev/null || echo "")
 else
   exit 0
 fi
