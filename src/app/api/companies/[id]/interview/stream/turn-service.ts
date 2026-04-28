@@ -1,4 +1,4 @@
-import { CONVERSATION_CREDITS_PER_TURN, consumeCredits, DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
+import { INTERVIEW_TURN_CREDIT_COST } from "@/lib/credits";
 import {
   normalizeInterviewTurnMeta,
   type InterviewPlan,
@@ -90,6 +90,7 @@ export async function completeInterviewTurnStream(args: {
   identity: RequestIdentity;
   answer: string;
   nextMessages: InterviewContextWithConversation["conversation"]["messages"];
+  onPersisted?: () => Promise<void>;
 }): Promise<InterviewClientCompleteData> {
   const transitionLine =
     typeof args.upstreamData.transition_line === "string" &&
@@ -143,7 +144,7 @@ export async function completeInterviewTurnStream(args: {
     },
   });
 
-  await consumeCredits(args.identity.userId!, CONVERSATION_CREDITS_PER_TURN, "interview", args.companyId);
+  await args.onPersisted?.();
 
   const shortCoaching = safeParseInterviewShortCoaching(args.upstreamData.short_coaching ?? null);
 
@@ -166,7 +167,7 @@ export async function completeInterviewTurnStream(args: {
         : turnMeta?.topic ?? turnState.currentTopic,
     feedback: null,
     questionFlowCompleted,
-    creditCost: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
+    creditCost: INTERVIEW_TURN_CREDIT_COST,
     turnState,
     turnMeta,
     plan,

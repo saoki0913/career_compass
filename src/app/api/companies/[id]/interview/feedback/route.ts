@@ -201,15 +201,14 @@ export async function POST(
             caseSeedVersion: upstreamData.case_seed_version ?? null,
           },
         });
+        if (reservationId) {
+          await confirmReservation(reservationId);
+        }
       } catch (error) {
         if (reservationId) {
           await cancelReservation(reservationId);
         }
         throw error;
-      }
-
-      if (reservationId) {
-        await confirmReservation(reservationId);
       }
 
       return {

@@ -79,6 +79,9 @@ export type InterviewFeedbackHistoryItem = {
   nextPreparation: string[];
   premiseConsistency: number;
   satisfactionScore: number | null;
+  scoreEvidenceByAxis?: Record<string, string[]>;
+  scoreRationaleByAxis?: Record<string, string>;
+  confidenceByAxis?: Record<string, string>;
   sourceQuestionCount: number;
   createdAt: string;
 };

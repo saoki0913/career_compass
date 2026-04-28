@@ -3,7 +3,12 @@ import { NextRequest } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { CONVERSATION_CREDITS_PER_TURN, consumeCredits, DEFAULT_INTERVIEW_SESSION_CREDIT_COST, hasEnoughCredits } from "@/lib/credits";
+import {
+  cancelReservation,
+  confirmReservation,
+  INTERVIEW_START_CREDIT_COST,
+  reserveCredits,
+} from "@/lib/credits";
 import {
   classifyInterviewRoleTrack,
   INTERVIEW_STAGE_OPTIONS,
@@ -22,7 +27,6 @@ import {
   buildInterviewContext,
   ensureInterviewConversation,
   normalizeInterviewPlanValue,
-  resetInterviewConversation,
   saveInterviewConversationProgress,
   saveInterviewTurnEvent,
   validateInterviewTurnState,
@@ -164,13 +168,31 @@ export async function POST(
     });
   }
 
-  if (context.conversation) {
-    await resetInterviewConversation(companyId, identity);
-    context = {
-      ...context,
-      conversation: null,
-    };
+  if (context.conversation && context.conversation.status !== "setup_pending") {
+    return createApiErrorResponse(request, {
+      status: 409,
+      code: "INTERVIEW_SESSION_ALREADY_ACTIVE",
+      userMessage: "進行中の面接対策があります。",
+      action: "続きから再開するか、会話をやり直す操作を選んでから新しく開始してください。",
+    });
   }
+
+  const reservation = await reserveCredits(
+    identity.userId!,
+    INTERVIEW_START_CREDIT_COST,
+    "interview",
+    companyId,
+    `面接対策開始: ${context.company.name}`,
+  );
+  if (!reservation.success) {
+    return createApiErrorResponse(request, {
+      status: 402,
+      code: "INTERVIEW_INSUFFICIENT_CREDITS",
+      userMessage: "クレジットが不足しています。",
+      action: "プランをアップグレードするか、クレジットが補充されるまでお待ちください。",
+    });
+  }
+  const reservationId = reservation.reservationId;
 
   let conversation;
   try {
@@ -189,6 +211,7 @@ export async function POST(
       strictnessMode,
     });
   } catch (error) {
+    await cancelReservation(reservationId);
     const persistenceError = normalizeInterviewPersistenceError(error, {
       companyId,
       operation: "interview:start",
@@ -197,16 +220,6 @@ export async function POST(
       return createInterviewPersistenceUnavailableResponse(request, persistenceError);
     }
     throw error;
-  }
-
-  const canPay = await hasEnoughCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN);
-  if (!canPay) {
-    return createApiErrorResponse(request, {
-      status: 402,
-      code: "INTERVIEW_INSUFFICIENT_CREDITS",
-      userMessage: "クレジットが不足しています。",
-      action: "プランをアップグレードするか、クレジットが補充されるまでお待ちください。",
-    });
   }
 
   return createInterviewUpstreamStream({
@@ -234,80 +247,91 @@ export async function POST(
       seed_summary: buildSeedSummary(context.materials),
     },
     onComplete: async (upstreamData) => {
-      const question = typeof upstreamData.question === "string" ? upstreamData.question.trim() : "";
-      const transitionLine =
-        typeof upstreamData.transition_line === "string" &&
-        upstreamData.transition_line.trim().length > 0
-          ? upstreamData.transition_line.trim()
-          : null;
-      const messages = [
-        ...(transitionLine ? [{ role: "assistant" as const, content: transitionLine }] : []),
-        ...(question ? [{ role: "assistant" as const, content: question }] : []),
-      ];
-      const turnStateToPersist =
-        validateInterviewTurnState(upstreamData.turn_state ?? null) ??
-        context.conversation?.turnState ??
-        createInitialInterviewTurnState();
-      const turnMeta: InterviewTurnMeta | null = normalizeInterviewTurnMeta(upstreamData.turn_meta ?? null);
-      const plan: InterviewPlan | null = normalizeInterviewPlanValue(upstreamData.interview_plan ?? null);
+      try {
+        const question = typeof upstreamData.question === "string" ? upstreamData.question.trim() : "";
+        const transitionLine =
+          typeof upstreamData.transition_line === "string" &&
+          upstreamData.transition_line.trim().length > 0
+            ? upstreamData.transition_line.trim()
+            : null;
+        const messages = [
+          ...(transitionLine ? [{ role: "assistant" as const, content: transitionLine }] : []),
+          ...(question ? [{ role: "assistant" as const, content: question }] : []),
+        ];
+        const turnStateToPersist =
+          validateInterviewTurnState(upstreamData.turn_state ?? null) ??
+          context.conversation?.turnState ??
+          createInitialInterviewTurnState();
+        const turnMeta: InterviewTurnMeta | null = normalizeInterviewTurnMeta(upstreamData.turn_meta ?? null);
+        const plan: InterviewPlan | null = normalizeInterviewPlanValue(upstreamData.interview_plan ?? null);
 
-      await saveInterviewConversationProgress({
-        conversationId: conversation.id,
-        companyId,
-        messages,
-        turnState: turnStateToPersist,
-        status: "in_progress",
-        turnMeta,
-        plan,
-      });
-      await saveInterviewTurnEvent({
-        conversationId: conversation.id,
-        companyId,
-        identity,
-        turnId:
-          turnStateToPersist.recentQuestionSummariesV2.at(-1)?.turnId ??
-          `turn-${turnStateToPersist.turnCount || 1}`,
-        question,
-        answer: "",
-        questionType: "opening",
-        turnState: turnStateToPersist,
-        turnMeta,
-        versionMetadata: {
-          promptVersion: upstreamData.prompt_version ?? null,
-          followupPolicyVersion: upstreamData.followup_policy_version ?? null,
-          caseSeedVersion: upstreamData.case_seed_version ?? null,
-        },
-      });
+        await saveInterviewConversationProgress({
+          conversationId: conversation.id,
+          companyId,
+          messages,
+          turnState: turnStateToPersist,
+          status: "in_progress",
+          turnMeta,
+          plan,
+        });
+        await saveInterviewTurnEvent({
+          conversationId: conversation.id,
+          companyId,
+          identity,
+          turnId:
+            turnStateToPersist.recentQuestionSummariesV2.at(-1)?.turnId ??
+            `turn-${turnStateToPersist.turnCount || 1}`,
+          question,
+          answer: "",
+          questionType: "opening",
+          turnState: turnStateToPersist,
+          turnMeta,
+          versionMetadata: {
+            promptVersion: upstreamData.prompt_version ?? null,
+            followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+            caseSeedVersion: upstreamData.case_seed_version ?? null,
+          },
+        });
 
-      await consumeCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN, "interview", companyId);
+        await confirmReservation(reservationId);
 
-      return {
-        messages,
-        questionCount: turnStateToPersist.turnCount,
-        stageStatus:
-          upstreamData.stage_status ??
-          getInterviewStageStatus({
-            currentTopicLabel: turnMeta?.interviewSetupNote ?? turnStateToPersist.currentTopic,
-            coveredTopics: turnStateToPersist.coveredTopics,
-            remainingTopics: turnStateToPersist.remainingTopics,
-          }),
-        questionStage:
-          typeof upstreamData.question_stage === "string" && upstreamData.question_stage.length > 0
-            ? upstreamData.question_stage
-            : turnStateToPersist.currentTopic,
-        focus:
-          typeof upstreamData.focus === "string" && upstreamData.focus.trim().length > 0
-            ? upstreamData.focus.trim()
-            : turnMeta?.topic ?? turnStateToPersist.currentTopic,
-        feedback: null,
-        questionFlowCompleted: false,
-        creditCost: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
-        turnState: turnStateToPersist,
-        turnMeta,
-        plan,
-        transitionLine,
-        feedbackHistories: context.feedbackHistories,
-      };
+        return {
+          messages,
+          questionCount: turnStateToPersist.turnCount,
+          stageStatus:
+            upstreamData.stage_status ??
+            getInterviewStageStatus({
+              currentTopicLabel: turnMeta?.interviewSetupNote ?? turnStateToPersist.currentTopic,
+              coveredTopics: turnStateToPersist.coveredTopics,
+              remainingTopics: turnStateToPersist.remainingTopics,
+            }),
+          questionStage:
+            typeof upstreamData.question_stage === "string" && upstreamData.question_stage.length > 0
+              ? upstreamData.question_stage
+              : turnStateToPersist.currentTopic,
+          focus:
+            typeof upstreamData.focus === "string" && upstreamData.focus.trim().length > 0
+              ? upstreamData.focus.trim()
+              : turnMeta?.topic ?? turnStateToPersist.currentTopic,
+          feedback: null,
+          questionFlowCompleted: false,
+          creditCost: INTERVIEW_START_CREDIT_COST,
+          turnState: turnStateToPersist,
+          turnMeta,
+          plan,
+          transitionLine,
+          feedbackHistories: context.feedbackHistories,
+        };
+      } catch (error) {
+        await cancelReservation(reservationId);
+        throw error;
+      }
+    },
+    onAbort: async () => {
+      await cancelReservation(reservationId);
+    },
+    onError: async () => {
+      await cancelReservation(reservationId);
     },
   });
 }

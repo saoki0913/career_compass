@@ -6,25 +6,29 @@ const {
   buildInterviewContextMock,
   ensureInterviewConversationMock,
   normalizeInterviewPlanValueMock,
-  resetInterviewConversationMock,
   saveInterviewConversationProgressMock,
   saveInterviewTurnEventMock,
   validateInterviewTurnStateMock,
   createInterviewUpstreamStreamMock,
   normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponseMock,
+  reserveCreditsMock,
+  confirmReservationMock,
+  cancelReservationMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
   ensureInterviewConversationMock: vi.fn(),
   normalizeInterviewPlanValueMock: vi.fn(),
-  resetInterviewConversationMock: vi.fn(),
   saveInterviewConversationProgressMock: vi.fn(),
   saveInterviewTurnEventMock: vi.fn(),
   validateInterviewTurnStateMock: vi.fn(),
   createInterviewUpstreamStreamMock: vi.fn(),
   normalizeInterviewPersistenceErrorMock: vi.fn(),
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
+  reserveCreditsMock: vi.fn(),
+  confirmReservationMock: vi.fn(),
+  cancelReservationMock: vi.fn(),
 }));
 
 vi.mock("@/app/api/_shared/request-identity", () => ({
@@ -39,7 +43,6 @@ vi.mock("..", () => ({
   buildInterviewContext: buildInterviewContextMock,
   ensureInterviewConversation: ensureInterviewConversationMock,
   normalizeInterviewPlanValue: normalizeInterviewPlanValueMock,
-  resetInterviewConversation: resetInterviewConversationMock,
   saveInterviewConversationProgress: saveInterviewConversationProgressMock,
   saveInterviewTurnEvent: saveInterviewTurnEventMock,
   validateInterviewTurnState: validateInterviewTurnStateMock,
@@ -57,8 +60,10 @@ vi.mock("../persistence-errors", () => ({
 vi.mock("@/lib/credits", () => ({
   CONVERSATION_CREDITS_PER_TURN: 1,
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
-  hasEnoughCredits: vi.fn(async () => true),
-  consumeCredits: vi.fn(async () => undefined),
+  INTERVIEW_START_CREDIT_COST: 2,
+  reserveCredits: reserveCreditsMock,
+  confirmReservation: confirmReservationMock,
+  cancelReservation: cancelReservationMock,
 }));
 
 describe("api/companies/[id]/interview/start", () => {
@@ -67,15 +72,21 @@ describe("api/companies/[id]/interview/start", () => {
     buildInterviewContextMock.mockReset();
     ensureInterviewConversationMock.mockReset();
     normalizeInterviewPlanValueMock.mockReset();
-    resetInterviewConversationMock.mockReset();
     saveInterviewConversationProgressMock.mockReset();
     saveInterviewTurnEventMock.mockReset();
     validateInterviewTurnStateMock.mockReset();
     createInterviewUpstreamStreamMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
+    reserveCreditsMock.mockReset();
+    confirmReservationMock.mockReset();
+    cancelReservationMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-start-1" });
+    createInterviewUpstreamStreamMock.mockReturnValue(
+      new Response("data: ok\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }),
+    );
     buildInterviewContextMock.mockResolvedValue({
       company: { id: "company-1", name: "テスト株式会社" },
       companySummary: "企業情報",
@@ -230,10 +241,45 @@ describe("api/companies/[id]/interview/start", () => {
     );
   });
 
+  it("confirms two reserved credits only after the start flow is persisted", async () => {
+    const { POST } = await import("./route");
+
+    await POST(
+      new NextRequest("http://localhost:3000/api/companies/company-1/interview/start", {
+        method: "POST",
+        body: JSON.stringify({
+          selectedIndustry: "商社",
+          selectedRole: "事業企画",
+          roleTrack: "biz_general",
+          interviewFormat: "standard_behavioral",
+          selectionType: "fulltime",
+          interviewStage: "mid",
+          interviewerType: "line_manager",
+          strictnessMode: "standard",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    await onComplete({
+      question: "まず自己紹介をお願いします。",
+      turn_state: { turnCount: 1, currentTopic: "自己紹介", nextAction: "ask" },
+    });
+
+    expect(saveInterviewConversationProgressMock.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmReservationMock.mock.invocationCallOrder[0],
+    );
+    expect(saveInterviewTurnEventMock.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmReservationMock.mock.invocationCallOrder[0],
+    );
+    expect(confirmReservationMock).toHaveBeenCalledWith("res-start-1");
+  });
+
   it("returns 402 when the user has insufficient credits", async () => {
     const { POST } = await import("./route");
-    const { hasEnoughCredits } = await import("@/lib/credits");
-    vi.mocked(hasEnoughCredits).mockResolvedValueOnce(false);
+    reserveCreditsMock.mockResolvedValueOnce({ success: false, reservationId: "", newBalance: 0 });
 
     const response = await POST(
       new NextRequest("http://localhost:3000/api/companies/company-1/interview/start", {
@@ -256,10 +302,18 @@ describe("api/companies/[id]/interview/start", () => {
 
     expect(response.status).toBe(402);
     expect(data.error.code).toBe("INTERVIEW_INSUFFICIENT_CREDITS");
+    expect(reserveCreditsMock).toHaveBeenCalledWith(
+      "user-1",
+      2,
+      "interview",
+      "company-1",
+      "面接対策開始: テスト株式会社",
+    );
+    expect(ensureInterviewConversationMock).not.toHaveBeenCalled();
     expect(createInterviewUpstreamStreamMock).not.toHaveBeenCalled();
   });
 
-  it("resets an existing conversation before starting a new interview", async () => {
+  it("rejects start when an active conversation already exists", async () => {
     const { POST } = await import("./route");
     buildInterviewContextMock.mockResolvedValueOnce({
       company: { id: "company-1", name: "テスト株式会社" },
@@ -287,6 +341,7 @@ describe("api/companies/[id]/interview/start", () => {
       feedbackHistories: [],
       conversation: {
         id: "legacy-conv",
+        status: "in_progress",
         messages: [{ role: "assistant", content: "旧質問" }],
         questionCount: 1,
         stageStatus: { currentTopicLabel: null, coveredTopics: [], remainingTopics: [] },
@@ -312,7 +367,87 @@ describe("api/companies/[id]/interview/start", () => {
       },
     });
 
-    await POST(
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/companies/company-1/interview/start", {
+        method: "POST",
+        body: JSON.stringify({
+          selectedIndustry: "商社",
+          selectedRole: "事業企画",
+          roleTrack: "biz_general",
+          interviewFormat: "standard_behavioral",
+          selectionType: "fulltime",
+          interviewStage: "mid",
+          interviewerType: "line_manager",
+          strictnessMode: "standard",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(data.error.code).toBe("INTERVIEW_SESSION_ALREADY_ACTIVE");
+    expect(ensureInterviewConversationMock).not.toHaveBeenCalled();
+    expect(createInterviewUpstreamStreamMock).not.toHaveBeenCalled();
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+  });
+
+  it("allows start after an explicit reset leaves a setup pending conversation", async () => {
+    const { POST } = await import("./route");
+    buildInterviewContextMock.mockResolvedValueOnce({
+      company: { id: "company-1", name: "テスト株式会社" },
+      companySummary: "企業情報",
+      motivationSummary: "志望動機",
+      gakuchikaSummary: "ガクチカ",
+      academicSummary: "ゼミで地域金融を研究。",
+      researchSummary: null,
+      esSummary: "ES",
+      materials: [],
+      setup: {
+        selectedIndustry: "商社",
+        selectedRole: "事業企画",
+        selectedRoleSource: "company_override",
+        roleTrack: "biz_general",
+        interviewFormat: "standard_behavioral",
+        selectionType: "fulltime",
+        interviewStage: "mid",
+        interviewerType: "line_manager",
+        strictnessMode: "standard",
+        resolvedIndustry: "商社",
+        requiresIndustrySelection: false,
+        industryOptions: ["商社"],
+      },
+      feedbackHistories: [],
+      conversation: {
+        id: "reset-conv",
+        status: "setup_pending",
+        messages: [],
+        questionCount: 0,
+        stageStatus: { currentTopicLabel: null, coveredTopics: [], remainingTopics: [] },
+        turnState: {
+          currentTopic: null,
+          coverageState: [],
+          coveredTopics: [],
+          remainingTopics: [],
+          turnCount: 0,
+          recentQuestionSummariesV2: [],
+          formatPhase: "opening",
+          lastQuestion: null,
+          lastAnswer: null,
+          lastTopic: null,
+          currentTurnMeta: null,
+          nextAction: "ask",
+        },
+        turnMeta: null,
+        feedback: null,
+        questionFlowCompleted: false,
+        plan: null,
+        isLegacySession: false,
+      },
+    });
+
+    const response = await POST(
       new NextRequest("http://localhost:3000/api/companies/company-1/interview/start", {
         method: "POST",
         body: JSON.stringify({
@@ -330,7 +465,22 @@ describe("api/companies/[id]/interview/start", () => {
       { params: Promise.resolve({ id: "company-1" }) },
     );
 
-    expect(resetInterviewConversationMock).toHaveBeenCalledWith("company-1", { userId: "user-1", guestId: null });
+    expect(response.status).toBe(200);
+    expect(reserveCreditsMock).toHaveBeenCalledWith(
+      "user-1",
+      2,
+      "interview",
+      "company-1",
+      "面接対策開始: テスト株式会社",
+    );
+    expect(ensureInterviewConversationMock).toHaveBeenCalledWith(
+      "company-1",
+      { userId: "user-1", guestId: null },
+      expect.objectContaining({
+        selectedRole: "事業企画",
+        interviewFormat: "standard_behavioral",
+      }),
+    );
     expect(createInterviewUpstreamStreamMock).toHaveBeenCalled();
   });
 });

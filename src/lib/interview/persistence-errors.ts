@@ -31,6 +31,9 @@ const INTERVIEW_PERSISTENCE_REQUIRED_COLUMNS = {
     "weakest_question_snapshot",
     "weakest_answer_snapshot",
     "satisfaction_score",
+    "score_evidence_by_axis",
+    "score_rationale_by_axis",
+    "confidence_by_axis",
     "source_messages_snapshot",
   ],
   interview_turn_events: [

@@ -62,6 +62,7 @@ export async function createInterviewUpstreamStream(options: {
     upstreamResponse = result.response;
     clearUpstreamTimeout = result.clearTimeout;
   } catch (fetchError) {
+    await options.onError?.();
     if (isSecretMissingError(fetchError)) {
       return createApiErrorResponse(options.request, {
         status: 503,

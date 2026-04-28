@@ -3,7 +3,12 @@ import { NextRequest } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { CONVERSATION_CREDITS_PER_TURN, consumeCredits, DEFAULT_INTERVIEW_SESSION_CREDIT_COST, hasEnoughCredits } from "@/lib/credits";
+import {
+  cancelReservation,
+  confirmReservation,
+  INTERVIEW_CONTINUE_CREDIT_COST,
+  reserveCredits,
+} from "@/lib/credits";
 import {
   normalizeInterviewTurnMeta,
   type InterviewPlan,
@@ -80,8 +85,23 @@ export async function POST(
     });
   }
 
-  const canPay = await hasEnoughCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN);
-  if (!canPay) {
+  if (context.conversation.isLegacySession || context.conversation.status !== "feedback_completed") {
+    return createApiErrorResponse(request, {
+      status: 409,
+      code: "INTERVIEW_FEEDBACK_SESSION_REQUIRED",
+      userMessage: "続きから深掘りできる面接セッションではありません。",
+      action: "最終講評が完了した面接から、もう一度お試しください。",
+    });
+  }
+
+  const reservation = await reserveCredits(
+    identity.userId!,
+    INTERVIEW_CONTINUE_CREDIT_COST,
+    "interview",
+    companyId,
+    `面接対策続き: ${context.company.name}`,
+  );
+  if (!reservation.success) {
     return createApiErrorResponse(request, {
       status: 402,
       code: "INTERVIEW_INSUFFICIENT_CREDITS",
@@ -89,6 +109,7 @@ export async function POST(
       action: "プランをアップグレードするか、クレジットが補充されるまでお待ちください。",
     });
   }
+  const reservationId = reservation.reservationId;
 
   return createInterviewUpstreamStream({
     request,
@@ -129,87 +150,101 @@ export async function POST(
         weakest_answer_snapshot: latestFeedback.weakestAnswerSnapshot,
         premise_consistency: latestFeedback.premiseConsistency,
         satisfaction_score: latestFeedback.satisfactionScore,
+        score_evidence_by_axis: latestFeedback.scoreEvidenceByAxis ?? {},
+        score_rationale_by_axis: latestFeedback.scoreRationaleByAxis ?? {},
+        confidence_by_axis: latestFeedback.confidenceByAxis ?? {},
       },
       seed_summary: buildSeedSummary(context.materials),
     },
     onComplete: async (upstreamData) => {
-      const transitionLine =
-        typeof upstreamData.transition_line === "string" &&
-        upstreamData.transition_line.trim().length > 0
-          ? upstreamData.transition_line.trim()
-          : null;
-      const question = typeof upstreamData.question === "string" ? upstreamData.question.trim() : "";
-      const assistantMessages = [
-        ...(transitionLine ? [{ role: "assistant" as const, content: transitionLine }] : []),
-        ...(question ? [{ role: "assistant" as const, content: question }] : []),
-      ];
-      const messages = [...context.conversation!.messages, ...assistantMessages];
-      const turnState =
-        validateInterviewTurnState(upstreamData.turn_state ?? null) ??
-        context.conversation!.turnState;
-      const turnMeta: InterviewTurnMeta | null = normalizeInterviewTurnMeta(upstreamData.turn_meta ?? null);
-      const plan: InterviewPlan | null =
-        normalizeInterviewPlanValue(upstreamData.interview_plan ?? null) ?? context.conversation!.plan ?? null;
+      try {
+        const transitionLine =
+          typeof upstreamData.transition_line === "string" &&
+          upstreamData.transition_line.trim().length > 0
+            ? upstreamData.transition_line.trim()
+            : null;
+        const question = typeof upstreamData.question === "string" ? upstreamData.question.trim() : "";
+        const assistantMessages = [
+          ...(transitionLine ? [{ role: "assistant" as const, content: transitionLine }] : []),
+          ...(question ? [{ role: "assistant" as const, content: question }] : []),
+        ];
+        const messages = [...context.conversation!.messages, ...assistantMessages];
+        const turnState =
+          validateInterviewTurnState(upstreamData.turn_state ?? null) ??
+          context.conversation!.turnState;
+        const turnMeta: InterviewTurnMeta | null = normalizeInterviewTurnMeta(upstreamData.turn_meta ?? null);
+        const plan: InterviewPlan | null =
+          normalizeInterviewPlanValue(upstreamData.interview_plan ?? null) ?? context.conversation!.plan ?? null;
 
-      await saveInterviewConversationProgress({
-        conversationId: context.conversation!.id,
-        companyId,
-        messages,
-        turnState,
-        status: "in_progress",
-        turnMeta,
-        plan,
-      });
-      await saveInterviewTurnEvent({
-        conversationId: context.conversation!.id,
-        companyId,
-        identity,
-        turnId:
-          turnState.recentQuestionSummariesV2.at(-1)?.turnId ??
-          `turn-${turnState.turnCount || context.conversation!.questionCount + 1}`,
-        question,
-        answer: "",
-        questionType:
-          typeof upstreamData.question_stage === "string"
-            ? upstreamData.question_stage
-            : turnState.currentTopic,
-        turnState,
-        turnMeta,
-        versionMetadata: {
-          promptVersion: upstreamData.prompt_version ?? null,
-          followupPolicyVersion: upstreamData.followup_policy_version ?? null,
-          caseSeedVersion: upstreamData.case_seed_version ?? null,
-        },
-      });
-
-      await consumeCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN, "interview", companyId);
-
-      return {
-        messages,
-        questionCount: turnState.turnCount,
-        stageStatus:
-          upstreamData.stage_status ?? {
-            currentTopicLabel: turnMeta?.interviewSetupNote ?? turnState.currentTopic,
-            coveredTopics: turnState.coveredTopics,
-            remainingTopics: turnState.remainingTopics,
+        await saveInterviewConversationProgress({
+          conversationId: context.conversation!.id,
+          companyId,
+          messages,
+          turnState,
+          status: "in_progress",
+          turnMeta,
+          plan,
+        });
+        await saveInterviewTurnEvent({
+          conversationId: context.conversation!.id,
+          companyId,
+          identity,
+          turnId:
+            turnState.recentQuestionSummariesV2.at(-1)?.turnId ??
+            `turn-${turnState.turnCount || context.conversation!.questionCount + 1}`,
+          question,
+          answer: "",
+          questionType:
+            typeof upstreamData.question_stage === "string"
+              ? upstreamData.question_stage
+              : turnState.currentTopic,
+          turnState,
+          turnMeta,
+          versionMetadata: {
+            promptVersion: upstreamData.prompt_version ?? null,
+            followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+            caseSeedVersion: upstreamData.case_seed_version ?? null,
           },
-        questionStage:
-          typeof upstreamData.question_stage === "string"
-            ? upstreamData.question_stage
-            : turnState.currentTopic,
-        focus:
-          typeof upstreamData.focus === "string" && upstreamData.focus.trim().length > 0
-            ? upstreamData.focus.trim()
-            : turnMeta?.topic ?? turnState.currentTopic,
-        feedback: null,
-        questionFlowCompleted: false,
-        creditCost: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
-        turnState,
-        turnMeta,
-        plan,
-        transitionLine,
-        feedbackHistories: context.feedbackHistories,
-      };
+        });
+
+        await confirmReservation(reservationId);
+
+        return {
+          messages,
+          questionCount: turnState.turnCount,
+          stageStatus:
+            upstreamData.stage_status ?? {
+              currentTopicLabel: turnMeta?.interviewSetupNote ?? turnState.currentTopic,
+              coveredTopics: turnState.coveredTopics,
+              remainingTopics: turnState.remainingTopics,
+            },
+          questionStage:
+            typeof upstreamData.question_stage === "string"
+              ? upstreamData.question_stage
+              : turnState.currentTopic,
+          focus:
+            typeof upstreamData.focus === "string" && upstreamData.focus.trim().length > 0
+              ? upstreamData.focus.trim()
+              : turnMeta?.topic ?? turnState.currentTopic,
+          feedback: null,
+          questionFlowCompleted: false,
+          creditCost: INTERVIEW_CONTINUE_CREDIT_COST,
+          turnState,
+          turnMeta,
+          plan,
+          transitionLine,
+          feedbackHistories: context.feedbackHistories,
+        };
+      } catch (error) {
+        await cancelReservation(reservationId);
+        throw error;
+      }
+    },
+    onAbort: async () => {
+      await cancelReservation(reservationId);
+    },
+    onError: async () => {
+      await cancelReservation(reservationId);
     },
   });
 }

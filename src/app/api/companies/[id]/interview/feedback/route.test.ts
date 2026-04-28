@@ -254,6 +254,9 @@ describe("api/companies/[id]/interview/feedback", () => {
       weakest_question_type: "motivation",
       scores: { logic: 4, credibility: 3, role_fit: 4, consistency: 3 },
       satisfaction_score: 4,
+      score_evidence_by_axis: { logic: ["順序立てて説明"] },
+      score_rationale_by_axis: { logic: "構造は明確です。" },
+      confidence_by_axis: { logic: "medium" },
     });
 
     expect(saveInterviewConversationProgressMock).toHaveBeenCalled();
@@ -264,6 +267,9 @@ describe("api/companies/[id]/interview/feedback", () => {
           weakest_question_snapshot: "なぜ当社なのですか。",
           weakest_answer_snapshot: "事業に魅力を感じたからです。",
           satisfaction_score: 4,
+          score_evidence_by_axis: { logic: ["順序立てて説明"] },
+          score_rationale_by_axis: { logic: "構造は明確です。" },
+          confidence_by_axis: { logic: "medium" },
         }),
       }),
     );
@@ -273,7 +279,7 @@ describe("api/companies/[id]/interview/feedback", () => {
     );
   });
 
-  it("does not confirm credits when feedback persistence fails", async () => {
+  it("cancels the reservation when feedback persistence fails", async () => {
     const { POST } = await import("./route");
 
     await POST(
@@ -301,5 +307,56 @@ describe("api/companies/[id]/interview/feedback", () => {
     ).rejects.toThrow("write failed");
 
     expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+  });
+
+  it("cancels the reservation when confirmation fails after feedback persistence", async () => {
+    const { POST } = await import("./route");
+
+    await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/feedback", {
+        method: "POST",
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
+    saveInterviewFeedbackHistoryMock.mockResolvedValue([{ id: "history-1" }]);
+    confirmReservationMock.mockRejectedValueOnce(new Error("confirm failed"));
+
+    await expect(
+      onComplete({
+        overall_comment: "講評",
+        strengths: [],
+        improvements: [],
+        improved_answer: "",
+        next_preparation: [],
+        consistency_risks: [],
+        weakest_question_type: "motivation",
+        scores: {},
+      }),
+    ).rejects.toThrow("confirm failed");
+
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+  });
+
+  it("cancels the reservation when the upstream stream aborts or errors", async () => {
+    const { POST } = await import("./route");
+
+    await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/feedback", {
+        method: "POST",
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    const [{ onAbort, onError }] = createInterviewUpstreamStreamMock.mock.calls[0];
+
+    await onAbort();
+    await onError();
+
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+    expect(cancelReservationMock).toHaveBeenCalledTimes(2);
   });
 });

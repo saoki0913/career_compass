@@ -169,6 +169,13 @@
       "when": 1777852800000,
       "tag": "0023_add_rag_split_free_units",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1777942800000,
+      "tag": "0024_interview_feedback_evidence",
+      "breakpoints": true
     }
   ]
 }

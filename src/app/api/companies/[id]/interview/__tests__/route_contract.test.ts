@@ -31,6 +31,9 @@ const {
   normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponseMock,
   listInterviewTurnEventsMock,
+  reserveCreditsMock,
+  confirmReservationMock,
+  cancelReservationMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
@@ -44,6 +47,9 @@ const {
   normalizeInterviewPersistenceErrorMock: vi.fn(),
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
   listInterviewTurnEventsMock: vi.fn(),
+  reserveCreditsMock: vi.fn(),
+  confirmReservationMock: vi.fn(),
+  cancelReservationMock: vi.fn(),
 }));
 
 vi.mock("@/app/api/_shared/request-identity", () => ({
@@ -72,8 +78,12 @@ vi.mock("../persistence-errors", () => ({
 vi.mock("@/lib/credits", () => ({
   CONVERSATION_CREDITS_PER_TURN: 1,
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
-  hasEnoughCredits: vi.fn(async () => true),
-  consumeCredits: vi.fn(async () => undefined),
+  INTERVIEW_CONTINUE_CREDIT_COST: 1,
+  INTERVIEW_START_CREDIT_COST: 2,
+  INTERVIEW_TURN_CREDIT_COST: 1,
+  reserveCredits: reserveCreditsMock,
+  confirmReservation: confirmReservationMock,
+  cancelReservation: cancelReservationMock,
 }));
 
 // ---------------------------------------------------------------------------
@@ -204,8 +214,12 @@ describe("questionStage outward contract", () => {
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
     listInterviewTurnEventsMock.mockReset();
+    reserveCreditsMock.mockReset();
+    confirmReservationMock.mockReset();
+    cancelReservationMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-contract-1" });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
@@ -376,8 +390,12 @@ describe("stage_status synthesis from route when backend returns null", () => {
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
     listInterviewTurnEventsMock.mockReset();
+    reserveCreditsMock.mockReset();
+    confirmReservationMock.mockReset();
+    cancelReservationMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-contract-1" });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
@@ -554,8 +572,12 @@ describe("fallback: backend 500 converts to error response", () => {
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
     listInterviewTurnEventsMock.mockReset();
+    reserveCreditsMock.mockReset();
+    confirmReservationMock.mockReset();
+    cancelReservationMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-contract-1" });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );

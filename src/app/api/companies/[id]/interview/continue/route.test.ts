@@ -11,7 +11,9 @@ const {
   createInterviewUpstreamStreamMock,
   normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponseMock,
-  hasEnoughCreditsMock,
+  reserveCreditsMock,
+  confirmReservationMock,
+  cancelReservationMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
@@ -22,7 +24,9 @@ const {
   createInterviewUpstreamStreamMock: vi.fn(),
   normalizeInterviewPersistenceErrorMock: vi.fn(),
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
-  hasEnoughCreditsMock: vi.fn(),
+  reserveCreditsMock: vi.fn(),
+  confirmReservationMock: vi.fn(),
+  cancelReservationMock: vi.fn(),
 }));
 
 vi.mock("@/app/api/_shared/request-identity", () => ({
@@ -53,8 +57,10 @@ vi.mock("../persistence-errors", () => ({
 vi.mock("@/lib/credits", () => ({
   CONVERSATION_CREDITS_PER_TURN: 1,
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
-  hasEnoughCredits: hasEnoughCreditsMock,
-  consumeCredits: vi.fn(async () => undefined),
+  INTERVIEW_CONTINUE_CREDIT_COST: 1,
+  reserveCredits: reserveCreditsMock,
+  confirmReservation: confirmReservationMock,
+  cancelReservation: cancelReservationMock,
 }));
 
 const BASE_TURN_STATE = {
@@ -115,6 +121,7 @@ const BASE_CONTEXT = {
   ],
   conversation: {
     id: "conv-1",
+    status: "feedback_completed",
     messages: [
       { role: "assistant", content: "志望理由を教えてください。" },
       { role: "user", content: "顧客課題に近い立場で働きたいです。" },
@@ -146,12 +153,14 @@ describe("api/companies/[id]/interview/continue", () => {
     createInterviewUpstreamStreamMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
-    hasEnoughCreditsMock.mockReset();
+    reserveCreditsMock.mockReset();
+    confirmReservationMock.mockReset();
+    cancelReservationMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     buildInterviewContextMock.mockResolvedValue(BASE_CONTEXT);
     normalizeInterviewPlanValueMock.mockImplementation((value: unknown) => value);
-    hasEnoughCreditsMock.mockResolvedValue(true);
+    reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-continue-1" });
     createInterviewUpstreamStreamMock.mockReturnValue(
       new Response("data: ok\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }),
     );
@@ -213,13 +222,76 @@ describe("api/companies/[id]/interview/continue", () => {
 
   it("returns 402 when the user has insufficient credits", async () => {
     const { POST } = await import("./route");
-    hasEnoughCreditsMock.mockResolvedValue(false);
+    reserveCreditsMock.mockResolvedValue({ success: false, reservationId: "", newBalance: 0 });
 
     const response = await POST(makeRequest(), { params: Promise.resolve({ id: "company-1" }) });
     const data = await response.json();
 
     expect(response.status).toBe(402);
     expect(data.error.code).toBe("INTERVIEW_INSUFFICIENT_CREDITS");
+    expect(reserveCreditsMock).toHaveBeenCalledWith(
+      "user-1",
+      1,
+      "interview",
+      "company-1",
+      "面接対策続き: テスト株式会社",
+    );
     expect(createInterviewUpstreamStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-feedback-completed sessions before reserving credits", async () => {
+    const { POST } = await import("./route");
+    buildInterviewContextMock.mockResolvedValueOnce({
+      ...BASE_CONTEXT,
+      conversation: {
+        ...BASE_CONTEXT.conversation,
+        status: "in_progress",
+      },
+    });
+
+    const response = await POST(makeRequest(), { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(data.error.code).toBe("INTERVIEW_FEEDBACK_SESSION_REQUIRED");
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+    expect(createInterviewUpstreamStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy feedback sessions before reserving credits", async () => {
+    const { POST } = await import("./route");
+    buildInterviewContextMock.mockResolvedValueOnce({
+      ...BASE_CONTEXT,
+      conversation: {
+        ...BASE_CONTEXT.conversation,
+        isLegacySession: true,
+      },
+    });
+
+    const response = await POST(makeRequest(), { params: Promise.resolve({ id: "company-1" }) });
+
+    expect(response.status).toBe(409);
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+    expect(createInterviewUpstreamStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("confirms one reserved credit only after the continued question is persisted", async () => {
+    const { POST } = await import("./route");
+
+    await POST(makeRequest(), { params: Promise.resolve({ id: "company-1" }) });
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    await onComplete({
+      question: "講評で弱かった点をもう一度確認します。",
+      turn_state: { turnCount: 2, currentTopic: "motivation_fit", nextAction: "ask" },
+    });
+
+    expect(saveInterviewConversationProgressMock.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmReservationMock.mock.invocationCallOrder[0],
+    );
+    expect(saveInterviewTurnEventMock.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmReservationMock.mock.invocationCallOrder[0],
+    );
+    expect(confirmReservationMock).toHaveBeenCalledWith("res-continue-1");
   });
 });

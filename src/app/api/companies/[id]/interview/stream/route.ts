@@ -3,7 +3,12 @@ import { NextRequest } from "next/server";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { CONVERSATION_CREDITS_PER_TURN, hasEnoughCredits } from "@/lib/credits";
+import {
+  cancelReservation,
+  confirmReservation,
+  INTERVIEW_TURN_CREDIT_COST,
+  reserveCredits,
+} from "@/lib/credits";
 
 import { buildInterviewContext } from "..";
 import {
@@ -66,6 +71,20 @@ export async function POST(
     });
   }
 
+  if (
+    context.conversation.isLegacySession ||
+    context.conversation.status !== "in_progress" ||
+    context.conversation.questionFlowCompleted ||
+    context.conversation.turnState?.nextAction === "feedback"
+  ) {
+    return createApiErrorResponse(request, {
+      status: 409,
+      code: "INTERVIEW_NOT_ANSWERABLE",
+      userMessage: "この面接セッションには回答できません。",
+      action: "続きから練習するか、新しい面接を開始してください。",
+    });
+  }
+
   let body: { answer?: string } = {};
   try {
     body = (await request.json()) as typeof body;
@@ -86,8 +105,14 @@ export async function POST(
     });
   }
 
-  const canPay = await hasEnoughCredits(identity.userId!, CONVERSATION_CREDITS_PER_TURN);
-  if (!canPay) {
+  const reservation = await reserveCredits(
+    identity.userId!,
+    INTERVIEW_TURN_CREDIT_COST,
+    "interview",
+    companyId,
+    `面接対策回答: ${context.company.name}`,
+  );
+  if (!reservation.success) {
     return createApiErrorResponse(request, {
       status: 402,
       code: "INTERVIEW_INSUFFICIENT_CREDITS",
@@ -95,6 +120,7 @@ export async function POST(
       action: "プランをアップグレードするか、クレジットが補充されるまでお待ちください。",
     });
   }
+  const reservationId = reservation.reservationId;
 
   let streamPayload: Awaited<ReturnType<typeof buildInterviewTurnPayload>>;
   try {
@@ -105,6 +131,7 @@ export async function POST(
       answer,
     });
   } catch (error) {
+    await cancelReservation(reservationId);
     const persistenceError = normalizeInterviewPersistenceError(error, {
       companyId,
       operation: "interview:stream",
@@ -121,13 +148,27 @@ export async function POST(
     companyId,
     upstreamPath: "/api/interview/turn",
     upstreamPayload: streamPayload.upstreamPayload,
-    onComplete: (upstreamData) => completeInterviewTurnStream({
-      upstreamData,
-      context: { ...context, conversation: context.conversation! },
-      companyId,
-      identity,
-      answer,
-      nextMessages: streamPayload.nextMessages,
-    }),
+    onComplete: async (upstreamData) => {
+      try {
+        return await completeInterviewTurnStream({
+          upstreamData,
+          context: { ...context, conversation: context.conversation! },
+          companyId,
+          identity,
+          answer,
+          nextMessages: streamPayload.nextMessages,
+          onPersisted: () => confirmReservation(reservationId),
+        });
+      } catch (error) {
+        await cancelReservation(reservationId);
+        throw error;
+      }
+    },
+    onAbort: async () => {
+      await cancelReservation(reservationId);
+    },
+    onError: async () => {
+      await cancelReservation(reservationId);
+    },
   });
 }

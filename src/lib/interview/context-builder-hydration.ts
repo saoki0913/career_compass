@@ -26,6 +26,28 @@ import type {
   InterviewSetupState,
 } from "@/lib/interview/types";
 
+function parseStringArrayMap(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== "object") return {};
+  const result: Record<string, string[]> = {};
+  for (const [key, rawItems] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(rawItems)) continue;
+    const items = rawItems.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+    if (items.length > 0) result[key] = items;
+  }
+  return result;
+}
+
+function parseStringMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") return {};
+  const result: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof rawValue === "string" && rawValue.trim().length > 0) {
+      result[key] = rawValue.trim();
+    }
+  }
+  return result;
+}
+
 export function toFeedbackHistoryItem(
   row: typeof interviewFeedbackHistories.$inferSelect,
 ): InterviewFeedbackHistoryItem {
@@ -44,6 +66,9 @@ export function toFeedbackHistoryItem(
     nextPreparation: parseJsonArray(row.preparationPoints),
     premiseConsistency: row.premiseConsistency,
     satisfactionScore: row.satisfactionScore ?? null,
+    scoreEvidenceByAxis: parseStringArrayMap(row.scoreEvidenceByAxis),
+    scoreRationaleByAxis: parseStringMap(row.scoreRationaleByAxis),
+    confidenceByAxis: parseStringMap(row.confidenceByAxis),
     sourceQuestionCount: row.sourceQuestionCount,
     createdAt: row.createdAt.toISOString(),
   };

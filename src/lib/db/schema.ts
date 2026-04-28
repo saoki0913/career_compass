@@ -880,6 +880,9 @@ export const interviewFeedbackHistories = pgTable(
     preparationPoints: jsonb("preparation_points").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     premiseConsistency: integer("premise_consistency").notNull().default(0),
     satisfactionScore: integer("satisfaction_score"),
+    scoreEvidenceByAxis: jsonb("score_evidence_by_axis").$type<Record<string, string[]>>().notNull().default(sql`'{}'::jsonb`),
+    scoreRationaleByAxis: jsonb("score_rationale_by_axis").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+    confidenceByAxis: jsonb("confidence_by_axis").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
     sourceQuestionCount: integer("source_question_count").notNull().default(0),
     sourceMessagesSnapshot: jsonb("source_messages_snapshot").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
     // Phase 2 Stage 0-3: evaluation harness lineage for A/B test infrastructure.

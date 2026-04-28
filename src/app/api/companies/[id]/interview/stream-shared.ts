@@ -37,6 +37,9 @@ export type UpstreamCompleteData = {
   next_preparation?: string[];
   premise_consistency?: number;
   satisfaction_score?: number;
+  score_evidence_by_axis?: Record<string, string[]>;
+  score_rationale_by_axis?: Record<string, string>;
+  confidence_by_axis?: InterviewFeedback["confidence_by_axis"];
   prompt_version?: string | null;
   followup_policy_version?: string | null;
   case_seed_version?: string | null;
@@ -59,6 +62,42 @@ export type InterviewClientCompleteData = {
   feedbackHistories?: InterviewFeedbackHistoryItem[];
   shortCoaching?: InterviewShortCoaching | null;
 };
+
+function normalizeStringArrayMap(value: unknown): Record<string, string[]> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const result: Record<string, string[]> = {};
+  for (const [key, rawItems] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(rawItems)) continue;
+    const items = rawItems
+      .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      .map((item) => item.trim())
+      .slice(0, 3);
+    if (items.length > 0) result[key] = items;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizeStringMap(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const result: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof rawValue === "string" && rawValue.trim().length > 0) {
+      result[key] = rawValue.trim();
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normalizeConfidenceMap(value: unknown): InterviewFeedback["confidence_by_axis"] {
+  if (!value || typeof value !== "object") return undefined;
+  const result: NonNullable<InterviewFeedback["confidence_by_axis"]> = {};
+  for (const [key, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    if (rawValue === "high" || rawValue === "medium" || rawValue === "low") {
+      result[key] = rawValue;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
 
 export function createImmediateInterviewStream(data: InterviewClientCompleteData) {
   const encoder = new TextEncoder();
@@ -108,5 +147,8 @@ export function normalizeFeedback(data: UpstreamCompleteData): InterviewFeedback
       typeof data.premise_consistency === "number" ? data.premise_consistency : undefined,
     satisfaction_score:
       typeof data.satisfaction_score === "number" ? data.satisfaction_score : undefined,
+    score_evidence_by_axis: normalizeStringArrayMap(data.score_evidence_by_axis),
+    score_rationale_by_axis: normalizeStringMap(data.score_rationale_by_axis),
+    confidence_by_axis: normalizeConfidenceMap(data.confidence_by_axis),
   };
 }

@@ -26,6 +26,10 @@ import {
 import {
   createEmptyFeedback,
   INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
+  type InterviewBillingCosts,
+  type InterviewMaterialReadiness,
+  type InterviewModelLabels,
+  type InterviewSessionState,
   type Feedback,
   type FeedbackHistoryItem,
   type HydratedConversation,
@@ -59,6 +63,33 @@ const DEFAULT_SETUP_STATE: SetupState = {
   interviewStage: "early",
   interviewerType: "hr",
   strictnessMode: "standard",
+};
+
+const DEFAULT_BILLING_COSTS: InterviewBillingCosts = {
+  start: 2,
+  turn: 1,
+  continue: 1,
+  feedback: 6,
+};
+
+const DEFAULT_MODEL_LABELS: InterviewModelLabels = {
+  plan: "GPT-5.4",
+  question: "Claude Haiku 4.5",
+  feedback: "Claude Sonnet 4.6",
+};
+
+const DEFAULT_MATERIAL_READINESS: InterviewMaterialReadiness = {
+  status: "thin",
+  summary: "面接材料の確認中です。",
+  items: [],
+};
+
+const DEFAULT_SESSION_STATE: InterviewSessionState = {
+  status: "setup_pending",
+  isActive: false,
+  isLegacySession: false,
+  questionCount: 0,
+  hasFeedback: false,
 };
 
 function getStreamErrorContext(kind: StreamKind) {
@@ -114,6 +145,10 @@ export function useInterviewConversationController({
   const [feedbackHistories, setFeedbackHistories] = useState<FeedbackHistoryItem[]>([]);
   const [selectedHistory, setSelectedHistory] = useState<FeedbackHistoryItem | null>(null);
   const [creditCost, setCreditCost] = useState(6);
+  const [billingCosts, setBillingCosts] = useState<InterviewBillingCosts>(DEFAULT_BILLING_COSTS);
+  const [modelLabels, setModelLabels] = useState<InterviewModelLabels>(DEFAULT_MODEL_LABELS);
+  const [materialReadiness, setMaterialReadiness] = useState<InterviewMaterialReadiness>(DEFAULT_MATERIAL_READINESS);
+  const [sessionState, setSessionState] = useState<InterviewSessionState>(DEFAULT_SESSION_STATE);
   const [questionCount, setQuestionCount] = useState(0);
   const [questionStage, setQuestionStage] = useState<string | null>(null);
   const [stageStatus, setStageStatus] = useState<InterviewStageStatus | null>(null);
@@ -306,6 +341,10 @@ export function useInterviewConversationController({
         setCompanyName(interviewData.company?.name || "");
         setMaterials(Array.isArray(interviewData.materials) ? interviewData.materials : []);
         setCreditCost(typeof interviewData.creditCost === "number" ? interviewData.creditCost : 6);
+        setBillingCosts(interviewData.billingCosts ?? DEFAULT_BILLING_COSTS);
+        setModelLabels(interviewData.models ?? DEFAULT_MODEL_LABELS);
+        setMaterialReadiness(interviewData.materialReadiness ?? DEFAULT_MATERIAL_READINESS);
+        setSessionState(interviewData.sessionState ?? DEFAULT_SESSION_STATE);
         setFeedbackHistories(Array.isArray(interviewData.feedbackHistories) ? interviewData.feedbackHistories : []);
         setRoleOptionsData(roleData);
         setSetupState(interviewData.setup);
@@ -566,6 +605,19 @@ export function useInterviewConversationController({
       setInterviewPlan(nextState.interviewPlan);
       setQuestionFlowCompleted(nextState.questionFlowCompleted);
       setCreditCost(nextState.creditCost);
+      setSessionState((prev) => ({
+        ...prev,
+        status: nextState.feedback
+          ? "feedback_completed"
+          : nextState.questionFlowCompleted
+            ? "question_flow_completed"
+            : nextState.messages.length > 0
+              ? "in_progress"
+              : "setup_pending",
+        isActive: nextState.messages.length > 0 || nextState.questionFlowCompleted || Boolean(nextState.feedback),
+        questionCount: nextState.questionCount,
+        hasFeedback: Boolean(nextState.feedback),
+      }));
       if (nextState.feedbackHistories !== prevState.feedbackHistories) {
         setFeedbackHistories(nextState.feedbackHistories);
       }
@@ -707,6 +759,7 @@ export function useInterviewConversationController({
       setInterviewPlan(data.conversation?.plan ?? null);
       setQuestionFlowCompleted(false);
       setLegacySessionDetected(false);
+      setSessionState(DEFAULT_SESSION_STATE);
       setFeedbackHistories(Array.isArray(data.feedbackHistories) ? data.feedbackHistories : []);
     } catch (resetError) {
       reportError(
@@ -794,6 +847,10 @@ export function useInterviewConversationController({
       feedbackHistories,
       selectedHistory,
       creditCost,
+      billingCosts,
+      modelLabels,
+      materialReadiness,
+      sessionState,
       questionCount,
       questionStage,
       stageStatus,
@@ -834,6 +891,7 @@ export function useInterviewConversationController({
       latestFeedbackHistory,
       feedbackHelperText,
       feedbackCompletionCount,
+      shortCoaching,
     },
     actions: {
       setAnswer,

@@ -12,7 +12,9 @@ const {
   createInterviewUpstreamStreamMock,
   normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponseMock,
-  consumeCreditsMock,
+  reserveCreditsMock,
+  confirmReservationMock,
+  cancelReservationMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
@@ -24,7 +26,9 @@ const {
   createInterviewUpstreamStreamMock: vi.fn(),
   normalizeInterviewPersistenceErrorMock: vi.fn(),
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
-  consumeCreditsMock: vi.fn(),
+  reserveCreditsMock: vi.fn(),
+  confirmReservationMock: vi.fn(),
+  cancelReservationMock: vi.fn(),
 }));
 
 vi.mock("@/app/api/_shared/request-identity", () => ({
@@ -55,8 +59,10 @@ vi.mock("../persistence-errors", () => ({
 vi.mock("@/lib/credits", () => ({
   CONVERSATION_CREDITS_PER_TURN: 1,
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
-  hasEnoughCredits: vi.fn(async () => true),
-  consumeCredits: consumeCreditsMock,
+  INTERVIEW_TURN_CREDIT_COST: 1,
+  reserveCredits: reserveCreditsMock,
+  confirmReservation: confirmReservationMock,
+  cancelReservation: cancelReservationMock,
 }));
 
 describe("api/companies/[id]/interview/stream", () => {
@@ -71,8 +77,10 @@ describe("api/companies/[id]/interview/stream", () => {
     createInterviewUpstreamStreamMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
-    consumeCreditsMock.mockReset();
-    consumeCreditsMock.mockResolvedValue(undefined);
+    reserveCreditsMock.mockReset();
+    confirmReservationMock.mockReset();
+    cancelReservationMock.mockReset();
+    reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-turn-1" });
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
@@ -206,6 +214,65 @@ describe("api/companies/[id]/interview/stream", () => {
     expect(buildInterviewContextMock).not.toHaveBeenCalled();
   });
 
+  it("rejects completed sessions before reserving turn credits", async () => {
+    const { POST } = await import("./route");
+    const baseContext = await buildInterviewContextMock();
+    buildInterviewContextMock.mockClear();
+    buildInterviewContextMock.mockResolvedValueOnce({
+      ...baseContext,
+      conversation: {
+        ...baseContext.conversation,
+        status: "feedback_completed",
+        questionFlowCompleted: true,
+        turnState: {
+          ...baseContext.conversation.turnState,
+          nextAction: "feedback",
+        },
+      },
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/stream", {
+        method: "POST",
+        body: JSON.stringify({ answer: "A2" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(data.error.code).toBe("INTERVIEW_NOT_ANSWERABLE");
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+    expect(createInterviewUpstreamStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects legacy sessions before reserving turn credits", async () => {
+    const { POST } = await import("./route");
+    const baseContext = await buildInterviewContextMock();
+    buildInterviewContextMock.mockClear();
+    buildInterviewContextMock.mockResolvedValueOnce({
+      ...baseContext,
+      conversation: {
+        ...baseContext.conversation,
+        isLegacySession: true,
+      },
+    });
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/stream", {
+        method: "POST",
+        body: JSON.stringify({ answer: "A2" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    expect(response.status).toBe(409);
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+    expect(createInterviewUpstreamStreamMock).not.toHaveBeenCalled();
+  });
+
   it("records a turn event after persisting the streamed turn", async () => {
     const { POST } = await import("./route");
     validateInterviewTurnStateMock.mockImplementation(() => ({
@@ -247,7 +314,7 @@ describe("api/companies/[id]/interview/stream", () => {
     });
   });
 
-  it("consumes credits only after the streamed turn is persisted", async () => {
+  it("confirms reserved credits only after the streamed turn is persisted", async () => {
     const { POST } = await import("./route");
 
     await POST(
@@ -266,15 +333,15 @@ describe("api/companies/[id]/interview/stream", () => {
     });
 
     expect(saveInterviewConversationProgressMock.mock.invocationCallOrder[0]).toBeLessThan(
-      consumeCreditsMock.mock.invocationCallOrder[0],
+      confirmReservationMock.mock.invocationCallOrder[0],
     );
     expect(saveInterviewTurnEventMock.mock.invocationCallOrder[0]).toBeLessThan(
-      consumeCreditsMock.mock.invocationCallOrder[0],
+      confirmReservationMock.mock.invocationCallOrder[0],
     );
-    expect(consumeCreditsMock).toHaveBeenCalledWith("user-1", 1, "interview", "company-1");
+    expect(confirmReservationMock).toHaveBeenCalledWith("res-turn-1");
   });
 
-  it("does not consume credits when streamed turn persistence fails", async () => {
+  it("cancels reserved credits when streamed turn persistence fails", async () => {
     const { POST } = await import("./route");
     saveInterviewConversationProgressMock.mockRejectedValueOnce(new Error("db unavailable"));
 
@@ -289,7 +356,8 @@ describe("api/companies/[id]/interview/stream", () => {
 
     const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
     await expect(onComplete({ question: "なぜ当社ですか。" })).rejects.toThrow("db unavailable");
-    expect(consumeCreditsMock).not.toHaveBeenCalled();
+    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-turn-1");
   });
 
   it("returns 503 when interview persistence is unavailable", async () => {
