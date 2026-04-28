@@ -18,23 +18,26 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import math
 import sys
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-from app.utils.hybrid_search import dense_hybrid_search, CONTENT_TYPE_BOOSTS
+from app.rag.hybrid_search import dense_hybrid_search, CONTENT_TYPE_BOOSTS
 
 
 @dataclass
 class EvalConfig:
     top_k: int = 5
+    tenant_key: str | None = None
     expand_queries: bool = True
     use_hyde: bool = True
     rerank: bool = True
@@ -67,6 +70,19 @@ class EvalResult:
     precision_ids: float = 0.0
     recall_ids: float = 0.0
 
+    def to_baseline_dict(self, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "ndcg_at_k_src": self.ndcg_at_k_src,
+            "mrr_src": self.mrr_src,
+            "hit_rate_src": self.hit_rate_src,
+            "precision_src": self.precision_src,
+            "recall_src": self.recall_src,
+            "n_items": self.n_items,
+        }
+        if metadata is not None:
+            payload["metadata"] = metadata
+        return payload
+
 
 def _load_jsonl(path: Path) -> list[dict]:
     items = []
@@ -77,6 +93,67 @@ def _load_jsonl(path: Path) -> list[dict]:
                 continue
             items.append(json.loads(line))
     return items
+
+
+def _query_id_hash(items: list[dict]) -> str:
+    query_ids = [str(item.get("query_id") or "") for item in items]
+    encoded = json.dumps(query_ids, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _metadata_distribution(items: list[dict], key: str) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for item in items:
+        metadata = item.get("metadata") or {}
+        value = metadata.get(key)
+        if isinstance(value, str) and value:
+            counts[value] += 1
+    return dict(sorted(counts.items()))
+
+
+def _baseline_config_dict(config: EvalConfig) -> dict[str, Any]:
+    data = asdict(config)
+    data.pop("tenant_key", None)
+    data.pop("limit", None)
+    if data.get("content_type_boosts") is not None:
+        data["content_type_boosts"] = dict(sorted(data["content_type_boosts"].items()))
+    return dict(sorted(data.items()))
+
+
+def _config_hash(config_data: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        config_data,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def build_baseline_metadata(
+    *, input_path: Path, items: list[dict], config: EvalConfig
+) -> dict[str, Any]:
+    from app.utils.embeddings import get_configured_backends
+
+    backend = get_configured_backends()[0]
+    config_data = _baseline_config_dict(config)
+    return {
+        "golden_sha256": hashlib.sha256(input_path.read_bytes()).hexdigest(),
+        "query_id_hash": _query_id_hash(items),
+        "tenant_key_distribution": dict(
+            sorted(Counter(str(item.get("tenant_key") or "") for item in items).items())
+        ),
+        "target_content_type_distribution": _metadata_distribution(
+            items, "target_content_type"
+        ),
+        "top_k": config.top_k,
+        "embedding_provider": backend.provider,
+        "embedding_model": backend.model,
+        "config_hash": _config_hash(config_data),
+        "config": config_data,
+    }
 
 
 def _normalize_source(url: str) -> str:
@@ -124,6 +201,18 @@ def _extract_baseline(baseline: Iterable) -> tuple[list[str], list[str]]:
             if isinstance(url, str) and url:
                 sources.append(_normalize_source(url))
     return ids, sources
+
+
+def _resolve_tenant_key(item: dict, fallback_tenant_key: str | None) -> str:
+    tenant_key = item.get("tenant_key") or fallback_tenant_key
+    if not isinstance(tenant_key, str) or not tenant_key.strip():
+        company_id = item.get("company_id") or "<missing>"
+        query = item.get("query") or "<missing>"
+        raise ValueError(
+            f"tenant_key is required for RAG eval item "
+            f"(company_id={company_id}, query={query})"
+        )
+    return tenant_key.strip()
 
 
 def _precision_recall(
@@ -221,9 +310,11 @@ async def _evaluate_item(
     max_total_queries: int,
     mmr_lambda: float,
     content_type_boosts: Optional[dict[str, float]],
+    fallback_tenant_key: str | None,
 ) -> dict:
     company_id = item.get("company_id")
     query = item.get("query") or ""
+    tenant_key = _resolve_tenant_key(item, fallback_tenant_key)
 
     results = await dense_hybrid_search(
         company_id=company_id,
@@ -244,6 +335,7 @@ async def _evaluate_item(
         max_total_queries=max_total_queries,
         mmr_lambda=mmr_lambda,
         content_type_boosts=content_type_boosts,
+        tenant_key=tenant_key,
     )
 
     retrieved_ids, retrieved_sources = _extract_retrieved(results)
@@ -392,7 +484,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate dense RAG retrieval")
     parser.add_argument("--input", required=True, help="Path to JSONL evaluation set")
     parser.add_argument("--output", help="Optional output JSONL path")
+    parser.add_argument("--save-baseline", help="Optional baseline JSON path to update explicitly")
     parser.add_argument("--top-k", type=int, default=5, help="Top-k to evaluate")
+    parser.add_argument(
+        "--tenant-key",
+        help="Fallback tenant_key for JSONL rows that do not include tenant_key",
+    )
     parser.add_argument("--limit", type=int, default=0, help="Limit number of samples")
     parser.add_argument(
         "--no-expand", action="store_true", help="Disable query expansion"
@@ -435,6 +532,7 @@ async def run_evaluation(
         result = await _evaluate_item(
             item,
             top_k=cfg.top_k,
+            fallback_tenant_key=cfg.tenant_key,
             expand_queries=cfg.expand_queries,
             use_hyde=cfg.use_hyde,
             rerank=cfg.rerank,
@@ -489,6 +587,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
     cfg = EvalConfig(
         top_k=args.top_k,
+        tenant_key=args.tenant_key,
         expand_queries=not args.no_expand,
         use_hyde=not args.no_hyde,
         rerank=not args.no_rerank,
@@ -514,6 +613,26 @@ async def main_async(args: argparse.Namespace) -> int:
         with output_path.open("w", encoding="utf-8") as f:
             for item in result.per_item:
                 f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    if args.save_baseline:
+        baseline_items = items[: cfg.limit] if cfg.limit and cfg.limit > 0 else items
+        baseline_path = Path(args.save_baseline)
+        baseline_path.parent.mkdir(parents=True, exist_ok=True)
+        baseline_path.write_text(
+            json.dumps(
+                result.to_baseline_dict(
+                    metadata=build_baseline_metadata(
+                        input_path=input_path,
+                        items=baseline_items,
+                        config=cfg,
+                    )
+                ),
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
     return 0
 

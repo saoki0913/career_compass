@@ -23,6 +23,8 @@ from app.utils.rag_gap_analyzer import (
     evaluate_query_gap,
 )
 
+TENANT_KEY = "a" * 32
+
 
 # ---------------------------------------------------------------------------
 # Unit: scoring helpers
@@ -208,11 +210,11 @@ def _make_search_result(content_type: str, score: float, url: str = "https://exa
 async def test_empty_rag_needs_enrichment_for_company_motivation():
     with (
         patch(
-            "app.utils.vector_store.get_company_rag_status",
+            "app.rag.vector_store.get_company_rag_status",
             return_value=_make_rag_status(has_rag=False),
         ),
         patch(
-            "app.utils.vector_store.hybrid_search_company_context_enhanced",
+            "app.rag.vector_store.hybrid_search_company_context_enhanced",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -221,6 +223,7 @@ async def test_empty_rag_needs_enrichment_for_company_motivation():
             company_id="test-co",
             query="なぜ御社を志望するのか",
             template_type="company_motivation",
+            tenant_key=TENANT_KEY,
         )
 
     assert isinstance(result, GapAnalysisResult)
@@ -252,11 +255,11 @@ async def test_rich_rag_no_enrichment_for_company_motivation():
 
     with (
         patch(
-            "app.utils.vector_store.get_company_rag_status",
+            "app.rag.vector_store.get_company_rag_status",
             return_value=rag_status,
         ),
         patch(
-            "app.utils.vector_store.hybrid_search_company_context_enhanced",
+            "app.rag.vector_store.hybrid_search_company_context_enhanced",
             new_callable=AsyncMock,
             return_value=search_results,
         ),
@@ -265,6 +268,7 @@ async def test_rich_rag_no_enrichment_for_company_motivation():
             company_id="rich-co",
             query="なぜ御社を志望するのか",
             template_type="company_motivation",
+            tenant_key=TENANT_KEY,
         )
 
     assert result.needs_enrichment is False
@@ -276,11 +280,11 @@ async def test_rich_rag_no_enrichment_for_company_motivation():
 async def test_gakuchika_never_needs_enrichment():
     with (
         patch(
-            "app.utils.vector_store.get_company_rag_status",
+            "app.rag.vector_store.get_company_rag_status",
             return_value=_make_rag_status(has_rag=False),
         ),
         patch(
-            "app.utils.vector_store.hybrid_search_company_context_enhanced",
+            "app.rag.vector_store.hybrid_search_company_context_enhanced",
             new_callable=AsyncMock,
             return_value=[],
         ),
@@ -289,6 +293,7 @@ async def test_gakuchika_never_needs_enrichment():
             company_id="test-co",
             query="学生時代に力を入れたこと",
             template_type="gakuchika",
+            tenant_key=TENANT_KEY,
         )
 
     assert result.needs_enrichment is False
@@ -308,11 +313,11 @@ async def test_partial_coverage_triggers_enrichment():
 
     with (
         patch(
-            "app.utils.vector_store.get_company_rag_status",
+            "app.rag.vector_store.get_company_rag_status",
             return_value=rag_status,
         ),
         patch(
-            "app.utils.vector_store.hybrid_search_company_context_enhanced",
+            "app.rag.vector_store.hybrid_search_company_context_enhanced",
             new_callable=AsyncMock,
             return_value=search_results,
         ),
@@ -321,6 +326,7 @@ async def test_partial_coverage_triggers_enrichment():
             company_id="partial-co",
             query="なぜ御社を志望するのか",
             template_type="company_motivation",
+            tenant_key=TENANT_KEY,
         )
 
     assert result.needs_enrichment is True
@@ -333,11 +339,11 @@ async def test_partial_coverage_triggers_enrichment():
 async def test_search_failure_graceful():
     with (
         patch(
-            "app.utils.vector_store.get_company_rag_status",
+            "app.rag.vector_store.get_company_rag_status",
             return_value=_make_rag_status(has_rag=True, total_chunks=10),
         ),
         patch(
-            "app.utils.vector_store.hybrid_search_company_context_enhanced",
+            "app.rag.vector_store.hybrid_search_company_context_enhanced",
             new_callable=AsyncMock,
             side_effect=RuntimeError("search down"),
         ),
@@ -346,6 +352,7 @@ async def test_search_failure_graceful():
             company_id="err-co",
             query="test query",
             template_type="company_motivation",
+            tenant_key=TENANT_KEY,
         )
 
     assert isinstance(result, GapAnalysisResult)
@@ -360,17 +367,17 @@ async def test_search_failure_graceful():
 async def test_evaluate_query_gap_returns_tuple():
     with (
         patch(
-            "app.utils.vector_store.get_company_rag_status",
+            "app.rag.vector_store.get_company_rag_status",
             return_value=_make_rag_status(has_rag=False),
         ),
         patch(
-            "app.utils.vector_store.hybrid_search_company_context_enhanced",
+            "app.rag.vector_store.hybrid_search_company_context_enhanced",
             new_callable=AsyncMock,
             return_value=[],
         ),
     ):
         needs, score = await evaluate_query_gap(
-            "co-1", "志望理由", "company_motivation",
+            "co-1", "志望理由", "company_motivation", tenant_key=TENANT_KEY,
         )
 
     assert isinstance(needs, bool)

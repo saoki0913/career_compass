@@ -19,7 +19,7 @@ from app.routers.company_info_models import (
 from app.utils.cache import get_rag_cache
 from app.utils.content_types import CONTENT_TYPES
 from app.utils.secure_logger import get_logger
-from app.utils.vector_store import (
+from app.rag.vector_store import (
     delete_company_rag,
     delete_company_rag_by_type,
     delete_company_rag_by_urls,
@@ -96,7 +96,11 @@ def _extracted_data_to_chunks(extracted_data: dict, source_url: str) -> list[dic
     return chunks
 
 
-async def build_company_rag_impl(payload: BuildRagRequest) -> BuildRagResponse:
+async def build_company_rag_impl(
+    payload: BuildRagRequest,
+    *,
+    tenant_key: str,
+) -> BuildRagResponse:
     from app.utils.embeddings import resolve_embedding_backend
 
     request = payload
@@ -137,6 +141,7 @@ async def build_company_rag_impl(payload: BuildRagRequest) -> BuildRagResponse:
                 content_channel=content_channel,
                 backend=backend,
                 raw_format=request.raw_content_format,
+                tenant_key=tenant_key,
             )
             if full_text_result["success"]:
                 from app.utils.text_chunker import (
@@ -183,6 +188,7 @@ async def build_company_rag_impl(payload: BuildRagRequest) -> BuildRagResponse:
                     content_chunks=structured_chunks,
                     source_url=request.source_url,
                     backend=backend,
+                    tenant_key=tenant_key,
                 )
                 if not success:
                     logger.error(
@@ -229,10 +235,14 @@ async def build_company_rag_impl(payload: BuildRagRequest) -> BuildRagResponse:
         )
 
 
-async def get_rag_context_impl(payload: RagContextRequest) -> RagContextResponse:
+async def get_rag_context_impl(
+    payload: RagContextRequest,
+    *,
+    tenant_key: str,
+) -> RagContextResponse:
     request = payload
     try:
-        rag_exists = has_company_rag(request.company_id)
+        rag_exists = has_company_rag(request.company_id, tenant_key=tenant_key)
 
         if not rag_exists:
             return RagContextResponse(
@@ -243,6 +253,7 @@ async def get_rag_context_impl(payload: RagContextRequest) -> RagContextResponse
             company_id=request.company_id,
             es_content=request.query,
             max_context_length=request.max_context_length,
+            tenant_key=tenant_key,
         )
 
         return RagContextResponse(
@@ -256,12 +267,19 @@ async def get_rag_context_impl(payload: RagContextRequest) -> RagContextResponse
         )
 
 
-def get_rag_status_impl(company_id: str) -> RagStatusResponse:
-    return RagStatusResponse(company_id=company_id, has_rag=has_company_rag(company_id))
+def get_rag_status_impl(company_id: str, *, tenant_key: str) -> RagStatusResponse:
+    return RagStatusResponse(
+        company_id=company_id,
+        has_rag=has_company_rag(company_id, tenant_key=tenant_key),
+    )
 
 
-def get_detailed_rag_status_impl(company_id: str) -> DetailedRagStatusResponse:
-    status = get_company_rag_status(company_id)
+def get_detailed_rag_status_impl(
+    company_id: str,
+    *,
+    tenant_key: str,
+) -> DetailedRagStatusResponse:
+    status = get_company_rag_status(company_id, tenant_key=tenant_key)
 
     return DetailedRagStatusResponse(
         company_id=company_id,
@@ -280,13 +298,18 @@ def get_detailed_rag_status_impl(company_id: str) -> DetailedRagStatusResponse:
     )
 
 
-async def analyze_rag_gap_impl(payload: GapAnalysisRequest) -> GapAnalysisResponse:
+async def analyze_rag_gap_impl(
+    payload: GapAnalysisRequest,
+    *,
+    tenant_key: str,
+) -> GapAnalysisResponse:
     from app.utils.rag_gap_analyzer import analyze_company_rag_gap
 
     result = await analyze_company_rag_gap(
         company_id=payload.company_id,
         query=payload.query,
         template_type=payload.template_type,
+        tenant_key=tenant_key,
     )
     return GapAnalysisResponse(
         company_id=result.company_id,
@@ -319,30 +342,38 @@ async def analyze_rag_gap_impl(payload: GapAnalysisRequest) -> GapAnalysisRespon
     )
 
 
-async def delete_rag_impl(company_id: str) -> dict:
-    success = delete_company_rag(company_id)
+async def delete_rag_impl(company_id: str, *, tenant_key: str) -> dict:
+    success = delete_company_rag(company_id, tenant_key=tenant_key)
     cache = get_rag_cache()
     if cache:
-        await cache.invalidate_company(company_id)
+        await cache.invalidate_company(company_id, tenant_key=tenant_key)
     return {"success": success, "company_id": company_id}
 
 
-async def delete_rag_by_type_impl(company_id: str, content_type: str) -> dict:
+async def delete_rag_by_type_impl(
+    company_id: str,
+    content_type: str,
+    *,
+    tenant_key: str,
+) -> dict:
     if content_type not in CONTENT_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid content_type: {content_type}. Valid types: {CONTENT_TYPES}",
         )
 
-    success = delete_company_rag_by_type(company_id, content_type)
+    success = delete_company_rag_by_type(company_id, content_type, tenant_key=tenant_key)
     cache = get_rag_cache()
     if cache:
-        await cache.invalidate_company(company_id)
+        await cache.invalidate_company(company_id, tenant_key=tenant_key)
     return {"success": success, "company_id": company_id, "content_type": content_type}
 
 
 async def delete_rag_by_urls_impl(
-    company_id: str, payload: DeleteByUrlsRequest
+    company_id: str,
+    payload: DeleteByUrlsRequest,
+    *,
+    tenant_key: str,
 ) -> DeleteByUrlsResponse:
     request = payload
     if not request.urls:
@@ -355,13 +386,17 @@ async def delete_rag_by_urls_impl(
         )
 
     try:
-        result = delete_company_rag_by_urls(company_id, request.urls)
+        result = delete_company_rag_by_urls(
+            company_id,
+            request.urls,
+            tenant_key=tenant_key,
+        )
 
         urls_deleted = [url for url, count in result["per_url"].items() if count > 0]
 
         cache = get_rag_cache()
         if cache:
-            await cache.invalidate_company(company_id)
+            await cache.invalidate_company(company_id, tenant_key=tenant_key)
 
         return DeleteByUrlsResponse(
             success=True,

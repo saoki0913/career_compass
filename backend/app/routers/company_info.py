@@ -17,7 +17,7 @@ from app.utils.firecrawl import FirecrawlScrapeResult  # noqa: F401
 from app.config import settings
 from app.utils.secure_logger import get_logger
 from app.utils.embeddings import resolve_embedding_backend  # noqa: F401
-from app.utils.vector_store import store_full_text_content  # noqa: F401
+from app.rag.vector_store import store_full_text_content  # noqa: F401
 from app.utils.web_search import (
     hybrid_web_search,  # noqa: F401
     CONTENT_TYPE_SEARCH_INTENT,  # noqa: F401
@@ -27,6 +27,7 @@ from app.utils.pdf_ocr import extract_text_from_pdf_with_ocr  # noqa: F401
 from app.limiter import limiter
 from app.security.career_principal import (
     CareerPrincipal,
+    require_tenant_key,
     require_career_principal,
 )
 from app.security.upload_limits import (
@@ -178,7 +179,8 @@ async def build_company_rag(
 ):
     """Build RAG (vector embeddings) for a company."""
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _build_company_rag_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _build_company_rag_impl(payload, tenant_key=tenant_key)
 
 
 @router.post("/rag/context", response_model=RagContextResponse)
@@ -190,7 +192,8 @@ async def get_rag_context(
 ):
     """Get RAG context for ES review."""
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _get_rag_context_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _get_rag_context_impl(payload, tenant_key=tenant_key)
 
 
 @router.get("/rag/status/{company_id}", response_model=RagStatusResponse)
@@ -202,7 +205,8 @@ async def get_rag_status(
 ):
     """Check if a company has RAG data."""
     _assert_principal_owns_company(principal, company_id)
-    return _get_rag_status_impl(company_id)
+    tenant_key = require_tenant_key(principal)
+    return _get_rag_status_impl(company_id, tenant_key=tenant_key)
 
 
 @router.get(
@@ -216,7 +220,8 @@ async def get_detailed_rag_status(
 ):
     """Get detailed RAG status for a company."""
     _assert_principal_owns_company(principal, company_id)
-    return _get_detailed_rag_status_impl(company_id)
+    tenant_key = require_tenant_key(principal)
+    return _get_detailed_rag_status_impl(company_id, tenant_key=tenant_key)
 
 
 @router.post("/rag/gap-analysis", response_model=GapAnalysisResponse)
@@ -228,7 +233,8 @@ async def analyze_rag_gap(
 ):
     """Query-aware RAG gap analysis."""
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _analyze_rag_gap_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _analyze_rag_gap_impl(payload, tenant_key=tenant_key)
 
 
 @router.delete("/rag/{company_id}")
@@ -240,7 +246,8 @@ async def delete_rag(
 ):
     """Delete all RAG data for a company."""
     _assert_principal_owns_company(principal, company_id)
-    return await _delete_rag_impl(company_id)
+    tenant_key = require_tenant_key(principal)
+    return await _delete_rag_impl(company_id, tenant_key=tenant_key)
 
 
 @router.delete("/rag/{company_id}/{content_type}")
@@ -253,7 +260,8 @@ async def delete_rag_by_type(
 ):
     """Delete RAG data for a company by content type."""
     _assert_principal_owns_company(principal, company_id)
-    return await _delete_rag_by_type_impl(company_id, content_type)
+    tenant_key = require_tenant_key(principal)
+    return await _delete_rag_by_type_impl(company_id, content_type, tenant_key=tenant_key)
 
 
 @router.post("/rag/{company_id}/delete-by-urls", response_model=DeleteByUrlsResponse)
@@ -266,7 +274,8 @@ async def delete_rag_by_urls(
 ):
     """Delete RAG data for a company by source URLs."""
     _assert_principal_owns_company(principal, company_id)
-    return await _delete_rag_by_urls_impl(company_id, payload)
+    tenant_key = require_tenant_key(principal)
+    return await _delete_rag_by_urls_impl(company_id, payload, tenant_key=tenant_key)
 
 
 # ============================================================================
@@ -342,6 +351,7 @@ async def upload_corporate_pdf(
         billing_plan=billing_plan,
         pdf_bytes=pdf_bytes,
         filename=filename,
+        tenant_key=require_tenant_key(principal),
     )
 
 
@@ -353,7 +363,8 @@ async def estimate_crawl_corporate_pages(
     principal: CareerPrincipal = Depends(require_career_principal("company")),
 ):
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _estimate_crawl_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _estimate_crawl_impl(payload, tenant_key=tenant_key)
 
 
 @router.post("/rag/crawl-corporate", response_model=CrawlCorporateResponse)
@@ -365,7 +376,8 @@ async def crawl_corporate_pages(
 ):
     """Crawl and index corporate site pages for RAG."""
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _crawl_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _crawl_impl(payload, tenant_key=tenant_key)
 
 
 @router.post("/search-corporate-pages")

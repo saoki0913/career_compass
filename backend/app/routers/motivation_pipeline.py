@@ -16,7 +16,7 @@ from app.prompts.motivation_prompts import MOTIVATION_EVALUATION_PROMPT
 from app.utils.llm import call_llm_with_error
 from app.utils.llm_prompt_safety import sanitize_prompt_input
 from app.utils.secure_logger import get_logger
-from app.utils.vector_store import get_enhanced_context_for_review_with_sources
+from app.rag.vector_store import get_enhanced_context_for_review_with_sources
 from app.routers.motivation_context import (
     CONVERSATION_MODE_DEEPDIVE,
     CONVERSATION_MODE_SLOT_FILL,
@@ -116,8 +116,12 @@ async def _get_company_context(
     query: str = "",
     scores: Optional[MotivationScores] = None,
     role_hint: str | None = None,
+    tenant_key: str | None = None,
 ) -> tuple[str, list[dict]]:
     """Get company RAG context for motivation questions."""
+    if not tenant_key:
+        logger.warning("[Motivation] tenant_key missing; skipping company RAG context")
+        return "", []
     try:
         if not query:
             query = _build_adaptive_rag_query(scores, query)
@@ -126,6 +130,7 @@ async def _get_company_context(
             company_id=company_id,
             es_content=query,
             max_context_length=2000,
+            tenant_key=tenant_key,
         )
         return context, sources
     except Exception as e:
@@ -159,6 +164,7 @@ async def _evaluate_motivation_internal(
     request: NextQuestionRequest,
     company_context: str | None = None,
     conversation_context: dict[str, Any] | None = None,
+    tenant_key: str | None = None,
 ) -> dict:
     normalized_context = _normalize_conversation_context(
         conversation_context if conversation_context is not None else request.conversation_context
@@ -222,6 +228,7 @@ async def _evaluate_motivation_internal(
             request.company_id,
             _format_conversation(trimmed_history),
             role_hint=role_hint,
+            tenant_key=tenant_key,
         )
 
     conversation_text = _format_conversation(trimmed_history)
@@ -456,6 +463,8 @@ async def _apply_semantic_confirmation_post_capture(
 
 async def _prepare_motivation_next_question(
     request: NextQuestionRequest,
+    *,
+    tenant_key: str | None = None,
 ) -> _MotivationQuestionPrep:
     conversation_context = _normalize_conversation_context(request.conversation_context)
     generated_draft = (request.generated_draft or "").strip() or None
@@ -486,6 +495,7 @@ async def _prepare_motivation_next_question(
     company_context, company_sources = await company_context_resolver(
         request.company_id,
         role_hint=role_hint,
+        tenant_key=tenant_key,
     )
     company_features = _extract_company_features(company_context, company_sources, max_features=4)
     role_candidates = _merge_candidate_lists(

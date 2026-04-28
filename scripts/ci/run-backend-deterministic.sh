@@ -14,6 +14,12 @@ python -m pytest \
   backend/tests/company_info/test_hybrid_search_short_circuit.py \
   backend/tests/company_info/test_schedule_search_policy.py \
   backend/tests/company_info/test_upload_pdf_ingestion.py \
+  backend/tests/rag_eval/test_evaluate_retrieval.py \
+  backend/tests/rag_eval/test_generate_golden_set.py \
+  backend/tests/rag_eval/test_seed_eval_corpus.py \
+  backend/tests/rag_eval/test_rag_eval_regression.py::test_baseline_integrity_matches_golden_set \
+  backend/tests/rag_eval/test_rag_eval_regression.py::test_golden_set_integrity \
+  backend/tests/rag_eval/test_rag_package_contracts.py \
   backend/tests/es_review/test_es_review_quality_rubric.py \
   backend/tests/es_review/test_es_review_final_quality_cases.py \
   backend/tests/es_review/test_es_review_prompt_structure.py \

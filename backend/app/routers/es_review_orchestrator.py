@@ -15,6 +15,8 @@ from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
 
+from app.config import settings
+from app.rag.reference_es import retrieve_reference_es_semantic
 from app.utils.secure_logger import get_logger
 from app.utils.telemetry import record_parse_failure
 from app.routers.es_review_fact_guard import _compute_hallucination_score
@@ -24,10 +26,8 @@ from app.routers.es_review_models import (
     ReviewContext,
     ReviewRequest,
     ReviewResponse,
-    ReviewTokenUsage,
     RewriteLoopResult,
     RecoveryResult,
-    TemplateRequest,
 )
 
 # -- pipeline helpers --
@@ -282,7 +282,7 @@ async def prepare_review_context(
         classifier_grounding_level=recommended_grounding_level,
         char_max=char_max,
         evidence_coverage_level="none",
-        has_company_rag=effective_company_rag_available,
+        rag_available=effective_company_rag_available,
     )
     effective_company_grounding = grounding_level_to_policy(effective_grounding_level)
     if has_mismatched_company_sources:
@@ -313,7 +313,7 @@ async def prepare_review_context(
         classifier_grounding_level=recommended_grounding_level,
         char_max=char_max,
         evidence_coverage_level=evidence_coverage_level,
-        has_company_rag=effective_company_rag_available,
+        rag_available=effective_company_rag_available,
     )
     if has_mismatched_company_sources:
         effective_grounding_level = "light"
@@ -331,6 +331,20 @@ async def prepare_review_context(
         company_name=template_request.company_name,
         max_items=3,
     )
+    reference_es_mode = "quality_profile_only"
+    if settings.reference_es_rag_enabled:
+        semantic_reference_examples = await retrieve_reference_es_semantic(
+            template_type,
+            industry=template_request.industry,
+            char_max=char_max,
+            query_text=template_request.answer,
+            top_k=3,
+        )
+        if semantic_reference_examples:
+            reference_examples = semantic_reference_examples
+            reference_es_mode = "semantic_enabled"
+        else:
+            reference_es_mode = "semantic_shadow"
     reference_quality_profile = build_reference_quality_profile(
         template_type,
         char_max=char_max,
@@ -418,6 +432,7 @@ async def prepare_review_context(
         reference_quality_profile=reference_quality_profile,
         reference_quality_block=reference_quality_block,
         reference_outline_used=reference_outline_used,
+        reference_es_mode=reference_es_mode,
         generic_role_mode=generic_role_mode,
         user_priority_urls=user_priority_urls,
         use_tight_length_control=use_tight_length_control,
@@ -1121,7 +1136,6 @@ async def assemble_review_response(
 ) -> ReviewResponse:
     """Log, stream final rewrite, and build ReviewResponse."""
     total_attempts = _total_rewrite_attempts(ctx.review_variant)
-    template_request = ctx.template_request
 
     # Determine which result set to use: recovery overrides loop when it produced a rewrite.
     if recovery.final_rewrite:
@@ -1258,6 +1272,7 @@ async def assemble_review_response(
             rewrite_generation_mode=rewrite_generation_mode,
             rewrite_attempt_count=accepted_attempt,
             reference_es_count=len(ctx.reference_examples),
+            reference_es_mode=ctx.reference_es_mode,
             reference_quality_profile_used=bool(ctx.reference_quality_block),
             reference_outline_used=ctx.reference_outline_used,
             reference_hint_count=len((ctx.reference_quality_profile or {}).get("quality_hints") or [])

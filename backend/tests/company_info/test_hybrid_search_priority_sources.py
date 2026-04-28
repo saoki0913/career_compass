@@ -1,4 +1,4 @@
-from app.utils.hybrid_search import _apply_priority_source_boost
+from app.rag.hybrid_search import _apply_priority_source_boost
 
 
 def test_priority_source_boost_only_applies_to_allowed_content_types() -> None:

@@ -1,0 +1,58 @@
+{
+  "ndcg_at_k_src": 0.8183959037730669,
+  "mrr_src": 0.8205128205128205,
+  "hit_rate_src": 0.8846153846153846,
+  "precision_src": 0.7147435897435899,
+  "recall_src": 0.8557692307692307,
+  "n_items": 52,
+  "metadata": {
+    "golden_sha256": "5f20b637c738e732570b80af026878e917e0c5a96e5661b56e9bcac0bffe1d96",
+    "query_id_hash": "78de5cd079a845a0149e61966bdb56141b04517dacb6c3d91582ba6a530c9bdd",
+    "tenant_key_distribution": {
+      "00000000000000000000000000000000": 52
+    },
+    "target_content_type_distribution": {
+      "ceo_message": 7,
+      "corporate_general": 7,
+      "corporate_ir": 5,
+      "corporate_site": 12,
+      "csr_sustainability": 7,
+      "employee_interviews": 2,
+      "ir_materials": 3,
+      "midcareer_recruitment": 1,
+      "new_grad_recruitment": 6,
+      "press_release": 2
+    },
+    "top_k": 5,
+    "embedding_provider": "openai",
+    "embedding_model": "text-embedding-3-small",
+    "config_hash": "2d0e39e2074bde0a0b1e1145c9309f5959200586e26b061549a0398d80cab116",
+    "config": {
+      "content_type_boosts": {
+        "ceo_message": 1.05,
+        "corporate_site": 1.0,
+        "csr_sustainability": 0.9,
+        "employee_interviews": 1.1,
+        "ir_materials": 0.85,
+        "midcareer_recruitment": 1.1,
+        "midterm_plan": 0.9,
+        "new_grad_recruitment": 1.5,
+        "press_release": 0.95
+      },
+      "expand_queries": true,
+      "fetch_k": 30,
+      "keyword_weight": 0.4,
+      "max_queries": 3,
+      "max_total_queries": 4,
+      "mmr_lambda": 0.5,
+      "rerank": true,
+      "rerank_threshold": 0.7,
+      "semantic_weight": 0.6,
+      "sleep_between": 0.0,
+      "top_k": 5,
+      "use_bm25": true,
+      "use_hyde": true,
+      "use_mmr": true
+    }
+  }
+}

@@ -15,6 +15,10 @@ from pathlib import Path
 import json
 import re
 
+from app.utils.secure_logger import get_logger
+
+logger = get_logger(__name__)
+
 # Try to import fugashi for MeCab-based tokenization
 try:
     import fugashi
@@ -22,7 +26,7 @@ try:
     HAS_FUGASHI = True
 except ImportError:
     HAS_FUGASHI = False
-    print("Warning: fugashi not installed. Using fallback tokenizer.")
+    logger.warning("fugashi not installed. Using fallback tokenizer.")
 
 # Domain terms dictionary path
 DOMAIN_TERMS_PATH = Path(__file__).parent.parent.parent / "data" / "domain_terms.json"
@@ -66,7 +70,7 @@ class JapaneseTokenizer:
             try:
                 self._tagger = fugashi.Tagger()
             except Exception as e:
-                print(f"Warning: Failed to initialize MeCab: {e}")
+                logger.warning("Failed to initialize MeCab: %s", e)
 
     def tokenize(self, text: str) -> list[str]:
         """

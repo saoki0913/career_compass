@@ -257,14 +257,15 @@ async def analyze_company_rag_gap(
     company_id: str,
     query: str,
     template_type: str,
+    tenant_key: str,
 ) -> GapAnalysisResult:
     """Full gap analysis for HTTP endpoint and internal use."""
-    from app.utils.vector_store import (
+    from app.rag.vector_store import (
         get_company_rag_status,
         hybrid_search_company_context_enhanced,
     )
 
-    rag_status = get_company_rag_status(company_id)
+    rag_status = get_company_rag_status(company_id, tenant_key=tenant_key)
     chunk_counts: dict[str, int] = {}
     for ct in CONTENT_TYPES:
         chunk_counts[ct] = rag_status.get(f"{ct}_chunks", 0)
@@ -280,6 +281,7 @@ async def analyze_company_rag_gap(
                 expand_queries=settings.rag_use_query_expansion,
                 rerank=settings.rag_use_rerank,
                 short_circuit=True,
+                tenant_key=tenant_key,
             )
         except Exception:
             logger.warning(
@@ -342,10 +344,16 @@ async def evaluate_query_gap(
     company_id: str,
     query: str,
     template_type: str,
+    tenant_key: str,
 ) -> tuple[bool, float]:
     """Lightweight wrapper for ES review pipeline.
 
     Returns (needs_enrichment, overall_score).
     """
-    result = await analyze_company_rag_gap(company_id, query, template_type)
+    result = await analyze_company_rag_gap(
+        company_id,
+        query,
+        template_type,
+        tenant_key=tenant_key,
+    )
     return result.needs_enrichment, result.overall_score

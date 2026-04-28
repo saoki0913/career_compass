@@ -39,7 +39,13 @@ from app.utils.embeddings import (
     resolve_embedding_backend,
 )
 from app.utils.bm25_store import get_or_create_index
-from app.utils.japanese_tokenizer import tokenize
+from app.utils.japanese_tokenizer import tokenize_with_domain_expansion
+from app.rag.telemetry import (
+    rag_expansion_cache_hits,
+    rag_retrieval_requests,
+    rag_rerank_invocations,
+    record_stage_duration,
+)
 
 logger = get_logger(__name__)
 
@@ -84,8 +90,8 @@ CONTENT_TYPE_BOOSTS = {
     },
     # Company culture / people queries
     "culture": {
-        "employee_interviews": 1.35,
-        "ceo_message": 1.4,
+        "employee_interviews": 1.4,
+        "ceo_message": 1.3,
         "new_grad_recruitment": 1.3,
         "csr_sustainability": 1.1,
         "corporate_site": 1.0,
@@ -236,6 +242,7 @@ def _get_cached_expansion(query: str) -> Optional[list[str]]:
     if time.time() - ts > _EXPANSION_CACHE_TTL:
         _expansion_cache.pop(key, None)
         return None
+    rag_expansion_cache_hits.labels(cache_type="expansion").inc()
     return queries
 
 
@@ -271,6 +278,7 @@ def _get_cached_hyde(query: str) -> Optional[str]:
     if time.time() - ts > _HYDE_CACHE_TTL:
         _hyde_cache.pop(key, None)
         return None
+    rag_expansion_cache_hits.labels(cache_type="hyde").inc()
     return passage
 
 
@@ -332,7 +340,7 @@ def _dedupe_queries(queries: list[str], max_total: int) -> list[str]:
 
 
 def _extract_keywords(text: str, max_terms: int = 8) -> list[str]:
-    tokens = tokenize(text)
+    tokens = tokenize_with_domain_expansion(text)
     filtered = [t for t in tokens if len(t) >= 2]
     if not filtered:
         return []
@@ -445,7 +453,9 @@ async def _rerank_with_cross_encoder(
     """Load the reranker only when reranking is actually needed."""
     from app.utils.reranker import rerank_with_cross_encoder
 
-    return await rerank_with_cross_encoder(query, results, top_k=top_k)
+    rag_rerank_invocations.labels(model="default").inc()
+    with record_stage_duration("rerank"):
+        return await rerank_with_cross_encoder(query, results, top_k=top_k)
 
 
 def _clean_excerpt_text(text: str) -> str:
@@ -604,12 +614,13 @@ def _apply_priority_source_boost(
 
 def _keyword_search(
     company_id: str, query: str, k: int = 10, content_types: Optional[list[str]] = None,
-    tenant_key: Optional[str] = None,
+    *,
+    tenant_key: str,
 ) -> list[dict]:
     index = get_or_create_index(company_id, tenant_key=tenant_key)
     if not index.documents:
         try:
-            from app.utils.vector_store import update_bm25_index
+            from app.rag.vector_store import update_bm25_index
 
             update_bm25_index(company_id, tenant_key)
             index = get_or_create_index(company_id, tenant_key=tenant_key)
@@ -879,10 +890,11 @@ async def semantic_search(
     backends: Optional[list[EmbeddingBackend]] = None,
     include_embeddings: bool = False,
     precomputed_query_embedding: Optional[list[float]] = None,
-    tenant_key: Optional[str] = None,
+    *,
+    tenant_key: str,
 ) -> list[dict]:
     """Run semantic search for a single query."""
-    from app.utils.vector_store import search_company_context_by_type
+    from app.rag.vector_store import search_company_context_by_type
 
     return await search_company_context_by_type(
         company_id=company_id,
@@ -917,7 +929,8 @@ async def dense_hybrid_search(
     content_type_boosts: Optional[dict[str, float]] = None,
     priority_source_urls: Optional[list[str]] = None,
     short_circuit: bool = True,
-    tenant_key: Optional[str] = None,
+    *,
+    tenant_key: str,
 ) -> list[dict]:
     """
     Dense-only hybrid search pipeline (BM25-free).
@@ -933,212 +946,231 @@ async def dense_hybrid_search(
     query = (query or "").strip()
     if not query:
         return []
+    profile = "default"
 
-    semantic_weight = (
-        settings.rag_semantic_weight if semantic_weight is None else semantic_weight
-    )
-    keyword_weight = (
-        settings.rag_keyword_weight if keyword_weight is None else keyword_weight
-    )
-    total_weight = (semantic_weight or 0) + (keyword_weight or 0)
-    if total_weight > 0:
-        semantic_weight = semantic_weight / total_weight
-        keyword_weight = keyword_weight / total_weight
-    rerank_threshold = (
-        settings.rag_rerank_threshold
-        if rerank_threshold is None
-        else rerank_threshold
-    )
-    fetch_k = settings.rag_fetch_k if fetch_k is None else fetch_k
-    max_queries = settings.rag_max_queries if max_queries is None else max_queries
-    max_total_queries = (
-        settings.rag_max_total_queries if max_total_queries is None else max_total_queries
-    )
-    mmr_lambda = settings.rag_mmr_lambda if mmr_lambda is None else mmr_lambda
-    max_queries = max(0, int(max_queries))
-    max_total_queries = max(1, int(max_total_queries))
+    try:
+        semantic_weight = (
+            settings.rag_semantic_weight if semantic_weight is None else semantic_weight
+        )
+        keyword_weight = (
+            settings.rag_keyword_weight if keyword_weight is None else keyword_weight
+        )
+        total_weight = (semantic_weight or 0) + (keyword_weight or 0)
+        if total_weight > 0:
+            semantic_weight = semantic_weight / total_weight
+            keyword_weight = keyword_weight / total_weight
+        rerank_threshold = (
+            settings.rag_rerank_threshold
+            if rerank_threshold is None
+            else rerank_threshold
+        )
+        fetch_k = settings.rag_fetch_k if fetch_k is None else fetch_k
+        max_queries = settings.rag_max_queries if max_queries is None else max_queries
+        max_total_queries = (
+            settings.rag_max_total_queries if max_total_queries is None else max_total_queries
+        )
+        mmr_lambda = settings.rag_mmr_lambda if mmr_lambda is None else mmr_lambda
+        max_queries = max(0, int(max_queries))
+        max_total_queries = max(1, int(max_total_queries))
 
-    base_backend = _resolve_dense_backend(backends)
-    if base_backend is None:
-        return []
-    search_backends = [base_backend]
-    query_embedding = (
-        await generate_embedding(query, backend=base_backend)
-        if use_mmr else None
-    )
+        inferred = infer_retrieval_profile(query, base_fetch_k=fetch_k or DEFAULT_FETCH_K)
+        profile = str(inferred.get("profile") or "default")
 
-    # First-pass semantic retrieval for the original query only.
-    # If this is already good enough, skip expansion / HyDE / BM25 / rerank.
-    initial_results = await semantic_search(
-        company_id=company_id,
-        query=query,
-        n_results=max(fetch_k or DEFAULT_FETCH_K, n_results * 3),
-        content_types=content_types,
-        backends=search_backends,
-        include_embeddings=use_mmr,
-        precomputed_query_embedding=query_embedding,
-        tenant_key=tenant_key,
-    )
-
-    if not initial_results:
-        return []
-
-    if content_type_boosts:
-        initial_results = _apply_content_type_boost(initial_results, content_type_boosts)
-    if priority_source_urls:
-        initial_results = _apply_priority_source_boost(
-            initial_results,
-            priority_source_urls,
-            content_type_boosts=content_type_boosts,
+        base_backend = _resolve_dense_backend(backends)
+        if base_backend is None:
+            rag_retrieval_requests.labels(profile=profile, status="no_backend").inc()
+            return []
+        search_backends = [base_backend]
+        query_embedding = (
+            await generate_embedding(query, backend=base_backend)
+            if use_mmr else None
         )
 
-    if short_circuit and _should_short_circuit_search(initial_results, n_results):
-        if use_mmr:
-            if query_embedding:
-                initial_results = _apply_mmr(initial_results, query_embedding, n_results, mmr_lambda)
-            else:
-                initial_results = initial_results[:n_results]
-        else:
-            initial_results = initial_results[:n_results]
-        if settings.debug:
-            logger.info("[RAG] 初回検索で十分なため expansion/HyDE/BM25/rerank をスキップ")
-        return initial_results[:n_results]
-
-    # クエリ拡張: 10文字以上1200文字以下の場合のみ実行
-    effective_expand = (
-        expand_queries
-        and max_queries > 0
-        and len(query) >= EXPANSION_MIN_QUERY_CHARS
-        and len(query) <= EXPANSION_MAX_QUERY_CHARS
-    )
-    effective_hyde = use_hyde and len(query) <= HYDE_MAX_QUERY_CHARS
-
-    queries = [query]
-    keyword_seeds = _extract_keywords(query)
-
-    # Run query expansion and HyDE in parallel
-    expand_coro = (
-        expand_queries_with_llm(query, max_queries=max_queries, keywords=keyword_seeds)
-        if effective_expand else None
-    )
-    hyde_coro = (
-        generate_hypothetical_document(query)
-        if effective_hyde else None
-    )
-
-    if expand_coro and hyde_coro:
-        expanded, hyde_doc = await asyncio.gather(expand_coro, hyde_coro)
-    elif expand_coro:
-        expanded = await expand_coro
-        hyde_doc = None
-    elif hyde_coro:
-        expanded = []
-        hyde_doc = await hyde_coro
-    else:
-        expanded = []
-        hyde_doc = None
-
-    # Trim expanded if HyDE is enabled (reserve slot)
-    if effective_hyde and len(expanded) > 2:
-        expanded = expanded[:2]
-
-    if expanded:
-        queries.extend(expanded)
-    if hyde_doc:
-        queries.append(hyde_doc)
-
-    queries = _dedupe_queries(queries, max_total_queries)
-
-    fetch_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
-    bm25_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
-
-    # Start BM25 search in parallel with the enhanced semantic search only when needed.
-    bm25_task = None
-    if use_bm25 and keyword_weight > 0:
-        bm25_task = asyncio.create_task(
-            asyncio.to_thread(
-                _keyword_search,
+        # First-pass semantic retrieval for the original query only.
+        # If this is already good enough, skip expansion / HyDE / BM25 / rerank.
+        with record_stage_duration("semantic"):
+            initial_results = await semantic_search(
                 company_id=company_id,
                 query=query,
-                k=bm25_k,
-                content_types=content_types,
-                tenant_key=tenant_key,
-            )
-        )
-
-    results_by_query: list[list[dict]] = []
-    if initial_results:
-        results_by_query.append(initial_results)
-
-    extra_queries = queries[1:]
-    if extra_queries:
-        search_tasks = [
-            semantic_search(
-                company_id=company_id,
-                query=q,
-                n_results=fetch_k,
+                n_results=max(fetch_k or DEFAULT_FETCH_K, n_results * 3),
                 content_types=content_types,
                 backends=search_backends,
                 include_embeddings=use_mmr,
+                precomputed_query_embedding=query_embedding,
                 tenant_key=tenant_key,
             )
-            for q in extra_queries
-        ]
-        search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
-        results_by_query.extend(
-            r for r in search_results if isinstance(r, list) and r
-        )
 
-    if not results_by_query:
-        # Cancel BM25 task if no semantic results
-        if bm25_task:
-            bm25_task.cancel()
-        return []
+        if not initial_results:
+            rag_retrieval_requests.labels(profile=profile, status="empty").inc()
+            return []
 
-    rrf_k = adaptive_rrf_k(len(results_by_query))
-    merged = rrf_merge_results(results_by_query, k=rrf_k)
-
-    if use_mmr:
-        if query_embedding:
-            merged = _apply_mmr(merged, query_embedding, n_results, mmr_lambda)
-        else:
-            merged = merged[:n_results]
-    else:
-        merged = merged[:n_results]
-
-    # Await BM25 results (was running concurrently with semantic search)
-    if bm25_task:
-        try:
-            keyword_results = await bm25_task
-        except Exception as e:
-            logger.warning(f"[RAG/BM25] BM25検索エラー: {e}")
-            keyword_results = None
-        if keyword_results:
-            merged = _merge_semantic_and_keyword(
-                merged,
-                keyword_results,
-                semantic_weight=semantic_weight,
-                keyword_weight=keyword_weight,
+        if content_type_boosts:
+            # Apply once before early-exit checks so strong semantic hits preserve source intent.
+            initial_results = _apply_content_type_boost(initial_results, content_type_boosts)
+        if priority_source_urls:
+            initial_results = _apply_priority_source_boost(
+                initial_results,
+                priority_source_urls,
+                content_type_boosts=content_type_boosts,
             )
 
-    if content_type_boosts:
-        merged = _apply_content_type_boost(merged, content_type_boosts)
-    if priority_source_urls:
-        merged = _apply_priority_source_boost(
-            merged,
-            priority_source_urls,
-            content_type_boosts=content_type_boosts,
+        if short_circuit and _should_short_circuit_search(initial_results, n_results):
+            if use_mmr:
+                if query_embedding:
+                    with record_stage_duration("mmr"):
+                        initial_results = _apply_mmr(initial_results, query_embedding, n_results, mmr_lambda)
+                else:
+                    initial_results = initial_results[:n_results]
+            else:
+                initial_results = initial_results[:n_results]
+            if settings.debug:
+                logger.info("[RAG] 初回検索で十分なため expansion/HyDE/BM25/rerank をスキップ")
+            rag_retrieval_requests.labels(profile=profile, status="ok").inc()
+            return initial_results[:n_results]
+
+        # クエリ拡張: 10文字以上1200文字以下の場合のみ実行
+        effective_expand = (
+            expand_queries
+            and max_queries > 0
+            and len(query) >= EXPANSION_MIN_QUERY_CHARS
+            and len(query) <= EXPANSION_MAX_QUERY_CHARS
+        )
+        effective_hyde = use_hyde and len(query) <= HYDE_MAX_QUERY_CHARS
+
+        queries = [query]
+        keyword_seeds = _extract_keywords(query)
+
+        expand_coro = (
+            expand_queries_with_llm(query, max_queries=max_queries, keywords=keyword_seeds)
+            if effective_expand else None
+        )
+        hyde_coro = (
+            generate_hypothetical_document(query)
+            if effective_hyde else None
         )
 
-    if rerank and _should_rerank(merged, rerank_threshold):
-        merged = await _rerank_with_cross_encoder(
-            query, merged, top_k=DEFAULT_RERANK_CANDIDATES
-        )
-    elif rerank:
-        if settings.debug:
-            logger.info("[RAG再ランキング] 上位スコアが高いためスキップ")
+        with record_stage_duration("expansion"):
+            if expand_coro and hyde_coro:
+                expanded, hyde_doc = await asyncio.gather(expand_coro, hyde_coro)
+            elif expand_coro:
+                expanded = await expand_coro
+                hyde_doc = None
+            elif hyde_coro:
+                expanded = []
+                hyde_doc = await hyde_coro
+            else:
+                expanded = []
+                hyde_doc = None
 
-    return merged[:n_results]
+        # Trim expanded if HyDE is enabled (reserve slot)
+        if effective_hyde and len(expanded) > 2:
+            expanded = expanded[:2]
+
+        if expanded:
+            queries.extend(expanded)
+        if hyde_doc:
+            queries.append(hyde_doc)
+
+        queries = _dedupe_queries(queries, max_total_queries)
+
+        fetch_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
+        bm25_k = max(fetch_k or DEFAULT_FETCH_K, n_results * 3)
+
+        # Start BM25 search in parallel with the enhanced semantic search only when needed.
+        bm25_task = None
+        if use_bm25 and keyword_weight > 0:
+            bm25_task = asyncio.create_task(
+                asyncio.to_thread(
+                    _keyword_search,
+                    company_id=company_id,
+                    query=query,
+                    k=bm25_k,
+                    content_types=content_types,
+                    tenant_key=tenant_key,
+                )
+            )
+
+        results_by_query: list[list[dict]] = []
+        if initial_results:
+            results_by_query.append(initial_results)
+
+        extra_queries = queries[1:]
+        if extra_queries:
+            search_tasks = [
+                semantic_search(
+                    company_id=company_id,
+                    query=q,
+                    n_results=fetch_k,
+                    content_types=content_types,
+                    backends=search_backends,
+                    include_embeddings=use_mmr,
+                    tenant_key=tenant_key,
+                )
+                for q in extra_queries
+            ]
+            with record_stage_duration("semantic"):
+                search_results = await asyncio.gather(*search_tasks, return_exceptions=True)
+            results_by_query.extend(
+                r for r in search_results if isinstance(r, list) and r
+            )
+
+        if not results_by_query:
+            if bm25_task:
+                bm25_task.cancel()
+            rag_retrieval_requests.labels(profile=profile, status="empty").inc()
+            return []
+
+        rrf_k = adaptive_rrf_k(len(results_by_query))
+        with record_stage_duration("fusion"):
+            merged = rrf_merge_results(results_by_query, k=rrf_k)
+
+        if use_mmr:
+            if query_embedding:
+                with record_stage_duration("mmr"):
+                    merged = _apply_mmr(merged, query_embedding, n_results, mmr_lambda)
+            else:
+                merged = merged[:n_results]
+        else:
+            merged = merged[:n_results]
+
+        if bm25_task:
+            try:
+                with record_stage_duration("bm25"):
+                    keyword_results = await bm25_task
+            except Exception as e:
+                logger.warning(f"[RAG/BM25] BM25検索エラー: {e}")
+                keyword_results = None
+            if keyword_results:
+                merged = _merge_semantic_and_keyword(
+                    merged,
+                    keyword_results,
+                    semantic_weight=semantic_weight,
+                    keyword_weight=keyword_weight,
+                )
+
+        if content_type_boosts:
+            # Apply again after RRF/MMR because merged result scores are recalibrated.
+            merged = _apply_content_type_boost(merged, content_type_boosts)
+        if priority_source_urls:
+            merged = _apply_priority_source_boost(
+                merged,
+                priority_source_urls,
+                content_type_boosts=content_type_boosts,
+            )
+
+        if rerank and _should_rerank(merged, rerank_threshold):
+            merged = await _rerank_with_cross_encoder(
+                query, merged, top_k=DEFAULT_RERANK_CANDIDATES
+            )
+        elif rerank:
+            if settings.debug:
+                logger.info("[RAG再ランキング] 上位スコアが高いためスキップ")
+
+        rag_retrieval_requests.labels(profile=profile, status="ok").inc()
+        return merged[:n_results]
+    except Exception:
+        rag_retrieval_requests.labels(profile=profile, status="error").inc()
+        raise
 
 
 async def hybrid_search(
@@ -1150,6 +1182,8 @@ async def hybrid_search(
     keyword_weight: float = 0.4,
     use_rrf: bool = True,
     backends: Optional[list[EmbeddingBackend]] = None,
+    *,
+    tenant_key: str,
 ) -> list[dict]:
     """
     Backward-compatible entry point (single-query dense search).
@@ -1170,6 +1204,7 @@ async def hybrid_search(
         content_types=content_types,
         backends=[base_backend],
         include_embeddings=False,
+        tenant_key=tenant_key,
     )
 
     if keyword_weight <= 0:
@@ -1180,6 +1215,7 @@ async def hybrid_search(
         query=query,
         k=max(DEFAULT_FETCH_K, n_results * 3),
         content_types=content_types,
+        tenant_key=tenant_key,
     )
     if not keyword_results:
         return semantic_results

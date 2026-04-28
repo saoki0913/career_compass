@@ -9,6 +9,7 @@ from time import perf_counter
 from typing import Any
 
 import pytest
+from app.security.career_principal import CareerPrincipal
 
 from tests.company_info.integration.live_feature_report import (
     selected_case_set,
@@ -18,6 +19,18 @@ from tests.company_info.integration.live_feature_report import (
 
 def _unwrap_route(fn: Any) -> Any:
     return getattr(fn, "__wrapped__", fn)
+
+
+def _live_principal(company_id: str) -> CareerPrincipal:
+    return CareerPrincipal(
+        scope="company",
+        actor_kind="user",
+        actor_id="live-rag-ingest",
+        plan="standard",
+        company_id=company_id,
+        jti="live-rag-ingest",
+        tenant_key="a" * 32,
+    )
 
 
 @dataclass(frozen=True)
@@ -191,6 +204,7 @@ async def test_live_rag_ingest_report() -> None:
         candidate_url: str | None = None
 
         try:
+            principal = _live_principal(company_id)
             candidates_payload = await search_corporate_pages_impl(
                 SearchCorporatePagesRequest(
                     company_name=case.company_name,
@@ -231,6 +245,7 @@ async def test_live_rag_ingest_report() -> None:
                     content_channel=case.content_channel,
                 ),
                 request=None,
+                principal=principal,
             )
 
             _append_check(
@@ -245,7 +260,7 @@ async def test_live_rag_ingest_report() -> None:
             if crawl_response.chunks_stored <= 0:
                 deterministic_fail_reasons.append("chunks_stored_zero")
 
-            status_response = await get_detailed_rag_status(company_id, request=None)
+            status_response = await get_detailed_rag_status(company_id, request=None, principal=principal)
             _append_check(
                 checks,
                 "rag_status_available",
@@ -285,9 +300,10 @@ async def test_live_rag_ingest_report() -> None:
                 company_id,
                 DeleteByUrlsRequest(urls=[candidate_url]),
                 request=None,
+                principal=principal,
             )
-            await delete_rag(company_id, request=None)
-            final_status = await get_detailed_rag_status(company_id, request=None)
+            await delete_rag(company_id, request=None, principal=principal)
+            final_status = await get_detailed_rag_status(company_id, request=None, principal=principal)
             cleanup_ok = bool(url_cleanup.success) and not final_status.has_rag
             cleanup = _cleanup_payload(
                 ok=cleanup_ok,
@@ -319,8 +335,9 @@ async def test_live_rag_ingest_report() -> None:
             )
         except Exception as exc:
             try:
-                await delete_rag(company_id, request=None)
-                final_status = await get_detailed_rag_status(company_id, request=None)
+                principal = _live_principal(company_id)
+                await delete_rag(company_id, request=None, principal=principal)
+                final_status = await get_detailed_rag_status(company_id, request=None, principal=principal)
                 cleanup = _cleanup_payload(ok=not final_status.has_rag, removed_ids=[candidate_url] if candidate_url else [])
             except Exception:
                 cleanup = _cleanup_payload(ok=False, removed_ids=[candidate_url] if candidate_url else [])

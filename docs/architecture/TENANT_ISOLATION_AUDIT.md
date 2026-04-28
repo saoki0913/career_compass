@@ -20,13 +20,13 @@
 1. `companies.id` は `crypto.randomUUID()` で生成されるため、`companyId` はグローバル一意で推測も難しい
 2. 企業 RAG の主要な Next API は、FastAPI に渡す前に `companyId + userId` で所有権確認をしている
 
-ただし、**分離保証としては弱い**。理由は次のとおり。
+2026-04-26 の RAG strict 化後は、外部ストア側でも `tenant_key` を境界に含める。過去の weak point は次のとおり。
 
-- ChromaDB / BM25 / RAG cache は `company_id` を主キーとして扱い、`userId` / `guestId` / `tenant_key` を持たない
+- ChromaDB / BM25 / RAG cache が `company_id` だけを主キーとして扱うと、外部ストアの分離保証が Next API の owner check に依存する
 - FastAPI は internal JWT で Next BFF だけを受けるが、`company_id` の owner を再検証しない
 - Postgres の XOR 制約は `companies` などの owner を守るが、外部ストアである ChromaDB / BM25 には及ばない
 
-したがって、現状の分離は **`companyId` の一意性 + Next API の owner check 依存**で成り立っている。
+したがって、RAG の実体ストアでは **`company_id + tenant_key`** を必須境界にし、`TENANT_KEY_SECRET` 未設定時は fail-closed にする。
 
 ---
 
@@ -139,6 +139,7 @@
 
 1. Chroma metadata / BM25 / cache に `tenant_key` を追加する
 2. 保存・検索・削除・status 取得で `company_id` だけでなく `tenant_key` でも絞る
+3. 既存 RAG データは移行せず、strict 化後に削除・再取得する
 
 ### より強い分離にしたい場合
 

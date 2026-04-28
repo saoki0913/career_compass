@@ -77,6 +77,7 @@ async def upload_corporate_pdf_impl(
     billing_plan: str,
     pdf_bytes: bytes,
     filename: str,
+    tenant_key: str,
 ) -> UploadCorporatePdfResponse:
     # Late-bound imports: tests monkeypatch these on the company_info module
     from app.routers import company_info as _ci
@@ -191,6 +192,7 @@ async def upload_corporate_pdf_impl(
         content_channel=channel,
         backend=backend,
         raw_format="text",
+        tenant_key=tenant_key,
     )
 
     if not result["success"]:
@@ -279,6 +281,7 @@ async def _process_crawl_source(
     backend,
     billing_plan: str,
     store_result: bool,
+    tenant_key: str,
 ) -> dict[str, object]:
     # Late-bound: tests monkeypatch fetch_page_content / store_full_text_content on company_info
     from app.routers import company_info as _ci
@@ -326,6 +329,7 @@ async def _process_crawl_source(
             content_channel=content_channel,
             backend=backend,
             raw_format="text",
+            tenant_key=tenant_key,
         )
         if not result["success"]:
             return {
@@ -388,6 +392,7 @@ async def _process_crawl_source(
         content_channel=content_channel,
         backend=backend,
         raw_format="html",
+        tenant_key=tenant_key,
     )
     if not result["success"]:
         return {
@@ -413,6 +418,8 @@ async def _process_crawl_source(
 
 async def estimate_crawl_corporate_pages_impl(
     payload: CrawlCorporateRequest,
+    *,
+    tenant_key: str,
 ) -> CrawlCorporateEstimateResponse:
     request = payload
     billing_plan = _normalize_rag_pdf_billing_plan(request.billing_plan)
@@ -435,6 +442,7 @@ async def estimate_crawl_corporate_pages_impl(
                 backend=None,
                 billing_plan=billing_plan,
                 store_result=False,
+                tenant_key=tenant_key,
             )
             if not source_result["success"]:
                 errors.append(f"{url}: {source_result['error']}")
@@ -471,6 +479,8 @@ async def estimate_crawl_corporate_pages_impl(
 
 async def crawl_corporate_pages_impl(
     payload: CrawlCorporateRequest,
+    *,
+    tenant_key: str,
 ) -> CrawlCorporateResponse:
     from app.routers import company_info as _ci
 
@@ -515,6 +525,7 @@ async def crawl_corporate_pages_impl(
                 backend=backend,
                 billing_plan=billing_plan,
                 store_result=True,
+                tenant_key=tenant_key,
             )
 
             if not source_result["success"]:

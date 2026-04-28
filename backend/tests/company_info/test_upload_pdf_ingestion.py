@@ -31,6 +31,7 @@ def _company_principal(company_id: str = "company-1") -> CareerPrincipal:
         plan="standard",
         company_id=company_id,
         jti="test-jti",
+        tenant_key="a" * 32,
     )
 
 
@@ -208,7 +209,7 @@ async def test_upload_pdf_uses_high_accuracy_ocr_for_standard_ir_materials(
 
     assert result.success is True
     assert result.extraction_method == "ocr_high_accuracy"
-    assert calls == ["default", "high_accuracy"]
+    assert calls == ["high_accuracy"]
     assert result.page_routing_summary is not None
     assert result.page_routing_summary["mistral_ocr_pages"] == 10
 

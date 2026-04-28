@@ -6,6 +6,7 @@ from typing import Optional, AsyncGenerator, Any, Awaitable, Callable
 
 from app.security.career_principal import (
     CareerPrincipal,
+    require_tenant_key,
     require_career_principal,
 )
 from app.security.sse_concurrency import (
@@ -32,7 +33,7 @@ from app.utils.llm_prompt_safety import (
     sanitize_es_content,
     sanitize_prompt_input,
 )
-from app.utils.vector_store import (
+from app.rag.vector_store import (
     get_enhanced_context_for_review_with_sources,
     has_company_rag,
     get_company_rag_status,
@@ -309,7 +310,7 @@ def _resolve_effective_grounding_level(
     classifier_grounding_level: str | None,
     char_max: int | None,
     evidence_coverage_level: str,
-    has_company_rag: bool,
+    rag_available: bool,
 ) -> str:
     level = classifier_grounding_level or _get_default_grounding_level(template_type)
     ordered = ["none", "light", "standard", "deep"]
@@ -323,7 +324,7 @@ def _resolve_effective_grounding_level(
 
     if template_type == "basic" and char_max and char_max <= SHORT_ANSWER_CHAR_MAX and level in {"standard", "deep"}:
         level = "light"
-    if not has_company_rag and level in {"standard", "deep"}:
+    if not rag_available and level in {"standard", "deep"}:
         level = lower(level)
     if evidence_coverage_level == "weak" and level in {"standard", "deep"}:
         level = lower(level)
@@ -851,6 +852,7 @@ def _extract_user_facing_message(detail: Any) -> str:
 async def _generate_review_progress(
     request: ReviewRequest,
     *,
+    tenant_key: str | None = None,
     review_runner: Callable[..., Awaitable[ReviewResponse]] = review_section_with_template,
     review_runner_kwargs: Optional[dict[str, Any]] = None,
 ) -> AsyncGenerator[str, None]:
@@ -956,7 +958,7 @@ async def _generate_review_progress(
         # Step 2: RAG fetch (if company_id)
         rag_context = ""
         rag_sources: list[dict] = []
-        company_rag_available = request.has_company_rag
+        company_rag_available = False
         context_length = get_dynamic_context_length(request.content)
         retrieval_query = request.retrieval_query or request.content
         grounding_mode = "none"
@@ -970,6 +972,11 @@ async def _generate_review_progress(
         )
 
         if request.company_id and should_fetch_company_rag:
+            if not tenant_key:
+                raise HTTPException(
+                    status_code=503,
+                    detail="tenant key is not configured",
+                )
             yield _sse_event(
                 "progress",
                 {
@@ -980,8 +987,10 @@ async def _generate_review_progress(
             )
             last_stream_activity = time.monotonic()
 
-            if not company_rag_available:
-                company_rag_available = has_company_rag(request.company_id)
+            company_rag_available = has_company_rag(
+                request.company_id,
+                tenant_key=tenant_key,
+            )
 
             if company_rag_available:
                 min_context_length = max(0, settings.rag_min_context_chars)
@@ -991,6 +1000,7 @@ async def _generate_review_progress(
                         es_content=retrieval_query,
                         max_context_length=context_length,
                         search_options=template_rag_profile,
+                        tenant_key=tenant_key,
                     )
                 )
                 is_rag_available, rag_reason = _evaluate_template_rag_availability(
@@ -1277,15 +1287,20 @@ async def review_es_stream(
 
     async def _stream_with_lease() -> AsyncGenerator[str, None]:
         async with lease:
-            async for chunk in _generate_review_progress(request):
+            tenant_key = require_tenant_key(principal) if request.company_id else None
+            async for chunk in _generate_review_progress(request, tenant_key=tenant_key):
                 await lease.heartbeat_if_due()
                 yield chunk
 
     return _build_review_streaming_response(_stream_with_lease())
 
 
-def evaluate_company_review_status(company_id: str) -> CompanyReviewStatusResponse:
-    rag_status = get_company_rag_status(company_id)
+def evaluate_company_review_status(
+    company_id: str,
+    *,
+    tenant_key: str,
+) -> CompanyReviewStatusResponse:
+    rag_status = get_company_rag_status(company_id, tenant_key=tenant_key)
     strategic_chunks = (
         rag_status.get("new_grad_recruitment_chunks", 0)
         + rag_status.get("midcareer_recruitment_chunks", 0)
@@ -1321,5 +1336,17 @@ def evaluate_company_review_status(company_id: str) -> CompanyReviewStatusRespon
 
 @router.get("/company-status/{company_id}", response_model=CompanyReviewStatusResponse)
 @limiter.limit("120/minute")
-async def get_company_review_status(company_id: str, request: Request):
-    return evaluate_company_review_status(company_id)
+async def get_company_review_status(
+    company_id: str,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
+    if principal.company_id != company_id:
+        raise HTTPException(
+            status_code=403,
+            detail="career principal company_id mismatch",
+        )
+    return evaluate_company_review_status(
+        company_id,
+        tenant_key=require_tenant_key(principal),
+    )
