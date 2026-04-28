@@ -17,6 +17,7 @@
 /.ai/
 /.claude/state/
 /.claude/sessions/
+/.codex/state/
 /.codex/sessions/
 
 # next.js

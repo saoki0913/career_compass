@@ -5,13 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/codex-hook-utils.sh
 . "$SCRIPT_DIR/lib/codex-hook-utils.sh"
-# shellcheck source=../../.claude/hooks/lib/e2e-functional-reminder.sh
-. "$SCRIPT_DIR/../../.claude/hooks/lib/e2e-functional-reminder.sh"
-# shellcheck source=../../.claude/hooks/lib/skill-recommender.sh
-. "$SCRIPT_DIR/../../.claude/hooks/lib/skill-recommender.sh"
 
 INPUT=$(cat)
 PROJECT_DIR=$(codex_project_dir "$INPUT")
+# shellcheck source=../../scripts/harness/hook-shared.sh
+. "$PROJECT_DIR/scripts/harness/hook-shared.sh"
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // "unknown"' 2>/dev/null || echo "unknown")
 
 FILES=$(codex_changed_files "$INPUT")

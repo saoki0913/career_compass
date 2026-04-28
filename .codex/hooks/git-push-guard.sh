@@ -46,8 +46,14 @@ fi
 
 APPROVED_HEAD=$(jq -r '.headSha // empty' "$PUSH_FLAG" 2>/dev/null || echo "")
 DECISION=$(jq -r '.decision // empty' "$PUSH_FLAG" 2>/dev/null || echo "")
-if [ "$DECISION" != "approved" ] || [ -z "$HEAD_SHA" ] || [ "$APPROVED_HEAD" != "$HEAD_SHA" ]; then
+KIND=$(jq -r '.kind // empty' "$PUSH_FLAG" 2>/dev/null || echo "")
+if [ "$KIND" != "push" ] || [ "$DECISION" != "approved" ] || [ -z "$HEAD_SHA" ] || [ "$APPROVED_HEAD" != "$HEAD_SHA" ]; then
   echo "git push blocked: approval checkpoint does not match current HEAD." >&2
+  exit 2
+fi
+
+if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$PUSH_FLAG" >/dev/null; then
+  echo "git push blocked: working tree changed after approval checkpoint creation." >&2
   exit 2
 fi
 

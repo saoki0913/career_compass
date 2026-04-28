@@ -19,8 +19,6 @@ if printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*make\s+(test-e2e-functional-local|
   COMMAND_CATEGORY="e2e-functional"
 elif printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*make\s+test-quality-' || printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*bash\s+scripts/ci/run-ai-live\.sh\b'; then
   COMMAND_CATEGORY="quality"
-elif printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*npx\s+tsc\s+--noEmit\b' || printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*npm\s+run\s+lint\b'; then
-  COMMAND_CATEGORY="static"
 elif printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*make\s+security-scan\b' || printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*(bash\s+)?security/scan/run-lightweight-scan\.sh\b'; then
   COMMAND_CATEGORY="security"
 fi

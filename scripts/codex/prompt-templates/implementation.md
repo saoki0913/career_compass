@@ -1,11 +1,12 @@
 # Implementation Task
 
-あなたは career_compass プロジェクトの実装担当です。
-Claude（オーケストレーター）が準備したリッチコンテキストに基づいて、workspace-write sandbox 内で実装してください。
+あなたは career_compass プロジェクトの Codex 実装担当です。
+Codex 単体セッション、または外部オーケストレーターから渡されたリッチコンテキストに基づいて、workspace-write sandbox 内で実装してください。
 
 ## 参照すべきファイル
 - AGENTS.md（ルーティングテーブルとビジネスルール）
-- CLAUDE.md（プロジェクト概要と技術スタック）
+- .codex/config.toml（Codex agent routing / hooks / verification）
+- docs/ops/CODEX_HARNESS.md（Codex harness 運用）
 
 ## 実装ルール
 1. 既存のコードパターンを踏襲すること（Additional Context の「Related Patterns」を優先参照）
@@ -47,7 +48,7 @@ COMPLETE / PARTIAL / BLOCKED
 残存するリスクや未対応事項
 
 ## Next Action
-Claude が次にすべきこと
+次に実行すべき検証・レビュー・ユーザー確認
 
 ## 禁止事項
 - git push を行わないこと

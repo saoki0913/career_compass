@@ -8,18 +8,22 @@ __CAREER_COMPASS_GUARD_CORE_SOURCED=1
 
 guard_command_segments() {
   local command="${1:-}"
-  python3 - "$command" <<'PY'
-import re
-import sys
+  node "$(dirname "${BASH_SOURCE[0]}")/command-classifier.mjs" "$command" | jq -r '.segments[]? // empty' 2>/dev/null || true
+}
 
-command = sys.argv[1].replace("\n", " ")
-command = re.sub(r"'([^'\\]|\\.)*'", "''", command)
-command = re.sub(r'"([^"\\]|\\.)*"', '""', command)
-for segment in re.split(r"[;&|]+", command):
-    segment = segment.strip()
-    if segment:
-        print(segment)
-PY
+guard_command_predicate() {
+  local command="${1:-}"
+  local predicate="${2:-}"
+  if [ -z "$command" ] || [ -z "$predicate" ]; then
+    return 1
+  fi
+  node "$(dirname "${BASH_SOURCE[0]}")/command-classifier.mjs" "$command" "$predicate" >/dev/null 2>&1
+}
+
+guard_command_release_modes() {
+  local command="${1:-}"
+  [ -z "$command" ] && return 0
+  node "$(dirname "${BASH_SOURCE[0]}")/command-classifier.mjs" "$command" | jq -r '.releaseModes[]?' 2>/dev/null || true
 }
 
 guard_path_is_sensitive() {
@@ -38,83 +42,37 @@ guard_path_is_sensitive() {
 
 guard_command_reads_sensitive_path() {
   local command="${1:-}"
-  [ -z "$command" ] && return 1
-
-  while IFS= read -r segment; do
-    [ -z "$segment" ] && continue
-    if printf '%s' "$segment" | grep -qE '(^|[[:space:]])(cat|head|tail|less|more|bat|sed|awk|grep|rg)([[:space:]]|$)'; then
-      if printf '%s' "$segment" | grep -qE '(^|[[:space:]])([^[:space:]]*/)?(codex-company/\.secrets|\.secrets|secrets)(/|[[:space:]]|$)|(^|[[:space:]])([^[:space:]]*/)?\.env([^/[:space:]]*)?([[:space:]]|$)|\.(pem|key|p12)([[:space:]]|$)'; then
-        return 0
-      fi
-    fi
-  done < <(guard_command_segments "$command")
-
-  return 1
+  guard_command_predicate "$command" "readsSensitivePath"
 }
 
 guard_command_is_git_push() {
   local command="${1:-}"
-  while IFS= read -r segment; do
-    [ -z "$segment" ] && continue
-    if printf '%s' "$segment" | grep -qE '^(git|sudo[[:space:]]+git)[[:space:]]+push([[:space:]]|$)'; then
-      return 0
-    fi
-  done < <(guard_command_segments "$command")
-  return 1
+  guard_command_predicate "$command" "gitPush"
 }
 
 guard_command_is_force_push() {
   local command="${1:-}"
-  guard_command_is_git_push "$command" || return 1
-  while IFS= read -r segment; do
-    [ -z "$segment" ] && continue
-    if printf '%s' "$segment" | grep -qE '^(git|sudo[[:space:]]+git)[[:space:]]+push([[:space:]].*)?(--force|--force-with-lease|[[:space:]]-f([[:space:]]|$))'; then
-      return 0
-    fi
-  done < <(guard_command_segments "$command")
-  return 1
+  guard_command_predicate "$command" "forcePush"
+}
+
+guard_command_is_git_commit() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "gitCommit"
 }
 
 guard_command_is_release_or_provider() {
   local command="${1:-}"
-  [ -z "$command" ] && return 1
-
-  while IFS= read -r segment; do
-    [ -z "$segment" ] && continue
-    if printf '%s' "$segment" | grep -qE '^(make[[:space:]]+(deploy|deploy-stage-all|release-pr|rollback-prod|ops-release-check|deploy-migrate)([[:space:]]|$)|([[:alnum:]_./-]+/)?scripts/release/[^[:space:]]+|bash[[:space:]]+scripts/release/[^[:space:]]+|zsh[[:space:]]+scripts/release/[^[:space:]]+|(vercel|railway|supabase|gcloud|wrangler)([[:space:]]|$))'; then
-      return 0
-    fi
-  done < <(guard_command_segments "$command")
-
-  return 1
+  guard_command_predicate "$command" "releaseProvider"
 }
 
 guard_command_has_destructive_delete() {
   local command="${1:-}"
-  [ -z "$command" ] && return 1
-
-  printf '%s' "$command" | grep -qE '(^|[;&|]|`|\$\()[[:space:]]*(rm[[:space:]]+(-[a-zA-Z]*r|-[a-zA-Z]*f[a-zA-Z]*r|-r([[:space:]]|$))|git[[:space:]]+clean[[:space:]].*(-x|-[a-zA-Z]*x)|find[[:space:]].*-delete)'
+  guard_command_predicate "$command" "destructiveDelete"
 }
 
 guard_rm_rf_all_targets_safe() {
   local command="${1:-}"
-  local safe_targets='(node_modules|\.next|build|dist|__pycache__|coverage|\.turbo|\.cache|\.pytest_cache|\.mypy_cache|\.ruff_cache|out|\.parcel-cache|\.vercel|target|tmp|\.output|\.nuxt|\.svelte-kit)'
-  local targets
-
-  targets=$(printf '%s' "$command" | grep -oE '(^|[;&|]|`|\$\()[[:space:]]*rm[[:space:]]+[^;&|]*' | sed -E 's/.*rm[[:space:]]+//' | tr ' ' '\n' | grep -v '^-' | grep -v '^$' || true)
-  [ -z "$targets" ] && return 1
-
-  while IFS= read -r target; do
-    [ -z "$target" ] && continue
-    case "$target" in
-      /*|.|..|../*|~|~/*) return 1 ;;
-    esac
-    local basename_target
-    basename_target=$(basename "${target%/}")
-    printf '%s' "$basename_target" | grep -qE "^${safe_targets}$" || return 1
-  done <<< "$targets"
-
-  return 0
+  guard_command_predicate "$command" "allDeletesSafe"
 }
 
 guard_state_dir_for_runtime() {

@@ -22,7 +22,6 @@ test("codex harness docs and commands exist", () => {
     ".codex/commands/codex-start.md",
     ".codex/commands/codex-closeout.md",
     ".codex/hooks.json",
-    ".claude/commands/claude-closeout.md",
     "docs/ops/CODEX_HARNESS.md",
     ".agents/agents/README.md",
     ".codex/agents/architect.toml",
@@ -236,6 +235,24 @@ test("codex pre-tool dispatcher blocks provider CLI but allows static checks", (
 
   const staticCheck = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
     session_id: "sess-static",
+    tool_name: "Bash",
+    tool_input: { command: "npx tsc --noEmit" },
+  }));
+  assert.equal(staticCheck.status, 0);
+  assert.equal(staticCheck.stderr, "");
+});
+
+test("codex pre-tool dispatcher routes important test commands to test-category gate", () => {
+  const important = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+    session_id: "sess-test-category",
+    tool_name: "Bash",
+    tool_input: { command: "bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical" },
+  }));
+  assert.equal(important.status, 2);
+  assert.match(important.stderr, /Test command blocked/i);
+
+  const staticCheck = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+    session_id: "sess-static-free",
     tool_name: "Bash",
     tool_input: { command: "npx tsc --noEmit" },
   }));

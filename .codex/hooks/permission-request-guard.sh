@@ -49,7 +49,7 @@ if [ "$TOOL" = "Bash" ]; then
   fi
 
   if [ -n "$CMD" ] && guard_command_has_destructive_delete "$CMD"; then
-    deny "rm -rf approvals are blocked except for explicitly safe build/cache targets."
+    deny "Escalated destructive delete approvals are blocked. Non-escalated build/cache cleanup may run only when PreToolUse classifies every target as safe."
     exit 0
   fi
 

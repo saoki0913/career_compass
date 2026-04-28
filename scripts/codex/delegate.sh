@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TEMPLATE_DIR="$SCRIPT_DIR/prompt-templates"
-STATE_DIR="$PROJECT_DIR/.claude/state/codex-handoffs"
+STATE_DIR="$PROJECT_DIR/.codex/state/handoffs"
 
 # ─── Argument parsing ────────────────────────────────────────────
 MODE=""
