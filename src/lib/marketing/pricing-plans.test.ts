@@ -10,7 +10,7 @@ describe("getMarketingPricingPlans", () => {
     expect(plans[1]?.features).toContain("月350クレジット");
     expect(plans[2]?.features).toContain("月750クレジット");
     expect(plans[0]?.features).toContain(
-      "面接対策（GPT-5.4 mini固定・最終講評成功時 6クレジット）"
+      "面接対策（開始2CR・回答/続き各1CR・最終講評6CR）"
     );
     expect(plans[1]?.features).toContain(
       "企業情報の自動整理 月200ページまで無料"
@@ -19,10 +19,10 @@ describe("getMarketingPricingPlans", () => {
       "企業情報の自動整理 月500ページまで無料"
     );
     expect(plans[1]?.features).toContain(
-      "面接対策（GPT-5.4 mini固定・最終講評成功時 6クレジット）"
+      "面接対策（開始2CR・回答/続き各1CR・最終講評6CR）"
     );
     expect(plans[2]?.features).toContain(
-      "面接対策（GPT-5.4 mini固定・最終講評成功時 6クレジット）"
+      "面接対策（開始2CR・回答/続き各1CR・最終講評6CR）"
     );
   });
 

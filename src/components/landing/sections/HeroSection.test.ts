@@ -22,8 +22,12 @@ describe("HeroSection design-system guard", () => {
     expect(source).not.toContain('"#1a1a2e"');
   });
 
-  it("uses updated iPhone mockup sizing", () => {
-    expect(source).toContain("w-[28%]");
-    expect(source).toContain("max-w-[180px]");
+  it("uses reference-scale iPhone mockup sizing", () => {
+    expect(source).toContain("2xl:w-[190px]");
+    expect(source).toContain("max-w-[190px]");
+  });
+
+  it("uses DESIGN.md-compliant hero heading size (72-82px range)", () => {
+    expect(source).toMatch(/clamp\(44px,\s*4\.8vw,\s*76px\)/);
   });
 });

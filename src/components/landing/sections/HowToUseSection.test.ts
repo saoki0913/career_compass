@@ -18,11 +18,11 @@ describe("HowToUseSection design-system guard", () => {
     expect(source).toContain("var(--lp-navy)");
   });
 
-  it("uses per-step connector arrow images instead of generic wave-line", () => {
-    expect(source).not.toContain("decorative/wave-line-1.png");
-    expect(source).toContain("06_connector_arrow_1_to_2.png");
-    expect(source).toContain("11_connector_arrow_2_to_3.png");
-    expect(source).toContain("17_connector_arrow_3_to_4.png");
+  it("uses per-step connector arrow images with section-level wave decoration", () => {
+    expect(source).toContain("decorative/wave-line-1.png");
+    expect(source).toContain("decorative/connector-arrow-1-to-2.png");
+    expect(source).toContain("decorative/connector-arrow-2-to-3.png");
+    expect(source).toContain("decorative/connector-arrow-3-to-4.png");
   });
 
   it("uses CONNECTORS array for typed connector data", () => {
@@ -30,8 +30,18 @@ describe("HowToUseSection design-system guard", () => {
     expect(source).not.toMatch(/\[0, 1, 2\]\.map/);
   });
 
-  it("sets character illustration width to 110px", () => {
-    expect(source).toContain('w-[110px]');
+  it("sets character illustration width near the section reference", () => {
+    expect(source).toContain('w-[150px]');
+    expect(source).toContain('2xl:w-[168px]');
     expect(source).not.toContain('w-[100px]');
+  });
+
+  it("uses reference-scale four-column lanes", () => {
+    expect(source).toContain("2xl:grid-cols-[repeat(4,360px)]");
+    expect(source).toContain("min-h-[590px]");
+  });
+
+  it("uses compact category icon in step header to avoid title truncation", () => {
+    expect(source).toContain("h-[44px] w-[44px]");
   });
 });

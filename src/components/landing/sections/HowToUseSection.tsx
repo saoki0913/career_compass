@@ -1,132 +1,154 @@
 import { LANDING_STEPS } from "@/lib/marketing/landing-steps";
+import { LP_ASSET_BASE } from "@/lib/marketing/lp-assets";
 
-const ASSET_BASE = "/marketing/LP/assets/";
+const ASSET_BASE = `${LP_ASSET_BASE}/`;
 
 const CONNECTORS = [
-  { src: "generated_assets_transparent/06_connector_arrow_1_to_2.png" },
-  { src: "generated_assets_transparent/11_connector_arrow_2_to_3.png" },
-  { src: "generated_assets_transparent/17_connector_arrow_3_to_4.png" },
+  { src: "decorative/connector-arrow-1-to-2.png" },
+  { src: "decorative/connector-arrow-2-to-3.png" },
+  { src: "decorative/connector-arrow-3-to-4.png" },
 ] as const;
+
+const STEP_SUPPORT_COPY = {
+  "1": "気になる企業をすぐに登録。情報を一元管理できます。",
+  "2": "AIが内容を添削し、伝わるESに仕上げることができます。",
+  "3": "AIが回答を分析し、改善点や強みをフィードバックします。",
+  "4": "締切や面接予定をまとめて管理。うっかり忘れを防げます。",
+} as const;
 
 export function HowToUseSection() {
   return (
     <section
       id="how-it-works"
-      className="relative overflow-hidden py-20 lg:py-28"
-      style={{ backgroundColor: "#ffffff" }}
+      className="relative min-h-[940px] overflow-hidden bg-white py-[72px]"
+      style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}
     >
-      <div className="mx-auto max-w-[1400px] px-6 lg:px-12">
-        {/* ---------- Heading ---------- */}
-        <div className="mb-14 text-center">
+      <img
+        src={`${ASSET_BASE}decorative/wave-line-1.png`}
+        alt=""
+        role="presentation"
+        className="pointer-events-none absolute bottom-8 left-0 hidden w-full opacity-36 2xl:block"
+      />
+
+      <div className="mx-auto max-w-[1600px] px-5 sm:px-8 2xl:px-0">
+        <div className="mb-[54px] text-center">
           <h2
             style={{
-              fontSize: "clamp(28px, 3.5vw, 42px)",
-              fontWeight: 800,
               color: "var(--lp-navy)",
-              lineHeight: 1.2,
+              fontSize: "clamp(40px, 5vw, 66px)",
+              fontWeight: 800,
+              letterSpacing: "0",
+              lineHeight: 1.16,
             }}
           >
-            使い方は、シンプル。
+            使い方は、<span style={{ color: "var(--lp-cta)" }}>シンプル。</span>
           </h2>
           <p
-            className="mx-auto mt-4 max-w-lg text-base"
-            style={{ color: "var(--lp-muted-text)", lineHeight: 1.7 }}
+            className="mx-auto mt-5 max-w-3xl text-[22px]"
+            style={{ color: "var(--lp-muted-text)", lineHeight: 1.75 }}
           >
             就活の流れに沿って、必要な準備を自然につなげられます。
           </p>
         </div>
 
-        {/* ---------- 4 Step Cards ---------- */}
-        <div className="relative grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
-          {/* Connector arrows between cards (lg only) */}
-          {CONNECTORS.map((connector, i) => (
-            <div
-              key={`connector-${i}`}
-              className="pointer-events-none absolute top-[72px] hidden lg:block"
-              style={{
-                left: `calc(${(i + 1) * 25}% - 24px)`,
-                width: 48,
-                transform: "translateX(-50%)",
-              }}
-              aria-hidden="true"
-            >
-              <img
-                src={`${ASSET_BASE}${connector.src}`}
-                alt=""
-                role="presentation"
-                className="h-auto w-full opacity-30"
-              />
-            </div>
+        <div className="relative grid grid-cols-1 gap-7 md:grid-cols-2 2xl:grid-cols-[repeat(4,360px)] 2xl:justify-between">
+          {CONNECTORS.map((connector, index) => (
+            <img
+              key={connector.src}
+              src={`${ASSET_BASE}${connector.src}`}
+              alt=""
+              role="presentation"
+              className="pointer-events-none absolute top-[34px] hidden h-auto w-[104px] opacity-85 2xl:block"
+              style={{ left: `${360 + index * 400 + 18}px` }}
+            />
           ))}
 
           {LANDING_STEPS.map((step) => (
             <article
               key={step.number}
-              className="relative rounded-2xl border p-6 text-center"
+              className="relative flex min-h-[590px] flex-col overflow-hidden rounded-[18px] border bg-white px-5 pb-6 pt-5"
               style={{
-                backgroundColor: "#ffffff",
                 borderColor: "var(--lp-border-default)",
                 boxShadow:
-                  "0 0 0 1px rgba(0,0,0,0.03), 0 2px 4px rgba(50,50,93,0.08), 0 1px 2px rgba(0,0,0,0.05)",
+                  "0 18px 36px rgba(0, 34, 104, 0.07), 0 2px 9px rgba(0, 34, 104, 0.04)",
               }}
             >
-              {/* Number image */}
-              <img
-                src={`${ASSET_BASE}${step.numberImage}`}
-                alt={`ステップ${step.number}`}
-                className="mx-auto h-12 w-12"
-              />
+              <div className="flex min-h-[76px] items-center gap-4">
+                <img
+                  src={`${ASSET_BASE}${step.numberImage}`}
+                  alt={`ステップ${step.number}`}
+                  className="h-[62px] w-[62px] shrink-0 object-contain"
+                />
+                <img
+                  src={`${ASSET_BASE}${step.icon}`}
+                  alt=""
+                  role="presentation"
+                  className="h-[44px] w-[44px] shrink-0 object-contain"
+                />
+                <h3
+                  className="text-[23px] leading-tight"
+                  style={{ color: "var(--lp-cta)", fontWeight: 800 }}
+                >
+                  {step.label}
+                </h3>
+              </div>
 
-              {/* Icon */}
-              <img
-                src={`${ASSET_BASE}${step.icon}`}
-                alt=""
-                className="mx-auto mt-3 h-10 w-10"
-              />
-
-              {/* Title */}
-              <h3
-                className="mt-3 text-lg"
-                style={{ fontWeight: 700, color: "var(--lp-navy)" }}
-              >
-                {step.label}
-              </h3>
-
-              {/* Description */}
               <p
-                className="mt-2 text-sm"
-                style={{ color: "var(--lp-muted-text)", lineHeight: 1.65 }}
+                className="mt-5 min-h-[78px] text-[18px] leading-[1.75]"
+                style={{ color: "var(--lp-muted-text)" }}
               >
                 {step.description}
               </p>
 
-              {/* Step card screenshot */}
-              <img
-                src={`${ASSET_BASE}${step.cardImage}`}
-                alt={`${step.label}の画面イメージ`}
-                width={320}
-                height={220}
-                className="mt-4 h-auto w-full rounded-xl shadow-sm"
-              />
+              <div className="relative mt-4 min-h-[306px] flex-1">
+                <img
+                  src={`${ASSET_BASE}${step.cardImage}`}
+                  alt={`${step.label}の画面イメージ`}
+                  width={360}
+                  height={270}
+                  loading="eager"
+                  decoding="sync"
+                  className="absolute right-0 top-0 z-[2] h-auto w-[76%] rounded-xl"
+                  style={{ filter: "drop-shadow(0 12px 20px rgba(0, 34, 104, 0.11))" }}
+                />
+                <img
+                  src={`${ASSET_BASE}${step.characterImage}`}
+                  alt={step.characterAlt}
+                  width={220}
+                  height={280}
+                  loading="eager"
+                  decoding="sync"
+                  className="absolute bottom-0 left-0 z-[3] h-auto w-[150px] object-contain 2xl:w-[168px]"
+                />
+              </div>
 
-              {/* Character illustration */}
-              <img
-                src={`${ASSET_BASE}${step.characterImage}`}
-                alt={step.characterAlt}
-                width={120}
-                height={150}
-                className="mx-auto mt-4 h-auto w-[110px]"
-              />
+              <div
+                className="mt-4 flex min-h-[92px] items-center gap-4 rounded-[14px] border bg-white px-4 py-4"
+                style={{ borderColor: "var(--lp-border-default)" }}
+              >
+                <img
+                  src={`${ASSET_BASE}${step.icon}`}
+                  alt=""
+                  role="presentation"
+                  className="h-8 w-8 shrink-0 object-contain"
+                />
+                <p
+                  className="text-[18px] font-bold leading-[1.55]"
+                  style={{ color: "var(--lp-navy)" }}
+                >
+                  {STEP_SUPPORT_COPY[step.number]}
+                </p>
+              </div>
             </article>
           ))}
         </div>
 
-        {/* ---------- Bottom tagline ---------- */}
         <p
-          className="mt-14 text-center text-lg"
-          style={{ fontWeight: 700, color: "var(--lp-navy)" }}
+          className="mt-[58px] text-center text-[30px] leading-relaxed lg:text-[42px]"
+          style={{ fontWeight: 800, color: "var(--lp-navy)" }}
         >
-          準備・対策・管理まで、就活Passひとつで完結。
+          <span style={{ color: "var(--lp-cta)" }}>準備・対策・管理</span>
+          まで、就活Passひとつで完結。
         </p>
       </div>
     </section>

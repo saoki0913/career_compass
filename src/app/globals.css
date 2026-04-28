@@ -162,28 +162,30 @@
   --sidebar-ring: oklch(0.50 0.18 235);
 
   /* Landing page tokens — Figma-aligned navy-centric design */
-  --lp-navy: #0A0F5C;
-  --lp-cta: #0A0F5C;
-  --lp-cta-hover: rgba(10, 15, 92, 0.90);
+  --lp-navy: #000666;
+  --lp-cta: #2563eb;
+  --lp-cta-hover: #1459d9;
   --lp-surface-page: #f8fafc;
   --lp-surface-section: #ffffff;
   --lp-surface-muted: #f8fafc;
-  --lp-border-default: #e2e8f0;
+  --lp-border-default: #e8edf5;
   --lp-border-hairline: rgba(0, 0, 0, 0.08);
-  --lp-border-tint: rgba(10, 15, 92, 0.12);
+  --lp-border-tint: rgba(0, 6, 102, 0.12);
   --lp-muted-text: #64748b;
-  --lp-body-muted: #64748b;
   --lp-badge-bg: #eef2ff;
-  --lp-tint-navy-soft: #eff1fb;
-  --lp-tint-cta-soft: #eff1fb;
-  --lp-success: #22c55e;
+  --lp-tint-navy-soft: #e8eef9;
+  --lp-tint-cta-soft: #eef4ff;
+  --lp-success: #168542;
   --lp-on-dark-muted: rgba(191, 219, 254, 0.70);
   --lp-on-dark-fine: rgba(147, 197, 253, 0.50);
   --lp-hero-gradient-top: #f8fafc;
   --lp-hero-gradient-mid: #ffffff;
   --lp-shadow-card: 0 0 0 1px rgba(0, 0, 0, 0.03), 0 2px 4px rgba(50, 50, 93, 0.08),
     0 8px 16px rgba(0, 0, 0, 0.06);
-  --lp-shadow-screenshot: 0 20px 80px rgba(10, 15, 92, 0.08);
+  --lp-shadow-screenshot: 0 20px 80px rgba(0, 6, 102, 0.08);
+  --lp-pricing-gradient: linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%);
+  --lp-surface-faq: #f8fbff;
+  --lp-footer-bg: linear-gradient(180deg, #ffffff 0%, #f0f4fa 100%);
 }
 
 .dark {
@@ -323,6 +325,7 @@
   }
 }
 
+
 @layer components {
   .landing-shell {
     background:
@@ -400,6 +403,17 @@
     outline-color: oklch(0.65 0.14 235 / 0.45);
     box-shadow: 0 0 0 4px oklch(0.65 0.14 235 / 0.14);
   }
+}
+
+/* Footer navigation link hover */
+.footer-nav-link:hover {
+  color: var(--lp-cta);
+}
+
+.footer-nav-link:focus-visible {
+  outline: 2px solid var(--lp-cta);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* Indeterminate progress bar animation */
@@ -720,141 +734,6 @@
 
     .skeleton-shimmer-inverse::before {
       opacity: 0.5;
-    }
-  }
-
-  /* ── LP redesign: glassmorphism ── */
-  .glass-card {
-    @apply relative overflow-hidden rounded-3xl;
-    background: rgba(255, 255, 255, 0.65);
-    backdrop-filter: blur(24px) saturate(1.4);
-    -webkit-backdrop-filter: blur(24px) saturate(1.4);
-    border: 1px solid rgba(255, 255, 255, 0.5);
-    box-shadow:
-      0 8px 32px rgba(15, 23, 42, 0.08),
-      inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  }
-
-  .glass-card-subtle {
-    @apply relative overflow-hidden rounded-2xl;
-    background: rgba(255, 255, 255, 0.55);
-    backdrop-filter: blur(16px) saturate(1.3);
-    -webkit-backdrop-filter: blur(16px) saturate(1.3);
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
-  }
-
-  /* ── LP redesign: gradient blobs ── */
-  .blob-blue {
-    background: radial-gradient(circle at 50% 50%,
-        oklch(0.72 0.12 235 / 0.3) 0%,
-        transparent 70%);
-  }
-
-  .blob-blue-light {
-    background: radial-gradient(circle at 50% 50%,
-        oklch(0.82 0.06 235 / 0.2) 0%,
-        transparent 60%);
-  }
-
-  /* ── LP redesign: floating animations ── */
-  @keyframes float-slow {
-
-    0%,
-    100% {
-      transform: translateY(0) rotate(0deg);
-    }
-
-    50% {
-      transform: translateY(-12px) rotate(2deg);
-    }
-  }
-
-  @keyframes float-medium {
-
-    0%,
-    100% {
-      transform: translateY(0) rotate(0deg);
-    }
-
-    50% {
-      transform: translateY(-8px) rotate(-1.5deg);
-    }
-  }
-
-  @keyframes float-fast {
-
-    0%,
-    100% {
-      transform: translateY(0) rotate(0deg);
-    }
-
-    50% {
-      transform: translateY(-6px) rotate(1deg);
-    }
-  }
-
-  .animate-float-slow {
-    animation: float-slow 6s ease-in-out infinite;
-  }
-
-  .animate-float-medium {
-    animation: float-medium 4.5s ease-in-out infinite;
-  }
-
-  .animate-float-fast {
-    animation: float-fast 3.5s ease-in-out infinite;
-  }
-
-  /* ── LP redesign: 3D decorative objects ── */
-  .orb-gradient {
-    border-radius: 50%;
-    background: linear-gradient(135deg,
-        oklch(0.72 0.12 235) 0%,
-        oklch(0.60 0.18 235) 100%);
-    box-shadow:
-      inset -4px -4px 12px rgba(0, 0, 0, 0.15),
-      inset 4px 4px 12px rgba(255, 255, 255, 0.3),
-      0 8px 24px oklch(0.60 0.18 235 / 0.3);
-  }
-
-  .orb-gradient-sm {
-    border-radius: 50%;
-    background: linear-gradient(135deg,
-        oklch(0.78 0.08 235) 0%,
-        oklch(0.65 0.14 235) 100%);
-    box-shadow:
-      inset -2px -2px 6px rgba(0, 0, 0, 0.1),
-      inset 2px 2px 6px rgba(255, 255, 255, 0.25),
-      0 4px 12px oklch(0.65 0.14 235 / 0.2);
-  }
-
-  .orb-glass {
-    border-radius: 16px;
-    background: rgba(255, 255, 255, 0.2);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.4),
-      0 8px 24px rgba(15, 23, 42, 0.1);
-  }
-
-  .ring-gradient {
-    border-radius: 50%;
-    border: 3px solid transparent;
-    background: linear-gradient(white, white) padding-box,
-      linear-gradient(135deg, oklch(0.65 0.14 235), oklch(0.55 0.18 260)) border-box;
-    -webkit-mask: none;
-    mask: none;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-
-    .animate-float-slow,
-    .animate-float-medium,
-    .animate-float-fast {
-      animation: none;
     }
   }
 

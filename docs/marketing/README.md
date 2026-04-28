@@ -461,7 +461,7 @@
 
 ## 4. LP の現状
 
-最終更新: 2026-04-05（Figma デザイン準拠リデザイン反映）
+最終更新: 2026-04-27（`LP.png` / `section_image` 準拠のコンポーネント再現）
 
 LP の詳細な構成・デザインシステム・ファイル一覧は [`docs/marketing/LP.md`](./LP.md) を参照。
 
@@ -475,20 +475,16 @@ LP の**ビジュアル正本**（ハイブリッド DESIGN、トークン、`--
 
 ## LP 構成
 
-現在の表示順は以下です（2026-04-05 Stripe 型 LP 刷新後）。
+現在の表示順は以下です（2026-04-27 `LP.png` 準拠刷新後）。
 
-1. LandingHeader — 固定ヘッダー（ナビ + ログイン + 赤CTA）
-2. HeroSection — lg 2カラム + ダッシュボードSS
-3. TrustStripSection — 信頼帯（決済・クレジット・カレンダー）
-4. PainPointsSection — 3カラム悩みカード
-5. BeforeAfterSection — 表形式 Before/After
-6. FeatureESSection / FeatureManagementSection / FeatureInterviewSection — 各 Feature + SS
-7. ComparisonSection — 就活塾比較テーブル
-8. PricingSection — Free / Standard / Pro 3カラム
-9. FAQSection — 6問アコーディオン
-10. FinalCTASection — ダークネイビー背景の最終CTA
-11. LandingFooter — ブランド + 4列リンクグリッド
-12. StickyCTABar — モバイル固定ボトムCTA
+1. HeroSection — ロゴ、H1、CTA、信頼バッジ、PC/スマホモック
+2. PainPointsSection — 4つの悩みカード
+3. FeaturesSection — 作成/対策/管理フロー + 6機能カード
+4. BeforeAfterSection — Before / After 比較
+5. HowToUseSection — 4ステップ
+6. PricingSection — Free / Standard / Pro 3カラム
+7. LPFAQSection — 2列 x 3行のFAQカード
+8. LandingFooter — ブランド説明 + 4列リンクグリッド + 人物イラスト
 
 ## 現在のブランド表記
 
@@ -512,64 +508,48 @@ LP 上で明示・示唆されている対象像は以下です。
 
 出典:
 
-- [src/components/landing/LandingHeader.tsx](/Users/saoki/work/career_compass/src/components/landing/LandingHeader.tsx)
-- [src/components/landing/HeroSection.tsx](/Users/saoki/work/career_compass/src/components/landing/HeroSection.tsx)
-- [src/components/landing/ProductShowcase.tsx](/Users/saoki/work/career_compass/src/components/landing/ProductShowcase.tsx)
-- [src/components/landing/PricingSection.tsx](/Users/saoki/work/career_compass/src/components/landing/PricingSection.tsx)
-- [src/components/landing/FAQSection.tsx](/Users/saoki/work/career_compass/src/components/landing/FAQSection.tsx)
-- [src/components/landing/CTASection.tsx](/Users/saoki/work/career_compass/src/components/landing/CTASection.tsx)
+- [src/components/landing/LandingPage.tsx](/Users/saoki/work/career_compass/src/components/landing/LandingPage.tsx)
+- [src/components/landing/sections/HeroSection.tsx](/Users/saoki/work/career_compass/src/components/landing/sections/HeroSection.tsx)
+- [src/components/landing/sections/PainPointsSection.tsx](/Users/saoki/work/career_compass/src/components/landing/sections/PainPointsSection.tsx)
+- [src/components/landing/sections/FeaturesSection.tsx](/Users/saoki/work/career_compass/src/components/landing/sections/FeaturesSection.tsx)
+- [src/components/landing/sections/BeforeAfterSection.tsx](/Users/saoki/work/career_compass/src/components/landing/sections/BeforeAfterSection.tsx)
+- [src/components/landing/sections/HowToUseSection.tsx](/Users/saoki/work/career_compass/src/components/landing/sections/HowToUseSection.tsx)
+- [src/components/landing/sections/PricingSection.tsx](/Users/saoki/work/career_compass/src/components/landing/sections/PricingSection.tsx)
+- [src/components/landing/sections/LPFAQSection.tsx](/Users/saoki/work/career_compass/src/components/landing/sections/LPFAQSection.tsx)
+- [src/components/landing/LandingFooter.tsx](/Users/saoki/work/career_compass/src/components/landing/LandingFooter.tsx)
 
-### 1. ヘッダー
+### 1. HeroSection
 
-- ロゴ + `就活Pass`
-- ナビ: `機能` `料金` `FAQ` `無料ツール`
-- 右上 CTA は `ログイン` と `無料で始める`
-- モバイルメニューあり
+- 主文言: `就活の不安を、AIで一つずつ解決。`
+- CTA は `無料で始める` と `機能を見る`
+- trust signal は `クレカ登録不要` `スマホ・PC対応` `安心のセキュリティ`
+- visual は `assets/mockups/laptop-dashboard.png` と `assets/mockups/iphone-app.png`
+- desktop は `1672px` 参照で2カラム、1024〜1279pxは縦積みで横切れを避ける
 
-役割:
+### 2. PainPointsSection
 
-- 主要セクションへのアンカー移動
-- 右上 CTA で登録導線を固定
-- 無料ツールは補助導線としてナビに残し、主導線はアプリ登録から外さない
+- 4つの悩みを人物イラスト + アイコン + カードで提示
+- 主要素材は `assets/characters/*` と `assets/icons-line/*`
+- セクション見出しは `こんな悩み、ありませんか？`
 
-### 2. ヒーロー
+### 3. FeaturesSection
 
-- キッカー: `AI job-hunting workspace`
-- 主文言: `就活を、AIと一緒に迷わず進める。`
-- サブコピーは `ES添削・志望動機整理・企業/締切管理を 1 つの流れで進められる` ことに絞る
-- CTA は `無料で始める` と `料金を見る`
-- trust signal は `成功時のみ消費` `クレジットカード不要` `Googleカレンダー連携`
-- hero visual は `ScreenPreview` で dashboard screenshot を大きく見せる
-- hero 下部の細い情報列で `Review / Organize / Track` を短く補足する
+- `作成` `対策` `管理` のフローをHTMLコンポーネントで表示
+- 6つの主要機能カードを `2 x 3` / desktop `3 x 2` で表示
+- `LP.png` / `section_image` を本番DOMに描画せず、UIカード素材を部品として使う
 
-ヒーローで伝えていること:
+### 4. BeforeAfterSection / HowToUseSection
 
-- AI 単体ではなく、就活の進行を迷わず続けられること
-- 書くことと管理することを同じ product surface で扱えること
-- 無料開始のハードルの低さ
+- Before / After の変化を中央矢印付きで提示
+- 4ステップの使い方は `src/lib/marketing/landing-steps.ts` をSSOTとする
+- 参照LPの固定幅構図は `2xl` 以上でのみ適用し、tablet幅では2列/縦積みに落とす
 
-### 3. ProductShowcase
+### 5. PricingSection
 
-- 導入見出し: `書くことも、管理することも、同じ流れで進める。`
-- 3つの価値を `AI添削` `対話で整理` `企業・締切管理` の cardless value strip で先に見せる
-- 詳細は 2 セクションに圧縮
-- `AI writing support`
-  - ES 添削と対話支援をまとめて見せる
-  - `設問別の添削` `書き換え案を見ながら更新` `途中のメモからでも始められる`
-- `Integrated management`
-  - 企業一覧、締切、応募状況、カレンダー連携をまとめて見せる
-  - `企業ごとの状況整理` `締切の見落とし防止` `次にやることが見える dashboard`
-
-このセクションで伝えていること:
-
-- Hero の promise を、実画面付きの workspace として具体化していること
-- `全部入り` を言葉だけでなく screenshot で理解させること
-
-### 4. 料金
-
-- 見出し: `無料で始めて、必要なぶんだけ広げる。`
-- まず trust row で `クレジットカード不要` `成功時のみ消費` `詳細比較は pricing page に集約` を整理する
-- LP 上では `Standard` を主役にしつつ、`Free` と `Pro` は簡潔な行として添える
+- 見出し: `シンプルで始めやすい料金プラン`
+- trust pills で `無料プランあり` `クレカ登録不要` `あとから変更OK` を整理する
+- LP 上では `Standard` を主役にしつつ、`Free` と `Pro` も同じカードで並べる
+- 価格と機能は `src/lib/marketing/pricing-plans.ts` をSSOTとする。参照画像と差があってもコード上の課金SSOTを優先する
 - 年額プランや細かい比較は `/pricing` に寄せる
 
 このセクションで伝えていること:
@@ -578,81 +558,21 @@ LP 上で明示・示唆されている対象像は以下です。
 - 主力は `Standard`
 - 説明しすぎず pricing page に続けられること
 
-### 10. FAQ
+### 6. LPFAQSection
 
-出典:
+- 見出し: `よくある質問`
+- 表示は2列 x 3行のカード。アコーディオンではなく参照LPに合わせて回答を常時表示する
+- FAQ データは `src/lib/marketing/landing-faqs.ts` をSSOTとし、`FaqJsonLd` と共有する
+- カバーする論点は無料プラン、クレカ不要、ES添削、面接対策、企業/締切管理、Googleカレンダー連携
 
-- [src/components/landing/FAQSection.tsx](/Users/saoki/work/career_compass/src/components/landing/FAQSection.tsx)
-
-見出し:
-
-- `よくある質問`
-
-補助導線:
-
-- `お問い合わせ`
-
-質問一覧:
-
-- `無料プランでは何ができますか？`
-- `他の就活サービスとの違いは何ですか？`
-- `入力したデータは安全ですか？`
-- `クレジットとは何ですか？`
-- `1クレジットでどのくらいの操作ができますか？`
-
-FAQ がカバーしている論点:
-
-- 無料プランの範囲
-- 差別化
-- セキュリティ
-- クレジット制の理解
-- 無料枠でどの程度試せるか
-
-補足:
-
-- 初期表示では最初の FAQ が開いている
-- FAQPage の JSON-LD を埋め込んでいる
-
-### 11. 最終 CTA
-
-出典:
-
-- [src/components/landing/CTASection.tsx](/Users/saoki/work/career_compass/src/components/landing/CTASection.tsx)
-
-コピー:
-
-- 見出し:
-  - `就活を、`
-  - `迷わず続けられる状態へ。`
-- 本文:
-  - `ES 添削、対話支援、企業管理、締切管理を一つにまとめる。`
-  - `次にやることが見える状態を作り、無料から始められる。`
-
-ボタン:
-
-- 未ログイン: `無料で始める`
-- ログイン済み: `ダッシュボードへ`
-- サブ CTA: `料金を見る`
-
-補助バッジ:
-
-- `クレジットカード不要`
-- `成功時のみ消費`
-- `Googleカレンダー連携`
-
-### 12. フッター
-
-出典:
-
-- [src/app/(marketing)/page.tsx](/Users/saoki/work/career_compass/src/app/(marketing)/page.tsx)
+### 7. LandingFooter
 
 内容:
 
 - ブランド説明:
-  - `就活の準備を、整理して進めるためのアプリ。`
-  - `ES、志望動機、締切管理をひとつにまとめます。`
+  - `AIが就活を通して、就活生の可能性を最大化し、納得のいくキャリア形成をサポートします。`
 - 導線:
-  - `機能`
+  - `機能一覧`
   - `料金プラン`
   - `無料ツール`
   - `テンプレ集`
@@ -752,32 +672,33 @@ FAQ がカバーしている論点:
 
 ---
 
-## 5. ランディングメディア（旧 LANDING_MEDIA.md）
+## 5. ランディングメディア
 
+root LP の画像素材は `public/marketing/LP/assets/**` を正本とする。`public/marketing/LP/LP.png` と `public/marketing/LP/section_image/**` は視覚参照であり、本番DOMには描画しない。用途別カテゴリと退避済み素材の対応は [`asset-inventory.md`](./asset-inventory.md) を正本にする。
 
-ヒーローおよび機能紹介で使う画像は、コード上は [`src/components/landing/landing-media.ts`](../../src/components/landing/landing-media.ts) の `landingMedia` で `src` と `alt` を定義しています。実体ファイルは `public` 以下に置きます。
+## 主要素材
 
-## スロット一覧
+| 用途 | 主なファイル | 主な利用箇所 |
+|------|--------------|--------------|
+| Hero mockup | `assets/mockups/laptop-dashboard.png`, `assets/mockups/iphone-app.png` | `HeroSection` |
+| 悩みカード人物 | `assets/characters/*` | `PainPointsSection`, `BeforeAfterSection`, `HowToUseSection`, `LPFAQSection` |
+| 機能カードUI | `assets/ui-cards/*` | `FeaturesSection`, `HowToUseSection` |
+| 料金/FAQ/背景装飾 | `assets/pricing_assets_transparent/*`, `assets/faq_generated_assets_transparent/*`, `assets/decorative/*` | `PricingSection`, `LPFAQSection`, `LandingFooter` |
 
-| キー | ファイル（既定） | 主な利用箇所 |
-|------|------------------|--------------|
-| `heroDashboard` | `/screenshots/dashboard.png` | [`HeroSection`](../../src/components/landing/HeroSection.tsx) |
-| `esReview` | `/screenshots/es-review.png` | [`ProductShowcase`](../../src/components/landing/ProductShowcase.tsx) |
-| `motivation` | `/screenshots/gakuchika-chat.png` | 同上 |
-| `gakuchika` | `/screenshots/gakuchika-chat.png` | 同上 |
-| `companies` | `/screenshots/companies.png` | 同上 |
+`assets/_archive/**` は削除前の退避先であり、本番コンポーネントから直接参照しない。
 
 ## 差し替え手順
 
-1. 差し替え先のファイルを `public/screenshots/` 以下に用意する。
-2. [`landing-media.ts`](../../src/components/landing/landing-media.ts) の該当キーの `src` を新しいパスに変更する。
-3. `alt` を画面内容に合わせて更新（アクセシビリティ）。
-4. [`landing-media.test.ts`](../../src/components/landing/landing-media.test.ts) は `/screenshots/` 配下の実画面参照を検証しているため、保存場所を変える場合はテストも更新する。
+1. 差し替え先のファイルを `public/marketing/LP/assets/` 以下の用途別ディレクトリに置く。
+2. 対応セクションの `src` と `alt` を更新する。共通ベースパスは `src/lib/marketing/lp-assets.ts` の `LP_ASSET_BASE` / `lpAsset()` を使う。
+3. 見出し、CTA、料金、FAQは画像化せずHTMLのまま保つ。
+4. 透過PNGの背景残りや端末透けがある場合は素材側を修正し、修正後の素材を参照する。
+5. `npx playwright screenshot --viewport-size=1672,941 --full-page http://127.0.0.1:3000/ output/playwright/lp-current-1672-full.png` で全体の見え方を確認する。
 
 ## 推奨サイズ（ラスタ画像にする場合の目安）
 
-- ヒーロー（`heroDashboard`）: 幅 **約 1600px** 前後、アスペクト比 **16:10** 前後。
-- 機能枠（その他 4 スロット）: 幅 **約 1280px** 前後、アスペクト比 **16:10** 前後。
+- ヒーロー端末: 幅 **約 1400px** 以上、透過PNGまたはWebP。
+- 機能カード・人物素材: desktop 表示時に 2倍解像度になるよう、表示幅の **2x** 以上。
 
 PNG / WebP にする場合は容量と鮮明度のバランスを取り、`next/image` 利用箇所では `width` / `height` または `sizes` を適切に指定する。
 
@@ -793,7 +714,7 @@ PNG / WebP にする場合は容量と鮮明度のバランスを取り、`next/
 
 ## 現在の運用
 
-LP では `public/screenshots/*.png` を `ScreenPreview` の中で使い、hero と機能紹介の実画面アンカーにしています。公開面で使う画像は、デモデータか sanitized 済みのものだけを置くこと。
+LP では `public/marketing/LP/assets/**` の素材をコンポーネント内で組み合わせ、コピー・料金・FAQ・CTAはHTMLで管理する。公開面で使う画像は、デモデータか sanitized 済みのものだけを置くこと。
 
 ---
 

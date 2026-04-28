@@ -1,6 +1,6 @@
 # 就活Pass（シューパス）
 
-就活支援アプリ「就活Pass」- 就活AI・ES添削・締切管理をまとめて使える就活アプリ
+就活支援アプリ「就活Pass」- 就活AI・ES添削・面接対策・締切管理をまとめて使える就活アプリ
 
 ## 技術スタック
 
@@ -102,6 +102,7 @@ career_compass/
 - **企業検索・管理** - 志望企業の登録と情報収集
 - **ES添削** - AIによるエントリーシートの添削・改善提案
 - **志望動機作成** - 企業情報を基にした志望動機の自動生成
+- **面接対策** - 企業別のAI模擬面接、7軸講評、最弱回答ドリル
 - **締切管理** - 選考スケジュールとタスクの一元管理
 - **ガクチカ管理** - 学生時代に力を入れたことの整理・再利用
 
@@ -112,8 +113,8 @@ career_compass/
 主要なサービス設定:
 - **Supabase** - データベース ([supabase.com](https://supabase.com))
 - **Stripe** - 決済 ([stripe.com](https://stripe.com))
-- **OpenAI** - 埋め込み・企業情報抽出 ([openai.com](https://openai.com))
-- **Anthropic** - ES添削・ガクチカ・志望動機 ([anthropic.com](https://anthropic.com))
+- **OpenAI** - 埋め込み・企業情報抽出・面接計画 ([openai.com](https://openai.com))
+- **Anthropic** - ES添削・ガクチカ・志望動機・面接質問/講評 ([anthropic.com](https://anthropic.com))
 
 ## ドキュメント
 

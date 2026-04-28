@@ -33,4 +33,8 @@ describe("PricingSection design-system guard", () => {
   it("uses CSS variable --lp-navy for heading color", () => {
     expect(source).toContain("var(--lp-navy)");
   });
+
+  it("limits LP feature list to 6 items per plan", () => {
+    expect(source).toContain(".slice(0, 6)");
+  });
 });

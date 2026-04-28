@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { lpAsset } from "@/lib/marketing/lp-assets";
 
 const FOOTER_COLUMNS = [
   {
@@ -35,85 +36,81 @@ const FOOTER_COLUMNS = [
 export function LandingFooter() {
   return (
     <footer
-      className="relative overflow-hidden"
-      style={{ background: "var(--lp-footer-bg)" }}
+      className="relative min-h-[380px] overflow-hidden"
+      style={{
+        background: "var(--lp-footer-bg)",
+        fontFamily: "'Inter', 'Noto Sans JP', sans-serif",
+      }}
     >
-      {/* --- Cityscape silhouette background --- */}
       <img
-        src="/marketing/LP/assets/branding/cityscape.png"
+        src={lpAsset("branding/cityscape.png")}
         alt=""
         role="presentation"
-        className="pointer-events-none absolute bottom-0 left-0 w-full select-none object-cover object-bottom opacity-[0.10]"
-        style={{ maxHeight: "220px" }}
+        className="pointer-events-none absolute bottom-0 left-0 w-full select-none object-cover object-bottom opacity-[0.16]"
+        style={{ maxHeight: "260px" }}
       />
 
-      {/* --- Decorative sparkle (top-left area) --- */}
       <img
-        src="/marketing/LP/assets/decorative/star-sparkle-1.png"
+        src={lpAsset("decorative/star-sparkle-1.png")}
         alt=""
         role="presentation"
-        className="pointer-events-none absolute top-6 left-8 hidden select-none opacity-30 md:block"
-        style={{ width: "28px", height: "28px" }}
+        className="pointer-events-none absolute left-8 top-8 hidden select-none opacity-38 md:block"
+        style={{ width: "32px", height: "32px" }}
       />
 
-      {/* --- Wave corner decoration (top-left) --- */}
       <img
-        src="/marketing/LP/assets/decorative/wave-corner.png"
+        src={lpAsset("decorative/wave-corner.png")}
         alt=""
         role="presentation"
-        className="pointer-events-none absolute top-0 left-0 hidden select-none opacity-20 md:block"
-        style={{ width: "120px" }}
+        className="pointer-events-none absolute left-0 top-0 hidden select-none opacity-25 md:block"
+        style={{ width: "150px" }}
       />
 
-      {/* --- Main content --- */}
-      <div className="relative z-10 mx-auto max-w-[1200px] px-6 pt-16 pb-6 lg:px-12">
-        <div className="flex flex-col items-start justify-between gap-10 md:flex-row">
-          {/* --- Brand block --- */}
-          <div style={{ maxWidth: "320px" }}>
-            <div className="mb-4 flex items-center gap-3">
+      <div className="relative z-10 mx-auto max-w-[1600px] px-5 pb-6 pt-[74px] sm:px-8 2xl:px-0">
+        <div className="grid gap-10 2xl:grid-cols-[360px_1fr_330px]">
+          <div>
+            <div className="mb-7 flex items-center gap-4">
               <img
-                src="/marketing/LP/assets/branding/compass-icon-navy.png"
+                src={lpAsset("branding/compass-icon-navy.png")}
                 alt="就活Pass"
-                style={{ width: "36px", height: "36px" }}
+                style={{ width: "58px", height: "58px" }}
               />
               <span
-                className="text-xl"
+                className="text-[40px] leading-none"
                 style={{
-                  fontWeight: 700,
+                  fontWeight: 800,
                   color: "var(--lp-navy)",
-                  letterSpacing: "-0.01em",
                 }}
               >
                 就活Pass
               </span>
             </div>
             <p
-              className="text-sm"
+              className="text-[18px]"
               style={{
-                lineHeight: 1.75,
+                lineHeight: 1.8,
                 color: "var(--lp-muted-text)",
               }}
             >
               AIが就活を通して、就活生の可能性を最大化し、
-              <br className="hidden sm:inline" />
+              <br />
               納得のいくキャリア形成をサポートします。
             </p>
           </div>
 
-          {/* --- Link columns --- */}
           <nav
             aria-label="フッターナビゲーション"
-            className="grid grid-cols-2 gap-x-10 gap-y-8 text-sm sm:grid-cols-4 md:gap-x-14"
+            className="grid grid-cols-2 gap-x-10 gap-y-8 text-[20px] sm:grid-cols-4 md:gap-x-14"
           >
             {FOOTER_COLUMNS.map((col) => (
-              <div key={col.title} className="flex flex-col gap-3">
+              <div key={col.title} className="flex flex-col gap-5">
                 <span
-                  className="text-xs tracking-wide"
+                  className="text-[22px]"
                   style={{
-                    fontWeight: 700,
+                    fontWeight: 800,
                     color: "var(--lp-navy)",
-                    borderBottom: "2px solid var(--lp-cta)",
-                    paddingBottom: "6px",
+                    borderBottom: "3px solid var(--lp-cta)",
+                    paddingBottom: "8px",
                     display: "inline-block",
                   }}
                 >
@@ -126,6 +123,7 @@ export function LandingFooter() {
                     className="footer-nav-link transition-colors"
                     style={{
                       color: "var(--lp-navy)",
+                      fontWeight: 700,
                       textDecoration: "none",
                     }}
                   >
@@ -135,39 +133,37 @@ export function LandingFooter() {
               </div>
             ))}
           </nav>
+
+          <div aria-hidden="true" className="hidden 2xl:block" />
         </div>
 
-        {/* --- Copyright bar --- */}
         <div
-          className="mt-14 pt-6 text-center"
+          className="mt-16 pt-7 text-center"
           style={{ borderTop: "1px solid var(--lp-border-hairline)" }}
         >
-          <p className="text-xs" style={{ color: "var(--lp-muted-text)" }}>
+          <p className="text-sm" style={{ color: "var(--lp-muted-text)" }}>
             &copy; 2026 就活Pass . All rights reserved.
           </p>
         </div>
       </div>
 
-      {/* --- Character illustrations (right side, desktop only) --- */}
       <div
-        className="pointer-events-none absolute bottom-0 right-[3%] hidden select-none lg:flex"
-        style={{ opacity: 0.85 }}
+        className="pointer-events-none absolute bottom-0 right-[1.5%] hidden select-none 2xl:flex"
+        style={{ opacity: 0.94 }}
       >
-        {/* Male character -- positioned slightly behind */}
         <img
-          src="/marketing/LP/assets/shukatsu_pass_transparent_assets/08_male_character.png"
+          src={lpAsset("shukatsu_pass_transparent_assets/08_male_character.png")}
           alt=""
           role="presentation"
-          className="relative z-0 -mr-6 object-contain"
-          style={{ height: "320px" }}
+          className="relative z-0 -mr-8 object-contain"
+          style={{ height: "330px" }}
         />
-        {/* Female character -- positioned in front */}
         <img
-          src="/marketing/LP/assets/shukatsu_pass_transparent_assets/09_female_character.png"
+          src={lpAsset("shukatsu_pass_transparent_assets/09_female_character.png")}
           alt=""
           role="presentation"
           className="relative z-10 object-contain"
-          style={{ height: "320px" }}
+          style={{ height: "330px" }}
         />
       </div>
     </footer>

@@ -21,15 +21,16 @@ describe("PainPointsSection design-system guard", () => {
     expect(source).toContain("var(--lp-muted-text)");
   });
 
-  it("renders characters without card wrapper styles", () => {
-    expect(source).not.toContain("rounded-2xl border bg-white p-6");
-    expect(source).not.toContain("boxShadow");
+  it("renders reference-style pain cards with soft shadows", () => {
+    expect(source).toContain("min-h-[565px]");
+    expect(source).toContain("rounded-[22px] border bg-white");
+    expect(source).toContain("boxShadow");
   });
 
   it("references the correct character assets", () => {
+    expect(source).toContain("boy-writing.png");
     expect(source).toContain("girl-at-laptop.png");
     expect(source).toContain("boy-thinking-hoodie.png");
-    expect(source).toContain("girl-clasped-standing.png");
-    expect(source).toContain("boy-glasses-standing.png");
+    expect(source).toContain("girl-phone-thinking.png");
   });
 });

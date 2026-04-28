@@ -24,15 +24,14 @@ describe("BeforeAfterSection design-system guard", () => {
     expect(source).not.toContain('"#64748b"');
   });
 
-  it("uses updated character sizing", () => {
-    expect(source).toContain("w-[180px]");
-    expect(source).toContain("lg:w-[200px]");
+  it("uses one horizontal conversion panel with center arrow", () => {
+    expect(source).toContain("2xl:grid-cols-[668px_120px_724px]");
+    expect(source).toContain("border-l-[var(--lp-cta)]");
   });
 
-  it("uses updated mockup sizing", () => {
-    expect(source).toContain("w-[240px]");
-    expect(source).toContain("lg:w-[300px]");
-    expect(source).toContain("w-[70px]");
-    expect(source).toContain("lg:w-[90px]");
+  it("uses reference-scale panel and mockup sizing", () => {
+    expect(source).toContain("min-h-[600px]");
+    expect(source).toContain("w-[295px]");
+    expect(source).toContain("w-[86px]");
   });
 });

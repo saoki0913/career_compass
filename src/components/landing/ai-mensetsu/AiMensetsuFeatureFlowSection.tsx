@@ -19,7 +19,7 @@ const steps = [
     number: "03",
     title: "最終講評で 7 軸スコア + 改善後の回答例",
     description:
-      "7 軸スコアに加え、最も改善が必要な質問の改善後の回答例と次に準備したい論点を返します。質問フロー中は課金ゼロ、成功時のみ 6 クレジット。",
+      "7 軸スコアに加え、最も改善が必要な質問の改善後の回答例と次に準備したい論点を返します。最終講評は成功時に 6 クレジット。",
   },
 ] as const;
 
@@ -44,7 +44,7 @@ export function AiMensetsuFeatureFlowSection() {
             className="mx-auto mt-4 max-w-xl text-slate-500"
             style={{ lineHeight: 1.7 }}
           >
-            質問フロー中は課金なし。最終講評の成功時のみ 6 クレジット消費、失敗時は返金。
+            開始 2 クレジット、回答・続きは各 1 クレジット。最終講評は成功時に 6 クレジット消費、失敗時は確定しません。
           </p>
         </LandingSectionMotion>
 

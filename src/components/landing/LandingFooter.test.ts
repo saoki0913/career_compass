@@ -23,15 +23,15 @@ describe("LandingFooter source drift guard", () => {
     expect(source).not.toContain("girl-couple-happy.png");
   });
 
-  it("sets character height to 320px", () => {
+  it("sets character height to reference desktop scale", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
-    expect(source).toContain("320px");
+    expect(source).toContain("330px");
     expect(source).not.toMatch(/height:\s*"240px"/);
   });
 
-  it("increases cityscape opacity to 0.10", () => {
+  it("keeps cityscape visible behind the footer", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
-    expect(source).toContain("opacity-[0.10]");
+    expect(source).toContain("opacity-[0.16]");
     expect(source).not.toContain("opacity-[0.07]");
   });
 

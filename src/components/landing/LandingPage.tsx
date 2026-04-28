@@ -1,6 +1,4 @@
-import { LandingHeader } from "./LandingHeader";
 import { LandingFooter } from "./LandingFooter";
-import { StickyCTABar } from "./StickyCTABar";
 import { HeroSection } from "./sections/HeroSection";
 import { PainPointsSection } from "./sections/PainPointsSection";
 import { FeaturesSection } from "./sections/FeaturesSection";
@@ -11,8 +9,7 @@ import { LPFAQSection } from "./sections/LPFAQSection";
 
 export function LandingPage() {
   return (
-    <div className="min-h-screen overflow-x-hidden bg-white">
-      <LandingHeader />
+    <div className="min-h-screen bg-white">
       <main>
         <HeroSection />
         <PainPointsSection />
@@ -23,7 +20,6 @@ export function LandingPage() {
         <LPFAQSection />
       </main>
       <LandingFooter />
-      <StickyCTABar />
     </div>
   );
 }

@@ -23,22 +23,20 @@ describe("LPFAQSection design-system guard", () => {
     expect(source).toContain("var(--lp-cta)");
   });
 
-  it("sizes girl character at 200px width", () => {
-    expect(source).toContain('w-[200px]');
-    // The old 180px width must not appear near girl-clasped
-    expect(source).not.toContain('w-[180px]');
+  it("uses reference-style six-card FAQ grid with accordion", () => {
+    expect(source).toContain("LANDING_PAGE_FAQS.slice(0, 6)");
+    expect(source).toContain("xl:grid-cols-2");
+    expect(source).toContain('"use client"');
+    expect(source).toContain("aria-expanded");
   });
 
-  it("sizes boy character at 190px width", () => {
-    expect(source).toContain('w-[190px]');
-    // The old 170px width must not appear near boy-fistpump
-    expect(source).not.toContain('w-[170px]');
+  it("places the right-side laptop character from the reference composition", () => {
+    expect(source).toContain("characters/girl-at-laptop.png");
+    expect(source).toContain("w-[330px]");
   });
 
   it("includes dotted grid decoration", () => {
-    expect(source).toContain(
-      "faq_generated_assets_transparent/15_dotted_grid_decoration.png",
-    );
+    expect(source).toContain("decorative/dot-pattern-light.png");
   });
 
   it("includes sparkle decoration", () => {

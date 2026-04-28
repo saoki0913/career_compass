@@ -21,11 +21,17 @@ describe("FeaturesSection design-system guard", () => {
   });
 
   it("uses left-aligned heading on large screens", () => {
-    expect(source).toContain("lg:text-left");
+    expect(source).toContain("xl:text-left");
   });
 
-  it("uses text-sm for feature number badges", () => {
-    expect(source).toContain("text-sm");
+  it("uses prominent feature number badges", () => {
+    expect(source).toContain("text-[42px]");
     expect(source).not.toMatch(/className="text-xs tracking-wider"/);
+  });
+
+  it("uses reference-scale feature cards and flow panel", () => {
+    expect(source).toContain("min-h-[940px]");
+    expect(source).toContain("min-h-[295px]");
+    expect(source).toContain("xl:grid-cols-[560px_1fr]");
   });
 });
