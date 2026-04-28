@@ -32,7 +32,7 @@ else
 fi
 FILES=$(echo "$FILES" | while IFS= read -r file; do
   [ -n "$file" ] && [ -f "$REPO_ROOT/$file" ] && printf '%s\n' "$file"
-done)
+done || true)
 
 if [ -z "$FILES" ]; then
   echo "[security] No scannable files found."

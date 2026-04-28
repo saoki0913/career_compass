@@ -72,6 +72,22 @@ jobs:
           python -m pip install -r backend/requirements.txt
       - run: bash scripts/ci/run-backend-deterministic.sh
 
+  security:
+    needs: source-branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SECURITY_SCAN_INCLUDE_AUDIT: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node scripts/security/check-api-route-csrf.mjs
+      - run: bash security/scan/run-lightweight-scan.sh --fail-on=high
+
   staging-ready:
     needs: source-branch
     runs-on: ubuntu-latest
