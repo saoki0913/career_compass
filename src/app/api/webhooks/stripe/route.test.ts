@@ -128,6 +128,108 @@ describe("api/webhooks/stripe subscription.updated", () => {
     expect(updatePlanAllocationMock).not.toHaveBeenCalled();
   });
 
+  it("treats unique idempotency claim failure as a duplicate event", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_duplicate",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_duplicate",
+          status: "active",
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                current_period_end: 1777561200,
+                price: { id: "price_std_month" },
+              },
+            ],
+          },
+        },
+      },
+    });
+    dbInsertValuesMock.mockRejectedValueOnce({ code: "23505" });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(dbDeleteWhereMock).not.toHaveBeenCalled();
+    expect(dbUpdateWhereMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when idempotency claim fails for a non-unique database error", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_claim_failure",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_claim_failure",
+          status: "active",
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                current_period_end: 1777561200,
+                price: { id: "price_std_month" },
+              },
+            ],
+          },
+        },
+      },
+    });
+    dbInsertValuesMock.mockRejectedValueOnce(new Error("database unavailable"));
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(500);
+    expect(dbDeleteWhereMock).not.toHaveBeenCalled();
+    expect(dbUpdateWhereMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed before updating subscription state when the price id is unknown", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_unknown_price",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_unknown_price",
+          status: "active",
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                current_period_end: 1777561200,
+                price: { id: "price_unknown" },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(500);
+    expect(dbDeleteWhereMock).toHaveBeenCalledTimes(1);
+    expect(dbSelectLimitMock).not.toHaveBeenCalled();
+    expect(dbUpdateWhereMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+  });
+
   it("releases the claimed event when processing fails so Stripe can retry", async () => {
     constructEventMock.mockReturnValue({
       id: "evt_retryable",
@@ -222,5 +324,46 @@ describe("api/webhooks/stripe checkout.session.completed", () => {
     expect(response.status).toBe(200);
     // metadata.plan was "pro" but priceId maps to "standard" — metadata must be ignored
     expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "standard");
+  });
+
+  it("fails closed and releases the claimed event when checkout price id is unknown", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_checkout_unknown",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          metadata: { userId: "user-1", plan: "standard" },
+          subscription: "sub_checkout_unknown",
+          customer: "cus_1",
+        },
+      },
+    });
+
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_checkout_unknown",
+      status: "active",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: 1777561200,
+            price: { id: "price_unknown" },
+          },
+        ],
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(
+      new Request("http://localhost:3000/api/webhooks/stripe", {
+        method: "POST",
+        body: "{}",
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    expect(dbDeleteWhereMock).toHaveBeenCalledTimes(1);
+    expect(dbSelectLimitMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
   });
 });

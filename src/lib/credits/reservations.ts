@@ -128,23 +128,53 @@ export async function confirmReservation(reservationId: string): Promise<void> {
 }
 
 export async function cancelReservation(reservationId: string): Promise<void> {
-  const [tx] = await db.select().from(creditTransactions).where(eq(creditTransactions.id, reservationId)).limit(1);
-  if (!tx || !tx.description?.includes("[Reserved]")) return;
+  await db.transaction(async (tx) => {
+    const now = new Date();
+    const [claimedReservation] = await tx
+      .update(creditTransactions)
+      .set({
+        description: sql`replace(${creditTransactions.description}, '[Reserved]', '[Cancelling]')`,
+      })
+      .where(
+        and(
+          eq(creditTransactions.id, reservationId),
+          sql`${creditTransactions.description} like '%[Reserved]%'`,
+        ),
+      )
+      .returning({
+        userId: creditTransactions.userId,
+        amount: creditTransactions.amount,
+        description: creditTransactions.description,
+        balanceAfter: creditTransactions.balanceAfter,
+      });
 
-  const refundAmount = Math.abs(tx.amount);
+    if (!claimedReservation) {
+      return;
+    }
 
-  await db
-    .update(credits)
-    .set({
-      balance: sql`${credits.balance} + ${refundAmount}`,
-      updatedAt: new Date(),
-    })
-    .where(eq(credits.userId, tx.userId));
+    const refundAmount = Math.abs(claimedReservation.amount);
+    const [updatedCredits] = await tx
+      .update(credits)
+      .set({
+        balance: sql`${credits.balance} + ${refundAmount}`,
+        updatedAt: now,
+      })
+      .where(eq(credits.userId, claimedReservation.userId))
+      .returning({ balance: credits.balance });
 
-  await db
-    .update(creditTransactions)
-    .set({
-      description: tx.description.replace("[Reserved]", "[Cancelled/Refunded]"),
-    })
-    .where(eq(creditTransactions.id, reservationId));
+    if (!updatedCredits) {
+      throw new Error(`Cannot cancel credit reservation without credits row: ${reservationId}`);
+    }
+
+    await tx
+      .update(creditTransactions)
+      .set({
+        description: (claimedReservation.description ?? "[Cancelling]").replace(
+          "[Cancelling]",
+          "[Cancelled/Refunded]",
+        ),
+        balanceAfter: updatedCredits.balance,
+      })
+      .where(eq(creditTransactions.id, reservationId));
+  });
 }

@@ -192,3 +192,93 @@ describe("confirmReservation", () => {
     expect(txUpdateWhereMock).not.toHaveBeenCalled();
   });
 });
+
+describe("cancelReservation", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("claims the reserved transaction before refunding credits", async () => {
+    const returningMocks = [
+      vi.fn(async () => [
+        {
+          userId: "user-1",
+          amount: -30,
+          description: "[Cancelling] ES review",
+          balanceAfter: 70,
+        },
+      ]),
+      vi.fn(async () => [{ balance: 100 }]),
+      vi.fn(async () => []),
+    ];
+    const updateMock = vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: returningMocks.shift(),
+        })),
+      })),
+    }));
+
+    dbTransactionMock.mockImplementationOnce(async (fn: (tx: unknown) => Promise<void>) => {
+      await fn({ update: updateMock });
+    });
+
+    const { cancelReservation } = await import("@/lib/credits/reservations");
+    await cancelReservation("res-1");
+
+    expect(dbTransactionMock).toHaveBeenCalledTimes(1);
+    expect(updateMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not refund credits when the reservation cannot be claimed", async () => {
+    const returningMock = vi.fn(async () => []);
+    const updateMock = vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: returningMock,
+        })),
+      })),
+    }));
+
+    dbTransactionMock.mockImplementationOnce(async (fn: (tx: unknown) => Promise<void>) => {
+      await fn({ update: updateMock });
+    });
+
+    const { cancelReservation } = await import("@/lib/credits/reservations");
+    await cancelReservation("res-1");
+
+    expect(updateMock).toHaveBeenCalledTimes(1);
+    expect(returningMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when the credits row cannot be updated", async () => {
+    const returningMocks = [
+      vi.fn(async () => [
+        {
+          userId: "user-1",
+          amount: -30,
+          description: "[Cancelling] ES review",
+          balanceAfter: 70,
+        },
+      ]),
+      vi.fn(async () => []),
+      vi.fn(async () => []),
+    ];
+    const updateMock = vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: returningMocks.shift(),
+        })),
+      })),
+    }));
+
+    dbTransactionMock.mockImplementationOnce(async (fn: (tx: unknown) => Promise<void>) => {
+      await fn({ update: updateMock });
+    });
+
+    const { cancelReservation } = await import("@/lib/credits/reservations");
+    await expect(cancelReservation("res-1")).rejects.toThrow("Cannot cancel credit reservation");
+
+    expect(updateMock).toHaveBeenCalledTimes(2);
+  });
+});

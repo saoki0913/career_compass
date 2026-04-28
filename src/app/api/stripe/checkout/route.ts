@@ -16,9 +16,20 @@ import { getPriceId, type PlanType, type BillingPeriod } from "@/lib/stripe/conf
 import { getAppUrl } from "@/lib/app-url";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { logError } from "@/lib/logger";
+import { getCsrfFailureReason } from "@/lib/csrf";
 
 export async function POST(req: NextRequest) {
   try {
+    const csrfFailure = getCsrfFailureReason(req);
+    if (csrfFailure) {
+      return createApiErrorResponse(req, {
+        status: 403,
+        code: "CSRF_VALIDATION_FAILED",
+        userMessage: "安全確認に失敗しました。ページを再読み込みして、もう一度お試しください。",
+        developerMessage: `CSRF validation failed: ${csrfFailure}`,
+      });
+    }
+
     const appUrl = getAppUrl();
     const session = await auth.api.getSession({
       headers: await headers(),

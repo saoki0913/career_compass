@@ -9,6 +9,30 @@ import { getPlanFromPriceId, type PlanType } from "@/lib/stripe/config";
 import { updatePlanAllocation } from "@/lib/credits";
 import { logError } from "@/lib/logger";
 
+function isPostgresUniqueViolation(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  if ("code" in error && error.code === "23505") {
+    return true;
+  }
+
+  if ("cause" in error) {
+    return isPostgresUniqueViolation(error.cause);
+  }
+
+  return false;
+}
+
+function requirePlanFromPriceId(priceId: string, eventType: string): PlanType {
+  const plan = getPlanFromPriceId(priceId);
+  if (!plan) {
+    throw new Error(`Unknown Stripe price id for ${eventType}: ${priceId}`);
+  }
+  return plan;
+}
+
 export async function POST(req: Request) {
   const body = await req.text();
   const headersList = await headers();
@@ -53,10 +77,17 @@ export async function POST(req: Request) {
       eventType: event.type,
       processedAt: new Date(),
     });
-  } catch {
-    // Unique constraint violation = already processing/processed
-    console.info(`[Stripe Webhook] Duplicate event skipped: ${event.type}`);
-    return NextResponse.json({ received: true });
+  } catch (error) {
+    if (isPostgresUniqueViolation(error)) {
+      console.info(`[Stripe Webhook] Duplicate event skipped: ${event.type}`);
+      return NextResponse.json({ received: true });
+    }
+
+    logError("stripe-webhook-idempotency-claim", error, { eventId: event.id, eventType: event.type });
+    return NextResponse.json(
+      { error: "Webhook idempotency claim failed" },
+      { status: 500 }
+    );
   }
 
   try {
@@ -72,7 +103,7 @@ export async function POST(req: Request) {
 
           const subscriptionItem = subscription.items.data[0];
           const priceId = subscriptionItem.price.id;
-          const newPlan = getPlanFromPriceId(priceId) || "standard";
+          const newPlan = requirePlanFromPriceId(priceId, event.type);
 
           // Use batch to ensure atomicity of subscription + profile + credit updates
           const [existingSub] = await db
@@ -138,7 +169,7 @@ export async function POST(req: Request) {
         const subscription = event.data.object as Stripe.Subscription;
         const subscriptionItem = subscription.items.data[0];
         const priceId = subscriptionItem.price.id;
-        const newPlan = getPlanFromPriceId(priceId);
+        const newPlan = requirePlanFromPriceId(priceId, event.type);
 
         const [existingSub] = await db
           .select()
@@ -158,7 +189,7 @@ export async function POST(req: Request) {
           })
           .where(eq(subscriptions.stripeSubscriptionId, subscription.id));
 
-        if (existingSub?.userId && newPlan) {
+        if (existingSub?.userId) {
           await db
             .update(userProfiles)
             .set({
