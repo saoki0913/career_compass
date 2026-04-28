@@ -126,23 +126,23 @@ export function ConversationWorkspaceShell({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3.5 flex-1 overflow-hidden lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.75fr)]">
+        <div className="grid grid-cols-1 gap-3.5 flex-1 overflow-hidden xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.75fr)]">
           <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card">
             {mobileStatus ? (
-              <div className="border-b border-border/50 px-3 py-3 sm:px-4 lg:hidden">{mobileStatus}</div>
+              <div className="border-b border-border/50 px-3 py-3 sm:px-4 xl:hidden">{mobileStatus}</div>
             ) : null}
-            <div className="flex-1 overflow-y-auto px-3 pt-3 sm:px-4 sm:pt-4 lg:pb-4">
+            <div className="flex-1 overflow-y-auto px-3 pt-3 sm:px-4 sm:pt-4 xl:pb-4">
               {conversation}
             </div>
             {composer ? (
-              <div className="shrink-0 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-lg:pb-3 lg:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
+              <div className="shrink-0 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-xl:pb-3 xl:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
                 {composer}
               </div>
             ) : null}
           </div>
 
-          <div className="space-y-3 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
-            <div className="space-y-3 lg:flex-1 lg:overflow-y-auto lg:pr-1">{sidebar}</div>
+          <div className="hidden space-y-3 xl:flex xl:min-h-0 xl:flex-col xl:space-y-0">
+            <div className="space-y-3 xl:flex-1 xl:overflow-y-auto xl:pr-1">{sidebar}</div>
           </div>
         </div>
       </main>

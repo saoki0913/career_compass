@@ -825,7 +825,7 @@
   - **再実行時のデータ扱い**: 履歴として残す
   - 前回の作成結果は履歴として保持
   - 初回の再実行は別セッション追加で開始できる
-  - ES 生成後は `更に深掘りする` で同じセッションを再開できる
+- ES 生成後は同じセッションを再開できる。生成直後のモーダル内 `もっと深掘りして再生成する` は、いま表示中の ES 下書き document を削除してから再開する
 - **会話をやり直す**: 確認モーダル（キャンセル / 新しい会話を始める）のあとで `POST .../conversation/new` により新規セッションを開始する（`window.confirm` は使わない）
 - クレジット消費は5問回答ごとに3
 - 次質問生成のAI出力は `question` と `conversation_state` を主契約とする
@@ -836,9 +836,11 @@
 - `draft_quality_checks / causal_gaps / completion_checks` を server-side で保持し、複数人活動や大きな成果が出るケースでは `role` を draft 前に優先確認する
 - 重複質問防止のため、`asked_focuses / resolved_focuses / deferred_focuses / blocked_focuses / focus_attempt_counts / last_question_signature` を会話 state に保持する
 - `draft_ready` 到達直後は入力欄を閉じて `ガクチカESを作成` CTA を主表示にする。LLM が返した深掘り候補は `paused_question` として保持し、CTA 表示時も会話内から消さない
-- **ガクチカ ES 下書きの文字数**: UI で **300 / 400 / 500** 字のいずれかを選び、`POST /api/gakuchika/[id]/generate-es-draft` の `charLimit` に渡す。初期選択は素材 `charLimitType`（一覧・詳細 GET）に合わせ、ES 作成中はセレクターを無効化する
-- **ガクチカ ES 下書きのプロンプト / 品質ゲート**: FastAPI は ES 添削と同一の `TEMPLATE_DEFS` を正とする `backend/app/prompts/es_templates.py` の **`build_template_draft_generation_prompt`（`gakuchika`）** で生成する（旧 `gakuchika.draft_generation` 管理プロンプトは廃止。Notion 必須キーからも除外）。生成後は文字数、AI 臭、本人表現の反映、評論調の結びを検査し、必要時は 1 回だけ retry する。結びは「次の行動」ではなく、この経験での結果・得た学び・身についた能力で締める
-- **進捗バー（状況・課題・行動・結果）**: `conversation_state` の `missing_elements` と `focus_key` を正として表示する。回答送信中に `focus_key` を楽観的に消してバーを壊さない。`focus_key` が STAR 以外のときは `missing_elements` の先頭（context→task→action→result 順）を進行中としてよい
+- **ガクチカ ES 下書きの文字数**: UI で **300 / 400 / 500** 字のいずれかを選び、`POST /api/gakuchika/[id]/generate-es-draft` の `charLimit` に渡す。初期選択は素材 `charLimitType`（一覧・詳細 GET）に合わせ、ES 作成中はセレクターとセッション履歴の切り替えを無効化する
+- **ガクチカ ES 下書きの保存状態**: ES 下書き生成時に `documents` へ draft document を作成し、その ID を `conversation_state.draft_document_id` に保持する。`draft_ready` かつ `draft_text` がないセッションを resume した場合は、深掘りプロンプトではなく ES 構築プロンプトへ戻す
+- **ガクチカ ES 下書きの削除**: `POST /api/gakuchika/[id]/discard-generated-draft` はログインユーザーのみ利用可能。`sessionId` / `draft_document_id` / document 所有者が一致し、`documents.type="es"` かつ `status="draft"` の場合だけ `status="deleted"` に soft delete する。ES エディタへ移動した後の保存済み draft はこの導線では削除しない
+- **ガクチカ ES 下書きのプロンプト / 品質ゲート**: FastAPI は ES 添削と同一の `TEMPLATE_DEFS` を正とする `backend/app/prompts/es_templates.py` の **`build_template_draft_generation_prompt`（`gakuchika`）** で生成する（旧 `gakuchika.draft_generation` 管理プロンプトは廃止。Notion 必須キーからも除外）。生成後は文字数、AI 臭、本人表現の反映、評論調・抽象的な学びだけの結びを検査し、必要時は 1 回だけ retry する。結びは **「結果、OOした」** または **「結果、OOした。この経験からOOを学んだ」** の形を基本とする
+- **進捗バー（状況・課題・行動・結果）**: 表示中の質問意図に対応する `conversation_state.focus_key` を正として表示する。回答送信中に `focus_key` を楽観的に消してバーを壊さない。SSE `hint_ready` / `field_complete` では `focus_key` / `progress_label` / `coach_progress_message` を早期反映せず、次質問の文字送り表示が完了した後に `complete` payload の state を一括反映する
 - **質問順序（ES 構築）**: 原則 **状況 → 課題 → 行動 → 結果**。サーバーは骨格が未充足のとき、LLM 出力の `focus_key` を `missing_elements` の STAR 先頭欠落に正規化して進捗表示と質問の軸を一致させる
 - `もう少し整える` を選んだ時だけ、同じセッションで会話を再開する
 - ES 生成後だけ、同じ画面・同じセッションで面接向け深掘りへ進める
@@ -847,9 +849,9 @@
 - ES 生成直後に deterministic evaluator を走らせ、`strength_tags / issue_tags / deepdive_recommendation_tags / credibility_risk_tags` を state に保存する
 - `gakuchika_conversations.status=completed` は `interview_ready` の時だけ使い、`draft_ready` は `in_progress` のまま扱う
 - SSE は途中 chunk を表示用に流し、最終的な質問や CTA は complete payload の canonical 値を正とする
-- `interview_ready` 到達後は `one_line_core_answer` と `two_minute_version_outline` を主表示にした面接準備パックを出す
+- `interview_ready` 到達後はステータスだけ完了に変え、面接準備パックはユーザーが `フィードバックを表示` を押した時に `POST /api/gakuchika/[id]/interview-summary` で生成する。既存 summary があり `conversation_state.summary_stale=false` なら再生成せず返す
 - 回答送信時のUIは `質問の意図を整理中` → `次の質問を生成中...` → 次質問ストリーミング の順で表示する
-- `interview_ready` 後もユーザーが **「もっと深掘る」** を選べる。再開時は会話 `stage` を `deep_dive_active` に戻し `gakuchika_conversations.status` を `in_progress` に戻して SSE 送信を再度許可する（要約 `gakuchika_contents.summary` は保持）。継続のたび `extended_deep_dive_round` を増やし、より細かい観点の質問を促す
+- `interview_ready` 後もユーザーが **「もっと深掘る」** を選べる。再開時は会話 `stage` を `deep_dive_active` に戻し `gakuchika_conversations.status` を `in_progress` に戻して SSE 送信を再度許可する（既存 summary は保持するが `summary_stale=true` とし、UI では再生成まで隠す）。継続のたび `extended_deep_dive_round` を増やし、より細かい観点の質問を促す
 - 一覧の会話ステータスバッジは、同一セッションで継続深掘りに戻した場合 **進行中** を優先してよい（完了は `interview_ready` かつ `completed` のスナップショット時）
 - **`GET /api/gakuchika`（一覧）**: 各素材の会話ステータスは DB の最新 `gakuchika_conversations` 行から集約する。レスポンスの `conversationStatus` は `in_progress` / `completed` のみに正規化し、**`questionCount > 0` なのにステータスが取れない・不正な過去データ**は **`in_progress` にフォールバック**する
 - **一覧クライアント**: `conversationStatus` の `null` / `undefined` / 空文字 / 不正値はいずれも **未開始** としてフィルタ・グルーピングする（`getGakuchikaListStatusKey`）。**ブラウザタブが再度 visible になったとき**に `/gakuchika` 上では一覧を silent 再取得し、詳細操作後の表示ズレを減らす

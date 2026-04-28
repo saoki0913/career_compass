@@ -2,6 +2,10 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { gakuchikaContents } from "@/lib/db/schema";
 import {
+  splitInternalTelemetry,
+  type InternalCostTelemetry,
+} from "@/lib/ai/cost-summary-log";
+import {
   type GakuchikaSummary,
   type LegacySummary,
   type StructuredSummary,
@@ -101,7 +105,7 @@ async function requestStructuredSummary(
   gakuchikaTitle: string,
   draftText: string,
   messages: Message[]
-): Promise<StructuredSummary | null> {
+): Promise<{ summary: StructuredSummary; telemetry: InternalCostTelemetry | null } | null> {
   const response = await fetchFastApiInternal("/api/gakuchika/structured-summary", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -119,7 +123,28 @@ async function requestStructuredSummary(
     return null;
   }
 
-  return normalizeStructuredSummaryPayload(await response.json());
+  const raw = await response.json();
+  if (!isRecord(raw)) return null;
+  const { payload, telemetry } = splitInternalTelemetry(raw);
+  const summary = normalizeStructuredSummaryPayload(payload);
+  return summary ? { summary, telemetry } : null;
+}
+
+export async function generateGakuchikaSummaryWithTelemetry(
+  gakuchikaTitle: string,
+  draftText: string,
+  messages: Message[]
+): Promise<{ summary: GakuchikaSummary; telemetry: InternalCostTelemetry | null }> {
+  try {
+    const result = await requestStructuredSummary(gakuchikaTitle, draftText, messages);
+    if (result) {
+      return result;
+    }
+  } catch (error) {
+    console.error("[Gakuchika Summary] Structured summary generation failed:", error);
+  }
+
+  return { summary: buildFallbackSummary(messages), telemetry: null };
 }
 
 export async function generateGakuchikaSummary(
@@ -127,30 +152,34 @@ export async function generateGakuchikaSummary(
   draftText: string,
   messages: Message[]
 ): Promise<GakuchikaSummary> {
-  try {
-    const structured = await requestStructuredSummary(gakuchikaTitle, draftText, messages);
-    if (structured) {
-      return structured;
-    }
-  } catch (error) {
-    console.error("[Gakuchika Summary] Structured summary generation failed:", error);
-  }
-
-  return buildFallbackSummary(messages);
+  const result = await generateGakuchikaSummaryWithTelemetry(gakuchikaTitle, draftText, messages);
+  return result.summary;
 }
 
 export async function persistGakuchikaSummary(
   gakuchikaId: string,
   gakuchikaTitle: string,
   draftText: string,
-  messages: Message[]
+  messages: Message[],
+  metadata?: {
+    sessionId?: string | null;
+    draftDocumentId?: string | null;
+  },
 ): Promise<GakuchikaSummary> {
   const summary = await generateGakuchikaSummary(gakuchikaTitle, draftText, messages);
+  const persistedSummary =
+    metadata?.sessionId || metadata?.draftDocumentId
+      ? {
+          ...summary,
+          source_session_id: metadata.sessionId ?? null,
+          source_draft_document_id: metadata.draftDocumentId ?? null,
+        }
+      : summary;
 
   await db
     .update(gakuchikaContents)
     .set({
-      summary: JSON.stringify(summary),
+      summary: JSON.stringify(persistedSummary),
       updatedAt: new Date(),
     })
     .where(eq(gakuchikaContents.id, gakuchikaId));

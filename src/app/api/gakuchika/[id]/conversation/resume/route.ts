@@ -89,15 +89,19 @@ export async function POST(
 
     if (shouldFetchNextQuestion) {
       const pausedQuestion = conversationState.pausedQuestion?.trim();
-      if (pausedQuestion) {
+      const hasDraftText = Boolean(conversationState.draftText);
+      if (pausedQuestion && hasDraftText) {
         const stateForResume: ConversationState = {
           ...conversationState,
           stage: "deep_dive_active",
           deepdiveComplete: false,
           deepdiveStage: "es_aftercare",
           progressLabel:
-            conversationState.stage === "interview_ready" ? "さらに深掘り中" : "深掘り中",
+            conversationState.stage === "interview_ready"
+              ? "さらに深掘り中"
+              : "深掘り中",
           pausedQuestion: null,
+          summaryStale: true,
           extendedDeepDiveRound:
             conversationState.stage === "interview_ready"
               ? (conversationState.extendedDeepDiveRound ?? 0) + 1
@@ -140,8 +144,18 @@ export async function POST(
               deepdiveComplete: false,
               deepdiveStage: "es_aftercare",
               progressLabel: "さらに深掘り中",
+              summaryStale: true,
               extendedDeepDiveRound: (conversationState.extendedDeepDiveRound ?? 0) + 1,
             }
+          : conversationState.stage === "draft_ready" && !conversationState.draftText
+            ? {
+                ...conversationState,
+                stage: "es_building",
+                progressLabel: "追加で整理中",
+                readyForDraft: true,
+                deepdiveComplete: false,
+                deepdiveStage: null,
+              }
           : conversationState;
 
       const result = await getQuestionFromFastAPI(
@@ -192,7 +206,16 @@ export async function POST(
               result.conversationState.extendedDeepDiveRound ?? stateForApi.extendedDeepDiveRound,
           }
         : stateForApi;
-      nextAction = resolvedNextAction;
+      if (conversationState.stage === "interview_ready" && !conversationState.draftText) {
+        conversationState = {
+          ...conversationState,
+          stage: "deep_dive_active",
+          deepdiveComplete: false,
+          deepdiveStage: "es_aftercare",
+          progressLabel: "深掘り中",
+        };
+      }
+      nextAction = getGakuchikaNextAction(conversationState);
       status = isInterviewReady(conversationState) ? "completed" : "in_progress";
 
       await db

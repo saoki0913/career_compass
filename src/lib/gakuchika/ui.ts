@@ -5,9 +5,6 @@ export const PROCESSING_LABELS = {
   generating_question: "次の質問を生成中...",
 } as const;
 
-export const SUMMARY_POLL_INTERVAL_MS = 1500;
-export const SUMMARY_POLL_MAX_ATTEMPTS = 12;
-
 export type GakuchikaDraftCharLimit = 300 | 400 | 500;
 
 export function parseGakuchikaCharLimitType(value: unknown): GakuchikaDraftCharLimit {
@@ -33,7 +30,6 @@ export interface ConversationUpdate {
   isInterviewReady: boolean;
   conversationState: ConversationState | null;
   isAIPowered: boolean;
-  summaryPending: boolean;
 }
 
 export type PendingGakuchikaCompleteData = ConversationUpdate;

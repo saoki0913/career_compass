@@ -1,35 +1,15 @@
 import {
   buildConversationStatePatch,
-  isFocusKey,
   type ConversationState,
 } from "@/lib/gakuchika/conversation-state";
 import type { SSEProxyProgressResult } from "@/lib/fastapi/sse-proxy";
-
-interface HintPayload {
-  focusKey: string;
-  answerHint: string;
-  progressLabel: string;
-  source: "model";
-}
-
-function buildHintPayload(state: ConversationState | null): HintPayload | null {
-  if (!state?.focusKey || !state.answerHint || !state.progressLabel) {
-    return null;
-  }
-  return {
-    focusKey: state.focusKey,
-    answerHint: state.answerHint,
-    progressLabel: state.progressLabel,
-    source: "model",
-  };
-}
 
 const FORWARDED_FIELDS = new Set(["coach_progress_message", "remaining_questions_estimate"]);
 
 export function createGakuchikaStreamStateMachine(
   baseState: ConversationState,
 ) {
-  let partialState: Partial<ConversationState> = {};
+  const partialState: Partial<ConversationState> = {};
   let hasStartedQuestionStream = false;
 
   function getPartialState(): Partial<ConversationState> {
@@ -57,13 +37,7 @@ export function createGakuchikaStreamStateMachine(
     const path = event.path as string;
     const value = event.value;
 
-    if (path === "focus_key" && typeof value === "string" && isFocusKey(value)) {
-      partialState.focusKey = value;
-    } else if (path === "progress_label" && typeof value === "string") {
-      partialState.progressLabel = value;
-    } else if (path === "answer_hint" && typeof value === "string") {
-      partialState.answerHint = value;
-    } else if (path === "ready_for_draft") {
+    if (path === "ready_for_draft") {
       partialState.readyForDraft = Boolean(value);
     } else if (path === "deepdive_stage" && typeof value === "string") {
       partialState.deepdiveStage = value;
@@ -96,11 +70,6 @@ export function createGakuchikaStreamStateMachine(
         path: "remaining_questions_estimate",
         value: normalized,
       });
-    }
-
-    const hintPayload = buildHintPayload(getMergedState());
-    if (hintPayload) {
-      emitExtra.push({ type: "hint_ready", data: hintPayload });
     }
 
     return {

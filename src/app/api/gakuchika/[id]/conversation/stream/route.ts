@@ -2,14 +2,13 @@
  * Gakuchika Conversation SSE Stream API — POST: answer + next question via SSE.
  * Uses shared SSE infrastructure (fetchUpstreamSSE + createSSEProxyStream).
  */
-import { after, NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { CONVERSATION_CREDITS_PER_TURN } from "@/lib/credits";
 import { gakuchikaStreamPolicy } from "@/lib/api-route/billing/gakuchika-stream-policy";
 import { CONVERSATION_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { persistGakuchikaSummary } from "@/app/api/gakuchika/summary-server";
 import {
   getGakuchikaNextAction, getIdentity, isInterviewReady,
   safeParseConversationState, safeParseMessages, serializeConversationState,
@@ -37,7 +36,8 @@ function toSnakeState(s: ConversationState): Record<string, unknown> {
     missing_elements: s.missingElements, draft_quality_checks: s.draftQualityChecks,
     causal_gaps: s.causalGaps, completion_checks: s.completionChecks,
     ready_for_draft: s.readyForDraft, draft_readiness_reason: s.draftReadinessReason,
-    draft_text: s.draftText, strength_tags: s.strengthTags, issue_tags: s.issueTags,
+    draft_text: s.draftText, draft_document_id: s.draftDocumentId, summary_stale: s.summaryStale,
+    strength_tags: s.strengthTags, issue_tags: s.issueTags,
     deepdive_recommendation_tags: s.deepdiveRecommendationTags,
     credibility_risk_tags: s.credibilityRiskTags, deepdive_stage: s.deepdiveStage,
     deepdive_complete: s.deepdiveComplete, completion_reasons: s.completionReasons,
@@ -151,13 +151,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         const d = (ev as { data: { question?: string; conversation_state?: Record<string, unknown>; next_action?: string } }).data;
         const qText = typeof d.question === "string" && d.question ? d.question : streamedQ;
         const parsedState = d.conversation_state ? safeParseConversationState(JSON.stringify(d.conversation_state)) : sm.getMergedState();
-        const na = typeof d.next_action === "string" ? d.next_action : getGakuchikaNextAction(parsedState);
-        const ask = na === "ask";
-        const ns = {
+        const mergedState = {
           ...parsedState,
-          pausedQuestion: ask ? null : qText.trim() || parsedState.pausedQuestion,
+          pausedQuestion: qText.trim() || parsedState.pausedQuestion,
         };
-        const done = ns.stage === "interview_ready";
+        const ns = mergedState.stage === "interview_ready" && !mergedState.draftText
+          ? {
+              ...mergedState,
+              stage: "deep_dive_active" as const,
+              deepdiveComplete: false,
+              deepdiveStage: "es_aftercare",
+              progressLabel: "深掘り中",
+              pausedQuestion: qText.trim() || mergedState.pausedQuestion,
+            }
+          : mergedState;
+        const na = getGakuchikaNextAction(ns);
+        const ask = na === "ask";
+        ns.pausedQuestion = ask ? null : qText.trim() || ns.pausedQuestion;
+        const done = isInterviewReady(ns);
         if (ask && qText) messages.push({ id: crypto.randomUUID(), role: "assistant", content: qText });
         await db.update(gakuchikaConversations).set({
           messages, questionCount: newQC, status: done ? "completed" : "in_progress",
@@ -167,16 +178,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           try { await gakuchikaStreamPolicy.confirm({ userId: userId!, gakuchikaId, newQuestionCount: newQC }, { kind: "billable_success", creditsConsumed: CONVERSATION_CREDITS_PER_TURN, freeQuotaUsed: false }, null); }
           catch (e) { console.error("[Gakuchika Stream] Credit confirmation failed:", e); }
         }
-        if (ns.stage === "interview_ready" && ns.draftText) {
-          const snap = messages.map(m => ({ ...m }));
-          after(async () => { try { await persistGakuchikaSummary(gakuchikaId, gakuchika.title, ns.draftText!, snap); } catch (e) { console.error("[Gakuchika Stream] persistGakuchikaSummary failed:", e); } });
-        }
         logOnce("success", shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0);
         void incrementDailyTokenCount(identity, computeTotalTokens(latestTelemetry));
         return { replaceEvent: { type: "complete", data: {
           messages, nextQuestion: ask ? qText : null, questionCount: newQC, isCompleted: done,
           conversationState: ns, nextAction: na, isInterviewReady: isInterviewReady(ns),
-          isAIPowered: true, summaryPending: ns.stage === "interview_ready",
+          isAIPowered: true,
         } } };
       },
       onError: async () => { logOnce("failed", 0); },

@@ -297,16 +297,22 @@ export async function POST(
     const { payload, telemetry } = splitInternalTelemetry(rawData);
     const data = payload as FastAPIDraftResponse;
     const draftNormalized = normalizeEsDraftSingleParagraph(data.draft);
+    if (!draftNormalized) {
+      if (reservationId) await cancelReservation(reservationId);
+      logAiCreditCostSummary({
+        feature: "gakuchika_draft",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
+      return NextResponse.json(
+        { error: "ES生成に失敗しました" },
+        { status: 502 },
+      );
+    }
 
-    logAiCreditCostSummary({
-      feature: "gakuchika_draft",
-      requestId,
-      status: "success",
-      creditsUsed: reservationId ? 6 : 0,
-      telemetry,
-    });
-    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
-
+    const documentId = randomUUID();
     const updatedConversationState = {
       ...conversationState,
       stage: (["deep_dive_active", "interview_ready"].includes(conversationState.stage)
@@ -316,6 +322,8 @@ export async function POST(
       progressLabel: "ESを作成できます",
       answerHint: "必要なら、この本文を起点に面接向けの深掘りを続けられます。",
       draftText: draftNormalized,
+      draftDocumentId: documentId,
+      summaryStale: true,
       deferredFocuses: Array.from(new Set([...conversationState.deferredFocuses, "learning"])) as typeof conversationState.deferredFocuses,
       strengthTags: data.draft_diagnostics?.strength_tags ?? conversationState.strengthTags,
       issueTags: data.draft_diagnostics?.issue_tags ?? conversationState.issueTags,
@@ -325,17 +333,7 @@ export async function POST(
         data.draft_diagnostics?.credibility_risk_tags ?? conversationState.credibilityRiskTags,
     };
 
-    await db
-      .update(gakuchikaConversations)
-      .set({
-        status: "in_progress",
-        starScores: serializeConversationState(updatedConversationState),
-        updatedAt: new Date(),
-      })
-      .where(eq(gakuchikaConversations.id, conversation.id));
-
     // Create ES document with the generated draft
-    const documentId = randomUUID();
     const documentBlocks = [
       {
         id: randomUUID(),
@@ -350,22 +348,48 @@ export async function POST(
       },
     ];
 
-    await db.insert(documents).values({
-      id: documentId,
-      userId: userId || undefined,
-      guestId: guestId || undefined,
-      type: "es",
-      title: `${gakuchika.title} ガクチカ`,
-      content: JSON.stringify(documentBlocks),
-      status: "draft",
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    await db.transaction(async (tx) => {
+      await tx.insert(documents).values({
+        id: documentId,
+        userId: userId || undefined,
+        guestId: guestId || undefined,
+        type: "es",
+        title: `${gakuchika.title} ガクチカ`,
+        content: JSON.stringify(documentBlocks),
+        status: "draft",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      await tx
+        .update(gakuchikaConversations)
+        .set({
+          status: "in_progress",
+          starScores: serializeConversationState(updatedConversationState),
+          updatedAt: new Date(),
+        })
+        .where(eq(gakuchikaConversations.id, conversation.id));
     });
 
     // Confirm credit reservation only after all persistence succeeds
+    let creditsUsed = 0;
     if (reservationId) {
-      await confirmReservation(reservationId);
+      try {
+        await confirmReservation(reservationId);
+        creditsUsed = 6;
+        reservationId = null;
+      } catch {
+        creditsUsed = 0;
+      }
     }
+    logAiCreditCostSummary({
+      feature: "gakuchika_draft",
+      requestId,
+      status: "success",
+      creditsUsed,
+      telemetry,
+    });
+    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
 
     return NextResponse.json({
       draft: draftNormalized,

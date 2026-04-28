@@ -112,7 +112,7 @@ function BuildItemPill({
     <div
       aria-label={`${label}: ${statusText}`}
       className={cn(
-        "flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+        "flex min-w-0 items-center justify-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium transition-colors",
         chipClass,
       )}
     >
@@ -160,31 +160,36 @@ export function NaturalProgressStatus({
     return (
       <div
         className={cn(
-          "flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground",
+          "space-y-2 text-[11px] text-muted-foreground",
           className,
         )}
         role="status"
         aria-live="polite"
       >
-        <span className="inline-flex items-center gap-1 font-medium text-foreground/80">
-          {questionDisplay}
-        </span>
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <span className="shrink-0 font-medium text-foreground/80">{questionDisplay}</span>
+          {primaryLine ? (
+            <span className="min-w-0 truncate text-right text-muted-foreground">{primaryLine}</span>
+          ) : null}
+        </div>
+        <div className="grid grid-cols-4 gap-1">
         {BUILD_TRACK_KEYS.map((key) => {
           const status = getBuildItemStatus(state, key);
           return (
             <span
               key={key}
-              className="inline-flex items-center gap-1"
+              className={cn(
+                "inline-flex min-w-0 items-center justify-center gap-1 rounded-full border px-1.5 py-1",
+                STATUS_CHIP_CLASS[status],
+              )}
               aria-label={`${BUILD_TRACK_LABELS[key]}: ${status === "done" ? "完了" : status === "current" ? "進行中" : "未着手"}`}
             >
               <span className={cn("h-1.5 w-1.5 rounded-full", STATUS_DOT_CLASS[status])} aria-hidden />
-              {BUILD_TRACK_LABELS[key]}
+              <span className="truncate">{BUILD_TRACK_LABELS[key]}</span>
             </span>
           );
         })}
-        {primaryLine ? (
-          <span className="basis-full text-[11px] text-muted-foreground">{primaryLine}</span>
-        ) : null}
+        </div>
       </div>
     );
   }
@@ -203,7 +208,7 @@ export function NaturalProgressStatus({
         <span className="text-[11px] text-muted-foreground">{questionDisplay}</span>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5">
         {BUILD_TRACK_KEYS.map((key) => (
           <BuildItemPill
             key={key}

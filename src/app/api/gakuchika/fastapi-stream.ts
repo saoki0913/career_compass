@@ -207,6 +207,8 @@ export async function getQuestionFromFastAPI(
               ready_for_draft: conversationState.readyForDraft,
               draft_readiness_reason: conversationState.draftReadinessReason,
               draft_text: conversationState.draftText,
+              draft_document_id: conversationState.draftDocumentId,
+              summary_stale: conversationState.summaryStale,
               input_richness_mode: conversationState.inputRichnessMode,
               draft_quality_checks: conversationState.draftQualityChecks,
               causal_gaps: conversationState.causalGaps,

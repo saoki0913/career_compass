@@ -7,11 +7,13 @@ import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
 import { appendOptimisticUserMessage, rollbackOptimisticMessageById } from "@/hooks/conversation/optimistic-message";
 import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
-import { notifyGakuchikaDraftGenerated } from "@/lib/notifications";
+import { notifyGakuchikaDraftGenerated, notifyGakuchikaInterviewReady } from "@/lib/notifications";
 import {
+  discardGeneratedGakuchikaDraft,
   fetchGakuchikaConversation,
   fetchGakuchikaDetail,
   generateGakuchikaEsDraft,
+  generateGakuchikaInterviewSummary,
   resumeGakuchikaConversation,
   startGakuchikaConversation,
   streamGakuchikaConversation,
@@ -29,8 +31,6 @@ import {
   getProcessingPhase,
   normalizeGakuchikaMessages,
   PROCESSING_LABELS,
-  SUMMARY_POLL_INTERVAL_MS,
-  SUMMARY_POLL_MAX_ATTEMPTS,
   parseGakuchikaCharLimitType,
   type AssistantProcessingPhase,
   type ConversationUpdate,
@@ -81,6 +81,7 @@ export function useGakuchikaConversationController({
   const [showStarInfo, setShowStarInfo] = useState(false);
   const [summary, setSummary] = useState<GakuchikaSummary>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
+  const [summaryRequested, setSummaryRequested] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [assistantPhase, setAssistantPhase] = useState<AssistantProcessingPhase>("idle");
   const [streamingTargetText, setStreamingTargetText] = useState("");
@@ -121,10 +122,13 @@ export function useGakuchikaConversationController({
 
       if (update.isInterviewReady) {
         setSummary(null);
-        setIsSummaryLoading(update.summaryPending);
+        setIsSummaryLoading(false);
+        setSummaryRequested(false);
+        notifyGakuchikaInterviewReady();
       } else if (!update.isCompleted) {
         setSummary(null);
         setIsSummaryLoading(false);
+        setSummaryRequested(false);
       }
     });
   }, []);
@@ -145,25 +149,6 @@ export function useGakuchikaConversationController({
 
     return () => window.clearTimeout(timer);
   }, [applyConversationUpdate, isPlaybackComplete, isTextStreaming, pendingCompleteData]);
-
-  const fetchSummaryIfAvailable = useCallback(async (): Promise<boolean> => {
-    try {
-      const response = await fetchGakuchikaDetail(gakuchikaId);
-      if (!response.ok) return false;
-
-      const data = await response.json();
-      const parsedSummary = parseGakuchikaSummary(data.gakuchika?.summary ?? null);
-      if (!parsedSummary) return false;
-
-      startTransition(() => {
-        setSummary(parsedSummary);
-        setIsSummaryLoading(false);
-      });
-      return true;
-    } catch {
-      return false;
-    }
-  }, [gakuchikaId]);
 
   const fetchConversation = useCallback(async (sessionId?: string) => {
     try {
@@ -187,6 +172,7 @@ export function useGakuchikaConversationController({
         setConversationState(getDefaultConversationState());
         setSummary(null);
         setIsSummaryLoading(false);
+        setSummaryRequested(false);
       } else {
         setConversationStarted(true);
         setMessages(normalizeGakuchikaMessages(conversationData.messages));
@@ -205,17 +191,9 @@ export function useGakuchikaConversationController({
         setGakuchikaTitle(gakuchikaData.gakuchika?.title || "");
         setGakuchikaContent(gakuchikaData.gakuchika?.content || null);
         setDraftCharLimit(parseGakuchikaCharLimitType(gakuchikaData.gakuchika?.charLimitType));
-        const parsedSummary = parseGakuchikaSummary(gakuchikaData.gakuchika?.summary ?? null);
-        if (parsedSummary) {
-          setSummary(parsedSummary);
-          setIsSummaryLoading(false);
-        } else if (conversationData.isInterviewReady) {
-          setSummary(null);
-          setIsSummaryLoading(true);
-        } else {
-          setSummary(null);
-          setIsSummaryLoading(false);
-        }
+        setSummary(null);
+        setIsSummaryLoading(false);
+        setSummaryRequested(false);
       }
     } catch (err) {
       setError(
@@ -240,37 +218,51 @@ export function useGakuchikaConversationController({
     void fetchConversation();
   }, [fetchConversation]);
 
-  useEffect(() => {
-    if (!isInterviewReadyState || !isSummaryLoading || summary) return;
-
-    let cancelled = false;
-    let attempts = 0;
-
-    const poll = async () => {
-      while (!cancelled && attempts < SUMMARY_POLL_MAX_ATTEMPTS) {
-        attempts += 1;
-        const found = await fetchSummaryIfAvailable();
-        if (found || cancelled) return;
-        const delayMs = attempts < 5 ? SUMMARY_POLL_INTERVAL_MS : SUMMARY_POLL_INTERVAL_MS * 2;
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-
-      if (!cancelled) {
-        setIsSummaryLoading(false);
-      }
-    };
-
-    void poll();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [fetchSummaryIfAvailable, isInterviewReadyState, isSummaryLoading, summary]);
-
-  const retrySummary = useCallback(() => {
+  const retrySummary = useCallback(async () => {
+    if (!currentSessionId) return;
+    setSummaryRequested(true);
     setSummary(null);
     setIsSummaryLoading(true);
-  }, []);
+    try {
+      const response = await generateGakuchikaInterviewSummary(gakuchikaId, {
+        sessionId: currentSessionId,
+      });
+      if (!response.ok) {
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "GAKUCHIKA_INTERVIEW_SUMMARY_FAILED",
+            userMessage: "面接フィードバックの生成に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleGenerateInterviewSummary",
+        );
+      }
+      const data = await response.json();
+      const parsedSummary = parseGakuchikaSummary(data.summary ?? null);
+      setSummary(parsedSummary);
+      if (data.conversationState) {
+        setConversationState(data.conversationState);
+      }
+      setError(null);
+    } catch (err) {
+      setError(
+        reportUserFacingError(
+          err,
+          {
+            code: "GAKUCHIKA_INTERVIEW_SUMMARY_FAILED",
+            userMessage: "面接フィードバックの生成に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleGenerateInterviewSummary",
+        ),
+      );
+    } finally {
+      setIsSummaryLoading(false);
+    }
+  }, [currentSessionId, gakuchikaId]);
 
   const startDeepDive = useCallback(async () => {
     setIsStarting(true);
@@ -391,26 +383,9 @@ export function useGakuchikaConversationController({
             continue;
           }
 
-          if (event.type === "hint_ready") {
-            setConversationState((prev) =>
-              prev
-                ? {
-                    ...prev,
-                    focusKey: event.data?.focusKey || prev.focusKey,
-                    answerHint: event.data?.answerHint || prev.answerHint,
-                    progressLabel: event.data?.progressLabel || prev.progressLabel,
-                  }
-                : prev,
-            );
-          } else if (event.type === "field_complete" && event.path === "coach_progress_message") {
-            // Early-hydrate the coach progress message so NaturalProgressStatus can update
-            // before the full complete event arrives.
-            const nextValue = typeof event.value === "string" ? event.value : null;
-            setConversationState((prev) =>
-              prev
-                ? { ...prev, coachProgressMessage: nextValue }
-                : prev,
-            );
+          if (event.type === "field_complete" && event.path === "coach_progress_message") {
+            // Keep progress state aligned with the visible assistant question.
+            // The complete payload is applied after question playback finishes.
           } else if (event.type === "progress" && !hasReceivedQuestionStream) {
             setAssistantPhase(getProcessingPhase(event.step));
           } else if (
@@ -432,7 +407,6 @@ export function useGakuchikaConversationController({
               isInterviewReady: Boolean(data.isInterviewReady),
               conversationState: data.conversationState || getDefaultConversationState(),
               isAIPowered: data.isAIPowered ?? true,
-              summaryPending: Boolean(data.summaryPending),
             };
             const fromComplete =
               typeof nextData.nextQuestion === "string" ? nextData.nextQuestion.trim() : "";
@@ -508,6 +482,30 @@ export function useGakuchikaConversationController({
     await fetchConversation(sessionId);
   }, [clearDraftModalState, fetchConversation]);
 
+  const applySessionPayload = useCallback((data: {
+    conversation?: { id?: string | null };
+    messages?: unknown;
+    nextQuestion?: string | null;
+    questionCount?: number;
+    isCompleted?: boolean;
+    isInterviewReady?: boolean;
+    conversationState?: ConversationState | null;
+    sessions?: Session[];
+    isAIPowered?: boolean;
+  }) => {
+    setConversationStarted(true);
+    setCurrentSessionId(data.conversation?.id || null);
+    setMessages(normalizeGakuchikaMessages(data.messages));
+    setNextQuestion(data.nextQuestion || null);
+    setQuestionCount(data.questionCount || 0);
+    setIsCompleted(Boolean(data.isCompleted));
+    setIsInterviewReadyState(Boolean(data.isInterviewReady));
+    setConversationState(data.conversationState || getDefaultConversationState());
+    setSessions(data.sessions || []);
+    setIsAIPowered(data.isAIPowered ?? true);
+    setError(null);
+  }, []);
+
   const resumeSession = useCallback(async () => {
     if (!acquireLock("深掘りを再開中")) return;
     clearDraftModalState();
@@ -532,17 +530,7 @@ export function useGakuchikaConversationController({
 
       const data = await response.json();
 
-      setConversationStarted(true);
-      setCurrentSessionId(data.conversation?.id || null);
-      setMessages(normalizeGakuchikaMessages(data.messages));
-      setNextQuestion(data.nextQuestion || null);
-      setQuestionCount(data.questionCount || 0);
-      setIsCompleted(Boolean(data.isCompleted));
-      setIsInterviewReadyState(Boolean(data.isInterviewReady));
-      setConversationState(data.conversationState || getDefaultConversationState());
-      setSessions(data.sessions || []);
-      setIsAIPowered(data.isAIPowered ?? true);
-      setError(null);
+      applySessionPayload(data);
     } catch (err) {
       setError(
         reportUserFacingError(
@@ -560,7 +548,75 @@ export function useGakuchikaConversationController({
       setIsResumingSession(false);
       releaseLock();
     }
-  }, [acquireLock, clearDraftModalState, currentSessionId, gakuchikaId, releaseLock]);
+  }, [acquireLock, applySessionPayload, clearDraftModalState, currentSessionId, gakuchikaId, releaseLock]);
+
+  const discardDraftAndResumeSession = useCallback(async () => {
+    if (!acquireLock("ES下書きを削除して深掘りを再開中")) return;
+    const documentId = generatedDocumentId || conversationState?.draftDocumentId || null;
+    setIsResumingSession(true);
+    try {
+      if (documentId) {
+        const discardResponse = await discardGeneratedGakuchikaDraft(gakuchikaId, {
+          sessionId: currentSessionId,
+          documentId,
+        });
+        if (!discardResponse.ok) {
+          throw await parseApiErrorResponse(
+            discardResponse,
+            {
+              code: "GAKUCHIKA_DRAFT_DISCARD_FAILED",
+              userMessage: "ES下書きの削除に失敗しました。",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: true,
+            },
+            "GakuchikaPage.handleDiscardDraftAndResumeSession",
+          );
+        }
+      }
+      clearDraftModalState();
+      const response = await resumeGakuchikaConversation(gakuchikaId, {
+        sessionId: currentSessionId,
+      });
+      if (!response.ok) {
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "GAKUCHIKA_CONVERSATION_RESUME_FAILED",
+            userMessage: "深掘りの再開に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleDiscardDraftAndResumeSession",
+        );
+      }
+      applySessionPayload(await response.json());
+    } catch (err) {
+      setError(
+        reportUserFacingError(
+          err,
+          {
+            code: "GAKUCHIKA_DRAFT_DISCARD_RESUME_FAILED",
+            userMessage: "深掘りの再開に失敗しました。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaPage.handleDiscardDraftAndResumeSession",
+        ),
+      );
+    } finally {
+      setIsResumingSession(false);
+      releaseLock();
+    }
+  }, [
+    acquireLock,
+    applySessionPayload,
+    clearDraftModalState,
+    conversationState?.draftDocumentId,
+    currentSessionId,
+    gakuchikaId,
+    generatedDocumentId,
+    releaseLock,
+  ]);
 
   const generateDraft = useCallback(async () => {
     if (!isDraftReady(conversationState) || isGeneratingDraft) return;
@@ -639,9 +695,9 @@ export function useGakuchikaConversationController({
   const gakuchikaDraftHelperText = interviewReady
     ? "面接で使う補足まで整理済みです。必要なら一覧やESへ戻れます。"
     : generatedDraft
-      ? "ES を起点に、この画面から更に深掘りできます。"
+      ? "ES を起点に、この画面から更に深掘りできます。モーダルから深掘りすると現在のES下書きは削除されます。"
       : draftReady
-        ? "ガクチカESを作成できます。深掘りを続けることもできます。"
+        ? "ガクチカESを作成できます。追加で整える場合はES生成前の材料整理として続けられます。"
         : "材料が揃うとガクチカESを作成できます。";
 
   const currentSessionIndex = currentSessionId
@@ -669,6 +725,7 @@ export function useGakuchikaConversationController({
     gakuchikaContent,
     showStarInfo,
     summary,
+    summaryRequested,
     isSummaryLoading,
     sessions,
     assistantPhase,
@@ -710,6 +767,7 @@ export function useGakuchikaConversationController({
     gakuchikaContent,
     showStarInfo,
     summary,
+    summaryRequested,
     isSummaryLoading,
     sessions,
     assistantPhase,
@@ -746,6 +804,7 @@ export function useGakuchikaConversationController({
       send,
       selectSession,
       resumeSession,
+      discardDraftAndResumeSession,
       generateDraft,
       restartConversation,
       confirmRestartConversation,

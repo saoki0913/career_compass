@@ -41,6 +41,8 @@ describe("api/gakuchika/shared conversation state", () => {
       readyForDraft: true,
       draftReadinessReason: "ES本文の材料は揃っています。",
       draftText: "私は学園祭運営で導線改善に取り組んだ。",
+      draftDocumentId: "doc-1",
+      summaryStale: true,
       strengthTags: ["ownership_visible"],
       issueTags: ["learning_generic"],
       deepdiveRecommendationTags: ["deepen_learning_transfer"],

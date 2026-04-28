@@ -63,6 +63,8 @@ export interface ConversationState {
   readyForDraft: boolean;
   draftReadinessReason: string;
   draftText: string | null;
+  draftDocumentId: string | null;
+  summaryStale: boolean;
   strengthTags: string[];
   issueTags: string[];
   deepdiveRecommendationTags: string[];
@@ -127,6 +129,8 @@ export function getDefaultConversationState(): ConversationState {
     readyForDraft: false,
     draftReadinessReason: "",
     draftText: null,
+    draftDocumentId: null,
+    summaryStale: false,
     strengthTags: [],
     issueTags: [],
     deepdiveRecommendationTags: [],
@@ -282,6 +286,8 @@ function parseLegacyState(value: Record<string, unknown>, status: string | null 
     readyForDraft: status === "completed",
     draftReadinessReason: "",
     draftText: null,
+    draftDocumentId: null,
+    summaryStale: false,
     strengthTags: [],
     issueTags: [],
     deepdiveRecommendationTags: [],
@@ -325,9 +331,14 @@ export function safeParseConversationState(json: string | null, status?: string 
     const legacy = parseLegacyState(parsed, status);
     if (legacy) return legacy;
 
-    const stage = normalizeString(parsed.stage) as ConversationStage | null;
+    const rawStage = normalizeString(parsed.stage) as ConversationStage | null;
     const focusKeyRaw = normalizeString(parsed.focus_key ?? parsed.focusKey);
     const focusKey = focusKeyRaw && isFocusKey(focusKeyRaw) ? focusKeyRaw : null;
+    const draftText = normalizeString(parsed.draft_text ?? parsed.draftText);
+    const stage =
+      rawStage === "interview_ready" && !draftText
+        ? "deep_dive_active"
+        : rawStage;
 
     return {
       stage:
@@ -344,7 +355,9 @@ export function safeParseConversationState(json: string | null, status?: string 
       completionChecks: normalizeCompletionChecks(parsed.completion_checks ?? parsed.completionChecks),
       readyForDraft: Boolean(parsed.ready_for_draft ?? parsed.readyForDraft),
       draftReadinessReason: String(parsed.draft_readiness_reason ?? parsed.draftReadinessReason ?? "").trim(),
-      draftText: normalizeString(parsed.draft_text ?? parsed.draftText),
+      draftText,
+      draftDocumentId: normalizeString(parsed.draft_document_id ?? parsed.draftDocumentId),
+      summaryStale: Boolean(parsed.summary_stale ?? parsed.summaryStale),
       strengthTags: normalizeStringList(parsed.strength_tags ?? parsed.strengthTags),
       issueTags: normalizeStringList(parsed.issue_tags ?? parsed.issueTags),
       deepdiveRecommendationTags: normalizeStringList(
@@ -390,6 +403,8 @@ export function serializeConversationState(state: ConversationState): string {
     ready_for_draft: state.readyForDraft,
     draft_readiness_reason: state.draftReadinessReason,
     draft_text: state.draftText,
+    draft_document_id: state.draftDocumentId,
+    summary_stale: state.summaryStale,
     strength_tags: state.strengthTags,
     issue_tags: state.issueTags,
     deepdive_recommendation_tags: state.deepdiveRecommendationTags,
@@ -451,6 +466,12 @@ export function buildConversationStatePatch(
     pausedQuestion: Object.prototype.hasOwnProperty.call(patch, "pausedQuestion")
       ? (patch.pausedQuestion ?? null)
       : current.pausedQuestion,
+    draftDocumentId: Object.prototype.hasOwnProperty.call(patch, "draftDocumentId")
+      ? (patch.draftDocumentId ?? null)
+      : current.draftDocumentId,
+    summaryStale: Object.prototype.hasOwnProperty.call(patch, "summaryStale")
+      ? Boolean(patch.summaryStale)
+      : current.summaryStale,
   };
 }
 
@@ -460,7 +481,7 @@ export function isDraftReady(state: ConversationState | null | undefined): boole
 }
 
 export function isInterviewReady(state: ConversationState | null | undefined): boolean {
-  return state?.stage === "interview_ready";
+  return state?.stage === "interview_ready" && Boolean(state.draftText);
 }
 
 export function hasDraftText(state: ConversationState | null | undefined): boolean {
@@ -471,7 +492,7 @@ export function getGakuchikaNextAction(
   state: ConversationState | null | undefined,
 ): GakuchikaNextAction {
   if (!state) return "ask";
-  if (state.stage === "interview_ready") return "show_interview_ready";
+  if (isInterviewReady(state)) return "show_interview_ready";
   if (state.stage === "draft_ready") {
     return state.draftText ? "continue_deep_dive" : "show_generate_draft_cta";
   }
@@ -486,14 +507,15 @@ export function getBuildItemStatus(
   if (state.stage !== "es_building" && isDraftReady(state)) {
     return "done";
   }
+  const fk = state.focusKey;
+  const focusIsStar = fk !== null && (BUILD_TRACK_KEYS as readonly string[]).includes(fk);
+  if (focusIsStar) {
+    if (key === fk) return "current";
+    return state.missingElements.includes(key) ? "pending" : "done";
+  }
   // ES 材料フェーズで missing が空なのにまだ es_building のとき、サーバーは「揃った」とみなすが
   // ユーザーは直近の AI 質問に未回答のことがある。全面「完了」にしない。
   if (state.stage === "es_building" && state.missingElements.length === 0) {
-    const fk = state.focusKey;
-    if (fk && (BUILD_TRACK_KEYS as readonly string[]).includes(fk)) {
-      if (key === fk) return "current";
-      return "done";
-    }
     // focusKey が無い間（送信中の一瞬など）は誤って「状況まで完了」と出さない
     return "pending";
   }
@@ -503,8 +525,6 @@ export function getBuildItemStatus(
   if (state.focusKey === key) {
     return "current";
   }
-  const fk = state.focusKey;
-  const focusIsStar = fk !== null && (BUILD_TRACK_KEYS as readonly string[]).includes(fk);
   if (!focusIsStar) {
     const firstMissing = BUILD_TRACK_KEYS.find((k) => state.missingElements.includes(k));
     if (firstMissing === key) {

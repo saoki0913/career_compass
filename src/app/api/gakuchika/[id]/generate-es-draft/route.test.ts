@@ -5,6 +5,7 @@ const {
   dbSelectMock,
   dbUpdateMock,
   dbInsertMock,
+  dbTransactionMock,
   reserveCreditsMock,
   confirmReservationMock,
   cancelReservationMock,
@@ -20,6 +21,7 @@ const {
   dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
   dbInsertMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
   confirmReservationMock: vi.fn(),
   cancelReservationMock: vi.fn(),
@@ -38,6 +40,7 @@ vi.mock("@/lib/db", () => ({
     select: dbSelectMock,
     update: dbUpdateMock,
     insert: dbInsertMock,
+    transaction: dbTransactionMock,
   },
 }));
 
@@ -90,6 +93,7 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
     dbSelectMock.mockReset();
     dbUpdateMock.mockReset();
     dbInsertMock.mockReset();
+    dbTransactionMock.mockReset();
     reserveCreditsMock.mockReset();
     confirmReservationMock.mockReset();
     cancelReservationMock.mockReset();
@@ -152,6 +156,12 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
     });
     dbInsertMock.mockReturnValue({
       values: vi.fn().mockResolvedValue(undefined),
+    });
+    dbTransactionMock.mockImplementation(async (callback) => {
+      await callback({
+        insert: dbInsertMock,
+        update: dbUpdateMock,
+      });
     });
     getIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     enforceRateLimitLayersMock.mockResolvedValue(null);
@@ -249,6 +259,59 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
         draft_readiness_reason: "ES本文の材料は揃っています。",
       }),
     );
+    expect(serializeConversationStateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftText: "私は学園祭実行委員として模擬店エリアの導線改善に取り組みました。",
+        draftDocumentId: expect.any(String),
+        summaryStale: true,
+      }),
+    );
     expect(confirmReservationMock).toHaveBeenCalledWith("res-1");
+  });
+
+  it("does not persist or confirm credits when normalized draft is empty", async () => {
+    normalizeEsDraftSingleParagraphMock.mockReturnValueOnce("");
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          draft: "   ",
+          char_count: 0,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const { POST } = await import("@/app/api/gakuchika/[id]/generate-es-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/gakuchika/g-1/generate-es-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "g-1" }) });
+
+    expect(response.status).toBe(502);
+    expect(dbTransactionMock).not.toHaveBeenCalled();
+    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+  });
+
+  it("returns the persisted draft even if credit confirmation fails after persistence", async () => {
+    confirmReservationMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+
+    const { POST } = await import("@/app/api/gakuchika/[id]/generate-es-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/gakuchika/g-1/generate-es-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "g-1" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.documentId).toEqual(expect.any(String));
+    expect(dbTransactionMock).toHaveBeenCalled();
+    expect(cancelReservationMock).not.toHaveBeenCalled();
   });
 });

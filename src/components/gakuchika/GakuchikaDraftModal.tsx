@@ -12,6 +12,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -100,6 +111,9 @@ const DraftBody = memo(function DraftBody({
           ) : null}
         </div>
       ) : null}
+      <div className="mb-3 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
+        「もっと深掘りして再生成する」を選ぶと、今表示しているES下書きは削除されます。残したい場合は先にESを開いてください。
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-border/50 bg-card px-4 py-4 shadow-sm">
         <p className="whitespace-pre-wrap text-base leading-relaxed text-foreground">
           {draft.trim() || "本文がありません。"}
@@ -146,12 +160,26 @@ const DraftFooter = memo(function DraftFooter({
         <Button
           variant="outline"
           className="rounded-full"
-          onClick={onDeepDive}
           disabled={isSaving}
+          asChild
         >
-          もっと深掘りして再生成する
+          <AlertDialogTrigger>もっと深掘りして再生成する</AlertDialogTrigger>
         </Button>
       </div>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>このES下書きを削除しますか？</AlertDialogTitle>
+          <AlertDialogDescription>
+            深掘りを再開すると、今表示しているES下書きは削除されます。削除後は会話を続けてから再生成します。
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>キャンセル</AlertDialogCancel>
+          <AlertDialogAction onClick={onDeepDive}>
+            削除して深掘りする
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
     </div>
   );
 });
@@ -169,7 +197,7 @@ export const GakuchikaDraftModal = memo(function GakuchikaDraftModal({
   const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY);
 
   const title = "生成したガクチカES";
-  const description = "内容を確認して開くか、深掘りして改善できます。";
+  const description = "内容を確認して開くか、現在の下書きを削除して深掘りから作り直せます。";
 
   if (isMobile) {
     return (
@@ -179,7 +207,7 @@ export const GakuchikaDraftModal = memo(function GakuchikaDraftModal({
       >
         <SheetContent
           side="bottom"
-          className="flex h-[85dvh] flex-col rounded-t-2xl border-0 p-0"
+          className="flex h-[92dvh] flex-col rounded-t-2xl border-0 p-0"
         >
           <SheetHeader className="shrink-0 border-b border-border/60 px-4 py-3 text-left">
             <SheetTitle className="text-lg">{title}</SheetTitle>
@@ -188,13 +216,15 @@ export const GakuchikaDraftModal = memo(function GakuchikaDraftModal({
             </SheetDescription>
           </SheetHeader>
           <DraftBody draft={draft} charLimit={charLimit} draftQuality={draftQuality} mobile />
+        <AlertDialog>
           <DraftFooter
             isSaving={isSaving}
             onSave={onSave}
             onDeepDive={onDeepDive}
             mobile
           />
-        </SheetContent>
+        </AlertDialog>
+      </SheetContent>
       </Sheet>
     );
   }
@@ -204,7 +234,7 @@ export const GakuchikaDraftModal = memo(function GakuchikaDraftModal({
       open={isOpen}
       onOpenChange={(open) => { if (!open) onClose(); }}
     >
-      <DialogContent className="flex max-h-[min(80vh,720px)] max-w-2xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
+      <DialogContent className="flex max-h-[min(92vh,920px)] max-w-6xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
         <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4">
           <DialogTitle className="text-xl">{title}</DialogTitle>
           <DialogDescription className="mt-2 text-base leading-snug text-muted-foreground">
@@ -212,12 +242,14 @@ export const GakuchikaDraftModal = memo(function GakuchikaDraftModal({
           </DialogDescription>
         </DialogHeader>
         <DraftBody draft={draft} charLimit={charLimit} draftQuality={draftQuality} mobile={false} />
-        <DraftFooter
-          isSaving={isSaving}
-          onSave={onSave}
-          onDeepDive={onDeepDive}
-          mobile={false}
-        />
+        <AlertDialog>
+          <DraftFooter
+            isSaving={isSaving}
+            onSave={onSave}
+            onDeepDive={onDeepDive}
+            mobile={false}
+          />
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

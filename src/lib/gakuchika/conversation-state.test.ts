@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildConversationStatePatch,
+  getGakuchikaNextAction,
   getBuildItemStatus,
   safeParseMessages,
   safeParseConversationState,
@@ -23,6 +24,8 @@ function baseState(overrides: Partial<ConversationState> = {}): ConversationStat
     readyForDraft: false,
     draftReadinessReason: "",
     draftText: null,
+    draftDocumentId: null,
+    summaryStale: false,
     strengthTags: [],
     issueTags: [],
     deepdiveRecommendationTags: [],
@@ -123,9 +126,33 @@ describe("conversation-state adapters", () => {
       progressLabel: "ES作成可",
       readyForDraft: true,
       draftText: "私は...",
+      draftDocumentId: "doc-1",
+      summaryStale: true,
     });
 
     expect(safeParseConversationState(serializeConversationState(state), "completed")).toEqual(state);
+  });
+
+  it("downgrades interview_ready without a draft text and keeps persisted draft metadata", () => {
+    const parsed = safeParseConversationState(JSON.stringify({
+      stage: "interview_ready",
+      draft_text: null,
+      draft_document_id: "doc-1",
+      summary_stale: true,
+    }));
+
+    expect(parsed.stage).toBe("deep_dive_active");
+    expect(parsed.draftDocumentId).toBe("doc-1");
+    expect(parsed.summaryStale).toBe(true);
+  });
+
+  it("does not expose interview-ready action without a generated draft text", () => {
+    const state = baseState({
+      stage: "interview_ready",
+      draftText: null,
+    });
+
+    expect(getGakuchikaNextAction(state)).toBe("ask");
   });
 
   it("merges partial patches without dropping array fields", () => {
