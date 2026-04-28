@@ -182,7 +182,8 @@ def _build_gakuchika_draft_quality_report(
         warnings.append("定型的・抽象的に見える表現が残っています。")
     if critic_closing.get("detected"):
         failure_codes.append("critic_closing")
-        warnings.append("結びが評論調に寄っているため、経験の結果・学び・身についた能力で締める確認が必要です。")
+        failure_codes.extend(str(code) for code in critic_closing.get("codes", []) if code)
+        warnings.append("結びが評論調または結果のない学びに寄っているため、経験内の結果、または結果＋学びで締める確認が必要です。")
     if not fact_check["overlap_ok"]:
         failure_codes.append("low_fact_overlap")
         warnings.append("本人の言葉や具体表現の反映が弱い可能性があります。")
@@ -205,9 +206,12 @@ def _build_gakuchika_draft_retry_hints(report: dict[str, Any], *, char_min: int,
         hints.append(f"内容を保ったまま具体的な行動・結果を補い、{char_min}字以上にする")
     if "over_char_max" in codes:
         hints.append(f"冗長な抽象表現を削り、{char_max}字以内に収める")
+    if "critic_closing" in codes or "resultless_closing" in codes:
+        hints.append("結びは必ず経験内の結果、または結果を書いた直後の学びで締める")
     if "critic_closing" in codes:
-        hints.append("最終文は評論調にせず、この経験で得た結果・学び・身についた能力のいずれかで締める")
         hints.append("「手法は〜に直結する」「〜と言える」「〜が重要である」のような一般論で終えない")
+    if "resultless_closing" in codes:
+        hints.append("最終2文のどちらかに、成果・数字・前後差・改善結果を明示する")
     if "ai_smell_high" in codes:
         hints.append("抽象名詞を主語にした一般論を避け、本人の経験内の具体事実・結果・学びを主語に戻す")
     if "low_fact_overlap" in codes:
@@ -237,6 +241,8 @@ class ConversationStateInput(BaseModel):
     ready_for_draft: bool = False
     draft_readiness_reason: str | None = Field(default=None, max_length=240)
     draft_text: str | None = Field(default=None, max_length=3000)
+    draft_document_id: str | None = Field(default=None, max_length=120)
+    summary_stale: bool = False
     strength_tags: list[str] = Field(default_factory=list)
     issue_tags: list[str] = Field(default_factory=list)
     deepdive_recommendation_tags: list[str] = Field(default_factory=list)
@@ -315,6 +321,7 @@ class StructuredSummaryResponse(BaseModel):
     likely_followup_questions: list[str] = []
     weak_points_to_prepare: list[str] = []
     two_minute_version_outline: list[str] = []
+    internal_telemetry: Optional[dict[str, object]] = None
 
 
 class GakuchikaESDraftRequest(BaseModel):
@@ -561,7 +568,7 @@ def _resolve_next_action(state: dict[str, Any]) -> str:
     stage = _clean_string(state.get("stage")) or "es_building"
     draft_text = _clean_string(state.get("draft_text"))
     if stage == "interview_ready":
-        return "show_interview_ready"
+        return "show_interview_ready" if draft_text else "ask"
     if stage == "draft_ready":
         return "continue_deep_dive" if draft_text else "show_generate_draft_cta"
     return "ask"
@@ -571,8 +578,9 @@ def _is_deepdive_request(request: NextQuestionRequest) -> bool:
     state = request.conversation_state
     if not state:
         return False
-    # draft_ready: 「もう少し整える」等で ES 下書き本文がまだ無い段階でも深掘りプロンプトに乗せる（es_building ではない限り衝突しない）
-    return bool(state.draft_text) or state.stage in {
+    if not state.draft_text:
+        return False
+    return state.stage in {
         "draft_ready",
         "deep_dive_active",
         "interview_ready",
@@ -632,8 +640,12 @@ def _build_deepdive_prompt(request: NextQuestionRequest) -> tuple[str, str]:
     )
     loop_blocked = list(state.loop_blocked_focuses) if state else []
 
+    deepdive_turn_count = max(
+        0,
+        len([focus for focus in asked if focus not in CORE_BUILD_ELEMENTS]),
+    )
     phase_name, phase_description, preferred_focuses = _determine_deepdive_phase(
-        request.question_count,
+        deepdive_turn_count,
         asked_focuses=asked,
         resolved_focuses=resolved,
         blocked_focuses=blocked,
@@ -933,6 +945,7 @@ async def generate_structured_summary(payload: StructuredSummaryRequest, request
         likely_followup_questions=_clean_string_list(data.get("likely_followup_questions"), max_items=4),
         weak_points_to_prepare=_clean_string_list(data.get("weak_points_to_prepare"), max_items=3),
         two_minute_version_outline=_clean_string_list(data.get("two_minute_version_outline"), max_items=4),
+        internal_telemetry=consume_request_llm_cost_summary("gakuchika_summary"),
     )
 
 

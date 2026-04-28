@@ -50,6 +50,8 @@ def test_gakuchika_draft_prompt_warns_against_critic_closing() -> None:
     assert "評論調" in system
     assert "抽象名詞を主語" in system
     assert "直結する" in system
+    assert "結果、OOした" in system
+    assert "学び・身についた能力だけで終えない" in system
 
 
 def test_motivation_draft_prompt_includes_company_motivation_and_json() -> None:

@@ -365,6 +365,29 @@ def _role_required(text: str) -> bool:
     )
 
 
+def _extract_fallback_anchor(text: str) -> str:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return ""
+    candidates: list[str] = []
+    for pattern in (
+        r"[^\s。、,.!?！？「」『』]{0,8}\d+(?:[.,]\d+)?(?:%|％|人|件|倍|年|月|日|分|時間|千|万)[^\s。、,.!?！？「」『』]{0,8}",
+        r"[^\s。、,.!?！？「」『』]{2,16}(?:改善|提案|担当|実行|見直し|工夫|達成|向上|短縮|増加|減少)",
+    ):
+        candidates.extend(match.group(0).strip("、。,.・:：;；") for match in re.finditer(pattern, normalized))
+    for candidate in candidates:
+        if 3 <= len(candidate) <= 20 and not re.search(r"[{}\\[\\]<>`$]", candidate):
+            return candidate
+    return ""
+
+
+def _with_fallback_anchor(question: str, context_text: str) -> str:
+    anchor = _extract_fallback_anchor(context_text)
+    if not anchor:
+        return question
+    return f"{anchor}の話が見えてきました。{question}"
+
+
 def _classify_input_richness(text: str) -> str:
     normalized = _normalize_text(text)
     if not normalized:
@@ -401,20 +424,28 @@ def _context_core_satisfied(normalized: str) -> bool:
 # Focus-key meta selectors
 # ---------------------------------------------------------------------------
 
-def _fallback_build_meta(focus_key: str) -> dict[str, str]:
+def _fallback_build_meta(focus_key: str, context_text: str = "") -> dict[str, str]:
     if focus_key == "role":
         return DEEPDIVE_FOCUS_FALLBACKS["role"]
-    return BUILD_FOCUS_FALLBACKS.get(focus_key, BUILD_FOCUS_FALLBACKS["overview"])
+    base = BUILD_FOCUS_FALLBACKS.get(focus_key, BUILD_FOCUS_FALLBACKS["overview"])
+    return {
+        **base,
+        "question": _with_fallback_anchor(base["question"], context_text),
+    }
 
 
-def _fallback_deepdive_meta(focus_key: str) -> dict[str, str]:
-    return DEEPDIVE_FOCUS_FALLBACKS.get(focus_key, DEEPDIVE_FOCUS_FALLBACKS["challenge"])
+def _fallback_deepdive_meta(focus_key: str, context_text: str = "") -> dict[str, str]:
+    base = DEEPDIVE_FOCUS_FALLBACKS.get(focus_key, DEEPDIVE_FOCUS_FALLBACKS["challenge"])
+    return {
+        **base,
+        "question": _with_fallback_anchor(base["question"], context_text),
+    }
 
 
-def _build_focus_meta(focus_key: str) -> dict[str, str]:
+def _build_focus_meta(focus_key: str, context_text: str = "") -> dict[str, str]:
     if focus_key == "role":
-        return _fallback_deepdive_meta("role")
-    return _fallback_build_meta(focus_key)
+        return _fallback_deepdive_meta("role", context_text)
+    return _fallback_build_meta(focus_key, context_text)
 
 
 # ---------------------------------------------------------------------------

@@ -19,8 +19,8 @@ from app.utils.llm_providers import LLMResult
 from app.utils.llm_streaming import call_llm_streaming_fields
 
 
-def test_is_deepdive_request_true_for_draft_ready_without_draft_text() -> None:
-    """Resume「もう少し整える」で draft_text が無くても深掘り分岐に入ること。"""
+def test_is_deepdive_request_false_for_draft_ready_without_draft_text() -> None:
+    """Resume「もう少し整える」でも draft_text が無い間は ES 構築分岐に戻ること。"""
     req = NextQuestionRequest(
         gakuchika_title="テーマ",
         gakuchika_content="内容",
@@ -35,7 +35,7 @@ def test_is_deepdive_request_true_for_draft_ready_without_draft_text() -> None:
             draft_text=None,
         ),
     )
-    assert _is_deepdive_request(req) is True
+    assert _is_deepdive_request(req) is False
 
 
 def test_is_deepdive_request_false_for_es_building() -> None:

@@ -49,11 +49,56 @@ _OWNED_ACTION_TERMS = (
     "判断",
     "担当",
 )
+_CONCRETE_CLOSING_TERMS = (
+    "結果",
+    "成果",
+    "向上",
+    "改善",
+    "増",
+    "減",
+    "短縮",
+    "達成",
+    "身につけ",
+    "培",
+    "力",
+    "判断基準",
+    "学び",
+)
+_RESULT_CLOSING_TERMS = (
+    "結果",
+    "成果",
+    "向上",
+    "改善",
+    "増",
+    "減",
+    "短縮",
+    "達成",
+)
+_RESULT_CHANGE_PATTERNS = (
+    r"\d{1,4}.{0,12}(増|減|短縮|向上|改善|達成|成功|獲得|入会|参加|定着|解消|高め|下げ)",
+    r"(上が|上げ|伸び|増え|増や|下が|減り|減ら|短縮|改善|達成|成功|獲得|入会|参加|定着|解消)",
+)
 
 
 def _last_sentence(text: str) -> str:
     sentences = [s.strip() for s in re.split(r"[。！？]", text or "") if s.strip()]
     return sentences[-1] if sentences else ""
+
+
+def _closing_sentences(text: str) -> tuple[str, str]:
+    sentences = [s.strip() for s in re.split(r"[。！？]", text or "") if s.strip()]
+    if not sentences:
+        return "", ""
+    previous = sentences[-2] if len(sentences) >= 2 else ""
+    return previous, sentences[-1]
+
+
+def _has_result_close(sentence: str) -> bool:
+    if not sentence:
+        return False
+    return any(term in sentence for term in _RESULT_CLOSING_TERMS) or any(
+        re.search(pattern, sentence) for pattern in _RESULT_CHANGE_PATTERNS
+    )
 
 
 def _detect_gakuchika_critic_closing(draft_text: str, user_origin_text: str = "") -> dict[str, object]:
@@ -62,7 +107,7 @@ def _detect_gakuchika_critic_closing(draft_text: str, user_origin_text: str = ""
     ガクチカ本文の末尾は、経験での結果・得た学び・身についた能力で締める。
     「手法は〜に直結する」のような評論調は、会話由来でない限り警告対象にする。
     """
-    last = _last_sentence(draft_text)
+    previous, last = _closing_sentences(draft_text)
     if not last:
         return {"detected": False, "codes": [], "last_sentence": ""}
 
@@ -71,11 +116,25 @@ def _detect_gakuchika_critic_closing(draft_text: str, user_origin_text: str = ""
     abstract_subject = bool(re.search(r"(手法|重要性|強制力|段階的導入|品質維持).{0,12}(は|が)", last))
     generalization_shape = bool(re.search(r"ことで、.+(は|が).+(直結する|と言える|有効である)", last))
     has_owned_action = any(term in last for term in _OWNED_ACTION_TERMS)
+    has_concrete_close = _contains_digit(last) or any(term in last for term in _CONCRETE_CLOSING_TERMS)
+    generic_learning_shape = bool(
+        re.search(r"(重要性|大切さ|必要性).{0,12}(を)?学(?:んだ|びました)", last)
+        or re.search(r"この経験を通じて.{0,30}学(?:んだ|びました)", last)
+    )
+    wish_only_shape = bool(re.search(r"(今後|将来).{0,20}(活かしたい|生かしたい|つなげたい|繋げたい)", last))
 
     if has_critic_term and (abstract_subject or generalization_shape) and not has_owned_action:
         codes.append("abstract_generalization_closing")
     elif generalization_shape and has_critic_term:
         codes.append("critic_closing")
+    last_has_result_close = _has_result_close(last)
+    closing_has_result = last_has_result_close or _has_result_close(previous)
+    if generic_learning_shape and not closing_has_result:
+        codes.append("generic_learning_closing")
+    if wish_only_shape and not has_concrete_close:
+        codes.append("wish_only_closing")
+    if not closing_has_result:
+        codes.append("resultless_closing")
 
     return {
         "detected": bool(codes),
