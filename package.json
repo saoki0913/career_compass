@@ -18,6 +18,8 @@
     "verify:closeout": "node tools/run-verify-closeout.mjs",
     "demo:record": "bash scripts/marketing/capture-product-demo.sh",
     "demo:render": "node scripts/marketing/render-product-demo.mjs",
+    "video:pr:preview": "remotion studio remotion/index.ts",
+    "video:pr:render": "remotion render remotion/index.ts ShukatsuPassPrVideo public/marketing/videos/shukatsu-pass-pr.mp4 --overwrite --muted",
     "test:e2e": "playwright test",
     "test:e2e:major": "playwright test e2e/functional/guest-major.spec.ts e2e/functional/user-major.spec.ts",
     "test:e2e:major:guest": "playwright test e2e/functional/guest-major.spec.ts",
