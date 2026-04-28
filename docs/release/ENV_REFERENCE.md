@@ -29,6 +29,8 @@
 | `FASTAPI_URL` | Yes | `https://shupass-backend-production.up.railway.app` |
 | `INTERNAL_API_JWT_SECRET` | Yes | Next.js から FastAPI への内部呼び出し用 shared secret。32文字以上を推奨 |
 | `CAREER_PRINCIPAL_HMAC_SECRET` | Yes | `X-Career-Principal` ヘッダ署名用 HMAC シークレット（BFF 側）。`INTERNAL_API_JWT_SECRET` とは独立して回転できるよう別管理。32文字以上を推奨。詳細は `docs/security/principal_spec.md` |
+| `NEXT_PUBLIC_LOGO_DEV_TOKEN` | No | ダッシュボード企業アイコンの実ロゴ取得に使う Logo.dev publishable key。未設定時は favicon / 頭文字 avatar に fallback |
+| `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` | No | ダッシュボード企業アイコンの Brandfetch Logo API client ID。Logo.dev 取得失敗時の追加 fallback として使用 |
 | `CRON_SECRET` | Yes | Cron 認証トークン (hex 32) |
 | `COMPANY_PDF_INGEST_BUCKET` | No | 旧 deferred OCR 用 Storage。遅延 OCR 廃止後は主に互換・掃除用 |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL (`https://xxx.upstash.io`) |

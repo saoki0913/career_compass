@@ -1,6 +1,6 @@
 # 実装進捗ドキュメント
 
-**最終更新**: 2026-04-26
+**最終更新**: 2026-04-28
 
 ## 人向け要約（読み始めに）
 
@@ -12,6 +12,12 @@
 
 ## 最近の更新
 
+- 2026-04-28: サイドバー検索を展開状態でも結果候補が出る形に修正。2文字以上で `useSearch` がデバウンス検索し、企業/ES/締切候補をドロップダウン表示、候補クリックまたは「すべての結果を見る」で `/search?q=` へ遷移する。`/search` ページは Next.js 16 の `searchParams` Promise に対応し、URL クエリ変更と画面状態を同期。`/api/search` は検索種別 validation、rate limit、構造化エラー、LIKE `ESCAPE`、関連企業 join の owner 条件を追加。
+- 2026-04-27: ダッシュボードサイドバーを改善。検索は隠し `SearchBar` + synthetic Cmd+K 依存を廃止し、サイドバー展開時の直接入力から `/search?q=` へ遷移する形に変更。サイドバーに「志望動機作成」を追加し、既存 `CompanySelectModal mode="motivation"` で企業選択後に `/companies/{id}/motivation` へ遷移する。`AppSidebar` の nav action を link / modal で明示し、面接対策と志望動機作成のモーダル状態を分離。
+- 2026-04-27: ダッシュボード企業ロゴ取得を主要企業向けに強化。`company_mappings.json` にロゴ専用 `logo_domains` を追加できるようにし、三菱商事は `mitsubishicorp.com`、三菱UFJ銀行は `bk.mufg.jp` を優先候補化。Logo.dev / Brandfetch / favicon fallback は複数ドメイン候補を順に試し、Brandfetch 要件に合わせて画像の `referrerPolicy` を `strict-origin-when-cross-origin` へ変更。
+- 2026-04-27: ダッシュボード企業アイコンを実ロゴ対応に更新。`NEXT_PUBLIC_LOGO_DEV_TOKEN` 設定時は Logo.dev、`NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` 設定時は Brandfetch を優先し、未設定または取得失敗時は `estimatedFaviconUrl` / Google favicon / DuckDuckGo favicon / 頭文字 avatar に段階 fallback する。CSP の `img-src` に `img.logo.dev` と `cdn.brandfetch.io` を追加。
+- 2026-04-27: ダッシュボード v3 リデザイン。QuickActions をヘッダー行の挨拶横に inline ピル配置し、CA リファレンス画像の配色（fuchsia→pink / orange→amber / emerald→green / rose→red / blue→teal）に統一。WeeklyScheduleView の TIME_SLOTS を 12→9 (09-17) に削減し min-h-[420px] を除去、行高さを 24→20px に縮小。右カラムから QA を除去し TodayTasksCard + DeadlineCard のみに。MacBook Air 13" (1440×900) でスクロールなしに全要素表示可能に。`compact` prop を `inline` に置換、DashboardSkeleton を新レイアウトに同期。
+- 2026-04-27: ダッシュボード v3 の参照画像追従を強化。PC では `h-dvh` + 内部 grid で `/dashboard` を 1440×900 の一画面に収める方針へ調整し、QuickActions を lucide icon の上部ピルに統一。`WeeklyScheduleView` は Google Calendar 接続状態を props で受ける表示コンポーネント寄りに整理。企業アイコンは `estimatedFaviconUrl` → Google favicon → DuckDuckGo favicon → 頭文字 avatar の順に fallback する。`TodayTasksCard` / `DeadlineCard` に dashboard 側から表示件数を渡せる density prop を追加し、DashboardSkeleton と dashboard unit tests を同期。
 - 2026-04-26: ダッシュボードをリデザイン。StatsCards（4枚の KPI カード）を完全削除し、QuickActions を5つのカラフルなグラデーションボタン（ES添削 / ES作成 / 企業研究 / ガクチカの深掘り / 面接対策）に刷新。企業セクションを縦リストから `groupCompaniesByPipeline()` を使った5列パイプライン（カンバン）表示に変更。レイアウトを `[7fr_2fr_3fr]` + `[7fr_3fr]` の2段グリッドに再構成し、PC一画面でスクロール不要に。`StatsCard.tsx` 削除、`computeDashboardStats` / `StatsInput` / `DashboardStats` をデッドコード削除、`DashboardSkeleton` を新レイアウトに合わせて更新。ActivationChecklist は未完了時のみ条件表示に変更。
 - 2026-04-05: ガクチカ・志望動機の ES 下書き生成を ES 添削と同一の `TEMPLATE_DEFS` 由来に統一。`build_template_draft_generation_prompt`（`gakuchika` / `company_motivation`）、旧 `GAKUCHIKA_DRAFT_PROMPT`・`DRAFT_GENERATION_PROMPT`・`DRAFT_FROM_PROFILE_PROMPT` 削除、Notion 必須キーから `gakuchika.draft_generation` / `motivation.draft_generation` 除外。`tests/prompts/test_es_draft_generation_prompt.py` 追加。`SPEC` 17・17.5、`GAKUCHIKA_DEEP_DIVE`、`MOTIVATION`、`ES_REVIEW`、本ファイルを同期。
 - 2026-04-05: ガクチカ一覧・詳細・進捗（MEMO 追加分）。`GET /api/gakuchika` で最新会話行を素材単位に集約し `conversationStatus` を正規化、`questionCount` フォールバックを追加。一覧は `getGakuchikaListStatusKey` と `visibilitychange` 再取得。詳細は次質問を `useStreamingTextPlayback` + `StreamingChatMessage` で再生。FastAPI `_build_core_missing_elements` の `context` を状況語ヒントで緩和。Vitest / pytest 更新。`docs/SPEC.md` 17・`GAKUCHIKA_DEEP_DIVE`・本ファイルを同期。
@@ -102,7 +108,7 @@
 | 月次付与 | ✅ 完了 | Free: 30, Standard: 100, Pro: 300 |
 | 企業情報取得/更新の無料回数 | ✅ 完了 | Guest: 5、Free: 10、Standard: 20、Pro: 40 / 日 |
 | ES添削クレジット消費 | ✅ 完了 | Claude / GPT / Gemini: 6/10/14/20、low-cost: 3/6/9/12 |
-| 面接対策クレジット消費 | ✅ 完了 | `GPT-5.4 mini` 固定、最終講評成功時のみ 6 credits |
+| 面接対策クレジット消費 | ✅ 完了 | plan `GPT-5.4` / 質問 `Claude Haiku 4.5` / 講評 `Claude Sonnet 4.6`。開始 2 credits、回答/続き各 1 credit、最終講評 6 credits |
 | 部分成功（0クレジット） | ✅ 完了 | 締切抽出失敗でも他データ保存時は無料 |
 | 部分成功UX | ✅ 完了 | 部分成功メッセージと課金ルールを最新化 |
 | 0.5累積バー表示 | ⏸️ MVP除外 | 0.5クレジット仕様を廃止 |
@@ -353,8 +359,8 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 企業別模擬面接UI | ✅ 更新 | motivation 準拠の 2 カラム UI + setup-first + 論点ベース進捗 + 自動スクロール |
 | 面接対策 API | ✅ 更新 | `GET /interview` + `POST /interview/start` + `POST /interview/stream` + `POST /interview/feedback` |
 | FastAPI interview router | ✅ 更新 | adaptive 6〜10 問 + opening / turn / feedback SSE |
-| モデル固定 | ✅ 完了 | `MODEL_INTERVIEW=gpt-mini` → `GPT-5.4 mini` |
-| セッション課金 | ✅ 完了 | 最終講評成功時のみ `6 credits` |
+| モデル固定 | ✅ 完了 | plan `GPT-5.4`、質問 `Claude Haiku 4.5`、講評 `Claude Sonnet 4.6` |
+| セッション課金 | ✅ 完了 | 開始 `2 credits`、回答/続き各 `1 credit`、最終講評 `6 credits` |
 | 月次無料枠 | ✅ 完了 | なし |
 | 4軸講評 | ✅ 完了 | 企業適合 / 具体性 / 論理性 / 説得力 + card 逐次更新 |
 | ナビ導線 | ✅ 更新 | header / mobile nav から modal 起動 |
@@ -410,7 +416,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 |------|------|------|
 | グローバル全文検索 | ✅ 完了 | `/api/search` + `/search` ページ |
 | 検索結果グループ化 | ✅ 完了 | 企業/ES/締切で種別ごとに表示 |
-| 検索バー（ヘッダー配置） | ✅ 完了 | `SearchBar` コンポーネント |
+| 検索導線（サイドバー配置） | ✅ 完了 | `SidebarSearch` で2文字以上の候補を表示し、`/search?q=` へ遷移 |
 | useSearch フック | ✅ 完了 | デバウンス、abort制御付き |
 
 ---
@@ -455,8 +461,8 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 | 面接対策 | ✅ 完了 | `backend/app/routers/interview.py` |
 | 企業情報抽出 | 🟡 部分実装 | `backend/app/routers/company_info.py` |
 | LLMユーティリティ | ✅ 完了 | `backend/app/utils/llm.py` |
-| ベクトルストア（RAG） | 🟡 部分実装 | `backend/app/utils/vector_store.py` |
-| ハイブリッド検索 | ✅ 完了 | `backend/app/utils/hybrid_search.py` |
+| ベクトルストア（RAG） | 🟡 部分実装 | `backend/app/rag/vector_store.py` |
+| ハイブリッド検索 | ✅ 完了 | `backend/app/rag/hybrid_search.py` |
 | BM25インデックス | ✅ 完了 | `backend/app/utils/bm25_store.py` |
 | テキストチャンキング | ✅ 完了 | `backend/app/utils/text_chunker.py` |
 
@@ -725,7 +731,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 - ✅ 検索機能が実装済みであることを確認・反映
   - `/api/search` API実装済み
   - `/search` ページ実装済み
-  - `SearchBar`, `SearchResults`, `SearchResultItem`, `SearchHighlight` コンポーネント
+  - `SidebarSearch`, `SearchPageClient`, `SearchResults`, `SearchResultItem`, `SearchHighlight` コンポーネント
   - `useSearch` フック（デバウンス、abort制御付き）
 - 実装完了率を68%→70%に更新（検索機能の正確な反映）
 - 高優先度から検索機能を完了として更新

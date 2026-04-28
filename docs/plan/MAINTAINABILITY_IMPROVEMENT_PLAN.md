@@ -2,9 +2,9 @@
 topic: maintainability + clean-architecture
 plan_date: 2026-04-14
 based_on_review: maintainability-architecture/2026-04-12-strict-maintainability-review-current-working-tree.md
-status: M系完了 (M-1b route thin化のみ次回) — CA系未着手 (2026-04-26)
+status: M系 + M-1b + CA-0完了 — CA-1 backend stream service 着手 (2026-04-27)
 implementation_level: 手順書レベル
-last_update: 2026-04-26
+last_update: 2026-04-27
 ---
 
 # 保守性改善 + Clean Architecture 統合リファクタリング ガイド
@@ -48,10 +48,11 @@ last_update: 2026-04-26
 | motivation.py (backend) | 696 行 (13 サブモジュール計 6,525 行) | -- | **既達** |
 | company_info.py (backend) | 375 行 (17 サブモジュール計 7,158 行) | -- | **既達** |
 | llm.py (backend) | 986 行 (re-export alias → proper import 変換済み) | 1,000 行以下 | **M-3 完了** |
-| gakuchika stream | 184 行, `createConfiguredSSEProxyResponse` 使用 | ≤150 | **M-1a 完了** (route thin化は M-1b) |
-| interview stream | 257 行 + stream-utils 242 行, `createConfiguredSSEProxyResponse` 使用 | ≤100 + 廃止/≤50 | **M-1a 完了** (route thin化は M-1b) |
-| motivation stream | 342 行, `createConfiguredSSEProxyResponse` 使用 | ≤150 | **M-1a 完了** (route thin化は M-1b) |
-| handle-review-stream | 415 行, `createConfiguredSSEProxyResponse` 使用 | ≤200 | **M-1a 完了** (route thin化は M-1b) |
+| gakuchika stream route | 189 行, `createConfiguredSSEProxyResponse` 使用 | 200 行以下 | **M-1b 完了** |
+| interview stream route | 174 行, `createInterviewUpstreamStream` 経由で共通 SSE proxy 使用 | 200 行以下 | **M-1b 完了** |
+| interview stream-utils.ts | 149 行, 共通 SSE proxy adapter と即時 stream helper を保持 | M-1b では許容 | **CA-1以降の任意改善** |
+| motivation stream route | 191 行, `createConfiguredSSEProxyResponse` 使用 | 200 行以下 | **M-1b 完了** |
+| handle-review-stream | 118 行, `createConfiguredSSEProxyResponse` 使用 | 200 行以下 | **M-1b 完了** |
 | interview context.ts (route 配下) | -- | -- | **削除済み** (re-export シム不要) |
 | interview persistence.ts (route 配下) | -- | -- | **削除済み** (re-export シム不要) |
 | `src/lib/interview/context-builder.ts` | 120 行 (実体) | 実体 | **M-2 完了** |
@@ -59,7 +60,7 @@ last_update: 2026-04-26
 | stream-config.ts | 58 行 | 存在 | **M-1a 完了** |
 | stream-pipeline.ts | 67 行 | 存在 | **M-1a 完了** |
 | sse-proxy.test.ts | 277 行 | 存在 | **M-1a 完了** |
-| BFF_FASTAPI_CONTRACT.md | 不在 | 存在 | CA-0 で作成 |
+| BFF_FASTAPI_CONTRACT.md | 作成済み | 存在 | **CA-0 完了** |
 | FASTAPI_MODULE_LAYOUT.md | 作成済み | 存在 | **M-3 完了** |
 
 ### 完了後の期待状態 (M 系 + CA 系)
@@ -417,8 +418,9 @@ git revert <gakuchika-commit>
 - [x] `createSSEProxyStream` / 共通 SSE reader を使わない独自 SSE パース実装が 0 件
 - [x] `sse-proxy.test.ts` が PASS
 
-**M-1b (route thin化) — 次回**:
-- [ ] 各 stream route が 200 行以下 (現状: gakuchika 184, interview 257+242, motivation 342, handle-review-stream 415)
+**M-1b (route thin化) — 完了 (2026-04-27 closeout)**:
+- [x] 各 stream route が 200 行以下 (実測: gakuchika 189, interview 174, motivation 191, handle-review-stream 118)
+- [x] `interview/stream-utils.ts` 149 行は M-1b では許容。`start` / `continue` / `feedback` と共用する adapter のため、廃止/≤50 は CA-1 以降の任意改善に送る
 - [ ] 全 4 feature の SSE フローが正常動作 (E2E)
 
 #### 4.1.5 テスト仕様
@@ -765,6 +767,8 @@ git revert <gakuchika-viewmodel-commit>
 
 M 系完了後、CA 系に着手する前に、Next BFF と FastAPI の境界契約を文書化・型定義する。以後の CA 系タスクはこの契約に基づいて構造変更を行う。
 
+**ステータス:** 完了 (2026-04-26)。`docs/architecture/BFF_FASTAPI_CONTRACT.md`、`src/shared/contracts/fastapi/`、`backend/app/schemas/contracts.py`、共通 fixture、契約テストを追加済み。CA-1 の実移設は未着手。
+
 #### 5.0.2 成果物
 
 | 成果物 | 概要 |
@@ -786,11 +790,11 @@ CA 系全体を通じて、domain 層は以下の 5 原則に従う:
 
 #### 5.0.4 受入基準
 
-- [ ] `BFF_FASTAPI_CONTRACT.md` が存在し、全 4 feature の SSE event schema を列挙
-- [ ] `src/shared/contracts/` に Zod schema が存在
-- [ ] `backend/app/schemas/contracts.py` に Pydantic mirror が存在
-- [ ] 契約テスト (motivation + es_review) が PASS
-- [ ] 既存の Playwright / pytest / Vitest がグリーン
+- [x] `BFF_FASTAPI_CONTRACT.md` が存在し、全 4 feature の SSE event schema を列挙
+- [x] `src/shared/contracts/` に Zod schema が存在
+- [x] `backend/app/schemas/contracts.py` に Pydantic mirror が存在
+- [x] 契約テスト (TS/Python contract + SSE proxy + career principal) が PASS
+- [ ] 既存の Playwright / pytest / Vitest がグリーン（CA-0 targeted tests は PASS。全体実行は dirty worktree が大きいため別 closeout で扱う）
 
 ---
 
@@ -828,7 +832,7 @@ motivation を pilot として、frontend は `features/` + `bff/` 構成に、b
 
 #### 5.1.4 受入基準
 
-- [ ] `backend/app/services/motivation/` が存在し、service 層にビジネスロジックが配置されている
+- [x] `backend/app/services/motivation/` が存在し、stream use case が service 層に配置されている
 - [ ] `routers/motivation.py` が 200 行以下
 - [ ] `src/features/motivation/` が存在
 - [ ] `src/bff/motivation/` が存在

@@ -223,9 +223,10 @@
 
 ### 4.4 面接対策
 - plan 生成は GPT-5.4 (`MODEL_INTERVIEW_PLAN`)、質問生成は Claude Haiku 4.5 (`MODEL_INTERVIEW`)、最終講評は Claude Sonnet 4.6 (`MODEL_INTERVIEW_FEEDBACK`)
-- 最終講評が成功した 1 セッションごとに **6クレジット** 消費
+- 開始成功時に **2クレジット**、回答送信成功時に **1クレジット**、講評後の続き成功時に **1クレジット** 消費
+- 最終講評は成功時に **6クレジット** を予約・確定で消費
 - 月次無料枠は設けない
-- 失敗時・途中離脱時は消費しない
+- 失敗した処理・途中離脱した未完了処理は消費・予約を確定しない
 
 ### 4.5 実行履歴（必須）
 選考スケジュール取得・企業 RAG 取込・ES添削・面接対策などは、実行結果を必ず通知欄に履歴として残す:
@@ -834,9 +835,9 @@
 - `learning` は ES 作成前の絶対必須にはしない
 - `draft_quality_checks / causal_gaps / completion_checks` を server-side で保持し、複数人活動や大きな成果が出るケースでは `role` を draft 前に優先確認する
 - 重複質問防止のため、`asked_focuses / resolved_focuses / deferred_focuses / blocked_focuses / focus_attempt_counts / last_question_signature` を会話 state に保持する
-- `draft_ready` 到達直後は自動質問を止め、入力欄を閉じて `ガクチカESを作成` CTA を主表示にする
-- **ガクチカ ES 下書きの文字数**: UI で **300 / 400 / 500** 字のいずれかを選び、`POST /api/gakuchika/[id]/generate-es-draft` の `charLimit` に渡す。初期選択は素材 `charLimitType`（一覧・詳細 GET）に合わせる
-- **ガクチカ ES 下書きのプロンプト**: FastAPI は ES 添削と同一の `TEMPLATE_DEFS` を正とする `backend/app/prompts/es_templates.py` の **`build_template_draft_generation_prompt`（`gakuchika`）** で単一 LLM 生成する（旧 `gakuchika.draft_generation` 管理プロンプトは廃止。Notion 必須キーからも除外）
+- `draft_ready` 到達直後は入力欄を閉じて `ガクチカESを作成` CTA を主表示にする。LLM が返した深掘り候補は `paused_question` として保持し、CTA 表示時も会話内から消さない
+- **ガクチカ ES 下書きの文字数**: UI で **300 / 400 / 500** 字のいずれかを選び、`POST /api/gakuchika/[id]/generate-es-draft` の `charLimit` に渡す。初期選択は素材 `charLimitType`（一覧・詳細 GET）に合わせ、ES 作成中はセレクターを無効化する
+- **ガクチカ ES 下書きのプロンプト / 品質ゲート**: FastAPI は ES 添削と同一の `TEMPLATE_DEFS` を正とする `backend/app/prompts/es_templates.py` の **`build_template_draft_generation_prompt`（`gakuchika`）** で生成する（旧 `gakuchika.draft_generation` 管理プロンプトは廃止。Notion 必須キーからも除外）。生成後は文字数、AI 臭、本人表現の反映、評論調の結びを検査し、必要時は 1 回だけ retry する。結びは「次の行動」ではなく、この経験での結果・得た学び・身についた能力で締める
 - **進捗バー（状況・課題・行動・結果）**: `conversation_state` の `missing_elements` と `focus_key` を正として表示する。回答送信中に `focus_key` を楽観的に消してバーを壊さない。`focus_key` が STAR 以外のときは `missing_elements` の先頭（context→task→action→result 順）を進行中としてよい
 - **質問順序（ES 構築）**: 原則 **状況 → 課題 → 行動 → 結果**。サーバーは骨格が未充足のとき、LLM 出力の `focus_key` を `missing_elements` の STAR 先頭欠落に正規化して進捗表示と質問の軸を一致させる
 - `もう少し整える` を選んだ時だけ、同じセッションで会話を再開する
@@ -889,6 +890,8 @@
 - UI ではステージ `closing` をそのまま見せず、「仕上げを整理中」等の文言は出さない
 - `draft_ready` 到達直後は自動質問を止め、CTA 有効化と通知だけを行う
 - 追加深掘りは draft ready 後にユーザーが会話を続けた時だけ行い、ES を強める補足に限定する
+- ES 下書き生成直後は次質問を自動生成しない。追加深掘りは「もっと深堀りして再生成する」または「深掘りを続ける」を押した時だけ `resume-deepdive` で開始する
+- 追加質問を挟まずに ES 下書きを再生成できる。前回下書きがある場合も `isDraftReady` と会話 state を維持し、409 Conflict で止めない
 - 中断/再開が可能
 - 同じ企業に対して再実行できる（前回結果は履歴として保持）
 
@@ -915,7 +918,8 @@
 - 会話なしルート: 同一文字数で、会話履歴なしに下書きを生成（事実は材料に根ざした範囲に限定するプロンプト）
 - **プロンプト**: FastAPI は **`build_template_draft_generation_prompt`（`TEMPLATE_DEFS` の `company_motivation`）** で単一 LLM 生成する。企業 RAG の要約はユーザープロンプトの参考ブロックに載せる（旧 `motivation.draft_generation` / `motivation.draft_from_profile` 管理プロンプトは廃止）
 - 本文は改行なしの 1 段落として保存する（API 層で正規化）
-- 生成後はESドキュメントとして保存し、ESエディタで編集可能
+- 生成後は会話 state に保持し、モーダルで確認する。「ESとして保存する」を押した時だけ ES ドキュメントとして保存し、ES エディタで編集可能
+- 生成後のモーダルを閉じるだけでは deepdive を開始しない。追加深掘りボタンを押した時だけ再開する
 
 ### 17.5.5 クレジット消費
 | アクション | 消費量 | 条件 |
@@ -929,8 +933,11 @@
 - 企業詳細ページから「志望動機を作成」ボタンで開始
 - 回答送信はSSEストリーミングで進捗表示しながら実行
 - `志望動機ESを作成` CTA は desktop ではページ見出し右横、mobile では上部で見える位置に表示する
+- サイドバーの「志望動機作成」からも開始できる。企業 ID が必要なため、サイドバーでは企業選択モーダルを開き、選択後に `/companies/{id}/motivation` へ遷移する
 - `会話をやり直す` は進捗表示の右上に配置する
+- setup はチャット欄と同じ面に直接表示し、余計な入れ子枠を避ける。ES 下書き生成中は文字数・業界・職種設定を編集不可にする
 - `参考にした企業情報` は `要点1行 + 出典種別` の compact card で表示する
+- `参考にしたユーザー情報` は会話で確認した 6 要素、プロフィール/ガクチカ由来の強み・経験を compact card で表示する。`self_connection` などの内部キーは UI に出さず、日本語ラベルに変換する
 - 完了後はESエディタ（`/es/{documentId}`）へ自動遷移
 
 ### 17.5.7 ガクチカ機能との比較
@@ -966,12 +973,12 @@
 - SSE event は `progress / string_chunk / field_complete / array_item_complete / complete / error`
 - 会話上部と右カラムの両方で `現在の主論点 / covered までの残り checklist` を表示する
 - `DashboardHeader` と `BottomTabBar` から `面接対策` を開くと `CompanySelectModal mode="interview"` を出し、企業選択後に対象 route へ遷移する
-- 最終講評では `企業適合 / 職種適合 / 具体性 / 論理性 / 説得力 / 一貫性 / 信頼性` の 7 軸評価、良かった点、改善点、一貫性リスク、最弱設問、最弱回答、改善回答例、追加準備論点、満足度を返す
+- 最終講評では `企業適合 / 職種適合 / 具体性 / 論理性 / 説得力 / 一貫性 / 信頼性` の 7 軸評価、軸別の採点根拠、良かった点、改善点、一貫性リスク、最弱設問、最弱回答、改善回答例、追加準備論点、満足度を返す
 - 最終講評 card は先に表示し、`overall_comment`・スコア・箇条書き・改善回答例を段階的に埋める
 - LLM の質問文・講評文に合わせて会話欄を自動スクロールし、講評 complete 後は success snackbar を表示する
 - 会話の永続化は `interview_conversations`、`interview_turn_events`、`interview_feedback_histories` を使う
-- 既存進行中セッションは start 時にリセットし、講評履歴だけ保持する
-- 最終講評成功時にのみ 6 クレジット消費する
+- 既存進行中セッションがある状態で start した場合は自動リセットせず、続きから再開または明示的な reset を促す
+- 課金は開始成功時 2 クレジット、回答送信成功時 1 クレジット、講評後の続き成功時 1 クレジット、最終講評成功時 6 クレジット。いずれも予約後、永続化成功時だけ確定する
 
 ---
 
@@ -1062,8 +1069,10 @@
 - 企業名、ES本文、締切タイトルなどを検索可能
 
 ### 22.2 検索UI
-- グローバル検索バーをヘッダーに配置
+- グローバル検索は `/search` で提供し、サイドバーの検索入力から `q` パラメータ付きで遷移できる
+- サイドバー展開時は2文字以上の入力で企業/ES/締切の候補をドロップダウン表示し、候補クリックまたは「すべての結果を見る」で検索結果へ遷移する
 - 検索結果は種別（企業/ES/締切）ごとにグループ化して表示
+- `/api/search` はログインユーザー/ゲスト identity ごとの所有権条件、検索種別 validation、rate limit、LIKE `ESCAPE` を使ったワイルドカード無効化を適用する
 
 ---
 
