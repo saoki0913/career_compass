@@ -95,6 +95,7 @@ run_local_gate() {
     cd "$repo_root"
     bash scripts/ci/run-frontend-verify.sh
     bash scripts/ci/run-backend-deterministic.sh
+    npm run test:release-critical
   )
 }
 

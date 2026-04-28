@@ -65,45 +65,56 @@
 
 ---
 
-## Step 6: develop → main マージ & デプロイ
+## Step 6: develop → main 昇格 & デプロイ
 
-### 6-1. ローカルで昇格準備を完了する
+### 6-1. ローカルで release 前提を確認する
 
 ```bash
 # develop ブランチで実行
 make ops-release-check
+```
+
+`make ops-release-check` は provider auth、infra bootstrap、secret inventory、branch 前提を確認します。CLI の安全ラッパー方針は [CLI_GUARDRAILS.md](../ops/CLI_GUARDRAILS.md) を参照してください。
+
+### 6-2. release PR を作成する
+
+```bash
+make release-pr
+```
+
+`make release-pr` は `develop -> main` の PR を作成し、release version、対象 commit、必須検証項目を PR body に残します。
+
+### 6-3. 一括 release を実行する
+
+```bash
 make deploy
 ```
 
-> `make deploy` は `develop` 上で `lint` / `build` を通し、staging 昇格前の最終確認だけを行います。  
-> `main` へのマージや本番デプロイはこのコマンドでは実行しません。CLI の安全ラッパー方針は [CLI_GUARDRAILS.md](../ops/CLI_GUARDRAILS.md) を参照してください。
+`make deploy` は以下を順に実行します。
 
-### 6-2. staging に反映して確認する
+- local gate: frontend verify、backend deterministic、`test:release-critical`
+- staged 変更がある場合は commit
+- `develop` を push し、`Develop CI` の成功を待つ
+- staging health / Playwright を確認
+- `develop -> main` promotion PR を作成または再利用し、checks 成功後に merge
+- production health / readonly Playwright を確認
 
-```bash
-git push origin develop
-```
+### 6-4. `main` merge 後の tag / release
 
-- `develop` への push で staging 用 CI が走る
-- staging 環境 `https://stg.shupass.jp` と `https://stg-api.shupass.jp` が最新 `develop` を反映する
-- Google ログイン、企業作成、canonical、`robots.txt`、`sitemap.xml` を staging で確認する
-
-### 6-3. GitHub で `develop -> main` PR を作成する
-
-- GitHub 上で `develop` から `main` への Pull Request を作成する
-- `main` への PR は `develop` からのみ許可する
-- required checks は `main-promotion-guard` と `develop-ci` を green にする
-
-### 6-4. `main` マージで本番デプロイする
-
-- GitHub 上で PR を merge する
-- `main` への更新だけをトリガーに Vercel / Railway が本番へ自動デプロイする
-- ローカルで `main` を直接更新したり、provider CLI から本番 deploy を実行しない
+`main` に release PR が merge されると、`.github/workflows/release-tag.yml` が `vYYYY.MM.DD.N` tag と draft GitHub Release を作成します。
 
 ### 6-5. デプロイ状況の確認
 
 - **Vercel**: https://vercel.com/dashboard → Deployments タブ
 - **Railway**: https://railway.app/dashboard → 対象 Service → Deployments タブ
+
+### 6-6. rollback dry-run
+
+```bash
+make rollback-prod TARGET=<deployment-id-or-commit-sha>
+```
+
+rollback は provider CLI の ad hoc 実行ではなく、release-engineer 承認のもとで target を明示して進めます。現時点の entrypoint は dry-run と計画確認を正本にし、provider-specific rollback 実行は別途承認して行います。
 
 ---
 

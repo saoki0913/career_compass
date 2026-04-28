@@ -7,7 +7,7 @@
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
 	backend-test-live-es-review backend-test-interview-calibration \
-	deploy deploy-stage-all deploy-check deploy-migrate ops-status ops-auth-check ops-release-check \
+	deploy deploy-stage-all deploy-check deploy-migrate release-pr rollback-prod ops-status ops-auth-check ops-release-check \
 	db-up db-down db-restart db-down-clean db-local-status \
 	supabase-start supabase-stop supabase-stop-clean supabase-status
 
@@ -563,6 +563,14 @@ deploy:
 deploy-stage-all:
 	zsh scripts/release/release-career-compass.sh --stage-all
 
+## develop -> main の手動 release PR を作成
+release-pr:
+	zsh scripts/release/create-career-compass-release-pr.sh
+
+## 本番 rollback の dry-run / 承認済み実行入口
+rollback-prod:
+	zsh scripts/release/rollback-career-compass.sh --target "$(TARGET)" --dry-run
+
 ## ヘルスチェックのみ実行（スタンドアロン）
 deploy-check:
 	@echo "=== Health Check ==="
@@ -703,6 +711,8 @@ help:
 	@echo "  🚀 デプロイ:"
 	@echo "    make deploy         - staged 済み release scope で本番反映"
 	@echo "    make deploy-stage-all - ローカル変更を全部 stage して本番反映"
+	@echo "    make release-pr     - develop -> main の release PR 作成"
+	@echo "    make rollback-prod TARGET=<id-or-sha> - rollback dry-run"
 	@echo "    make deploy-check   - ヘルスチェックのみ（Frontend + Backend）"
 	@echo "    make deploy-migrate - 本番DBマイグレーションのみ"
 	@echo "    make ops-status     - provider auth の現状確認"
