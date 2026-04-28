@@ -800,7 +800,7 @@ async def generate_draft_from_profile(
         company_context=company_context,
         company_sources=company_sources,
         selected_role=request.selected_role,
-        include_experience_anchor=bool(gakuchika_context),
+        include_experience_anchor=bool(request.gakuchika_context),
     )
 
     base_telemetry = consume_request_llm_cost_summary("motivation_draft") or {}
