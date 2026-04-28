@@ -166,7 +166,6 @@ export function useInterviewConversationController({
   const [error, setError] = useState<string | null>(null);
   const [errorAction, setErrorAction] = useState<string | null>(null);
   const [persistenceUnavailable, setPersistenceUnavailable] = useState(false);
-  const [persistenceDeveloperHint, setPersistenceDeveloperHint] = useState<string | null>(null);
   const [legacySessionDetected, setLegacySessionDetected] = useState(false);
   const [setupState, setSetupState] = useState<SetupState>(DEFAULT_SETUP_STATE);
   const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionsResponse | null>(null);
@@ -267,13 +266,6 @@ export function useInterviewConversationController({
   const applyPersistenceDiagnosticState = useCallback((uiError: AppUiError) => {
     const isPersistenceError = uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE;
     setPersistenceUnavailable(isPersistenceError);
-    setPersistenceDeveloperHint(
-      isPersistenceError && process.env.NODE_ENV === "development"
-        ? uiError.details ??
-            uiError.developerMessage ??
-            "Interview persistence schema or migration is missing."
-        : null,
-    );
   }, []);
 
   const reportError = useCallback((
@@ -312,7 +304,6 @@ export function useInterviewConversationController({
       setError(null);
       setErrorAction(null);
       setPersistenceUnavailable(false);
-      setPersistenceDeveloperHint(null);
       try {
         const [interviewResponse, roleResponse] = await Promise.all([
           fetchInterviewData(companyId),
@@ -349,7 +340,6 @@ export function useInterviewConversationController({
         setRoleOptionsData(roleData);
         setSetupState(interviewData.setup);
         setPersistenceUnavailable(false);
-        setPersistenceDeveloperHint(null);
         setLegacySessionDetected(isLegacy);
         setMessages(!isLegacy && Array.isArray(conversation?.messages) ? conversation.messages : []);
         setFeedback(!isLegacy ? conversation?.feedback ?? null : null);
@@ -870,7 +860,6 @@ export function useInterviewConversationController({
       error,
       errorAction,
       persistenceUnavailable,
-      persistenceDeveloperHint,
       legacySessionDetected,
       setupState,
       roleOptionsData,

@@ -412,7 +412,7 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
   const [lastFailedAction, setLastFailedAction] = useState<LastFailedAction>(null);
 
   const { state, actions } = useInterviewConversationController({ companyId: normalizedCompanyId, enabled: Boolean(normalizedCompanyId) });
-  const { companyName, materials, messages, answer, feedback, streamingFeedback, feedbackHistories, selectedHistory, questionCount, stageStatus, turnState, turnMeta, interviewPlan, streamingLabel, pendingAssistantMessage, streamingText, isTextStreaming, isLoading, isGeneratingFeedback, isSavingSatisfaction, questionFlowCompleted, error, errorAction, persistenceUnavailable, persistenceDeveloperHint, legacySessionDetected, setupState, roleOptionsData, selectedRoleName, customRoleName, roleSelectionSource, effectiveIndustry, resolvedSelectedRole, setupComplete, hasStarted, isBusy, isComplete, visibleFeedback, canSend, canGenerateFeedback, canContinue, latestFeedbackHistory, feedbackHelperText, feedbackCompletionCount, billingCosts, modelLabels, materialReadiness, sessionState, shortCoaching } = state;
+  const { companyName, materials, messages, answer, feedback, streamingFeedback, feedbackHistories, selectedHistory, questionCount, stageStatus, turnState, turnMeta, interviewPlan, streamingLabel, pendingAssistantMessage, streamingText, isTextStreaming, isLoading, isGeneratingFeedback, isSavingSatisfaction, questionFlowCompleted, error, errorAction, persistenceUnavailable, legacySessionDetected, setupState, roleOptionsData, selectedRoleName, customRoleName, roleSelectionSource, effectiveIndustry, resolvedSelectedRole, setupComplete, hasStarted, isBusy, isComplete, visibleFeedback, canSend, canGenerateFeedback, canContinue, latestFeedbackHistory, feedbackHelperText, feedbackCompletionCount, billingCosts, modelLabels, materialReadiness, sessionState, shortCoaching } = state;
 
   const { weakestAxis } = useInterviewViewModel({ companyId, feedback });
   const { setAnswer, setSetupState, setSelectedHistory, selectRole, setCustomRoleName, start: rawStart, send: rawSend, generateFeedback: rawGenerateFeedback, continueInterview: rawContinue, reset: handleReset, saveSatisfaction: handleSaveSatisfaction } = actions;
@@ -472,7 +472,7 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
                     )}
                     {error ? (<div className="flex items-center gap-2"><p className="text-sm text-destructive">{error}</p>{lastFailedAction && !legacySessionDetected ? (<Button variant="outline" size="sm" onClick={handleRetry} disabled={isBusy}>再試行</Button>) : null}</div>) : null}
                     {errorAction ? <p className="text-xs text-muted-foreground">{errorAction}</p> : null}
-                    {persistenceUnavailable ? (<div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">現在、面接対策の保存機能を一時的に利用できません。しばらくしてから再度お試しください。{persistenceDeveloperHint ? (<p className="mt-2 text-xs text-destructive/80">開発用メモ: {persistenceDeveloperHint}</p>) : null}</div>) : null}
+                    {persistenceUnavailable ? (<div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">現在、面接対策の保存機能を一時的に利用できません。しばらくしてから再度お試しください。</div>) : null}
                   </div>
                 </CardContent>
               </Card>
