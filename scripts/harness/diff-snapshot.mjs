@@ -26,6 +26,31 @@ function stagedSnapshot(project) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+  const unstagedFiles = runGit(project, ["diff", "--name-only"])
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const untrackedFiles = runGit(project, ["ls-files", "--others", "--exclude-standard"])
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const unstagedDiff = runGit(project, ["diff", "--binary", "--no-ext-diff"]);
+  const untrackedHash = createHash("sha256");
+  for (const file of untrackedFiles) {
+    untrackedHash.update(file);
+    untrackedHash.update("\0");
+    try {
+      untrackedHash.update(readFileSync(`${project}/${file}`));
+    } catch {
+      untrackedHash.update("<unreadable>");
+    }
+    untrackedHash.update("\0");
+  }
+  const dirtyHash = createHash("sha256")
+    .update(unstagedDiff)
+    .update("\0")
+    .update(untrackedHash.digest("hex"))
+    .digest("hex");
 
   let totalLines = 0;
   for (const line of numstat.split("\n")) {
@@ -49,6 +74,14 @@ function stagedSnapshot(project) {
     fileCount: files.length,
     totalLines,
     files,
+    unstagedFiles,
+    untrackedFiles,
+    dirtyState: {
+      hasStaged: files.length > 0,
+      hasUnstaged: unstagedFiles.length > 0,
+      hasUntracked: untrackedFiles.length > 0,
+      dirtyHash,
+    },
   };
 }
 
@@ -84,6 +117,10 @@ if (command === "checkpoint") {
     kind: argValue("--kind", "generic"),
     decision: argValue("--decision", ""),
     reviewRequestId: argValue("--review-request-id", ""),
+    reviewExecutionStatus: argValue("--review-execution-status", ""),
+    reviewVerdict: argValue("--review-verdict", ""),
+    maxSeverity: argValue("--max-severity", ""),
+    releaseMode: argValue("--release-mode", ""),
     status: argValue("--status", ""),
     createdAt: new Date().toISOString(),
     ...(categories ? { categories } : {}),
@@ -111,6 +148,16 @@ if (command === "verify") {
   if (checkpoint.headSha !== snapshot.headSha || checkpoint.stagedDiffHash !== snapshot.stagedDiffHash) {
     process.stderr.write("diff-snapshot: staged diff changed after checkpoint creation.\n");
     process.exit(2);
+  }
+  if (checkpoint.dirtyState) {
+    const dirtyMismatch =
+      Boolean(checkpoint.dirtyState.hasUnstaged) !== snapshot.dirtyState.hasUnstaged ||
+      Boolean(checkpoint.dirtyState.hasUntracked) !== snapshot.dirtyState.hasUntracked ||
+      String(checkpoint.dirtyState.dirtyHash || "") !== snapshot.dirtyState.dirtyHash;
+    if (dirtyMismatch) {
+      process.stderr.write("diff-snapshot: dirty tree state changed after checkpoint creation.\n");
+      process.exit(2);
+    }
   }
 
   print({ ok: true, ...snapshot });

@@ -282,6 +282,40 @@ jq -n \
     image_count: $image_count
   }' > "$RESULT_DIR/meta.json"
 
+if [ "$MODE" = "post_review" ]; then
+  REVIEW_SNAPSHOT="$(node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" current --project "$PROJECT_DIR")"
+  node - "$RESULT_DIR/result.md" "$RESULT_DIR/meta.json" "$REVIEW_SNAPSHOT" > "$RESULT_DIR/review.json" <<'NODE'
+const fs = require("node:fs");
+
+const resultPath = process.argv[2];
+const metaPath = process.argv[3];
+const snapshot = JSON.parse(process.argv[4]);
+const result = fs.existsSync(resultPath) ? fs.readFileSync(resultPath, "utf8") : "";
+const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+const statusMatch = result.match(/##\s*Status\s*\n+([A-Z_]+)/u);
+const reviewStatus = statusMatch ? statusMatch[1] : "NEEDS_DISCUSSION";
+const severityRank = { low: 1, medium: 2, high: 3, critical: 4 };
+let maxSeverity = "";
+for (const match of result.matchAll(/severity:\s*(critical|high|medium|low)\b/giu)) {
+  const severity = match[1].toLowerCase();
+  if (!maxSeverity || severityRank[severity] > severityRank[maxSeverity]) {
+    maxSeverity = severity;
+  }
+}
+process.stdout.write(`${JSON.stringify({
+  schemaVersion: 1,
+  requestId: meta.request_id,
+  executionStatus: meta.status,
+  reviewStatus,
+  maxSeverity,
+  headSha: snapshot.headSha,
+  stagedDiffHash: snapshot.stagedDiffHash,
+  files: snapshot.files,
+  createdAt: new Date().toISOString(),
+}, null, 2)}\n`);
+NODE
+fi
+
 # ─── Output summary ──────────────────────────────────────────────
 echo "Codex delegation complete: mode=$MODE status=$STATUS request_id=$REQUEST_ID" >&2
 echo "Result: $RESULT_DIR/result.md" >&2

@@ -81,7 +81,7 @@ guard_command_is_release_or_provider() {
 
   while IFS= read -r segment; do
     [ -z "$segment" ] && continue
-    if printf '%s' "$segment" | grep -qE '^(make[[:space:]]+(deploy|deploy-stage-all|ops-release-check|deploy-migrate)([[:space:]]|$)|([[:alnum:]_./-]+/)?scripts/release/[^[:space:]]+|bash[[:space:]]+scripts/release/[^[:space:]]+|zsh[[:space:]]+scripts/release/[^[:space:]]+|(vercel|railway|supabase|gcloud|wrangler)([[:space:]]|$))'; then
+    if printf '%s' "$segment" | grep -qE '^(make[[:space:]]+(deploy|deploy-stage-all|release-pr|rollback-prod|ops-release-check|deploy-migrate)([[:space:]]|$)|([[:alnum:]_./-]+/)?scripts/release/[^[:space:]]+|bash[[:space:]]+scripts/release/[^[:space:]]+|zsh[[:space:]]+scripts/release/[^[:space:]]+|(vercel|railway|supabase|gcloud|wrangler)([[:space:]]|$))'; then
       return 0
     fi
   done < <(guard_command_segments "$command")

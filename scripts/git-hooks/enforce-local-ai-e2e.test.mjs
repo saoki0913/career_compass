@@ -32,6 +32,7 @@ test("requires a fresh passed local manifest for affected features", () => {
         playwrightStatus: "not_run",
       };
     },
+    readDecisionImpl: () => null,
   });
 
   assert.equal(result.ok, false);
@@ -155,6 +156,7 @@ test("requires ES review browser E2E to pass for commit gating", () => {
       status: "passed",
       playwrightStatus: "skipped",
     }),
+    readDecisionImpl: () => null,
   });
 
   assert.equal(result.ok, false);
@@ -229,6 +231,7 @@ test("requires conversation feature browser E2E to pass for commit gating", () =
       status: "passed",
       playwrightStatus: "skipped",
     }),
+    readDecisionImpl: () => null,
   });
 
   assert.equal(result.ok, false);

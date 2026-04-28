@@ -14,3 +14,11 @@ if [ "$scan_exit" -eq 1 ]; then
   echo "[pre-commit] Security scan found critical issues. Commit blocked."
   exit 1
 fi
+if [ "$scan_exit" -eq 2 ]; then
+  echo "[pre-commit] Security scanner failed. Commit blocked fail-closed."
+  exit 1
+fi
+if [ "$scan_exit" -ne 0 ]; then
+  echo "[pre-commit] Security scan exited with unexpected status $scan_exit. Commit blocked."
+  exit 1
+fi

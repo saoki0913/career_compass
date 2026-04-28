@@ -222,19 +222,19 @@ commit を作成する直前に、以下の閾値チェックを行う:
    - hotspot ファイルの変更を含む（正本: `.claude/hooks/lib/skill-recommender.sh` の `HOTSPOT_FILES` 配列）
 3. 該当時: `bash scripts/codex/delegate.sh post_review` を実行（Bash timeout: Policy 参照）
 4. 最新の handoff ディレクトリを特定する: `ls -td .claude/state/codex-handoffs/post_review-*/ | head -1`
-5. `meta.json` の `status` フィールドで成否を判定し、`result.md` を Read する
-6. Status 判定（`meta.json` の `status` に基づく）:
-   - **APPROVE** → commit を続行
-   - **REQUEST_CHANGES** で severity=high → 指摘を修正してから commit
-   - **REQUEST_CHANGES** で severity=medium/low のみ → 指摘を commit メッセージに記録し commit 続行
-   - **NEEDS_DISCUSSION** → ユーザーに AskUserQuestion で相談
-   - **TIMEOUT / CODEX_ERROR / PARSE_FAILURE** → Claude 自身の code-reviewer skill でレビューし、commit 続行
+5. `meta.json` と `review.json` を Read する。`meta.json.status` は Codex 実行成否 (`SUCCESS` / `TIMEOUT` / `CODEX_ERROR` / `PARSE_FAILURE`)、`review.json.reviewStatus` はレビュー判定 (`APPROVE` / `REQUEST_CHANGES` / `NEEDS_DISCUSSION`) として扱う
+6. Status 判定:
+   - `meta.json.status != SUCCESS` → Claude 自身の code-reviewer skill で fallback review を行う
+   - `review.json.reviewStatus == APPROVE` → commit を続行
+   - `review.json.reviewStatus == REQUEST_CHANGES` かつ `review.json.maxSeverity == high` → 指摘を修正してから commit
+   - `review.json.reviewStatus == REQUEST_CHANGES` で medium/low のみ → 指摘を commit メッセージに記録し commit 続行可
+   - `review.json.reviewStatus == NEEDS_DISCUSSION` → ユーザーに AskUserQuestion で相談
 6b. **delegation 確認** — post_review 完了後、AskUserQuestion でユーザーに確認する。post_review の結果サマリ（status / 主要 findings）を含めること:
-   - **commit 続行** → `node scripts/harness/diff-snapshot.mjs checkpoint --kind codex-post-review --decision reviewed-proceed --project "$(pwd)" > ~/.claude/sessions/career_compass/codex-commit-delegation-$SESSION_ID`
-   - **Codex に修正委譲** → Section C のフローで implementation を実行。完了後 `node scripts/harness/diff-snapshot.mjs checkpoint --kind codex-post-review --decision delegate-fixes --project "$(pwd)" > ~/.claude/sessions/career_compass/codex-commit-delegation-$SESSION_ID`
+   - **commit 続行** → `node scripts/harness/diff-snapshot.mjs checkpoint --kind commit-review --decision reviewed-proceed --review-request-id "<review.json requestId>" --review-execution-status "<review.json executionStatus>" --review-verdict "<review.json reviewStatus>" --max-severity "<review.json maxSeverity>" --project "$(pwd)" > ~/.claude/sessions/career_compass/codex-commit-delegation-$SESSION_ID`
+   - **Codex に修正委譲** → Section C のフローで implementation を実行。完了後 `node scripts/harness/diff-snapshot.mjs checkpoint --kind commit-review --decision delegate-fixes --review-request-id "<review.json requestId>" --review-execution-status "<review.json executionStatus>" --review-verdict "<review.json reviewStatus>" --max-severity "<review.json maxSeverity>" --project "$(pwd)" > ~/.claude/sessions/career_compass/codex-commit-delegation-$SESSION_ID`
    - **Claude fallback** — post_review が TIMEOUT/CODEX_ERROR/PARSE_FAILURE の場合、Claude 自身の code-reviewer skill でレビュー後 `node scripts/harness/diff-snapshot.mjs checkpoint --kind codex-post-review --decision fallback-reviewed --project "$(pwd)" > ~/.claude/sessions/career_compass/codex-commit-delegation-$SESSION_ID`
 
-   > **⚠** checkpoint は **最新の post_review handoff より後**かつ **現在の staged diff と同じ状態**で作成すること。`commit-codex-gate.sh` は JSON checkpoint の `headSha` と `stagedDiffHash` を検証する。`skip-review` は廃止済みで受理されない。
+   > **⚠** checkpoint は **最新の post_review handoff の `review.json`** かつ **現在の staged diff と同じ状態**に結び付けて作成すること。`commit-codex-gate.sh` は JSON checkpoint の `headSha` / `stagedDiffHash` / `reviewRequestId` / `reviewVerdict` を検証する。`skip-review` は廃止済みで受理されない。
 7. 閾値未満の場合: Codex レビューをスキップし通常通り commit（`commit-codex-gate.sh` も素通り）
 
 ### B-2. Auto Commit & E2E Verify Workflow

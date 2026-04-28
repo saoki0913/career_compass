@@ -100,6 +100,17 @@ EOF
     ;;
 esac
 
+CHECKPOINT_KIND=$(jq -r '.kind // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+if [ "$CHECKPOINT_KIND" != "commit-review" ] && [ "$CHECKPOINT_KIND" != "codex-post-review" ]; then
+  cat >&2 <<EOF
+⛔ git commit をブロックしました。
+
+commit delegation checkpoint の kind は commit-review または codex-post-review である必要があります。
+checkpoint=$COMMIT_DELEG_FLAG
+EOF
+  exit 2
+fi
+
 if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$COMMIT_DELEG_FLAG" >/dev/null; then
   cat >&2 <<EOF
 ⛔ git commit をブロックしました。
@@ -108,6 +119,50 @@ checkpoint 作成後に staged diff が変わりました。post_review / AskUse
 checkpoint=$COMMIT_DELEG_FLAG
 EOF
   exit 2
+fi
+
+REVIEW_REQUEST_ID=$(jq -r '.reviewRequestId // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+REVIEW_EXECUTION_STATUS=$(jq -r '.reviewExecutionStatus // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+REVIEW_VERDICT=$(jq -r '.reviewVerdict // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+MAX_SEVERITY=$(jq -r '.maxSeverity // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+
+if [ "$DECISION" != "fallback-reviewed" ]; then
+  if [ -z "$REVIEW_REQUEST_ID" ] || [ -z "$REVIEW_EXECUTION_STATUS" ] || [ -z "$REVIEW_VERDICT" ]; then
+    cat >&2 <<EOF
+⛔ git commit をブロックしました。
+
+checkpoint に reviewRequestId / reviewExecutionStatus / reviewVerdict がありません。
+Codex post_review の review.json を確認し、現在の staged diff に結び付いた checkpoint を作成してください。
+EOF
+    exit 2
+  fi
+
+  REVIEW_DIR="$PROJECT_DIR/.claude/state/codex-handoffs/$REVIEW_REQUEST_ID"
+  REVIEW_JSON="$REVIEW_DIR/review.json"
+  if [ ! -f "$REVIEW_JSON" ]; then
+    echo "git commit blocked: review.json not found for $REVIEW_REQUEST_ID." >&2
+    exit 2
+  fi
+
+  REVIEW_JSON_EXECUTION=$(jq -r '.executionStatus // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
+  REVIEW_JSON_VERDICT=$(jq -r '.reviewStatus // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
+  REVIEW_JSON_HASH=$(jq -r '.stagedDiffHash // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
+  CHECKPOINT_HASH=$(jq -r '.stagedDiffHash // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+
+  if [ "$REVIEW_JSON_EXECUTION" != "$REVIEW_EXECUTION_STATUS" ] || [ "$REVIEW_JSON_VERDICT" != "$REVIEW_VERDICT" ] || [ "$REVIEW_JSON_HASH" != "$CHECKPOINT_HASH" ]; then
+    echo "git commit blocked: checkpoint does not match post_review artifact." >&2
+    exit 2
+  fi
+
+  if [ "$REVIEW_EXECUTION_STATUS" != "SUCCESS" ]; then
+    echo "git commit blocked: Codex post_review did not complete successfully. Use fallback-reviewed after Claude review." >&2
+    exit 2
+  fi
+
+  if [ "$REVIEW_VERDICT" = "NEEDS_DISCUSSION" ] || { [ "$REVIEW_VERDICT" = "REQUEST_CHANGES" ] && echo "$MAX_SEVERITY" | grep -qE '^(high|critical)$'; }; then
+    echo "git commit blocked: post_review requires changes or discussion before commit." >&2
+    exit 2
+  fi
 fi
 
 # All checks passed
