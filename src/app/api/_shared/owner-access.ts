@@ -13,8 +13,12 @@ interface OwnerRecord {
   guestId: string | null;
 }
 
+export function hasValidOwnerIdentity(identity: OwnerIdentity): boolean {
+  return Boolean(identity.userId) !== Boolean(identity.guestId);
+}
+
 export function isOwnedByIdentity(record: OwnerRecord | null | undefined, identity: OwnerIdentity) {
-  if (!record) {
+  if (!record || !hasValidOwnerIdentity(identity)) {
     return false;
   }
 
@@ -26,6 +30,10 @@ export function isOwnedByIdentity(record: OwnerRecord | null | undefined, identi
 }
 
 export async function hasOwnedCompany(companyId: string, identity: OwnerIdentity): Promise<boolean> {
+  if (!hasValidOwnerIdentity(identity)) {
+    return false;
+  }
+
   const [company] = await db
     .select({ id: companies.id })
     .from(companies)
@@ -44,6 +52,10 @@ export async function getOwnedCompany(
   companyId: string,
   identity: OwnerIdentity
 ): Promise<{ id: string; name: string; infoFetchedAt: Date | null; corporateInfoFetchedAt: Date | null } | null> {
+  if (!hasValidOwnerIdentity(identity)) {
+    return null;
+  }
+
   const [company] = await db
     .select({
       id: companies.id,
@@ -68,6 +80,10 @@ export async function getOwnedCompanyRecord(
   companyId: string,
   identity: OwnerIdentity,
 ): Promise<typeof companies.$inferSelect | null> {
+  if (!hasValidOwnerIdentity(identity)) {
+    return null;
+  }
+
   const [row] = await db
     .select()
     .from(companies)
@@ -86,6 +102,10 @@ export async function getOwnedDocument(
   documentId: string,
   identity: OwnerIdentity,
 ): Promise<typeof documents.$inferSelect | null> {
+  if (!hasValidOwnerIdentity(identity)) {
+    return null;
+  }
+
   const [doc] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
   if (!doc || !isOwnedByIdentity(doc, identity)) {
     return null;
@@ -97,6 +117,10 @@ export async function getOwnedApplicationRecord(
   applicationId: string,
   identity: OwnerIdentity,
 ): Promise<typeof applications.$inferSelect | null> {
+  if (!hasValidOwnerIdentity(identity)) {
+    return null;
+  }
+
   const [app] = await db.select().from(applications).where(eq(applications.id, applicationId)).limit(1);
   if (!app || !isOwnedByIdentity(app, identity)) {
     return null;
@@ -105,6 +129,10 @@ export async function getOwnedApplicationRecord(
 }
 
 export async function hasOwnedApplication(applicationId: string, identity: OwnerIdentity): Promise<boolean> {
+  if (!hasValidOwnerIdentity(identity)) {
+    return false;
+  }
+
   const [application] = await db
     .select({ id: applications.id })
     .from(applications)
@@ -125,6 +153,10 @@ export async function getOwnedApplication(
   applicationId: string,
   identity: OwnerIdentity
 ): Promise<{ id: string; name: string } | null> {
+  if (!hasValidOwnerIdentity(identity)) {
+    return null;
+  }
+
   const [application] = await db
     .select({
       id: applications.id,
@@ -145,6 +177,10 @@ export async function getOwnedApplication(
 }
 
 export async function hasOwnedJobType(jobTypeId: string, identity: OwnerIdentity): Promise<boolean> {
+  if (!hasValidOwnerIdentity(identity)) {
+    return false;
+  }
+
   const [jobType] = await db
     .select({ id: jobTypes.id })
     .from(jobTypes)
@@ -163,6 +199,10 @@ export async function hasOwnedJobType(jobTypeId: string, identity: OwnerIdentity
 }
 
 export async function hasOwnedDeadline(deadlineId: string, identity: OwnerIdentity): Promise<boolean> {
+  if (!hasValidOwnerIdentity(identity)) {
+    return false;
+  }
+
   const deadlineCompany = alias(companies, "deadline_company");
   const [deadline] = await db
     .select({ id: deadlines.id })
