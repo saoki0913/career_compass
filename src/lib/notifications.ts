@@ -114,6 +114,14 @@ export function notifyGakuchikaDraftSaved() {
   });
 }
 
+export function notifyGakuchikaInterviewReady() {
+  return notifySuccess({
+    title: "面接準備が完了しました",
+    description: "必要なタイミングでフィードバックを表示できます。",
+    duration: 4200,
+  });
+}
+
 export function notifyTaskCreated() {
   return notifySuccess({ title: "タスクを追加しました" });
 }
