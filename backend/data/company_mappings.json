@@ -56,10 +56,15 @@
       "mitsui",
       "mitsuibussan"
     ],
-    "三菱商事": [
-      "career-mc",
-      "mitsubishicorp"
-    ],
+    "三菱商事": {
+      "domains": [
+        "career-mc",
+        "mitsubishicorp"
+      ],
+      "logo_domains": [
+        "mitsubishicorp.com"
+      ]
+    },
     "伊藤忠商事": [
       "itochu"
     ],
@@ -542,6 +547,9 @@
       "domains": [
         "bk.mufg",
         "mufgbank"
+      ],
+      "logo_domains": [
+        "bk.mufg.jp"
       ],
       "parent": "三菱UFJフィナンシャル・グループ",
       "allow_parent_domains_for": [

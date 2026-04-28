@@ -176,6 +176,10 @@ def _get_company_patterns(mappings: dict[str, Any], company_name: str) -> list[s
     patterns = m.get(company_name, [])
     if isinstance(patterns, list):
         return patterns
+    if isinstance(patterns, dict):
+        domains = patterns.get("domains", [])
+        if isinstance(domains, list):
+            return domains
     return []
 
 

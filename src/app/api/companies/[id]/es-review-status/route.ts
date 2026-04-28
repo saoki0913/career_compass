@@ -3,8 +3,9 @@ import { db } from "@/lib/db";
 import { companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { STATUS_POLL_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getViewerPlan } from "@/lib/server/loader-helpers";
 
 export async function GET(
   request: NextRequest,
@@ -64,10 +65,18 @@ export async function GET(
       });
     }
 
-    const response = await fetchFastApiInternal(`/api/es/company-status/${id}`, {
+    const response = await fetchFastApiWithPrincipal(`/api/es/company-status/${id}`, {
       method: "GET",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
+      principal: {
+        scope: "company",
+        actor: identity.userId
+          ? { kind: "user", id: identity.userId }
+          : { kind: "guest", id: identity.guestId! },
+        companyId: id,
+        plan: await getViewerPlan(identity),
+      },
     });
 
     if (!response.ok) {

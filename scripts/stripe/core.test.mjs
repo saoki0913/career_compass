@@ -10,6 +10,8 @@ import {
   resolveStripeSecretKey,
 } from "./core.mjs";
 
+const STRIPE_SECRET_KEY_ENV = "STRIPE_SECRET_KEY";
+
 const expectedConfig = {
   account: {
     businessProfileName: "就活Pass",
@@ -96,7 +98,7 @@ test("resolveStripeSecretKey rejects environment mismatch", () => {
     () =>
       resolveStripeSecretKey({
         environment: "live",
-        env: { STRIPE_SECRET_KEY: "sk_test_123" },
+        env: { [STRIPE_SECRET_KEY_ENV]: "stripe-test-key-placeholder" },
       }),
     /sk_live_/,
   );
