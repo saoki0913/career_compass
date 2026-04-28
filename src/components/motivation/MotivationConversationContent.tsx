@@ -34,6 +34,7 @@ export function MotivationConversationContent({ companyId }: { companyId: string
     error,
     evidenceCards,
     evidenceSummary,
+    userEvidenceCards,
     fetchData,
     generatedDocumentId,
     generatedDraft,
@@ -78,6 +79,7 @@ export function MotivationConversationContent({ companyId }: { companyId: string
     setError,
     setRoleSelectionSource,
     setSelectedRoleName,
+    slotSummaries,
     stageStatus,
     streamingLabel,
     streamingText,
@@ -220,7 +222,7 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                   roleSelectionSource={roleSelectionSource}
                   isRoleOptionsLoading={isRoleOptionsLoading}
                   isSetupComplete={isSetupComplete}
-                  disableSetupEditing={disableSetupEditing}
+                  disableSetupEditing={disableSetupEditing || isGeneratingDraft || isLocked}
                   isCustomRoleActive={isCustomRoleActive}
                   onIndustryChange={(value) => {
                     void handleIndustryChange(value);
@@ -307,7 +309,7 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                         variant="outline"
                         className="shrink-0 border-sky-300 text-sky-700 hover:bg-sky-100"
                         onClick={handleResumeDeepDive}
-                        disabled={isSending || isLocked}
+                        disabled={isSending || isLocked || isGeneratingDraft}
                       >
                         深掘りを続ける
                       </Button>
@@ -423,6 +425,8 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                   placeholder={
                     isDraftReady && !nextQuestion && generatedDraft
                       ? "「深掘りを続ける」で補強できます"
+                      : isDraftReady && !nextQuestion
+                        ? "ESは任意のタイミングで作成できます"
                       : answerGuide
                   }
                   className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
@@ -450,6 +454,8 @@ export function MotivationConversationContent({ companyId }: { companyId: string
             causalGaps={causalGaps}
             evidenceCards={evidenceCards}
             evidenceSummary={evidenceSummary}
+            userEvidenceCards={userEvidenceCards}
+            slotSummaries={slotSummaries}
             hasSavedConversation={hasSavedConversation}
             isLocked={isLocked}
             isSending={isSending}
@@ -475,6 +481,10 @@ export function MotivationConversationContent({ companyId }: { companyId: string
               }
             }}
             onDeepDive={handleCloseDraftModal}
+            onResumeDeepDive={async () => {
+              handleCloseDraftModal();
+              await handleResumeDeepDive();
+            }}
           />
         ) : null}
       </main>

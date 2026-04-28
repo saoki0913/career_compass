@@ -12,6 +12,24 @@ import { type CausalGap, type ConversationMode, type EvidenceCard, type StageSta
 
 import { ResetIcon } from "./motivation-icons";
 
+const SLOT_SIDEBAR_LABELS: Record<string, string> = {
+  industry_reason: "業界への関心",
+  company_reason: "企業を選ぶ理由",
+  self_connection: "自分との接点",
+  desired_work: "やりたい仕事",
+  value_contribution: "貢献できること",
+  differentiation: "自分ならではの強み",
+};
+
+const SLOT_DISPLAY_ORDER = [
+  "industry_reason",
+  "company_reason",
+  "self_connection",
+  "desired_work",
+  "value_contribution",
+  "differentiation",
+] as const;
+
 export function MotivationConversationSidebar({
   companyId,
   effectiveIndustry,
@@ -31,6 +49,8 @@ export function MotivationConversationSidebar({
   causalGaps,
   evidenceCards,
   evidenceSummary,
+  userEvidenceCards,
+  slotSummaries,
   hasSavedConversation,
   isLocked,
   isSending,
@@ -58,6 +78,8 @@ export function MotivationConversationSidebar({
   causalGaps: CausalGap[];
   evidenceCards: EvidenceCard[];
   evidenceSummary: string | null;
+  userEvidenceCards: EvidenceCard[];
+  slotSummaries: Record<string, string>;
   hasSavedConversation: boolean;
   isLocked: boolean;
   isSending: boolean;
@@ -164,6 +186,37 @@ export function MotivationConversationSidebar({
             )}
           </CardContent>
         </Card>
+
+        {userEvidenceCards.length > 0 || Object.keys(slotSummaries).length > 0 ? (
+          <Card className="border-border/50">
+            <CardHeader className="px-3.5 py-2.5">
+              <CardTitle className="text-sm font-medium">参考にしたユーザー情報</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 px-3.5 pb-3.5 pt-0">
+              {userEvidenceCards.length > 0 ? (
+                <MotivationEvidenceSection
+                  evidenceCards={userEvidenceCards}
+                  evidenceSummary={null}
+                  compact
+                  showHeader={false}
+                />
+              ) : (
+                SLOT_DISPLAY_ORDER.filter((s) => slotSummaries[s]).map((slot) => (
+                  <div key={slot}>
+                    <p className="text-[11px] font-medium text-muted-foreground">
+                      {SLOT_SIDEBAR_LABELS[slot] || "確認済みの情報"}
+                    </p>
+                    <p className="text-xs leading-5 text-foreground/80">
+                      {slotSummaries[slot].length > 80
+                        ? `${slotSummaries[slot].slice(0, 80)}...`
+                        : slotSummaries[slot]}
+                    </p>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
 
         {generatedDraft ? (
           <Card className="border-border/50">
