@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const {
   dbUpdateMock,
   dbInsertMock,
+  dbTransactionMock,
   reserveCreditsMock,
   confirmReservationMock,
   cancelReservationMock,
@@ -22,6 +23,7 @@ const {
 } = vi.hoisted(() => ({
   dbUpdateMock: vi.fn(),
   dbInsertMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
   confirmReservationMock: vi.fn(),
   cancelReservationMock: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     update: dbUpdateMock,
     insert: dbInsertMock,
+    transaction: dbTransactionMock,
   },
 }));
 
@@ -120,6 +123,7 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
   beforeEach(() => {
     dbUpdateMock.mockReset();
     dbInsertMock.mockReset();
+    dbTransactionMock.mockReset();
     reserveCreditsMock.mockReset();
     confirmReservationMock.mockReset();
     cancelReservationMock.mockReset();
@@ -146,6 +150,10 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
       values: vi.fn().mockResolvedValue(undefined),
       onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
     });
+    dbTransactionMock.mockImplementation(async (callback) => callback({
+      update: dbUpdateMock,
+      insert: dbInsertMock,
+    }));
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
     enforceRateLimitLayersMock.mockResolvedValue(null);
     getOwnedMotivationCompanyDataMock.mockResolvedValue({
@@ -194,7 +202,7 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
     ]);
   });
 
-  it("returns a temporary draft without creating an ES document", async () => {
+  it("creates an ES document and persists draftDocumentId for direct draft", async () => {
     fetchFastApiInternalMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -220,7 +228,8 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.documentId).toBeNull();
+    expect(payload.documentId).toEqual(expect.any(String));
+    expect(payload.draftDocumentId).toBe(payload.documentId);
     expect(payload.nextQuestion).toBeNull();
     expect(payload.userEvidenceCards).toHaveLength(1);
     expect(buildMotivationUserEvidenceCardsMock).toHaveBeenCalledWith(
@@ -233,6 +242,59 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
       }),
     );
     expect(fetchFastApiInternalMock).toHaveBeenCalledTimes(1);
+    expect(dbInsertMock).toHaveBeenCalled();
+    expect(dbTransactionMock).toHaveBeenCalled();
+    expect(dbInsertMock.mock.results[0]?.value.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: payload.documentId,
+        userId: "user-1",
+        guestId: undefined,
+        companyId: "company-1",
+        type: "es",
+        status: "draft",
+        content: expect.stringContaining("会話なしの下書きです。"),
+      }),
+    );
+    expect(dbUpdateMock.mock.results.at(-1)?.value.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generatedDraft: "会話なしの下書きです。",
+        conversationContext: expect.objectContaining({
+          draftDocumentId: payload.documentId,
+          postDraftAwaitingResume: true,
+        }),
+      }),
+    );
+  });
+
+  it("returns persisted direct draft and releases reservation when credit confirmation fails after document creation", async () => {
+    confirmReservationMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          draft: "会話なしの下書きです。",
+          char_count: 120,
+          key_points: ["企業理解"],
+          company_keywords: ["DX支援"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft-direct/route");
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft-direct", {
+        method: "POST",
+        body: JSON.stringify({ charLimit: 400, selectedRole: "企画職" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ companyId: "company-1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.documentId).toEqual(expect.any(String));
+    expect(dbTransactionMock).toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 
   it("returns 409 before consuming credits when profile-only material is too thin", async () => {

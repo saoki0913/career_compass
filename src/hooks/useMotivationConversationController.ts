@@ -170,6 +170,7 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     if (has("evidenceCards")) setEvidenceCards(conversation.evidenceCards ?? []);
     if (has("userEvidenceCards")) setUserEvidenceCards(conversation.userEvidenceCards ?? []);
     if (has("generatedDraft")) setGeneratedDraft(conversation.generatedDraft ?? null);
+    if (has("draftDocumentId")) setGeneratedDocumentId(conversation.draftDocumentId ?? null);
     if (has("questionStage")) setQuestionStage(conversation.questionStage ?? null);
     if (has("stageStatus")) setStageStatus(conversation.stageStatus ?? null);
     if (has("coachingFocus")) setCoachingFocus(conversation.coachingFocus ?? null);

@@ -214,6 +214,12 @@ async def generate_draft_impl(request: Any, *, tenant_key: str | None = None) ->
         slot_summaries=request.slot_summaries,
         slot_evidence_sentences=request.slot_evidence_sentences,
     )
+    if getattr(request, "is_regeneration", False):
+        primary_material_body = (
+            f"{primary_material_body}\n\n"
+            "【再生成時の注意】直近の追加回答や補強された論点を優先して反映し、"
+            "未確認の事実は増やさないでください。"
+        )
 
     system_prompt, user_prompt = build_template_draft_generation_prompt(
         "company_motivation",
@@ -302,14 +308,7 @@ async def generate_draft_impl(request: Any, *, tenant_key: str | None = None) ->
         llm_call_fn=_quality_retry_call,
     )
     if quality_failure_codes:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "志望動機の品質基準を満たす下書きを生成できませんでした。",
-                "error_type": "motivation_draft_quality_failed",
-                "failure_codes": quality_failure_codes,
-            },
-        )
+        quality_telemetry["quality_warning_codes"] = quality_failure_codes
 
     async def _refinement_call(refined_prompt: str) -> str:
         refined_result = await call_llm_with_error(
@@ -349,14 +348,7 @@ async def generate_draft_impl(request: Any, *, tenant_key: str | None = None) ->
         anchor_keywords=anchor_keywords,
     )
     if final_failure_codes:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "志望動機の品質基準を満たす下書きを生成できませんでした。",
-                "error_type": "motivation_draft_quality_failed",
-                "failure_codes": final_failure_codes,
-            },
-        )
+        quality_telemetry["final_quality_warning_codes"] = final_failure_codes
 
     key_points, company_keywords = _resolve_motivation_draft_metadata(
         slot_summaries=request.slot_summaries,
@@ -517,14 +509,7 @@ async def generate_draft_from_profile_impl(
         llm_call_fn=_profile_quality_retry_call,
     )
     if quality_failure_codes:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "志望動機の品質基準を満たす下書きを生成できませんでした。",
-                "error_type": "motivation_draft_quality_failed",
-                "failure_codes": quality_failure_codes,
-            },
-        )
+        quality_telemetry["quality_warning_codes"] = quality_failure_codes
 
     async def _refinement_call_profile(refined_prompt: str) -> str:
         refined_result = await call_llm_with_error(
@@ -564,14 +549,7 @@ async def generate_draft_from_profile_impl(
         anchor_keywords=anchor_keywords,
     )
     if final_failure_codes:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "志望動機の品質基準を満たす下書きを生成できませんでした。",
-                "error_type": "motivation_draft_quality_failed",
-                "failure_codes": final_failure_codes,
-            },
-        )
+        quality_telemetry["final_quality_warning_codes"] = final_failure_codes
 
     key_points, company_keywords = _resolve_motivation_draft_metadata(
         slot_summaries=None,

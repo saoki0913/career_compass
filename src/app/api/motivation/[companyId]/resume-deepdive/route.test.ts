@@ -246,7 +246,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     }));
   });
 
-  it("returns follow-up question without consuming credits", async () => {
+  it("confirms one credit after follow-up question is persisted", async () => {
     fetchFastApiInternalMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -285,15 +285,25 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
 
     expect(response.status).toBe(200);
     expect(buildMotivationConversationPayloadMock).toHaveBeenCalled();
-    expect(reserveCreditsMock).not.toHaveBeenCalled();
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(reserveCreditsMock).toHaveBeenCalledWith(
+      "user-1",
+      1,
+      "motivation_resume_deepdive",
+      "company-1",
+      expect.stringContaining("深掘り再開"),
+    );
+    expect(confirmReservationMock).toHaveBeenCalledWith("res-1");
     expect(dbUpdateMock).toHaveBeenCalled();
   });
 
-  it("returns 409 when no generatedDraft exists", async () => {
+  it("returns 409 when draft is not ready", async () => {
     getMotivationConversationByConditionMock.mockResolvedValueOnce({
       ...BASE_CONVERSATION,
       generatedDraft: null,
+    });
+    safeParseConversationContextMock.mockReturnValueOnce({
+      draftReady: false,
+      questionStage: "differentiation",
     });
 
     const { POST } = await import(
@@ -314,6 +324,80 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     expect(response.status).toBe(409);
     expect(reserveCreditsMock).not.toHaveBeenCalled();
     expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 without consuming credits when a deepdive question is already pending", async () => {
+    safeParseConversationContextMock.mockReturnValueOnce({
+      draftReady: true,
+      questionStage: "differentiation",
+      postDraftAwaitingResume: false,
+    });
+    safeParseMessagesMock.mockReturnValueOnce([
+      { role: "user", content: "a" },
+      { role: "assistant", content: "さらに補強したい点はどこですか？" },
+    ]);
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+    expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
+  });
+
+  it("returns success and releases reservation when credit confirmation fails after follow-up persistence", async () => {
+    confirmReservationMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          question: "さらに深掘りしたい点はありますか？",
+          evidence_summary: null,
+          evidence_cards: [],
+          coaching_focus: "補足深掘り",
+          question_stage: "differentiation",
+          conversation_mode: "deepdive",
+          current_slot: "company_reason",
+          current_intent: "experience_anchor",
+          next_advance_condition: "原体験との接続が補えれば十分です。",
+          progress: { completed: 6, total: 6 },
+          causal_gaps: [],
+          stage_status: null,
+          captured_context: { draftReady: true, questionStage: "differentiation" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(dbUpdateMock).toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 
   it("returns 503 when FastAPI fails", async () => {
@@ -344,7 +428,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     expect(body.error.code).toBe("FASTAPI_TENANT_KEY_NOT_CONFIGURED");
     expect(body.error.llmErrorType).toBe("tenant_key_not_configured");
     expect(body.error.userMessage).toBe("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。");
-    expect(reserveCreditsMock).not.toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 
   it("preserves FastAPI 429 status for concurrency errors", async () => {
@@ -371,6 +455,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     });
 
     expect(response.status).toBe(429);
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
     const body = await response.json();
     expect(body.error.code).toBe("AI_STREAM_CONCURRENCY_EXCEEDED");
     expect(body.error.retryable).toBe(true);
@@ -397,6 +482,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     });
 
     expect(response.status).toBe(503);
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
     const body = await response.json();
     expect(body.error.code).toBe("FASTAPI_SECRET_NOT_CONFIGURED");
     expect(body.error.userMessage).toBe("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。");

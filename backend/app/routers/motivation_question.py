@@ -666,7 +666,7 @@ def _infer_weakness_tag_from_eval(eval_result: dict[str, Any] | None) -> str:
 
 
 def _should_use_deepdive_mode(prep: _MotivationQuestionPrep) -> bool:
-    return prep.was_draft_ready and prep.has_generated_draft
+    return prep.was_draft_ready
 
 
 def _classify_draft_ready_source(

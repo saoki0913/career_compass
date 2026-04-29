@@ -3,10 +3,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { motivationConversations } from "@/lib/db/schema";
+import { documents, motivationConversations } from "@/lib/db/schema";
 import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
 import {
   DEFAULT_CONFIRMED_FACTS,
@@ -36,6 +37,8 @@ import {
 } from "@/lib/ai/user-context";
 import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
 import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
+import { buildCompanyMotivationEsSectionTitle } from "@/lib/es-review/es-document-section-titles";
+import { logError } from "@/lib/logger";
 import {
   ensureMotivationConversation,
   fetchMotivationApplicationJobCandidates,
@@ -285,34 +288,34 @@ export async function POST(
       });
 
       if (response.status === 422) {
-        return NextResponse.json(
-          createApiErrorResponse(request, {
-            status: 422,
-            code: "VALIDATION_FAILED",
-            userMessage: "入力データの検証に失敗しました。",
-            action: "入力内容を見直して、もう一度お試しください。",
-          }),
-          { status: 422 }
-        );
+        return createApiErrorResponse(request, {
+          status: 422,
+          code: "VALIDATION_FAILED",
+          userMessage: "入力データの検証に失敗しました。",
+          action: "入力内容を見直して、もう一度お試しください。",
+        });
       }
 
       if (response.status === 409) {
         const detail = (errorData as { detail?: { error?: string; failure_codes?: string[] } }).detail;
-        return NextResponse.json(
-          createApiErrorResponse(request, {
-            status: 409,
-            code: "DRAFT_QUALITY_FAILED",
-            userMessage: detail?.error || "志望動機の品質基準を満たす下書きを生成できませんでした。",
-            action: "もう一度お試��ください。",
-            retryable: true,
-          }),
-          { status: 409 }
-        );
+        return createApiErrorResponse(request, {
+          status: 409,
+          code: "DRAFT_QUALITY_FAILED",
+          userMessage: detail?.error || "志望動機の品質基準を満たす下書きを生成できませんでした。",
+          action: "もう一度お試しください。",
+          retryable: true,
+        });
       }
 
       const msg =
         messageFromFastApiDetail((errorData as { detail?: unknown }).detail) || "ES生成に失敗しました";
-      return NextResponse.json({ error: msg }, { status: 503 });
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "MOTIVATION_DRAFT_DIRECT_FAILED",
+        userMessage: msg,
+        action: "時間をおいて、もう一度お試しください。",
+        retryable: true,
+      });
     }
 
     const rawData = await response.json();
@@ -320,15 +323,23 @@ export async function POST(
     const data = payload as FastAPIDraftResponse;
     const draftNormalized = normalizeEsDraftSingleParagraph(data.draft);
 
-    if (reservationId) await confirmReservation(reservationId);
-    logAiCreditCostSummary({
-      feature: "motivation_draft",
-      requestId,
-      status: "success",
-      creditsUsed: reservationId ? 6 : 0,
-      telemetry,
-    });
-    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
+    if (!draftNormalized) {
+      if (reservationId) await cancelReservation(reservationId);
+      logAiCreditCostSummary({
+        feature: "motivation_draft",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
+      return createApiErrorResponse(request, {
+        status: 502,
+        code: "MOTIVATION_DRAFT_DIRECT_EMPTY",
+        userMessage: "ES生成に失敗しました",
+        action: "時間をおいて、もう一度お試しください。",
+        retryable: true,
+      });
+    }
 
     const prevCtx = safeParseConversationContext(conversation.conversationContext ?? null);
     const industrySource: MotivationConversationContext["selectedIndustrySource"] =
@@ -365,6 +376,8 @@ export async function POST(
     };
     const updatedMessages: { role: "user" | "assistant"; content: string }[] = [];
 
+    const documentId = randomUUID();
+    const now = new Date();
     const conversationContextPersisted = mergeDraftReadyContext(
       {
         ...mergedForFollowUp,
@@ -375,33 +388,97 @@ export async function POST(
         questionStage: "company_reason",
         postDraftAwaitingResume: true,
         deepdiveResumeCount: 0,
+        draftDocumentId: documentId,
         lastQuestionMeta: mergedForFollowUp.lastQuestionMeta || null,
       },
       true,
     );
 
-    await db
-      .update(motivationConversations)
-      .set({
-        generatedDraft: draftNormalized,
-        charLimitType: String(charLimit) as "300" | "400" | "500",
-        messages: updatedMessages,
-        conversationContext: conversationContextPersisted,
-        questionStage: "company_reason",
-        lastEvidenceCards: evidenceCards,
-        stageStatus,
-        selectedRole,
-        selectedRoleSource,
-        updatedAt: new Date(),
-      })
-      .where(eq(motivationConversations.id, conversation.id));
+    await db.transaction(async (tx) => {
+      await tx.insert(documents).values({
+        id: documentId,
+        userId: userId || undefined,
+        guestId: guestId || undefined,
+        companyId,
+        type: "es",
+        title: `${company.name} 志望動機`,
+        content: JSON.stringify([
+          {
+            id: randomUUID(),
+            type: "h2",
+            content: buildCompanyMotivationEsSectionTitle(),
+            charLimit,
+          },
+          {
+            id: randomUUID(),
+            type: "paragraph",
+            content: draftNormalized,
+          },
+        ]),
+        status: "draft",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await tx
+        .update(motivationConversations)
+        .set({
+          generatedDraft: draftNormalized,
+          charLimitType: String(charLimit) as "300" | "400" | "500",
+          messages: updatedMessages,
+          conversationContext: conversationContextPersisted,
+          questionStage: "company_reason",
+          lastEvidenceCards: evidenceCards,
+          stageStatus,
+          selectedRole,
+          selectedRoleSource,
+          updatedAt: now,
+        })
+        .where(eq(motivationConversations.id, conversation.id));
+    });
+
+    let creditsUsed = 0;
+    if (reservationId) {
+      try {
+        await confirmReservation(reservationId);
+        creditsUsed = 6;
+      } catch (error) {
+        logError("motivation-draft-direct:confirm-reservation", error, {
+          companyId,
+          userId: userId ?? undefined,
+          requestId,
+          reservationId,
+        });
+        try {
+          await cancelReservation(reservationId);
+        } catch (cancelError) {
+          logError("motivation-draft-direct:cancel-after-confirm-failure", cancelError, {
+            companyId,
+            userId: userId ?? undefined,
+            requestId,
+            reservationId,
+          });
+        }
+      } finally {
+        reservationId = null;
+      }
+    }
+    logAiCreditCostSummary({
+      feature: "motivation_draft",
+      requestId,
+      status: "success",
+      creditsUsed,
+      telemetry,
+    });
+    void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
 
     return NextResponse.json({
       draft: draftNormalized,
       charCount: data.char_count,
       keyPoints: data.key_points,
       companyKeywords: data.company_keywords,
-      documentId: null,
+      documentId,
+      draftDocumentId: documentId,
       nextQuestion: null,
       evidenceSummary: null,
       evidenceCards,
@@ -427,6 +504,14 @@ export async function POST(
       creditsUsed: 0,
       telemetry: null,
     });
-    return NextResponse.json({ error: "ES生成中にエラーが発生しました" }, { status: 503 });
+    return createApiErrorResponse(request, {
+      status: 503,
+      code: "MOTIVATION_DRAFT_DIRECT_FAILED",
+      userMessage: "ES生成中にエラーが発生しました",
+      action: "時間をおいて、もう一度お試しください。",
+      retryable: true,
+      error,
+      logContext: "motivation-draft-direct",
+    });
   }
 }

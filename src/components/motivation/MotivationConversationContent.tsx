@@ -181,6 +181,9 @@ export function MotivationConversationContent({ companyId }: { companyId: string
           showSetupScreen={showSetupScreen}
           isPostDraftMode={isPostDraftMode}
           motivationModeLabel={motivationModeLabel}
+          generatedDraft={generatedDraft}
+          generatedDocumentId={generatedDocumentId}
+          onOpenDraftModal={() => setIsDraftModalOpen(true)}
         />
 
         <div className="grid grid-cols-1 gap-4 flex-1 overflow-hidden lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.75fr)]">
@@ -294,8 +297,19 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                   )}
 
                   {isDraftReady && !nextQuestion && !generatedDraft && !isGeneratingDraft && !isWaitingForResponse && !isTextStreaming && (
-                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900">
-                      材料が揃いました。右上の「志望動機ESを作成」で生成できます。会話を続けて材料を追加することもできます。
+                    <div className="flex flex-col items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900 sm:flex-row sm:items-center">
+                      <p className="min-w-0 flex-1">
+                        材料が揃いました。右上の「志望動機ESを作成」から任意のタイミングで生成できます。追加で深掘りして強化することもできます。
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                        onClick={handleResumeDeepDive}
+                        disabled={isSending || isLocked || isGeneratingDraft}
+                      >
+                        深掘りを続ける
+                      </Button>
                     </div>
                   )}
 
@@ -436,11 +450,9 @@ export function MotivationConversationContent({ companyId }: { companyId: string
           </div>
 
           <MotivationConversationSidebar
-            companyId={companyId}
             effectiveIndustry={effectiveIndustry}
             selectedRoleName={selectedRoleName}
             generatedDraft={generatedDraft}
-            generatedDocumentId={generatedDocumentId}
             showSetupScreen={showSetupScreen}
             stageStatus={stageStatus}
             questionCount={questionCount}
@@ -463,7 +475,6 @@ export function MotivationConversationContent({ companyId }: { companyId: string
             isResetting={isResetting}
             isStartingConversation={isStartingConversation}
             onResetConversation={handleResetConversation}
-            onOpenDraftModal={() => setIsDraftModalOpen(true)}
           />
         </div>
 
@@ -473,12 +484,19 @@ export function MotivationConversationContent({ companyId }: { companyId: string
             draft={generatedDraft}
             charLimit={charLimit}
             isSaving={isSavingDraft}
-            onSave={async () => {
-              const docId = await handleSaveGeneratedDraft();
-              if (docId) {
+            onSave={() => {
+              if (generatedDocumentId) {
                 handleCloseDraftModal();
-                router.push(`/es/${docId}`);
+                router.push(`/es/${generatedDocumentId}`);
+                return;
               }
+              void (async () => {
+                const docId = await handleSaveGeneratedDraft();
+                if (docId) {
+                  handleCloseDraftModal();
+                  router.push(`/es/${docId}`);
+                }
+              })();
             }}
             onDeepDive={handleCloseDraftModal}
             onResumeDeepDive={async () => {

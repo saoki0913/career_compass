@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const {
   dbUpdateMock,
   dbInsertMock,
+  dbTransactionMock,
   reserveCreditsMock,
   confirmReservationMock,
   cancelReservationMock,
@@ -20,6 +21,7 @@ const {
 } = vi.hoisted(() => ({
   dbUpdateMock: vi.fn(),
   dbInsertMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
   confirmReservationMock: vi.fn(),
   cancelReservationMock: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock("@/lib/db", () => ({
   db: {
     update: dbUpdateMock,
     insert: dbInsertMock,
+    transaction: dbTransactionMock,
   },
 }));
 
@@ -105,6 +108,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
   beforeEach(() => {
     dbUpdateMock.mockReset();
     dbInsertMock.mockReset();
+    dbTransactionMock.mockReset();
     reserveCreditsMock.mockReset();
     confirmReservationMock.mockReset();
     cancelReservationMock.mockReset();
@@ -129,6 +133,10 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     dbInsertMock.mockReturnValue({
       values: vi.fn().mockResolvedValue(undefined),
     });
+    dbTransactionMock.mockImplementation(async (callback) => callback({
+      update: dbUpdateMock,
+      insert: dbInsertMock,
+    }));
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
     enforceRateLimitLayersMock.mockResolvedValue(null);
     getOwnedMotivationCompanyDataMock.mockResolvedValue({
@@ -221,7 +229,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(reserveCreditsMock).not.toHaveBeenCalled();
   });
 
-  it("returns draft with null nextQuestion and sets postDraftAwaitingResume after success", async () => {
+  it("returns draft with documentId and sets postDraftAwaitingResume after success", async () => {
     fetchFastApiInternalMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -246,6 +254,8 @@ describe("api/motivation/[companyId]/generate-draft", () => {
 
     expect(response.status).toBe(200);
     expect(payload.draft).toBe("志望動機の下書きです。");
+    expect(payload.documentId).toEqual(expect.any(String));
+    expect(payload.draftDocumentId).toBe(payload.documentId);
     expect(payload.nextQuestion).toBeNull();
     expect(payload.userEvidenceCards).toHaveLength(1);
     expect(fetchFastApiInternalMock).toHaveBeenCalledTimes(1);
@@ -263,6 +273,11 @@ describe("api/motivation/[companyId]/generate-draft", () => {
       company_reason: ["DX支援を通じて顧客課題に向き合える点に惹かれています。"],
     });
     expect(callBody.selected_role).toBe("企画職");
+    expect(callBody.is_regeneration).toBe(false);
+    expect(dbInsertMock).toHaveBeenCalled();
+    expect(dbUpdateMock).toHaveBeenCalled();
+    const updateSet = dbUpdateMock.mock.results.at(-1)?.value.set;
+    expect(updateSet).toBeDefined();
   });
 
   it("passes through 422 from FastAPI as 422 with user-facing message and cancels reservation", async () => {
@@ -297,7 +312,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(confirmReservationMock).not.toHaveBeenCalled();
   });
 
-  it("keeps the generated draft as conversation state without creating an ES document immediately", async () => {
+  it("creates an ES document and persists draftDocumentId without fetching next-question", async () => {
     fetchFastApiInternalMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -321,9 +336,61 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.documentId).toBeNull();
+    expect(payload.documentId).toEqual(expect.any(String));
     expect(payload.nextQuestion).toBeNull();
-    expect(dbInsertMock).not.toHaveBeenCalled();
+    expect(dbInsertMock).toHaveBeenCalled();
+    expect(dbTransactionMock).toHaveBeenCalled();
     expect(fetchFastApiInternalMock).toHaveBeenCalledTimes(1);
+    expect(fetchFastApiInternalMock.mock.calls[0][0]).toBe("/api/motivation/generate-draft");
+    expect(dbInsertMock.mock.results[0]?.value.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: payload.documentId,
+        userId: "user-1",
+        guestId: undefined,
+        companyId: "company-1",
+        type: "es",
+        status: "draft",
+        content: expect.stringContaining("志望動機の下書きです。"),
+      }),
+    );
+    expect(dbUpdateMock.mock.results.at(-1)?.value.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generatedDraft: "志望動機の下書きです。",
+        conversationContext: expect.objectContaining({
+          draftDocumentId: payload.documentId,
+          postDraftAwaitingResume: true,
+        }),
+      }),
+    );
+  });
+
+  it("returns persisted draft and releases reservation when credit confirmation fails after document creation", async () => {
+    confirmReservationMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          draft: "志望動機の下書きです。",
+          char_count: 120,
+          key_points: ["企業理解"],
+          company_keywords: ["DX支援"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.documentId).toEqual(expect.any(String));
+    expect(dbTransactionMock).toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 });

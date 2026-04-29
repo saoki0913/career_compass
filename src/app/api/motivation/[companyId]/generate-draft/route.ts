@@ -5,9 +5,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { db } from "@/lib/db";
-import { motivationConversations } from "@/lib/db/schema";
+import { documents, motivationConversations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
 import {
@@ -31,10 +32,12 @@ import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-lim
 import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
 import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
 import { buildMotivationUserEvidenceCards } from "@/lib/motivation/conversation-payload";
+import { buildCompanyMotivationEsSectionTitle } from "@/lib/es-review/es-document-section-titles";
 import {
   buildMotivationOwnerCondition,
   getOwnedMotivationCompanyData,
 } from "@/lib/motivation/motivation-input-resolver";
+import { logError } from "@/lib/logger";
 
 interface FastAPIDraftResponse {
   draft: string;
@@ -140,6 +143,7 @@ export async function POST(
       slot_summaries: conversationContext.slotSummaries ?? {},
       slot_evidence_sentences: conversationContext.slotEvidenceSentences ?? {},
       char_limit: charLimit,
+      is_regeneration: Boolean(conversation.generatedDraft),
     });
 
     const principalPlan = await getViewerPlan(identity);
@@ -202,10 +206,13 @@ export async function POST(
       }
 
       const detailMsg = messageFromFastApiDetail((errorData as { detail?: unknown }).detail);
-      return NextResponse.json(
-        { error: detailMsg || "ES生成に失敗しました" },
-        { status: 503 }
-      );
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "MOTIVATION_DRAFT_FAILED",
+        userMessage: detailMsg || "ES生成に失敗しました",
+        action: "時間をおいて、もう一度お試しください。",
+        retryable: true,
+      });
     }
 
     const rawData = await response.json();
@@ -213,44 +220,120 @@ export async function POST(
     const data = payload as FastAPIDraftResponse;
     const draftNormalized = normalizeEsDraftSingleParagraph(data.draft);
 
+    if (!draftNormalized) {
+      if (reservationId) await cancelReservation(reservationId);
+      logAiCreditCostSummary({
+        feature: "motivation_draft",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
+      return createApiErrorResponse(request, {
+        status: 502,
+        code: "MOTIVATION_DRAFT_EMPTY",
+        userMessage: "ES生成に失敗しました",
+        action: "時間をおいて、もう一度お試しください。",
+        retryable: true,
+      });
+    }
+
+    const documentId = randomUUID();
+    const now = new Date();
+    const documentBlocks = [
+      {
+        id: randomUUID(),
+        type: "h2",
+        content: buildCompanyMotivationEsSectionTitle(),
+        charLimit,
+      },
+      {
+        id: randomUUID(),
+        type: "paragraph",
+        content: draftNormalized,
+      },
+    ];
+
+    const updatedConversationContext = {
+      ...conversationContext,
+      draftSource: "conversation",
+      draftReady: true,
+      postDraftAwaitingResume: true,
+      deepdiveResumeCount: 0,
+      draftDocumentId: documentId,
+    } satisfies MotivationConversationContext;
+
+    await db.transaction(async (tx) => {
+      await tx.insert(documents).values({
+        id: documentId,
+        userId: userId || undefined,
+        guestId: guestId || undefined,
+        companyId,
+        type: "es",
+        title: `${company.name} 志望動機`,
+        content: JSON.stringify(documentBlocks),
+        status: "draft",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await tx
+        .update(motivationConversations)
+        .set({
+          generatedDraft: draftNormalized,
+          charLimitType: String(charLimit) as "300" | "400" | "500",
+          messages,
+          conversationContext: updatedConversationContext,
+          questionStage: conversation.questionStage,
+          updatedAt: now,
+        })
+        .where(eq(motivationConversations.id, conversation.id));
+    });
+
+    let creditsUsed = 0;
     if (reservationId) {
-      await confirmReservation(reservationId);
+      try {
+        await confirmReservation(reservationId);
+        creditsUsed = 6;
+      } catch (error) {
+        logError("motivation-draft:confirm-reservation", error, {
+          companyId,
+          userId: userId ?? undefined,
+          requestId,
+          reservationId,
+        });
+        try {
+          await cancelReservation(reservationId);
+        } catch (cancelError) {
+          logError("motivation-draft:cancel-after-confirm-failure", cancelError, {
+            companyId,
+            userId: userId ?? undefined,
+            requestId,
+            reservationId,
+          });
+        }
+      } finally {
+        reservationId = null;
+      }
     }
     logAiCreditCostSummary({
       feature: "motivation_draft",
       requestId,
       status: "success",
-      creditsUsed: reservationId ? 6 : 0,
+      creditsUsed,
       telemetry,
     });
     void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
-
-    await db
-      .update(motivationConversations)
-      .set({
-        generatedDraft: draftNormalized,
-        charLimitType: String(charLimit) as "300" | "400" | "500",
-        messages,
-        conversationContext: {
-          ...conversationContext,
-          draftSource: "conversation",
-          draftReady: true,
-          postDraftAwaitingResume: true,
-          deepdiveResumeCount: 0,
-        } satisfies MotivationConversationContext,
-        questionStage: conversation.questionStage,
-        updatedAt: new Date(),
-      })
-      .where(eq(motivationConversations.id, conversation.id));
 
     return NextResponse.json({
       draft: draftNormalized,
       charCount: data.char_count,
       keyPoints: data.key_points,
       companyKeywords: data.company_keywords,
-      documentId: null,
+      documentId,
+      draftDocumentId: documentId,
       nextQuestion: null,
-      userEvidenceCards: buildMotivationUserEvidenceCards(conversationContext),
+      userEvidenceCards: buildMotivationUserEvidenceCards(updatedConversationContext),
       messages,
     });
   } catch (error) {
@@ -263,6 +346,14 @@ export async function POST(
       creditsUsed: 0,
       telemetry: null,
     });
-    return NextResponse.json({ error: "ES生成中にエラーが発生しました" }, { status: 503 });
+    return createApiErrorResponse(request, {
+      status: 503,
+      code: "MOTIVATION_DRAFT_FAILED",
+      userMessage: "ES生成中にエラーが発生しました",
+      action: "時間をおいて、もう一度お試しください。",
+      retryable: true,
+      error,
+      logContext: "motivation-draft",
+    });
   }
 }

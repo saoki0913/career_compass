@@ -57,6 +57,7 @@ export const DEFAULT_MOTIVATION_CONTEXT: MotivationConversationContext = {
   lastQuestionMeta: null,
   draftReady: false,
   draftReadyUnlockedAt: null,
+  draftDocumentId: null,
 };
 
 export function resolveDraftReadyState(

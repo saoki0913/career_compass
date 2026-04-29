@@ -109,6 +109,7 @@ describe("motivation conversation payload helpers", () => {
     });
 
     expect(payload.nextQuestion).toBe("株式会社テストのどこに魅力を感じますか？");
+    expect(payload.draftDocumentId).toBeNull();
     expect(payload.questionStage).toBe("company_reason");
     expect(payload.currentSlot).toBe("company_reason");
     expect(payload.currentIntent).toBe("specificity_check");

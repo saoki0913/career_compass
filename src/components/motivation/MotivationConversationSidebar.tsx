@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,11 +30,9 @@ const SLOT_DISPLAY_ORDER = [
 ] as const;
 
 export function MotivationConversationSidebar({
-  companyId,
   effectiveIndustry,
   selectedRoleName,
   generatedDraft,
-  generatedDocumentId,
   showSetupScreen,
   stageStatus,
   questionCount,
@@ -58,13 +55,10 @@ export function MotivationConversationSidebar({
   isResetting,
   isStartingConversation,
   onResetConversation,
-  onOpenDraftModal,
 }: {
-  companyId: string;
   effectiveIndustry: string;
   selectedRoleName: string;
   generatedDraft: string | null;
-  generatedDocumentId: string | null;
   showSetupScreen: boolean;
   stageStatus: StageStatus | null;
   questionCount: number;
@@ -87,7 +81,6 @@ export function MotivationConversationSidebar({
   isResetting: boolean;
   isStartingConversation: boolean;
   onResetConversation: () => void;
-  onOpenDraftModal: () => void;
 }) {
   return (
     <div className="space-y-4 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
@@ -214,38 +207,6 @@ export function MotivationConversationSidebar({
                   </div>
                 ))
               )}
-            </CardContent>
-          </Card>
-        ) : null}
-
-        {generatedDraft ? (
-          <Card className="border-border/50">
-            <CardHeader className="flex min-h-12 flex-row items-center justify-between space-y-0 px-3.5 py-2.5">
-              <CardTitle className="text-sm font-medium">生成した下書き</CardTitle>
-              <Badge variant="soft-info" className="px-2 py-0.5 text-[10px]">
-                {generatedDraft.length}字
-              </Badge>
-            </CardHeader>
-            <CardContent className="space-y-3 px-3.5 pb-3.5 pt-0">
-              <p className="text-xs leading-5 text-muted-foreground line-clamp-4">
-                {generatedDraft.slice(0, 120)}{generatedDraft.length > 120 ? "..." : ""}
-              </p>
-              {generatedDocumentId ? (
-                <Button asChild variant="outline" className="w-full">
-                  <Link href={`/es/${generatedDocumentId}`}>ESを編集する</Link>
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={onOpenDraftModal}
-                >
-                  下書きを確認する
-                </Button>
-              )}
-              <Button asChild className="w-full">
-                <Link href={`/companies/${companyId}/interview`}>この志望動機をもとに面接対策へ進む</Link>
-              </Button>
             </CardContent>
           </Card>
         ) : null}

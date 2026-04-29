@@ -490,7 +490,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
           charCount: 200,
           keyPoints: ["企業理解"],
           companyKeywords: ["DX"],
-          documentId: null,
+          documentId: "doc-generated-1",
           nextQuestion: null,
           conversationMode: "slot_fill",
           causalGaps: [
@@ -540,7 +540,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
       page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" }).getByText("テスト志望動機です", { exact: false })
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "ESとして保存する" })
+      page.getByRole("button", { name: "ESエディタを開く" })
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "もっと深堀りして再生成する" })
@@ -563,7 +563,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
           charCount: 200,
           keyPoints: ["企業理解"],
           companyKeywords: ["DX"],
-          documentId: null,
+          documentId: "doc-generated-2",
           nextQuestion: null,
           conversationMode: "slot_fill",
           causalGaps: [],
@@ -671,7 +671,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
           charCount: 200,
           keyPoints: ["企業理解"],
           companyKeywords: ["DX"],
-          documentId: null,
+          documentId: "doc-123",
           nextQuestion: null,
           conversationMode: "slot_fill",
           causalGaps: [],
@@ -703,17 +703,6 @@ test.describe("Motivation page (draft-ready flows)", () => {
       });
     });
 
-    await page.route(`**/api/motivation/${COMPANY_ID}/save-draft**`, async (route) => {
-      if (route.request().method() !== "POST") {
-        return route.continue();
-      }
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ documentId: "doc-123" }),
-      });
-    });
-
     await page.goto(`/companies/${COMPANY_ID}/motivation`);
     await page.getByRole("button", { name: "志望動機ESを作成" }).click();
 
@@ -721,7 +710,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
       page.getByRole("dialog").filter({ hasText: "生成した志望動機ES" })
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "ESとして保存する" }).click();
+    await page.getByRole("button", { name: "ESエディタを開く" }).click();
 
     await expect(page).toHaveURL(/\/es\/doc-123/);
   });
@@ -835,7 +824,7 @@ test.describe("Motivation page (draft-ready flows)", () => {
           charCount: 100,
           keyPoints: [],
           companyKeywords: [],
-          documentId: null,
+          documentId: "doc-generated-3",
           nextQuestion: null,
           conversationMode: "slot_fill",
           causalGaps: [{ id: "g1", slot: "self_connection", reason: "弱い", promptHint: "" }],

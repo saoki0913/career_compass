@@ -110,7 +110,8 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
       }
 
       const data = await response.json();
-      setGeneratedDocumentId(null);
+      const documentId = typeof data.documentId === "string" ? data.documentId : null;
+      setGeneratedDocumentId(documentId);
 
       deps.applyConversationPayload({
         messages: data.messages || deps.messages,
@@ -118,6 +119,7 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
         questionCount: deps.questionCount,
         isDraftReady: true,
         generatedDraft: data.draft,
+        draftDocumentId: documentId,
         ...(data.evidenceSummary != null && { evidenceSummary: data.evidenceSummary }),
         ...(data.evidenceCards != null && { evidenceCards: data.evidenceCards }),
         ...(data.userEvidenceCards != null && { userEvidenceCards: data.userEvidenceCards }),
@@ -198,7 +200,8 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
       }
 
       const data = await response.json().catch(() => null);
-      setGeneratedDocumentId(null);
+      const documentId = typeof data?.documentId === "string" ? data.documentId : null;
+      setGeneratedDocumentId(documentId);
 
       if (data) {
         deps.applyConversationPayload({
@@ -207,6 +210,7 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
           questionCount: data.questionCount ?? 0,
           isDraftReady: true,
           generatedDraft: data.draft ?? null,
+          draftDocumentId: documentId,
           ...(data.evidenceSummary != null && { evidenceSummary: data.evidenceSummary }),
           ...(data.evidenceCards != null && { evidenceCards: data.evidenceCards }),
           ...(data.userEvidenceCards != null && { userEvidenceCards: data.userEvidenceCards }),
@@ -294,7 +298,7 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
   }, [generatedDraft, generatedDocumentId, isSavingDraft, isGeneratingDraft, deps]);
 
   const handleResumeDeepDive = useCallback(async () => {
-    if (!generatedDraft || deps.isLocked) return;
+    if ((!generatedDraft && !deps.isDraftReady) || deps.isLocked) return;
     if (!deps.acquireLock("深掘り質問を取得中")) return;
     deps.setError(null);
 

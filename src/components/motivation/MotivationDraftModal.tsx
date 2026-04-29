@@ -125,7 +125,7 @@ const DraftFooter = memo(function DraftFooter({
           {isSaving ? (
             <Loader2 className="size-4 animate-spin" aria-hidden />
           ) : null}
-          ESとして保存する
+          ESエディタを開く
         </Button>
         <Button
           variant="outline"
@@ -168,7 +168,7 @@ export const MotivationDraftModal = memo(function MotivationDraftModal({
       >
         <SheetContent
           side="bottom"
-          className="flex h-[85dvh] flex-col rounded-t-2xl border-0 p-0"
+          className="flex h-[92dvh] flex-col rounded-t-2xl border-0 p-0"
         >
           <SheetHeader className="shrink-0 border-b border-border/60 px-4 py-3 text-left">
             <SheetTitle className="text-lg">{title}</SheetTitle>
@@ -193,7 +193,7 @@ export const MotivationDraftModal = memo(function MotivationDraftModal({
       open={isOpen}
       onOpenChange={(open) => { if (!open) onDeepDive(); }}
     >
-      <DialogContent className="flex max-h-[min(90vh,900px)] max-w-5xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
+      <DialogContent className="flex max-h-[min(92vh,920px)] max-w-6xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
         <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4">
           <DialogTitle className="text-xl">{title}</DialogTitle>
           <DialogDescription className="mt-2 text-base leading-snug text-muted-foreground">

@@ -10,6 +10,7 @@ import { createApiErrorResponse } from "@/app/api/_shared/error-response";
 import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
 import {
   safeParseConversationContext,
   safeParseMessages,
@@ -135,18 +136,26 @@ export async function POST(
     return apiErr(request, 404, "MOTIVATION_CONVERSATION_NOT_FOUND", "会話が見つかりません");
   }
 
-  // Validate: a draft must already exist (this endpoint recovers a failed follow-up)
-  if (!conversation.generatedDraft) {
+  const messages = safeParseMessages(conversation.messages);
+  const conversationContext = safeParseConversationContext(conversation.conversationContext ?? null);
+  const draftReady = conversationContext.draftReady || Boolean(conversation.generatedDraft);
+  if (!draftReady) {
     return apiErr(
       request,
       409,
-      "MOTIVATION_DRAFT_NOT_GENERATED",
-      "ES下書きがまだ生成されていません。先にES生成を行ってください。",
+      "MOTIVATION_DRAFT_NOT_READY",
+      "深掘りを続けるには、先に志望動機ESを作成できる材料を揃えてください。",
     );
   }
-
-  const messages = safeParseMessages(conversation.messages);
-  const conversationContext = safeParseConversationContext(conversation.conversationContext ?? null);
+  const lastMessage = messages.at(-1);
+  if (conversationContext.postDraftAwaitingResume === false && lastMessage?.role === "assistant") {
+    return apiErr(
+      request,
+      409,
+      "MOTIVATION_RESUME_QUESTION_ALREADY_PENDING",
+      "すでに深掘り質問があります。まずはその質問に回答してください。",
+    );
+  }
   const profileContext = await fetchProfileContext(userId);
   const gakuchikaContext = await fetchGakuchikaContext(userId);
   let applicationJobCandidatesForPrompt: string[] = [];
@@ -174,6 +183,19 @@ export async function POST(
       `深掘り再開は1回のES生成につき${MAX_DEEPDIVE_RESUMES}回までです。`,
     );
   }
+
+  let reservationId: string | null = null;
+  const reservation = await reserveCredits(
+    userId,
+    1,
+    "motivation_resume_deepdive",
+    companyId,
+    `志望動機 深掘り再開: ${company.name}`,
+  );
+  if (!reservation.success) {
+    return apiErr(request, 402, "MOTIVATION_RESUME_CREDIT_SHORTAGE", "クレジットが不足しています");
+  }
+  reservationId = reservation.reservationId;
 
   try {
     // Call FastAPI for follow-up question
@@ -206,6 +228,10 @@ export async function POST(
     });
 
     if (!followUpResponse.ok) {
+      if (reservationId) {
+        await cancelReservation(reservationId);
+        reservationId = null;
+      }
       const rawError = await followUpResponse.json().catch(() => ({}));
       const { payload: errorPayload, telemetry } = rawError && typeof rawError === "object"
         ? splitInternalTelemetry(rawError as Record<string, unknown>)
@@ -234,6 +260,10 @@ export async function POST(
     const followUp = followUpPayload as FollowUpQuestionResponse | null;
 
     if (!followUp?.question) {
+      if (reservationId) {
+        await cancelReservation(reservationId);
+        reservationId = null;
+      }
       logAiCreditCostSummary({
         feature: "motivation_resume_deepdive",
         requestId,
@@ -312,11 +342,38 @@ export async function POST(
       })
       .where(eq(motivationConversations.id, conversation.id));
 
+    let creditsUsed = 0;
+    if (reservationId) {
+      try {
+        await confirmReservation(reservationId);
+        creditsUsed = 1;
+      } catch (error) {
+        logError("motivation-resume-deepdive:confirm-reservation", error, {
+          companyId,
+          userId: userId ?? undefined,
+          requestId,
+          reservationId,
+        });
+        try {
+          await cancelReservation(reservationId);
+        } catch (cancelError) {
+          logError("motivation-resume-deepdive:cancel-after-confirm-failure", cancelError, {
+            companyId,
+            userId: userId ?? undefined,
+            requestId,
+            reservationId,
+          });
+        }
+      } finally {
+        reservationId = null;
+      }
+    }
+
     logAiCreditCostSummary({
       feature: "motivation_resume_deepdive",
       requestId,
       status: "success",
-      creditsUsed: 0,
+      creditsUsed,
       telemetry,
     });
     void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
@@ -385,6 +442,7 @@ export async function POST(
       ...payload,
     });
   } catch (error) {
+    if (reservationId) await cancelReservation(reservationId);
     const secretMissing = isSecretMissingError(error);
     if (!secretMissing) {
       logError("motivation-resume-deepdive", error, { companyId, userId, requestId });

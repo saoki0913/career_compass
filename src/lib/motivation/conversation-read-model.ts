@@ -237,6 +237,8 @@ export function safeParseConversationContext(value: unknown): MotivationConversa
         typeof parsed.deepdiveResumeCount === "number"
           ? parsed.deepdiveResumeCount
           : undefined,
+      draftDocumentId:
+        typeof parsed.draftDocumentId === "string" ? parsed.draftDocumentId : null,
     };
   } catch {
     return {

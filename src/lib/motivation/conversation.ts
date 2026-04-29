@@ -184,6 +184,8 @@ export interface MotivationConversationContext {
   draftReadyUnlockedAt?: string | null;
   postDraftAwaitingResume?: boolean;
   deepdiveResumeCount?: number;
+  /** TS-owned draft metadata for the latest generated ES document. */
+  draftDocumentId?: string | null;
 }
 
 // ---------------------------------------------------------------------------

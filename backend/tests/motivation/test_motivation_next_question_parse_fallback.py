@@ -155,6 +155,68 @@ async def test_next_question_endpoint_uses_parse_fallback_before_raising_503(
 
 
 @pytest.mark.asyncio
+async def test_next_question_endpoint_generates_question_when_draft_ready_without_generated_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict] = []
+
+    async def fake_summarize(messages, conversation_context, company_name):
+        return messages, ""
+
+    async def fake_prepare(request, tenant_key=None):
+        return SimpleNamespace(
+            is_complete=False,
+            was_draft_ready=True,
+            has_generated_draft=False,
+        )
+
+    async def fake_call_llm_with_error(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(
+            success=True,
+            data={"question": "もう少し具体化したい企業の特徴は何ですか？"},
+            error=None,
+        )
+
+    async def fake_assemble_response(request, prep, data):
+        return {"question": data["question"]}
+
+    monkeypatch.setattr("app.routers.motivation.maybe_summarize_older_messages", fake_summarize)
+    monkeypatch.setattr("app.routers.motivation._prepare_motivation_next_question", fake_prepare)
+    monkeypatch.setattr(
+        "app.routers.motivation._build_motivation_deepdive_system_prompt",
+        lambda request, prep: "deepdive prompt",
+    )
+    monkeypatch.setattr("app.routers.motivation._should_use_deepdive_mode", lambda prep: True)
+    monkeypatch.setattr("app.routers.motivation._build_question_messages", lambda messages: messages)
+    monkeypatch.setattr("app.routers.motivation._build_question_user_message", lambda messages: "user prompt")
+    monkeypatch.setattr("app.routers.motivation.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr(
+        "app.routers.motivation._assemble_regular_next_question_response",
+        fake_assemble_response,
+    )
+
+    endpoint = getattr(get_next_question, "__wrapped__", get_next_question)
+    result = await endpoint(
+        NextQuestionRequest(
+            company_id="company_test",
+            company_name="株式会社テスト",
+            industry="IT・通信",
+            conversation_history=[],
+            question_count=0,
+            conversation_context={"draftReady": True},
+            generated_draft=None,
+        ),
+        SimpleNamespace(),
+        SimpleNamespace(company_id="company_test", tenant_key="tenant-test"),
+    )
+
+    assert result["question"] == "もう少し具体化したい企業の特徴は何ですか？"
+    assert len(calls) == 1
+    assert calls[0]["system_prompt"] == "deepdive prompt"
+
+
+@pytest.mark.asyncio
 async def test_non_parse_failure_does_not_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { GeneratedDraftActionCard } from "@/components/chat/GeneratedDraftActionCard";
 import { MotivationDraftActionBar } from "@/components/motivation/MotivationDraftActionBar";
 
 const ArrowLeftIcon = () => (
@@ -23,6 +24,9 @@ export function MotivationConversationHeader({
   showSetupScreen,
   isPostDraftMode,
   motivationModeLabel,
+  generatedDraft,
+  generatedDocumentId,
+  onOpenDraftModal,
 }: {
   companyId: string;
   companyName: string;
@@ -36,6 +40,9 @@ export function MotivationConversationHeader({
   showSetupScreen: boolean;
   isPostDraftMode: boolean;
   motivationModeLabel: string;
+  generatedDraft: string | null;
+  generatedDocumentId: string | null;
+  onOpenDraftModal: () => void;
 }) {
   return (
     <div className="mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
@@ -61,16 +68,26 @@ export function MotivationConversationHeader({
         </div>
       </div>
       <div className="w-full xl:max-w-[760px]">
-        <MotivationDraftActionBar
-          charLimit={charLimit}
-          onCharLimitChange={onCharLimitChange}
-          onGenerate={onGenerateDraft}
-          isGenerating={isGeneratingDraft}
-          disabled={!canGenerateDraft || isLocked}
-          helperText={draftHelperText}
-          layout="inline"
-          showTitle={false}
-        />
+        {generatedDraft ? (
+          <GeneratedDraftActionCard
+            draft={generatedDraft}
+            charLimit={charLimit}
+            documentId={generatedDocumentId}
+            onOpenPreview={onOpenDraftModal}
+            isBusy={isGeneratingDraft || isLocked}
+          />
+        ) : (
+          <MotivationDraftActionBar
+            charLimit={charLimit}
+            onCharLimitChange={onCharLimitChange}
+            onGenerate={onGenerateDraft}
+            isGenerating={isGeneratingDraft}
+            disabled={!canGenerateDraft || isLocked}
+            helperText={draftHelperText}
+            layout="inline"
+            showTitle={false}
+          />
+        )}
       </div>
     </div>
   );

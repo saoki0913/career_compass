@@ -74,11 +74,11 @@
 - `POST /api/motivation/[companyId]/conversation/stream`
   - 回答送信の唯一の経路。FastAPI SSE を consume-and-re-emit し、保存とクレジット消費もここで行う
 - `POST /api/motivation/[companyId]/generate-draft`
-  - 300/400/500 字の ES 下書きを生成し、会話 state に保持する（会話が draft ready かつ十分な履歴があること）
+  - 300/400/500 字の ES 下書きを生成し、`documents` に draft ES を作成したうえで会話 state の `draftDocumentId` に保持する（会話が draft ready かつ十分な履歴があること）
 - `POST /api/motivation/[companyId]/generate-draft-direct`
-  - ルート A。会話メッセージが空のときのみ、かつログイン必須。FastAPI `generate-draft-from-profile` を呼び、材料が薄い場合は 409 で止める。生成後は下書きだけを保持し、次質問は自動生成しない
+  - ルート A。会話メッセージが空のときのみ、かつログイン必須。FastAPI `generate-draft-from-profile` を呼び、材料が薄い場合は 409 で止める。生成後は `documents` に draft ES を作成し、次質問は自動生成しない
 - `POST /api/motivation/[companyId]/resume-deepdive`
-  - ES 作成後にユーザーが追加深掘りを選んだ時だけ呼ぶ。既存の `generatedDraft` を前提に FastAPI `/api/motivation/next-question` を呼び、プロフィール・ガクチカ・志望職種候補も渡して deepdive 質問を取得する。クレジットは消費しない
+  - draft ready 到達後または ES 作成後にユーザーが追加深掘りを選んだ時だけ呼ぶ。FastAPI `/api/motivation/next-question` を呼び、プロフィール・ガクチカ・志望職種候補も渡して deepdive 質問を取得する。LLM を呼ぶため 1 クレジットを成功時のみ消費する
 - FastAPI のエラー `detail` が文字列以外でも、Next 側で `messageFromFastApiDetail` によりユーザー向け短文に正規化する
 
 ## 会話状態
@@ -121,11 +121,11 @@
 ES 生成成功後のフローは以下の通り:
 
 1. **スナックバー** → **モーダル** (`MotivationDraftModal`) が表示される
-2. モーダルには「ESとして保存する」(primary) と「もっと深堀りして再生成する」(outline) の 2 ボタンがある
-3. **「ESとして保存する」** → 新規 ES ドキュメントを作成 → `/es/{docId}` に遷移 → 成功スナックバー表示
+2. モーダルには「ESエディタを開く」(primary) と「もっと深堀りして再生成する」(outline) の 2 ボタンがある
+3. **「ESエディタを開く」** → 生成時に作成済みの ES ドキュメント `/es/{docId}` に遷移
 4. **「もっと深堀りして再生成する」** → モーダルを閉じ → deepdive 会話が再開される
 5. モーダルの X ボタンまたはオーバーレイクリックは閉じるだけで、深掘り質問は開始しない
-6. ES 保存は毎回新規ドキュメントとして作成される（会話内の下書きは上書き更新）
+6. ES 生成は毎回新規 draft ドキュメントとして作成される（会話内の下書きと `draftDocumentId` は最新生成分に更新）
 7. 追加質問を挟まずに `志望動機ESを作成` を再実行しても、現在の会話状態と前回下書きを使って再生成できる
 
 ### 過渡期メッセージ
@@ -149,5 +149,5 @@ ES 生成成功後のフローは以下の通り:
 
 - 応答 5 回ごとに 3 クレジット消費
 - 下書き生成（対話後 `generate-draft` と会話なし `generate-draft-direct` の両方）は **同一 feature キー `motivation_draft`**。6 credits 予約 → 成功確定 / 失敗取消
-- `resume-deepdive` は既存下書き後の会話継続であり、単独ではクレジットを消費しない
+- `resume-deepdive` は深掘り質問生成で LLM を呼ぶため **1 credit** を予約 → 成功確定 / 失敗取消
 - 失敗時は消費しない

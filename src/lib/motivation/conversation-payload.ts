@@ -30,6 +30,7 @@ export interface MotivationConversationPayload {
   questionCount: number;
   isDraftReady: boolean;
   generatedDraft: string | null;
+  draftDocumentId: string | null;
   scores: MotivationScores | null;
   evidenceSummary: string | null;
   evidenceCards: EvidenceCard[];
@@ -256,6 +257,7 @@ export function buildMotivationConversationPayload(args: {
     questionCount: args.questionCount,
     isDraftReady: args.isDraftReady,
     generatedDraft: args.generatedDraft ?? null,
+    draftDocumentId: args.conversationContext.draftDocumentId ?? null,
     scores: args.scores ?? null,
     evidenceSummary: args.evidenceSummary ?? buildMotivationEvidenceSummaryFromCards(evidenceCards),
     evidenceCards,

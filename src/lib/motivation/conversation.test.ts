@@ -93,4 +93,13 @@ describe("motivation conversation draft readiness", () => {
     });
     expect(context.postDraftAwaitingResume).toBe(true);
   });
+
+  it("preserves the latest generated draft document id", () => {
+    const context = safeParseConversationContext({
+      draftDocumentId: "doc-1",
+      draftReady: true,
+    });
+    expect(context.draftDocumentId).toBe("doc-1");
+    expect(safeParseConversationContext(null).draftDocumentId).toBeNull();
+  });
 });
