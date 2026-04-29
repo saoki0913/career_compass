@@ -14,8 +14,8 @@ export function LandingPage() {
         <HeroSection />
         <PainPointsSection />
         <FeaturesSection />
-        <BeforeAfterSection />
         <HowToUseSection />
+        <BeforeAfterSection />
         <PricingSection />
         <LPFAQSection />
       </main>

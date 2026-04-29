@@ -20,8 +20,8 @@ export const LANDING_STEPS: readonly LandingStep[] = [
     description: "気になる企業を登録して、情報を一元管理できます。",
     numberImage: "numbers/num-1.png",
     icon: "icons-circled/building.png",
-    cardImage: "step-cards/step-1-register.png",
-    characterImage: "characters/boy-phone-beige.png",
+    cardImage: "shupass-v2/howto/screen-company-form.png",
+    characterImage: "shupass-v2/howto/person-1.png",
     characterAlt: "スマートフォンで企業を登録する学生",
   },
   {
@@ -30,8 +30,8 @@ export const LANDING_STEPS: readonly LandingStep[] = [
     description: "志望動機やガクチカをAIで作成し、文章を整えます。",
     numberImage: "numbers/num-2.png",
     icon: "icons-circled/document.png",
-    cardImage: "step-cards/step-2-es.png",
-    characterImage: "characters/boy-notebook.png",
+    cardImage: "shupass-v2/howto/screen-es-detail.png",
+    characterImage: "shupass-v2/howto/person-2.png",
     characterAlt: "ノートを見ながらESを準備する学生",
   },
   {
@@ -40,8 +40,8 @@ export const LANDING_STEPS: readonly LandingStep[] = [
     description: "AI面接官と練習し、回答へのフィードバックを受け取れます。",
     numberImage: "numbers/num-3.png",
     icon: "icons-circled/chat.png",
-    cardImage: "step-cards/step-3-interview.png",
-    characterImage: "characters/girl-at-laptop.png",
+    cardImage: "shupass-v2/howto/screen-interview-detail.png",
+    characterImage: "shupass-v2/howto/person-3.png",
     characterAlt: "ノートPCで面接対策を進める学生",
   },
   {
@@ -50,8 +50,8 @@ export const LANDING_STEPS: readonly LandingStep[] = [
     description: "選考スケジュールをまとめ、予定の見落としを防ぎます。",
     numberImage: "numbers/num-4.png",
     icon: "icons-circled/calendar.png",
-    cardImage: "step-cards/step-4-schedule.png",
-    characterImage: "characters/girl-mobile-smile.png",
+    cardImage: "shupass-v2/howto/screen-calendar-detail.png",
+    characterImage: "shupass-v2/howto/person-4.png",
     characterAlt: "スマートフォンで予定を確認する学生",
   },
 ] as const;

@@ -21,17 +21,18 @@ describe("FeaturesSection design-system guard", () => {
   });
 
   it("uses left-aligned heading on large screens", () => {
-    expect(source).toContain("xl:text-left");
+    expect(source).toContain("lg:text-left");
   });
 
   it("uses prominent feature number badges", () => {
-    expect(source).toContain("text-[42px]");
+    expect(source).toContain("text-[34px]");
     expect(source).not.toMatch(/className="text-xs tracking-wider"/);
   });
 
-  it("uses reference-scale feature cards and flow panel", () => {
-    expect(source).toContain("min-h-[940px]");
-    expect(source).toContain("min-h-[295px]");
-    expect(source).toContain("xl:grid-cols-[560px_1fr]");
+  it("uses shupass reference layout while retaining six implemented features", () => {
+    expect(source).toContain("lg:min-h-[830px]");
+    expect(source).toContain("min-h-[254px]");
+    expect(source).toContain("lg:grid-cols-[420px_1fr]");
+    expect(source).toContain("Googleカレンダー連携");
   });
 });

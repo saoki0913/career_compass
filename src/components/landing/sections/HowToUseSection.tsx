@@ -1,13 +1,6 @@
+import { ArrowRight } from "lucide-react";
 import { LANDING_STEPS } from "@/lib/marketing/landing-steps";
-import { LP_ASSET_BASE } from "@/lib/marketing/lp-assets";
-
-const ASSET_BASE = `${LP_ASSET_BASE}/`;
-
-const CONNECTORS = [
-  { src: "decorative/connector-arrow-1-to-2.png" },
-  { src: "decorative/connector-arrow-2-to-3.png" },
-  { src: "decorative/connector-arrow-3-to-4.png" },
-] as const;
+import { lpAsset } from "@/lib/marketing/lp-assets";
 
 const STEP_SUPPORT_COPY = {
   "1": "気になる企業をすぐに登録。情報を一元管理できます。",
@@ -20,136 +13,145 @@ export function HowToUseSection() {
   return (
     <section
       id="how-it-works"
-      className="relative min-h-[940px] overflow-hidden bg-white py-[72px]"
+      className="relative overflow-hidden bg-white py-16 sm:py-20 lg:min-h-[760px]"
       style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}
     >
       <img
-        src={`${ASSET_BASE}decorative/wave-line-1.png`}
+        src={lpAsset("shupass-v2/howto/wave.png")}
         alt=""
         role="presentation"
-        className="pointer-events-none absolute bottom-8 left-0 hidden w-full opacity-36 2xl:block"
+        className="pointer-events-none absolute bottom-0 left-0 hidden w-full opacity-60 lg:block"
       />
 
-      <div className="mx-auto max-w-[1600px] px-5 sm:px-8 2xl:px-0">
-        <div className="mb-[54px] text-center">
+      <div className="relative z-10 mx-auto max-w-[1200px] px-5 sm:px-8">
+        <div className="mb-10 text-center">
           <h2
+            className="text-[34px] leading-[1.2] sm:text-[44px] lg:text-[46px]"
             style={{
               color: "var(--lp-navy)",
-              fontSize: "clamp(40px, 5vw, 66px)",
               fontWeight: 800,
               letterSpacing: "0",
-              lineHeight: 1.16,
             }}
           >
             使い方は、<span style={{ color: "var(--lp-cta)" }}>シンプル。</span>
           </h2>
           <p
-            className="mx-auto mt-5 max-w-3xl text-[22px]"
-            style={{ color: "var(--lp-muted-text)", lineHeight: 1.75 }}
+            className="mx-auto mt-4 max-w-2xl text-[16px] leading-[1.75]"
+            style={{ color: "var(--lp-muted-text)" }}
           >
             就活の流れに沿って、必要な準備を自然につなげられます。
           </p>
         </div>
 
-        <div className="relative grid grid-cols-1 gap-7 md:grid-cols-2 2xl:grid-cols-[repeat(4,360px)] 2xl:justify-between">
-          {CONNECTORS.map((connector, index) => (
-            <img
-              key={connector.src}
-              src={`${ASSET_BASE}${connector.src}`}
-              alt=""
-              role="presentation"
-              className="pointer-events-none absolute top-[34px] hidden h-auto w-[104px] opacity-85 2xl:block"
-              style={{ left: `${360 + index * 400 + 18}px` }}
-            />
-          ))}
-
-          {LANDING_STEPS.map((step) => (
-            <article
-              key={step.number}
-              className="relative flex min-h-[590px] flex-col overflow-hidden rounded-[18px] border bg-white px-5 pb-6 pt-5"
-              style={{
-                borderColor: "var(--lp-border-default)",
-                boxShadow:
-                  "0 18px 36px rgba(0, 34, 104, 0.07), 0 2px 9px rgba(0, 34, 104, 0.04)",
-              }}
-            >
-              <div className="flex min-h-[76px] items-center gap-4">
-                <img
-                  src={`${ASSET_BASE}${step.numberImage}`}
-                  alt={`ステップ${step.number}`}
-                  className="h-[62px] w-[62px] shrink-0 object-contain"
-                />
-                <img
-                  src={`${ASSET_BASE}${step.icon}`}
-                  alt=""
-                  role="presentation"
-                  className="h-[44px] w-[44px] shrink-0 object-contain"
-                />
-                <h3
-                  className="text-[23px] leading-tight"
-                  style={{ color: "var(--lp-cta)", fontWeight: 800 }}
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-[repeat(4,1fr)]">
+          {LANDING_STEPS.map((step, index) => (
+            <div key={step.number} className="relative">
+              {index < LANDING_STEPS.length - 1 ? (
+                <div
+                  className="absolute -right-5 top-10 z-20 hidden h-10 w-10 items-center justify-center rounded-full bg-white lg:flex"
+                  style={{
+                    color: "var(--lp-cta)",
+                    boxShadow: "0 10px 24px rgba(37, 99, 235, 0.12)",
+                  }}
+                  aria-hidden="true"
                 >
-                  {step.label}
-                </h3>
-              </div>
+                  <ArrowRight className="h-5 w-5" strokeWidth={2.4} />
+                </div>
+              ) : null}
 
-              <p
-                className="mt-5 min-h-[78px] text-[18px] leading-[1.75]"
-                style={{ color: "var(--lp-muted-text)" }}
+              <article
+                className="relative flex min-h-[470px] flex-col overflow-hidden rounded-[18px] border bg-white px-4 pb-5 pt-4"
+                style={{
+                  borderColor: "var(--lp-border-default)",
+                  boxShadow: "0 15px 30px rgba(20, 50, 110, 0.075)",
+                }}
               >
-                {step.description}
-              </p>
+                <div className="flex min-h-[58px] items-center gap-3">
+                  <img
+                    src={lpAsset(step.numberImage)}
+                    alt={`ステップ${step.number}`}
+                    className="h-[48px] w-[48px] shrink-0 object-contain"
+                  />
+                  <img
+                    src={lpAsset(step.icon)}
+                    alt=""
+                    role="presentation"
+                    className="h-[34px] w-[34px] shrink-0 object-contain"
+                  />
+                  <h3
+                    className="text-[18px] leading-tight"
+                    style={{ color: "var(--lp-cta)", fontWeight: 800 }}
+                  >
+                    {step.label}
+                  </h3>
+                </div>
 
-              <div className="relative mt-4 min-h-[306px] flex-1">
-                <img
-                  src={`${ASSET_BASE}${step.cardImage}`}
-                  alt={`${step.label}の画面イメージ`}
-                  width={360}
-                  height={270}
-                  loading="eager"
-                  decoding="sync"
-                  className="absolute right-0 top-0 z-[2] h-auto w-[76%] rounded-xl"
-                  style={{ filter: "drop-shadow(0 12px 20px rgba(0, 34, 104, 0.11))" }}
-                />
-                <img
-                  src={`${ASSET_BASE}${step.characterImage}`}
-                  alt={step.characterAlt}
-                  width={220}
-                  height={280}
-                  loading="eager"
-                  decoding="sync"
-                  className="absolute bottom-0 left-0 z-[3] h-auto w-[150px] object-contain 2xl:w-[168px]"
-                />
-              </div>
-
-              <div
-                className="mt-4 flex min-h-[92px] items-center gap-4 rounded-[14px] border bg-white px-4 py-4"
-                style={{ borderColor: "var(--lp-border-default)" }}
-              >
-                <img
-                  src={`${ASSET_BASE}${step.icon}`}
-                  alt=""
-                  role="presentation"
-                  className="h-8 w-8 shrink-0 object-contain"
-                />
                 <p
-                  className="text-[18px] font-bold leading-[1.55]"
-                  style={{ color: "var(--lp-navy)" }}
+                  className="mt-4 min-h-[54px] text-[14px] leading-[1.65]"
+                  style={{ color: "var(--lp-muted-text)" }}
                 >
-                  {STEP_SUPPORT_COPY[step.number]}
+                  {step.description}
                 </p>
-              </div>
-            </article>
+
+                <div className="relative mt-3 min-h-[238px] flex-1">
+                  <img
+                    src={lpAsset(step.cardImage)}
+                    alt={`${step.label}の画面イメージ`}
+                    width={360}
+                    height={270}
+                    loading="lazy"
+                    decoding="async"
+                    className="absolute right-0 top-0 z-[2] h-auto w-[92%] rounded-xl lg:w-[78%]"
+                    style={{ filter: "drop-shadow(0 12px 20px rgba(0, 34, 104, 0.11))" }}
+                  />
+                  <img
+                    src={lpAsset(step.characterImage)}
+                    alt={step.characterAlt}
+                    width={220}
+                    height={280}
+                    loading="lazy"
+                    decoding="async"
+                    className="absolute bottom-0 left-0 z-[3] h-auto w-[140px] object-contain lg:w-[122px]"
+                  />
+                </div>
+
+                <div
+                  className="mt-3 flex min-h-[76px] items-center gap-3 rounded-[14px] border bg-white px-3 py-3"
+                  style={{ borderColor: "var(--lp-border-default)" }}
+                >
+                  <img
+                    src={lpAsset(step.icon)}
+                    alt=""
+                    role="presentation"
+                    className="h-7 w-7 shrink-0 object-contain"
+                  />
+                  <p
+                    className="text-[13px] font-bold leading-[1.55]"
+                    style={{ color: "var(--lp-navy)" }}
+                  >
+                    {STEP_SUPPORT_COPY[step.number]}
+                  </p>
+                </div>
+              </article>
+            </div>
           ))}
         </div>
 
-        <p
-          className="mt-[58px] text-center text-[30px] leading-relaxed lg:text-[42px]"
-          style={{ fontWeight: 800, color: "var(--lp-navy)" }}
-        >
-          <span style={{ color: "var(--lp-cta)" }}>準備・対策・管理</span>
-          まで、就活Passひとつで完結。
-        </p>
+        <div className="mt-10 flex items-center justify-center gap-3 text-center">
+          <img
+            src={lpAsset("shupass-v2/howto/star.png")}
+            alt=""
+            role="presentation"
+            className="hidden h-10 w-10 object-contain sm:block"
+          />
+          <p
+            className="text-[22px] leading-relaxed sm:text-[28px]"
+            style={{ fontWeight: 800, color: "var(--lp-navy)" }}
+          >
+            準備・対策・管理まで、
+            <span style={{ color: "var(--lp-cta)" }}>就活Passひとつで完結。</span>
+          </p>
+        </div>
       </div>
     </section>
   );

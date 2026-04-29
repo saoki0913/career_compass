@@ -31,7 +31,7 @@ function FAQItem({
 
   return (
     <article
-      className="relative rounded-[18px] border bg-white px-8 py-6"
+      className="relative rounded-[18px] border bg-white px-6 py-5"
       style={{
         borderColor: "var(--lp-border-default)",
         boxShadow:
@@ -44,10 +44,10 @@ function FAQItem({
         aria-expanded={isOpen}
         aria-controls={panelId}
         onClick={onToggle}
-        className="flex w-full items-start gap-6 text-left"
+        className="flex w-full items-start gap-5 text-left"
       >
         <span
-          className="flex h-[58px] w-[58px] shrink-0 items-center justify-center rounded-full text-white"
+          className="flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-full text-white"
           style={{ backgroundColor: "var(--lp-cta)" }}
         >
           {getFaqIcon(index)}
@@ -55,13 +55,13 @@ function FAQItem({
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-4">
             <h3
-              className="flex-1 text-[25px] leading-snug"
+              className="flex-1 text-[20px] leading-snug"
               style={{ color: "var(--lp-navy)", fontWeight: 800 }}
             >
               {index + 1}. {faq.question}
             </h3>
             <ChevronDown
-              className="mt-1 h-7 w-7 shrink-0 transition-transform duration-300"
+              className="mt-1 h-6 w-6 shrink-0 transition-transform duration-300"
               style={{
                 color: "var(--lp-cta)",
                 transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
@@ -81,7 +81,7 @@ function FAQItem({
       >
         <div className="overflow-hidden">
           <p
-            className="ml-[82px] mt-4 text-[18px] leading-[1.7]"
+            className="ml-[70px] mt-3 text-[15px] leading-[1.7]"
             style={{ color: "var(--lp-muted-text)" }}
           >
             {faq.answer}
@@ -111,7 +111,7 @@ export function LPFAQSection() {
   return (
     <section
       id="faq"
-      className="relative min-h-[940px] overflow-hidden py-[72px]"
+      className="relative overflow-hidden py-16 sm:py-20 lg:min-h-[760px]"
       style={{
         backgroundColor: "var(--lp-surface-faq)",
         fontFamily: "'Inter', 'Noto Sans JP', sans-serif",
@@ -142,12 +142,12 @@ export function LPFAQSection() {
         className="pointer-events-none absolute right-0 top-0 hidden w-[620px] opacity-28 2xl:block"
       />
 
-      <div className="relative mx-auto max-w-[1600px] px-5 sm:px-8 2xl:px-0">
-        <div className="mb-[52px] text-center">
+      <div className="relative mx-auto max-w-[1200px] px-5 sm:px-8">
+        <div className="mb-10 text-center">
           <h2
             style={{
               color: "var(--lp-navy)",
-              fontSize: "clamp(44px, 5.2vw, 78px)",
+              fontSize: "clamp(34px, 5.2vw, 46px)",
               fontWeight: 800,
               letterSpacing: "0",
               lineHeight: 1.12,
@@ -156,15 +156,15 @@ export function LPFAQSection() {
             よくある<span style={{ color: "var(--lp-cta)" }}>質問</span>
           </h2>
           <p
-            className="mx-auto mt-6 max-w-3xl text-[24px]"
+            className="mx-auto mt-4 max-w-2xl text-[16px]"
             style={{ color: "var(--lp-muted-text)", lineHeight: 1.6 }}
           >
             はじめての方からよくいただく質問をまとめました。
           </p>
         </div>
 
-        <div className="relative min-h-[660px]">
-          <div className="relative z-10 grid max-w-[1225px] grid-cols-1 gap-5 xl:grid-cols-2 2xl:ml-[92px]">
+        <div className="relative">
+          <div className="relative z-10 grid grid-cols-1 gap-5 xl:grid-cols-2">
             {visibleFaqs.map((faq, index) => (
               <FAQItem
                 key={faq.question}
@@ -176,24 +176,24 @@ export function LPFAQSection() {
             ))}
           </div>
 
-          <div className="pointer-events-none absolute bottom-0 right-[-48px] z-0 hidden h-[520px] w-[330px] 2xl:block">
+          <div className="pointer-events-none absolute bottom-0 right-[-92px] z-0 hidden h-[420px] w-[270px] 2xl:block">
             <img
               src={`${ASSET_BASE}characters/girl-at-laptop.png`}
               alt=""
               role="presentation"
-              className="absolute bottom-0 right-0 h-auto w-[330px] object-contain"
+              className="absolute bottom-0 right-0 h-auto w-[270px] object-contain"
             />
             <span
-              className="absolute right-[260px] top-[84px] flex h-[88px] w-[88px] items-center justify-center rounded-full bg-white"
+              className="absolute right-[218px] top-[84px] flex h-[72px] w-[72px] items-center justify-center rounded-full bg-white"
               style={{ color: "var(--lp-cta)", boxShadow: "0 18px 34px rgba(0, 102, 255, 0.12)" }}
             >
-              <MessageCircle className="h-10 w-10" aria-hidden />
+              <MessageCircle className="h-8 w-8" aria-hidden />
             </span>
           </div>
         </div>
 
         <p
-          className="mt-4 text-center text-[25px] leading-relaxed lg:text-[32px]"
+          className="mt-9 text-center text-[22px] leading-relaxed lg:text-[28px]"
           style={{
             color: "var(--lp-navy)",
             fontWeight: 800,

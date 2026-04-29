@@ -25,13 +25,14 @@ describe("BeforeAfterSection design-system guard", () => {
   });
 
   it("uses one horizontal conversion panel with center arrow", () => {
-    expect(source).toContain("2xl:grid-cols-[668px_120px_724px]");
-    expect(source).toContain("border-l-[var(--lp-cta)]");
+    expect(source).toContain("lg:grid-cols-[1fr_88px_1fr]");
+    expect(source).toContain("shupass-v2/ba/arrow.png");
   });
 
-  it("uses reference-scale panel and mockup sizing", () => {
-    expect(source).toContain("min-h-[600px]");
-    expect(source).toContain("w-[295px]");
-    expect(source).toContain("w-[86px]");
+  it("uses shupass before-after assets and compact panel sizing", () => {
+    expect(source).toContain("shupass-v2/ba/illust-worried.png");
+    expect(source).toContain("shupass-v2/ba/illust-cheerful.png");
+    expect(source).toContain("shupass-v2/ba/mockup.png");
+    expect(source).toContain("min-h-[500px]");
   });
 });

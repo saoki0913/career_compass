@@ -1,7 +1,7 @@
 # 就活Pass LP アセットインベントリ
 
 > **目的**: `public/marketing/LP/assets/**` を root LP 実装素材の正本として管理する。
-> **最終更新**: 2026-04-27
+> **最終更新**: 2026-04-29
 
 `public/marketing/LP/LP.png` と `public/marketing/LP/section_image/**` は完成見本として現位置に残す。本番DOMでは描画せず、下記の用途別カテゴリにある透過PNGを組み合わせて再現する。
 
@@ -24,8 +24,9 @@
 | `pricing_assets_transparent/` | 20 | Pricing専用装飾 | Pricing |
 | `faq_generated_assets_transparent/` | 19 | FAQ専用装飾 | FAQ |
 | `shukatsu_pass_transparent_assets/` | 19 | Footer人物・補助素材 | Footer |
+| `shupass-v2/` | 32 | `/Users/saoki/work/design/shupass` から採用した参照LP再現素材 | Hero / Pain / BeforeAfter / HowToUse / Pricing |
 
-正本側は画像177点。`.DS_Store`、manifest、検証メタデータは正本側に置かない。
+正本側は用途別PNGを管理する。`.DS_Store`、manifest、検証メタデータは正本側に置かない。
 
 ## ローカル退避
 
@@ -56,6 +57,17 @@
 | `decorative/connector-arrow-3-to-4.png` | `generated_assets_transparent/17_connector_arrow_3_to_4.png` | HowToUse接続線 |
 
 元素材が正本側に重複して残る場合は `_archive/duplicates/` へ退避済み。
+
+## shupass-v2 採用素材
+
+`/Users/saoki/work/design/shupass/assets` のうち、root LP の見た目再現に必要な素材だけを `shupass-v2/` に採用する。`uploads/`, `tmp_uploads/`, `refs/`, `screenshots/` は本番素材として採用しない。
+
+| フォルダ | 主な素材 | 用途 |
+|---|---|---|
+| `shupass-v2/` | `mockup-pc-phone.png`, `badge-*.png`, `worry-deco-*.png`, `logo-icon.png` | Hero / Pain |
+| `shupass-v2/ba/` | `arrow.png`, `illust-cheerful.png`, `illust-worried.png`, `mockup.png`, `wave.png` | BeforeAfter |
+| `shupass-v2/howto/` | `person-1..4.png`, `screen-*.png`, `star.png`, `wave.png` | HowToUse |
+| `shupass-v2/pricing/` | `icon-*.png`, `dots.png`, `wave.png` | Pricing |
 
 ## 運用ルール
 

@@ -25,7 +25,7 @@ describe("LandingFooter source drift guard", () => {
 
   it("sets character height to reference desktop scale", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
-    expect(source).toContain("330px");
+    expect(source).toContain("285px");
     expect(source).not.toMatch(/height:\s*"240px"/);
   });
 

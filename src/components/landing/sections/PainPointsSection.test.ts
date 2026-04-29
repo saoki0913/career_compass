@@ -22,9 +22,16 @@ describe("PainPointsSection design-system guard", () => {
   });
 
   it("renders reference-style pain cards with soft shadows", () => {
-    expect(source).toContain("min-h-[565px]");
-    expect(source).toContain("rounded-[22px] border bg-white");
+    expect(source).toContain("min-h-[418px]");
+    expect(source).toContain("rounded-[20px] border bg-white");
     expect(source).toContain("boxShadow");
+  });
+
+  it("uses shupass worry decorations without rendering text-baked cards", () => {
+    expect(source).toContain('const SHUPASS_ASSET = "shupass-v2"');
+    expect(source).toContain("worry-deco-dots.png");
+    expect(source).toContain("worry-deco-swirl.png");
+    expect(source).not.toContain("worry-card-1.png");
   });
 
   it("references the correct character assets", () => {

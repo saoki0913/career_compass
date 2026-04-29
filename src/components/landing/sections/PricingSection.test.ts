@@ -14,13 +14,11 @@ describe("PricingSection design-system guard", () => {
   );
 
   it("includes decorative credit card illustration for desktop", () => {
-    expect(source).toContain(
-      "pricing_assets_transparent/02_blue_credit_card_with_price_tag.png",
-    );
+    expect(source).toContain("shupass-v2/pricing/icon-card-y0.png");
   });
 
   it("includes decorative shield-check icon for desktop", () => {
-    expect(source).toContain("icons-circled/shield-check.png");
+    expect(source).toContain("ShieldCheck");
   });
 
   it("decorative images have alt empty and role presentation", () => {

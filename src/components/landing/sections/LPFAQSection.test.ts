@@ -32,7 +32,7 @@ describe("LPFAQSection design-system guard", () => {
 
   it("places the right-side laptop character from the reference composition", () => {
     expect(source).toContain("characters/girl-at-laptop.png");
-    expect(source).toContain("w-[330px]");
+    expect(source).toContain("w-[270px]");
   });
 
   it("includes dotted grid decoration", () => {

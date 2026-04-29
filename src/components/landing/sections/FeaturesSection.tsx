@@ -1,6 +1,4 @@
-import { LP_ASSET_BASE } from "@/lib/marketing/lp-assets";
-
-const ASSET = LP_ASSET_BASE;
+import { lpAsset } from "@/lib/marketing/lp-assets";
 
 type FeatureVisual = {
   readonly src: string;
@@ -22,14 +20,8 @@ const features: readonly Feature[] = [
     title: "ES添削AI",
     desc: "AIがESの構成・表現を見直し、改善ポイントを提案。",
     visuals: [
-      {
-        src: "ui-cards/es-review-window.png",
-        className: "left-[37%] top-5 w-[220px] 2xl:w-[235px]",
-      },
-      {
-        src: "ui-cards/score-85.png",
-        className: "bottom-4 left-7 w-[220px] 2xl:w-[235px]",
-      },
+      { src: "ui-cards/es-review-window.png", className: "right-4 top-4 w-[168px]" },
+      { src: "ui-cards/score-85.png", className: "bottom-4 left-5 w-[172px]" },
     ],
   },
   {
@@ -38,30 +30,18 @@ const features: readonly Feature[] = [
     title: "志望動機・ガクチカ作成",
     desc: "経験を整理しながら、文章のたたき台づくりを支援。",
     visuals: [
-      {
-        src: "ui-cards/gakuchika-draft.png",
-        className: "bottom-5 left-8 w-[280px] 2xl:w-[310px]",
-      },
-      {
-        src: "ui-cards/analytics-card.png",
-        className: "right-5 top-16 w-[180px] 2xl:w-[205px]",
-      },
+      { src: "ui-cards/gakuchika-draft.png", className: "bottom-5 left-5 w-[218px]" },
+      { src: "ui-cards/analytics-card.png", className: "right-4 top-10 w-[140px]" },
     ],
   },
   {
     num: "03",
     icon: "icons-circled/chat.png",
     title: "AI模擬面接",
-    desc: "LLMとのチャットで模擬面接を実施。回答に対してフィードバックを提供。",
+    desc: "チャット形式で練習し、回答の改善ポイントを確認。",
     visuals: [
-      {
-        src: "ui-cards/interview-flow.png",
-        className: "bottom-6 left-7 w-[255px] 2xl:w-[280px]",
-      },
-      {
-        src: "ui-cards/ai-interview-chat.png",
-        className: "right-4 top-6 w-[175px] 2xl:w-[198px]",
-      },
+      { src: "ui-cards/interview-flow.png", className: "bottom-5 left-5 w-[202px]" },
+      { src: "ui-cards/ai-interview-chat.png", className: "right-4 top-5 w-[132px]" },
     ],
   },
   {
@@ -70,46 +50,28 @@ const features: readonly Feature[] = [
     title: "締切・選考管理",
     desc: "応募締切や面接予定を見える化して、抜け漏れを防止。",
     visuals: [
-      {
-        src: "ui-cards/schedule-card.png",
-        className: "bottom-7 left-8 w-[300px] 2xl:w-[325px]",
-      },
-      {
-        src: "ui-cards/calendar-widget.png",
-        className: "right-8 top-16 w-[185px] 2xl:w-[205px]",
-      },
+      { src: "ui-cards/schedule-card.png", className: "bottom-5 left-5 w-[230px]" },
+      { src: "ui-cards/calendar-widget.png", className: "right-5 top-10 w-[142px]" },
     ],
   },
   {
     num: "05",
     icon: "icons-circled/building.png",
     title: "企業管理・応募管理",
-    desc: "企業ごとの情報・進捗・メモを一元管理。",
+    desc: "企業ごとの情報・進捗・メモをまとめて整理。",
     visuals: [
-      {
-        src: "ui-cards/selection-status.png",
-        className: "bottom-8 left-8 w-[335px] 2xl:w-[365px]",
-      },
-      {
-        src: "ui-cards/card-companies.png",
-        className: "right-8 top-20 w-[190px] 2xl:w-[205px]",
-      },
+      { src: "ui-cards/selection-status.png", className: "bottom-5 left-5 w-[248px]" },
+      { src: "ui-cards/card-companies.png", className: "right-5 top-12 w-[144px]" },
     ],
   },
   {
     num: "06",
     icon: "icons-circled/calendar.png",
     title: "Googleカレンダー連携",
-    desc: "予定を自動で連携して、就活スケジュールを整理。",
+    desc: "予定を連携し、就活スケジュールを日常の予定と一緒に管理。",
     visuals: [
-      {
-        src: "ui-cards/google-calendar.png",
-        className: "bottom-10 left-8 w-[330px] 2xl:w-[360px]",
-      },
-      {
-        src: "ui-cards/calendar-dayview.png",
-        className: "right-7 top-14 w-[160px] 2xl:w-[180px]",
-      },
+      { src: "ui-cards/google-calendar.png", className: "bottom-6 left-5 w-[246px]" },
+      { src: "ui-cards/calendar-dayview.png", className: "right-5 top-10 w-[128px]" },
     ],
   },
 ] as const;
@@ -136,32 +98,31 @@ export function FeaturesSection() {
   return (
     <section
       id="features"
-      className="relative min-h-[940px] overflow-hidden bg-white py-[72px]"
+      className="relative overflow-hidden bg-white py-16 sm:py-20 lg:min-h-[830px]"
       style={{ fontFamily: "'Inter', 'Noto Sans JP', sans-serif" }}
     >
       <img
-        src={`${ASSET}/decorative/curved-lines-dot.png`}
+        src={lpAsset("decorative/dot-pattern-light.png")}
         alt=""
         role="presentation"
-        className="pointer-events-none absolute right-0 top-[70px] hidden w-[440px] opacity-22 2xl:block"
+        className="pointer-events-none absolute left-[3%] top-[72px] hidden w-[130px] opacity-45 lg:block"
       />
       <img
-        src={`${ASSET}/decorative/dot-pattern-light.png`}
+        src={lpAsset("decorative/dot-grid-5x5.png")}
         alt=""
         role="presentation"
-        className="pointer-events-none absolute right-[6%] top-[245px] hidden w-[130px] opacity-50 2xl:block"
+        className="pointer-events-none absolute right-[6%] top-[112px] hidden w-[92px] opacity-55 lg:block"
       />
 
-      <div className="relative mx-auto max-w-[1600px] px-5 sm:px-8 2xl:px-0">
-        <div className="grid items-center gap-9 xl:grid-cols-[560px_1fr]">
-          <div className="text-center xl:text-left">
+      <div className="relative mx-auto max-w-[1200px] px-5 sm:px-8">
+        <div className="grid items-center gap-8 lg:grid-cols-[420px_1fr]">
+          <div className="text-center lg:text-left">
             <h2
+              className="text-[34px] leading-[1.2] sm:text-[44px] lg:text-[46px]"
               style={{
                 color: "var(--lp-navy)",
-                fontSize: "clamp(40px, 5vw, 64px)",
                 fontWeight: 800,
                 letterSpacing: "0",
-                lineHeight: 1.15,
               }}
             >
               就活を加速させる、
@@ -170,62 +131,62 @@ export function FeaturesSection() {
               の主要機能
             </h2>
             <p
-              className="mx-auto mt-7 max-w-[560px] text-[19px] xl:mx-0"
-              style={{ color: "var(--lp-muted-text)", lineHeight: 1.8 }}
+              className="mx-auto mt-5 max-w-[430px] text-[16px] leading-[1.8] lg:mx-0"
+              style={{ color: "var(--lp-muted-text)" }}
             >
               書類作成から面接対策、管理まで。必要な準備をひとつにつなぐ。
             </p>
           </div>
 
           <div
-            className="relative h-[220px] overflow-hidden rounded-[28px] border px-12 py-7"
+            className="relative overflow-hidden rounded-[22px] border px-5 py-6 sm:px-8"
             style={{
               borderColor: "var(--lp-border-default)",
               background: "linear-gradient(180deg, #f7fbff 0%, #ffffff 100%)",
-              boxShadow: "0 18px 36px rgba(0, 34, 104, 0.06)",
+              boxShadow: "0 16px 32px rgba(20, 50, 110, 0.07)",
             }}
           >
             <img
-              src={`${ASSET}/decorative/dot-grid-5x5.png`}
+              src={lpAsset("decorative/dot-grid-5x5.png")}
               alt=""
               role="presentation"
-              className="pointer-events-none absolute left-7 top-6 h-14 w-14 opacity-45"
+              className="pointer-events-none absolute left-5 top-5 h-12 w-12 opacity-35"
             />
             <img
-              src={`${ASSET}/decorative/dot-grid-5x5.png`}
+              src={lpAsset("decorative/dot-grid-5x5.png")}
               alt=""
               role="presentation"
-              className="pointer-events-none absolute bottom-6 right-7 h-14 w-14 opacity-45"
+              className="pointer-events-none absolute bottom-5 right-5 h-12 w-12 opacity-35"
             />
-            <div className="relative z-10 grid h-full grid-cols-[1fr_96px_1fr_96px_1fr] items-center">
+            <div className="relative z-10 grid grid-cols-1 gap-5 sm:grid-cols-[1fr_54px_1fr_54px_1fr] sm:items-center">
               {flowSteps.map((step, index) => (
                 <div key={step.title} className="contents">
                   <div className="flex flex-col items-center text-center">
                     <div
-                      className="flex h-[104px] w-[104px] items-center justify-center rounded-full bg-white"
-                      style={{ boxShadow: "0 16px 34px rgba(0, 102, 255, 0.12)" }}
+                      className="flex h-[78px] w-[78px] items-center justify-center rounded-full bg-white"
+                      style={{ boxShadow: "0 14px 28px rgba(37, 99, 235, 0.11)" }}
                     >
                       <img
-                        src={`${ASSET}/${step.icon}`}
+                        src={lpAsset(step.icon)}
                         alt=""
                         role="presentation"
-                        className="h-[72px] w-[72px] object-contain"
+                        className="h-[54px] w-[54px] object-contain"
                       />
                     </div>
                     <h3
-                      className="mt-4 text-[24px] leading-none"
+                      className="mt-3 text-[22px] leading-none"
                       style={{ color: "var(--lp-cta)", fontWeight: 800 }}
                     >
                       {step.title}
                     </h3>
-                    <p className="mt-2 text-[15px]" style={{ color: "var(--lp-navy)" }}>
+                    <p className="mt-2 text-[13px]" style={{ color: "var(--lp-navy)" }}>
                       {step.desc}
                     </p>
                   </div>
                   {index < flowSteps.length - 1 ? (
                     <div
-                      className="h-0 border-t-[8px] border-dotted"
-                      style={{ borderColor: "rgba(37, 99, 235, 0.48)" }}
+                      className="hidden h-0 border-t-[6px] border-dotted sm:block"
+                      style={{ borderColor: "rgba(37, 99, 235, 0.46)" }}
                       aria-hidden="true"
                     />
                   ) : null}
@@ -235,43 +196,40 @@ export function FeaturesSection() {
           </div>
         </div>
 
-        <div className="mt-10 grid grid-cols-1 gap-7 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
             <article
               key={feature.num}
-              className="relative min-h-[295px] overflow-hidden rounded-[18px] border bg-white p-8"
+              className="relative min-h-[254px] overflow-hidden rounded-[18px] border bg-white p-6"
               style={{
                 borderColor: "var(--lp-border-default)",
-                boxShadow:
-                  "0 18px 36px rgba(0, 34, 104, 0.07), 0 2px 9px rgba(0, 34, 104, 0.04)",
+                boxShadow: "0 15px 30px rgba(20, 50, 110, 0.075)",
               }}
             >
-              <div className="flex items-start gap-5">
+              <div className="flex items-start gap-4">
                 <img
-                  src={`${ASSET}/${feature.icon}`}
+                  src={lpAsset(feature.icon)}
                   alt=""
                   role="presentation"
-                  width={70}
-                  height={70}
-                  className="h-[70px] w-[70px] shrink-0 object-contain"
+                  className="h-[54px] w-[54px] shrink-0 object-contain"
                 />
                 <div>
-                  <div className="flex items-baseline gap-4">
+                  <div className="flex items-baseline gap-3">
                     <span
-                      className="text-[42px] leading-none"
+                      className="text-[34px] leading-none"
                       style={{ color: "var(--lp-cta)", fontWeight: 800 }}
                     >
                       {feature.num}
                     </span>
                     <h3
-                      className="text-[24px] leading-tight"
+                      className="text-[18px] leading-tight"
                       style={{ color: "var(--lp-navy)", fontWeight: 800 }}
                     >
                       {feature.title}
                     </h3>
                   </div>
                   <p
-                    className="mt-5 max-w-[300px] text-[18px] leading-[1.65]"
+                    className="mt-3 max-w-[250px] text-[13px] leading-[1.6]"
                     style={{ color: "var(--lp-muted-text)" }}
                   >
                     {feature.desc}
@@ -279,19 +237,17 @@ export function FeaturesSection() {
                 </div>
               </div>
 
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 top-[112px]">
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 top-[98px]">
                 {feature.visuals.map((visual) => (
                   <img
                     key={visual.src}
-                    src={`${ASSET}/${visual.src}`}
+                    src={lpAsset(visual.src)}
                     alt=""
                     role="presentation"
-                    loading="eager"
-                    decoding="sync"
+                    loading="lazy"
+                    decoding="async"
                     className={`absolute h-auto ${visual.className}`}
-                    style={{
-                      filter: "drop-shadow(0 14px 24px rgba(0, 34, 104, 0.08))",
-                    }}
+                    style={{ filter: "drop-shadow(0 12px 20px rgba(0, 34, 104, 0.08))" }}
                   />
                 ))}
               </div>

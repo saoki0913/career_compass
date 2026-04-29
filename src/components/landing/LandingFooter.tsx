@@ -66,8 +66,8 @@ export function LandingFooter() {
         style={{ width: "150px" }}
       />
 
-      <div className="relative z-10 mx-auto max-w-[1600px] px-5 pb-6 pt-[74px] sm:px-8 2xl:px-0">
-        <div className="grid gap-10 2xl:grid-cols-[360px_1fr_330px]">
+      <div className="relative z-10 mx-auto max-w-[1200px] px-5 pb-6 pt-16 sm:px-8">
+        <div className="grid gap-10 2xl:grid-cols-[300px_1fr_260px]">
           <div>
             <div className="mb-7 flex items-center gap-4">
               <img
@@ -76,7 +76,7 @@ export function LandingFooter() {
                 style={{ width: "58px", height: "58px" }}
               />
               <span
-                className="text-[40px] leading-none"
+                className="text-[34px] leading-none"
                 style={{
                   fontWeight: 800,
                   color: "var(--lp-navy)",
@@ -86,7 +86,7 @@ export function LandingFooter() {
               </span>
             </div>
             <p
-              className="text-[18px]"
+              className="text-[15px]"
               style={{
                 lineHeight: 1.8,
                 color: "var(--lp-muted-text)",
@@ -100,12 +100,12 @@ export function LandingFooter() {
 
           <nav
             aria-label="フッターナビゲーション"
-            className="grid grid-cols-2 gap-x-10 gap-y-8 text-[20px] sm:grid-cols-4 md:gap-x-14"
+            className="grid grid-cols-2 gap-x-9 gap-y-8 text-[16px] sm:grid-cols-4 md:gap-x-12"
           >
             {FOOTER_COLUMNS.map((col) => (
               <div key={col.title} className="flex flex-col gap-5">
                 <span
-                  className="text-[22px]"
+                  className="text-[18px]"
                   style={{
                     fontWeight: 800,
                     color: "var(--lp-navy)",
@@ -155,15 +155,15 @@ export function LandingFooter() {
           src={lpAsset("shukatsu_pass_transparent_assets/08_male_character.png")}
           alt=""
           role="presentation"
-          className="relative z-0 -mr-8 object-contain"
-          style={{ height: "330px" }}
+          className="relative z-0 -mr-7 object-contain"
+          style={{ height: "285px" }}
         />
         <img
           src={lpAsset("shukatsu_pass_transparent_assets/09_female_character.png")}
           alt=""
           role="presentation"
           className="relative z-10 object-contain"
-          style={{ height: "330px" }}
+          style={{ height: "285px" }}
         />
       </div>
     </footer>

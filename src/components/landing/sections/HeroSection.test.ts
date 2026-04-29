@@ -22,12 +22,16 @@ describe("HeroSection design-system guard", () => {
     expect(source).not.toContain('"#1a1a2e"');
   });
 
-  it("uses reference-scale iPhone mockup sizing", () => {
-    expect(source).toContain("2xl:w-[190px]");
-    expect(source).toContain("max-w-[190px]");
+  it("uses shupass reference hero assets and keeps CTAs as links", () => {
+    expect(source).toContain('const SHUPASS_ASSET = "shupass-v2"');
+    expect(source).toContain("mockup-pc-phone.png");
+    expect(source).toContain("badge-cc.png");
+    expect(source).toContain('href="/login"');
+    expect(source).toContain('href="#features"');
   });
 
-  it("uses DESIGN.md-compliant hero heading size (72-82px range)", () => {
-    expect(source).toMatch(/clamp\(44px,\s*4\.8vw,\s*76px\)/);
+  it("uses compact shupass reference heading scale", () => {
+    expect(source).toContain("lg:text-[50px]");
+    expect(source).toContain("rounded-full");
   });
 });
