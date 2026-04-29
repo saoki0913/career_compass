@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
+import { GeneratedDraftActionCard } from "@/components/chat/GeneratedDraftActionCard";
 import {
   ConversationSidebarCard,
   ConversationWorkspaceShell,
@@ -141,38 +142,48 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       title="ガクチカを作成"
       subtitle={gakuchikaTitle || "作成セッション"}
       actionBar={
-        <ConversationActionBar
-          helperText={gakuchikaDraftHelperText}
-          actionLabel="ガクチカESを作成"
-          pendingLabel="作成中..."
-          onAction={handleGenerateDraft}
-          disabled={!draftReady || isGeneratingDraft || interviewReady}
-          isPending={isGeneratingDraft}
-          controls={
-            <>
-              <p className="text-xs font-medium text-muted-foreground xl:shrink-0">文字数</p>
-              <div className="grid grid-cols-3 gap-2">
-                {([300, 400, 500] as const).map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setDraftCharLimit(n)}
-                    disabled={isGeneratingDraft}
-                    className={cn(
-                      "rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
-                      draftCharLimit === n
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background hover:bg-secondary",
-                      isGeneratingDraft ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-                    )}
-                  >
-                    {n}字
-                  </button>
-                ))}
-              </div>
-            </>
-          }
-        />
+        generatedDraftText && generatedDocumentId ? (
+          <GeneratedDraftActionCard
+            draft={generatedDraftText}
+            charLimit={draftCharLimit}
+            documentId={generatedDocumentId}
+            onOpenPreview={() => setIsDraftModalOpen(true)}
+            isBusy={isGeneratingDraft || isSending || isResumingSession}
+          />
+        ) : (
+          <ConversationActionBar
+            helperText={gakuchikaDraftHelperText}
+            actionLabel="ガクチカESを作成"
+            pendingLabel="作成中..."
+            onAction={handleGenerateDraft}
+            disabled={!draftReady || isGeneratingDraft || interviewReady}
+            isPending={isGeneratingDraft}
+            controls={
+              <>
+                <p className="text-xs font-medium text-muted-foreground xl:shrink-0">文字数</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {([300, 400, 500] as const).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setDraftCharLimit(n)}
+                      disabled={isGeneratingDraft}
+                      className={cn(
+                        "rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+                        draftCharLimit === n
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background hover:bg-secondary",
+                        isGeneratingDraft ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                      )}
+                    >
+                      {n}字
+                    </button>
+                  ))}
+                </div>
+              </>
+            }
+          />
+        )
       }
       mobileStatus={
         <div className="space-y-2">
