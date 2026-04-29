@@ -108,6 +108,18 @@ function isAssignment(token) {
   return /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(token);
 }
 
+function assignmentPair(token) {
+  const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/u.exec(token || "");
+  return match ? [match[1], match[2]] : null;
+}
+
+function parseCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function normalizePathToken(token) {
   return token
     .replace(/^file:\/\//, "")
@@ -131,8 +143,9 @@ function isSensitivePath(token) {
   );
 }
 
-function unwrapCommand(tokens) {
+function unwrapCommandWithAssignments(tokens) {
   let result = [...tokens];
+  const assignments = {};
   let changed = true;
   while (changed && result.length > 0) {
     changed = false;
@@ -144,13 +157,22 @@ function unwrapCommand(tokens) {
     if (result[0] === "env") {
       result = result.slice(1);
       while (result[0] && (isAssignment(result[0]) || result[0] === "-i" || result[0] === "--ignore-environment")) {
+        const pair = assignmentPair(result[0]);
+        if (pair) assignments[pair[0]] = pair[1];
         result = result.slice(1);
       }
       changed = true;
       continue;
     }
+    if (isAssignment(result[0])) {
+      const pair = assignmentPair(result[0]);
+      if (pair) assignments[pair[0]] = pair[1];
+      result = result.slice(1);
+      changed = true;
+      continue;
+    }
   }
-  return result;
+  return { tokens: result, assignments };
 }
 
 function nestedShellCommand(tokens) {
@@ -217,6 +239,158 @@ function releaseModeFor(tokens) {
   return "";
 }
 
+function normalizeFeatureName(value) {
+  const feature = String(value || "").trim();
+  if (!feature) return "";
+  if (feature === "es") return "es-review";
+  if (feature === "company-info-search-dev") return "company-info-search";
+  return feature;
+}
+
+function featuresFromValue(value, fallback = []) {
+  const features = parseCsv(value).map(normalizeFeatureName).filter(Boolean);
+  return features.length > 0 ? features : fallback;
+}
+
+function featuresFromMakeTarget(target, assignments = {}) {
+  if (target === "ai-live-local") return featuresFromValue(assignments.AI_LIVE_LOCAL_FEATURES, ["all"]);
+  if (target === "test-e2e-functional" || target === "test-e2e-functional-local") {
+    return featuresFromValue(assignments.AI_LIVE_LOCAL_FEATURES || assignments.AI_LIVE_FEATURE, ["all"]);
+  }
+  if (target.startsWith("test-e2e-functional-local-")) {
+    return [normalizeFeatureName(target.replace(/^test-e2e-functional-local-/u, ""))].filter(Boolean);
+  }
+  if (target.startsWith("test-e2e-functional-")) {
+    return [normalizeFeatureName(target.replace(/^test-e2e-functional-/u, ""))].filter(Boolean);
+  }
+  if (target === "test-quality-all") return featuresFromValue(assignments.AI_LIVE_FEATURE, ["all"]);
+  return [];
+}
+
+function parseMakeInvocation(tokens, inheritedAssignments = {}) {
+  const assignments = { ...inheritedAssignments };
+  let target = "";
+  for (const token of tokens.slice(1)) {
+    const pair = assignmentPair(token);
+    if (pair) {
+      assignments[pair[0]] = pair[1];
+      continue;
+    }
+    if (!target && !token.startsWith("-")) {
+      target = token;
+    }
+  }
+  return { target, assignments };
+}
+
+function featuresFromNpmScript(scriptName) {
+  if (scriptName === "test:e2e:functional" || scriptName === "test:e2e:functional:local") {
+    return ["all"];
+  }
+  if (scriptName.startsWith("test:e2e:functional:local:")) {
+    return [normalizeFeatureName(scriptName.replace(/^test:e2e:functional:local:/u, ""))].filter(Boolean);
+  }
+  if (scriptName.startsWith("test:e2e:functional:")) {
+    return [normalizeFeatureName(scriptName.replace(/^test:e2e:functional:/u, ""))].filter(Boolean);
+  }
+  return [];
+}
+
+function featuresFromFlag(tokens, flagName, fallback = []) {
+  const index = tokens.indexOf(flagName);
+  if (index !== -1) {
+    return featuresFromValue(tokens[index + 1] || "", fallback);
+  }
+  const prefix = `${flagName}=`;
+  const token = tokens.find((item) => item.startsWith(prefix));
+  if (token) return featuresFromValue(token.slice(prefix.length), fallback);
+  return fallback;
+}
+
+function addTestCategory(actions, category, features = []) {
+  if (!category) return;
+  actions.testCategories.add(category);
+  if (!actions.testCategoryFeatures.has(category)) {
+    actions.testCategoryFeatures.set(category, new Set());
+  }
+  const categoryFeatures = actions.testCategoryFeatures.get(category);
+  for (const feature of features) {
+    const normalized = normalizeFeatureName(feature);
+    if (normalized) {
+      actions.testFeatures.add(normalized);
+      categoryFeatures.add(normalized);
+    }
+  }
+}
+
+function classifyTestCommand(tokens, assignments, actions) {
+  const first = path.basename(tokens[0] || "");
+  const second = tokens[1] || "";
+  if (first === "make") {
+    const makeInvocation = parseMakeInvocation(tokens, assignments);
+    const makeTarget = makeInvocation.target || second;
+    if (/^test-e2e-functional(?:-|$)/u.test(makeTarget) || makeTarget === "ai-live-local") {
+      addTestCategory(actions, "e2e-functional", featuresFromMakeTarget(makeTarget, makeInvocation.assignments));
+    }
+    if (/^test-quality-/u.test(makeTarget)) {
+      addTestCategory(actions, "quality", featuresFromMakeTarget(makeTarget, makeInvocation.assignments));
+    }
+    if (makeTarget === "security-scan") {
+      addTestCategory(actions, "security", []);
+    }
+    return;
+  }
+
+  if (first === "npm" && second === "run") {
+    const scriptName = tokens[2] || "";
+    if (scriptName.startsWith("test:e2e:functional")) {
+      addTestCategory(actions, "e2e-functional", featuresFromNpmScript(scriptName));
+    }
+    if (scriptName.startsWith("test-quality-") || scriptName.startsWith("test:quality:")) {
+      const qualityFeatures = scriptName === "test:quality:all" || scriptName === "test-quality-all"
+        ? ["all"]
+        : [];
+      addTestCategory(actions, "quality", qualityFeatures);
+    }
+    if (scriptName.startsWith("test:security:")) {
+      addTestCategory(actions, "security", []);
+    }
+    if (scriptName === "test:static" || scriptName === "lint") {
+      addTestCategory(actions, "static", []);
+    }
+    return;
+  }
+
+  if (first === "npx" && second === "tsc" && tokens.includes("--noEmit")) {
+    addTestCategory(actions, "static", []);
+    return;
+  }
+
+  const script = normalizePathToken(tokens[1] || tokens[0] || "");
+  const scriptTokens = ["bash", "sh", "zsh"].includes(first) ? tokens.slice(1) : tokens;
+  const scriptPath = normalizePathToken(scriptTokens[0] || script);
+  if (scriptPath === "scripts/dev/run-ai-live-local.sh") {
+    addTestCategory(actions, "e2e-functional", featuresFromValue(assignments.AI_LIVE_LOCAL_FEATURES, ["all"]));
+    return;
+  }
+  if (scriptPath === "scripts/ci/run-e2e-functional.sh") {
+    addTestCategory(actions, "e2e-functional", featuresFromFlag(scriptTokens, "--features", ["all"]));
+    return;
+  }
+  if (scriptPath === "scripts/ci/run-ai-live.sh") {
+    const category = assignments.AI_LIVE_TEST_CATEGORY === "quality" ? "quality" : "e2e-functional";
+    addTestCategory(
+      actions,
+      category,
+      featuresFromValue(assignments.AI_LIVE_FEATURE, featuresFromFlag(scriptTokens, "--feature", ["all"])),
+    );
+    return;
+  }
+  if (scriptPath === "security/scan/run-lightweight-scan.sh") {
+    addTestCategory(actions, "security", []);
+  }
+}
+
 function classifyDelete(tokens, actions) {
   const first = path.basename(tokens[0] || "");
   if (first === "find" && tokens.includes("-delete")) {
@@ -268,7 +442,7 @@ function classifyDelete(tokens, actions) {
 
 function classifyTokens(tokens, actions, depth = 0) {
   if (tokens.length === 0 || depth > 3) return;
-  const unwrapped = unwrapCommand(tokens);
+  const { tokens: unwrapped, assignments } = unwrapCommandWithAssignments(tokens);
   const nested = nestedShellCommand(unwrapped);
   if (nested) {
     mergeActions(actions, classifyCommand(nested, depth + 1));
@@ -285,6 +459,7 @@ function classifyTokens(tokens, actions, depth = 0) {
   }
 
   classifyGit(unwrapped, actions);
+  classifyTestCommand(unwrapped, assignments, actions);
 
   const releaseMode = releaseModeFor(unwrapped);
   if (releaseMode) {
@@ -304,6 +479,9 @@ function emptyActions() {
     gitCommit: false,
     releaseProvider: false,
     releaseModes: new Set(),
+    testCategories: new Set(),
+    testFeatures: new Set(),
+    testCategoryFeatures: new Map(),
     destructiveDelete: false,
     unsafeDelete: false,
     safeDelete: false,
@@ -317,6 +495,15 @@ function mergeActions(target, source) {
     target[key] = target[key] || Boolean(source[key]);
   }
   for (const mode of source.releaseModes || []) target.releaseModes.add(mode);
+  for (const category of source.testCategories || []) target.testCategories.add(category);
+  for (const feature of source.testFeatures || []) target.testFeatures.add(feature);
+  for (const [category, features] of source.testCategoryFeatures || []) {
+    if (!target.testCategoryFeatures.has(category)) {
+      target.testCategoryFeatures.set(category, new Set());
+    }
+    const targetFeatures = target.testCategoryFeatures.get(category);
+    for (const feature of features) targetFeatures.add(feature);
+  }
   target.deleteTargets.push(...(source.deleteTargets || []));
 }
 
@@ -330,9 +517,16 @@ function classifyCommand(command, depth = 0) {
 }
 
 function serializable(actions) {
+  const testCategoryFeatures = {};
+  for (const [category, features] of actions.testCategoryFeatures) {
+    testCategoryFeatures[category] = [...features].sort();
+  }
   return {
     ...actions,
     releaseModes: [...actions.releaseModes].sort(),
+    testCategories: [...actions.testCategories].sort(),
+    testFeatures: [...actions.testFeatures].sort(),
+    testCategoryFeatures,
   };
 }
 
@@ -343,6 +537,8 @@ const actions = classifyCommand(command);
 if (predicate) {
   const value = predicate === "allDeletesSafe"
     ? actions.destructiveDelete && !actions.unsafeDelete
+    : predicate === "testCategoryCommand"
+      ? actions.testCategories.size > 0
     : Boolean(actions[predicate]);
   process.exit(value ? 0 : 1);
 }

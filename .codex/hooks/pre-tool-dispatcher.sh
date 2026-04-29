@@ -45,7 +45,7 @@ case "$TOOL" in
       run_hook "commit-codex-gate.sh"
     fi
 
-    if printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*(make\s+(test-e2e-functional-local|ai-live-local|test-quality-)|bash\s+(scripts/dev/run-ai-live-local\.sh|scripts/ci/run-ai-live\.sh|security/scan/run-lightweight-scan\.sh))'; then
+    if guard_command_is_test_category "$CMD"; then
       run_hook "test-category-gate.sh"
     fi
     ;;

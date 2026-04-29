@@ -14,7 +14,10 @@
 /coverage
 /playwright-report/
 /test-results/
+/.ui-preflight/
+/output/
 /.ai/
+product/.ai/
 /.claude/state/
 /.claude/sessions/
 /.codex/state/
@@ -29,6 +32,7 @@
 
 # misc
 .DS_Store
+**/.DS_Store
 *.pem
 
 # debug
@@ -64,6 +68,7 @@ venv/
 .env
 
 # Backend runtime data (ChromaDB, BM25 indices)
+backend/.ai/
 backend/data/chroma/
 backend/data/bm25/
 backend/tests/output/
@@ -107,10 +112,21 @@ public/generated_images/
 /screenshots/
 
 # LP asset development (reference/intermediate)
+public/dashboard/
+public/marketing/LP/LP_sub/
+public/marketing/LP/assets/_archive/
+public/marketing/LP/section_image/asset/
 public/marketing/LP/reference/
 public/marketing/LP/section-images-v1/
 public/marketing/LP/section-images-v2/
 public/marketing/LP/section-images-v3/
 public/marketing/LP/shukatsupass_separated_assets/
+public/marketing/PR/
+public/marketing/design_system/
 public/reference/
 quality/reports/
+
+# Local agent / marketing generation outputs
+docs/ops/agent-usage.log
+scripts/marketing_video/.venv/
+scripts/marketing_video/output/

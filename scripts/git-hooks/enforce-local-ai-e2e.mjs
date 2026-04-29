@@ -12,7 +12,7 @@ import {
 import { resolveE2EFunctionalScope } from "../../src/lib/e2e-functional-scope.mjs";
 
 const STATUS_DIR = "backend/tests/output/local_ai_live/status";
-const DECISION_PREFIX = "e2e-functional-decision-";
+const TEST_CATEGORIES_PREFIX = "test-categories-";
 
 function readManifest(repoRoot, feature) {
   const manifestPath = path.join(repoRoot, STATUS_DIR, `${feature}.json`);
@@ -49,6 +49,27 @@ export function parseE2EFunctionalDecision(raw) {
   const value = String(raw || "").trim();
   if (!value) return null;
 
+  if (value.startsWith("{")) {
+    try {
+      const checkpoint = JSON.parse(value);
+      const e2eValue = String(checkpoint.categories?.["e2e-functional"] || "");
+      const qualityValue = String(checkpoint.categories?.quality || "");
+      const e2eDecision = parseCategoryDecision(e2eValue);
+      const qualityDecision = parseCategoryDecision(qualityValue);
+      if (!e2eDecision && !qualityDecision) return null;
+      return {
+        action: e2eDecision?.action || "approve",
+        runFeatures: e2eDecision?.runFeatures || [],
+        skipFeatures: e2eDecision?.skipFeatures || [],
+        qualityAcceptedFeatures: qualityDecision?.acceptedFeatures || [],
+        snapshotHash: checkpoint.e2eFunctionalSnapshotHash || checkpoint.snapshotHash || "",
+        reason: checkpoint.decision || checkpoint.status || "",
+      };
+    } catch {
+      return null;
+    }
+  }
+
   const [action, first = "", second = "", ...rest] = value.split(":");
   if (action === "run") {
     return {
@@ -81,13 +102,51 @@ export function parseE2EFunctionalDecision(raw) {
   return null;
 }
 
+function parseCategoryDecision(value) {
+  const [action, first = "", second = ""] = String(value || "").split(":");
+  if (!action) return null;
+  if (action === "run") {
+    return {
+      action,
+      runFeatures: parseFeatureList(first),
+      skipFeatures: [],
+      acceptedFeatures: [],
+    };
+  }
+  if (action === "skip") {
+    return {
+      action,
+      runFeatures: [],
+      skipFeatures: parseFeatureList(first),
+      acceptedFeatures: [],
+    };
+  }
+  if (action === "partial") {
+    return {
+      action,
+      runFeatures: parseFeatureList(first),
+      skipFeatures: parseFeatureList(second),
+      acceptedFeatures: [],
+    };
+  }
+  if (action === "accept") {
+    return {
+      action,
+      runFeatures: [],
+      skipFeatures: [],
+      acceptedFeatures: parseFeatureList(first),
+    };
+  }
+  return null;
+}
+
 function defaultDecisionDir() {
   const home = process.env.HOME || "";
   return home ? path.join(home, ".claude", "sessions", "career_compass") : "";
 }
 
 function readDecision({
-  decisionFile = process.env.E2E_FUNCTIONAL_DECISION_FILE,
+  decisionFile = process.env.TEST_CATEGORIES_CHECKPOINT_FILE || process.env.E2E_FUNCTIONAL_DECISION_FILE,
   snapshotHash = "",
   features = [],
 } = {}) {
@@ -95,11 +154,15 @@ function readDecision({
   if (decisionFile) {
     candidates.push(decisionFile);
   } else {
-    const dir = defaultDecisionDir();
-    if (dir && fs.existsSync(dir)) {
+    const dirs = [
+      defaultDecisionDir(),
+      process.env.HOME ? path.join(process.env.HOME, ".codex", "sessions", "career_compass") : "",
+    ].filter(Boolean);
+    for (const dir of dirs) {
+      if (!fs.existsSync(dir)) continue;
       const files = fs
         .readdirSync(dir)
-        .filter((name) => name.startsWith(DECISION_PREFIX))
+        .filter((name) => name.startsWith(TEST_CATEGORIES_PREFIX))
         .map((name) => path.join(dir, name))
         .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
       candidates.push(...files);
@@ -119,7 +182,11 @@ function readDecision({
     const required = new Set(features);
     const matching = parsedDecisions.find((decision) => {
       if (decision.snapshotHash !== snapshotHash) return false;
-      return [...decision.runFeatures, ...decision.skipFeatures].some((feature) =>
+      return [
+        ...decision.runFeatures,
+        ...decision.skipFeatures,
+        ...(decision.qualityAcceptedFeatures || []),
+      ].some((feature) =>
         required.has(feature),
       );
     });
@@ -129,10 +196,16 @@ function readDecision({
 }
 
 function decisionCoversFailures(decision, failures) {
-  if (!decision || decision.action === "run") return false;
+  if (!decision) return false;
   if (!decision.reason.trim()) return false;
   const skipped = new Set(decision.skipFeatures);
-  return failures.every((failure) => skipped.has(failure.feature));
+  const qualityAccepted = new Set(decision.qualityAcceptedFeatures || []);
+  return failures.every((failure) => {
+    if (failure.reason === "quality_confirmation_required" || failure.reason === "judge_confirmation_required") {
+      return qualityAccepted.has("all") || qualityAccepted.has(failure.feature);
+    }
+    return skipped.has("all") || skipped.has(failure.feature);
+  });
 }
 
 export function evaluateLocalAiE2EReadiness({
@@ -195,6 +268,23 @@ export function evaluateLocalAiE2EReadiness({
         reason: "playwright_required",
         playwrightStatus: manifest.playwrightStatus,
       });
+      continue;
+    }
+
+    if ((manifest.softFailCount || 0) > 0) {
+      failures.push({
+        feature,
+        reason: "quality_confirmation_required",
+        softFailCount: manifest.softFailCount,
+      });
+    }
+
+    if ((manifest.judgeFailCount || 0) > 0) {
+      failures.push({
+        feature,
+        reason: "judge_confirmation_required",
+        judgeFailCount: manifest.judgeFailCount,
+      });
     }
   }
 
@@ -206,7 +296,11 @@ export function evaluateLocalAiE2EReadiness({
     typeof rawDecision === "string" ? parseE2EFunctionalDecision(rawDecision) : rawDecision;
   if (decision) {
     if (decision.snapshotHash !== snapshotHash) {
-      const decisionFeatures = [...new Set([...decision.runFeatures, ...decision.skipFeatures])];
+      const decisionFeatures = [...new Set([
+        ...decision.runFeatures,
+        ...decision.skipFeatures,
+        ...(decision.qualityAcceptedFeatures || []),
+      ])];
       for (const feature of decisionFeatures.length > 0 ? decisionFeatures : scope.features) {
         failures.push({
           feature,
@@ -246,6 +340,10 @@ function printFailureSummary(result, snapshotHash) {
             ? "staged snapshot と一致しません"
             : failure.reason === "playwright_required"
               ? `browser E2E が未通過です (playwrightStatus=${failure.playwrightStatus || "unknown"})`
+              : failure.reason === "quality_confirmation_required"
+                ? `quality soft fail の確認が必要です (softFailCount=${failure.softFailCount || 0})`
+                : failure.reason === "judge_confirmation_required"
+                  ? `LLM judge fail の確認が必要です (judgeFailCount=${failure.judgeFailCount || 0})`
               : failure.reason === "stale_decision"
                 ? `AskUserQuestion checkpoint が stale です (decisionSnapshotHash=${failure.decisionSnapshotHash || "unknown"})`
                 : `status=${failure.status || "failed"}`;
@@ -255,7 +353,11 @@ function printFailureSummary(result, snapshotHash) {
   process.stderr.write(`  ${suggestedCommand}\n`);
   process.stderr.write("スキップする場合の checkpoint 例:\n");
   process.stderr.write(
-    `  echo "skip:${groupedFeatures.join(",")}:${snapshotHash}:<reason>" > ~/.claude/sessions/career_compass/e2e-functional-decision-<SESSION_ID>\n`,
+    `  node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project "$(pwd)" --categories "e2e-functional=skip:${groupedFeatures.join(",")},quality=skip,static=run,security=run" > ~/.codex/sessions/career_compass/test-categories-<SESSION_ID>\n`,
+  );
+  process.stderr.write("quality soft fail / judge fail を承認する場合の checkpoint 例:\n");
+  process.stderr.write(
+    `  node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project "$(pwd)" --categories "e2e-functional=run:${groupedFeatures.join(",")},quality=accept:${groupedFeatures.join(",")},static=run,security=run" > ~/.codex/sessions/career_compass/test-categories-<SESSION_ID>\n`,
   );
 }
 

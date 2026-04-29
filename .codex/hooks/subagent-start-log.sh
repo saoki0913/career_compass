@@ -4,7 +4,7 @@ set -euo pipefail
 
 INPUT=$(cat)
 PROJECT_DIR="${PROJECT_DIR:-$(pwd)}"
-LOG_FILE="$PROJECT_DIR/docs/ops/agent-usage.log"
+LOG_FILE="$PROJECT_DIR/.codex/state/agent-usage.log"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // "unknown"')
 AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // "unknown"')

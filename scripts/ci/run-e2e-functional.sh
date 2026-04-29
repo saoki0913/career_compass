@@ -16,21 +16,8 @@ features="all"
 suite="${LIVE_AI_CONVERSATION_CASE_SET:-smoke}"
 output_dir="${AI_LIVE_OUTPUT_DIR:-backend/tests/output}"
 
-all_features=(
-  "es-review"
-  "gakuchika"
-  "motivation"
-  "interview"
-  "company-info-search"
-  "rag-ingest"
-  "selection-schedule"
-  "calendar"
-  "tasks-deadlines"
-  "notifications"
-  "company-crud"
-  "billing"
-  "search-query"
-  "pages-smoke"
+mapfile -t all_features < <(
+  node --input-type=module -e 'import { ALL_E2E_FUNCTIONAL_FEATURES } from "./src/lib/e2e-functional-features.mjs"; process.stdout.write(`${ALL_E2E_FUNCTIONAL_FEATURES.join("\n")}\n`);'
 )
 
 usage() {
@@ -73,15 +60,18 @@ else
   IFS=',' read -r -a requested_features <<< "$features"
   for feature in "${requested_features[@]}"; do
     feature="$(echo "$feature" | tr -d '[:space:]')"
-    case "$feature" in
-      es-review|gakuchika|motivation|interview|company-info-search|rag-ingest|selection-schedule|calendar|tasks-deadlines|notifications|company-crud|billing|search-query|pages-smoke)
-        feature_list+=("$feature")
-        ;;
-      *)
-        echo "Unsupported feature: $feature" >&2
-        exit 2
-        ;;
-    esac
+    supported=0
+    for known_feature in "${all_features[@]}"; do
+      if [[ "$feature" == "$known_feature" ]]; then
+        supported=1
+        break
+      fi
+    done
+    if [[ "$supported" -ne 1 ]]; then
+      echo "Unsupported feature: $feature" >&2
+      exit 2
+    fi
+    feature_list+=("$feature")
   done
 fi
 

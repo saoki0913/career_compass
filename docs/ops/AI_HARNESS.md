@@ -19,6 +19,7 @@
 - **関連ドキュメント**:
   - [`docs/ops/AI_AGENT_PIPELINE.md`](./AI_AGENT_PIPELINE.md) — pipeline の思想と呼び出し方
   - [`docs/ops/CODEX_HARNESS.md`](./CODEX_HARNESS.md) — Codex custom agent / config / wrapper の運用リファレンス
+  - [`docs/ops/TEST_HARNESS.md`](./TEST_HARNESS.md) — テスト / AI 評価ハーネスの現行構成と追加ルール
   - `docs/ops/CURSOR_HARNESS.md` — Cursor rules / MCP / prompt template の運用リファレンス
   - [`docs/ops/AI_DEVELOPMENT_PRINCIPLES.md`](./AI_DEVELOPMENT_PRINCIPLES.md) — AI 継続開発での設計原則
   - [`docs/ops/CLI_GUARDRAILS.md`](./CLI_GUARDRAILS.md) — CLI 側のガードレール

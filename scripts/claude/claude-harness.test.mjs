@@ -132,6 +132,129 @@ test("pre-tool dispatcher blocks env reads, normal push, and provider CLI", () =
   assert.match(provider.stderr, /release|provider|deploy/i);
 });
 
+test("pre-tool dispatcher routes wrapped E2E and quality commands to test-category gate", () => {
+  for (const [index, command] of [
+    "AI_LIVE_LOCAL_FEATURES=gakuchika bash scripts/dev/run-ai-live-local.sh",
+    "npm run test:e2e:functional:local:gakuchika",
+    "npm run test:quality:all",
+    "npm run test:security:light",
+    "npm run test:static",
+    "make test-e2e-functional-gakuchika",
+    "make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES=motivation",
+    "make AI_LIVE_LOCAL_FEATURES=motivation test-e2e-functional-local",
+    "bash scripts/ci/run-e2e-functional.sh --features gakuchika",
+  ].entries()) {
+    const result = runHook(
+      ".claude/hooks/pre-tool-dispatcher.sh",
+      JSON.stringify({
+        session_id: `sess-test-category-${index}`,
+        tool_name: "Bash",
+        tool_input: { command },
+      }),
+    );
+    assert.equal(result.status, 2, command);
+    assert.match(result.stderr, /test-category-gate|カテゴリ選択|Test command blocked/i, command);
+  }
+});
+
+test("claude test-category gate rejects uncovered command feature", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-test-category-"));
+  mkdirSync(path.join(homeDir, ".claude/sessions/career_compass"), { recursive: true });
+  const checkpointPath = path.join(homeDir, ".claude/sessions/career_compass/test-categories-sess-feature");
+  const checkpoint = spawnSync("node", [
+    path.join(repoRoot, "scripts/harness/diff-snapshot.mjs"),
+    "checkpoint",
+    "--kind",
+    "test-categories",
+    "--project",
+    repoRoot,
+    "--categories",
+    "e2e-functional=run:gakuchika,quality=skip,static=run,security=run",
+  ], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(checkpoint.status, 0);
+  writeFileSync(checkpointPath, checkpoint.stdout, "utf8");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/test-category-gate.sh")], {
+    cwd: repoRoot,
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: repoRoot },
+    input: JSON.stringify({
+      session_id: "sess-feature",
+      tool_name: "Bash",
+      tool_input: { command: "make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES=motivation" },
+    }),
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /does not cover command feature: motivation/);
+});
+
+test("claude test-category gate rejects uncovered quality feature", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-test-quality-"));
+  mkdirSync(path.join(homeDir, ".claude/sessions/career_compass"), { recursive: true });
+  const checkpointPath = path.join(homeDir, ".claude/sessions/career_compass/test-categories-sess-quality");
+  const checkpoint = spawnSync("node", [
+    path.join(repoRoot, "scripts/harness/diff-snapshot.mjs"),
+    "checkpoint",
+    "--kind",
+    "test-categories",
+    "--project",
+    repoRoot,
+    "--categories",
+    "e2e-functional=skip,quality=run:gakuchika,static=run,security=run",
+  ], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(checkpoint.status, 0);
+  writeFileSync(checkpointPath, checkpoint.stdout, "utf8");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/test-category-gate.sh")], {
+    cwd: repoRoot,
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: repoRoot },
+    input: JSON.stringify({
+      session_id: "sess-quality",
+      tool_name: "Bash",
+      tool_input: { command: "AI_LIVE_TEST_CATEGORY=quality bash scripts/ci/run-ai-live.sh --feature motivation" },
+    }),
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /quality checkpoint .* does not cover command feature: motivation/);
+});
+
+test("claude test-category gate validates features per category", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-test-category-mixed-"));
+  mkdirSync(path.join(homeDir, ".claude/sessions/career_compass"), { recursive: true });
+  const checkpointPath = path.join(homeDir, ".claude/sessions/career_compass/test-categories-sess-mixed");
+  const checkpoint = spawnSync("node", [
+    path.join(repoRoot, "scripts/harness/diff-snapshot.mjs"),
+    "checkpoint",
+    "--kind",
+    "test-categories",
+    "--project",
+    repoRoot,
+    "--categories",
+    "e2e-functional=run:motivation,quality=run:gakuchika,static=run,security=run",
+  ], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(checkpoint.status, 0);
+  writeFileSync(checkpointPath, checkpoint.stdout, "utf8");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/test-category-gate.sh")], {
+    cwd: repoRoot,
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: repoRoot },
+    input: JSON.stringify({
+      session_id: "sess-mixed",
+      tool_name: "Bash",
+      tool_input: {
+        command:
+          "AI_LIVE_LOCAL_FEATURES=motivation bash scripts/dev/run-ai-live-local.sh && AI_LIVE_TEST_CATEGORY=quality bash scripts/ci/run-ai-live.sh --feature gakuchika",
+      },
+    }),
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0);
+});
+
 test("pre-tool dispatcher allows non-secret private project files", () => {
   const result = runHook(
     ".claude/hooks/pre-tool-dispatcher.sh",

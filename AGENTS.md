@@ -252,7 +252,7 @@ pre-commit フック (`enforce-local-ai-e2e.mjs` + `security/scan/run-lightweigh
 | カテゴリ | 目的 | 実行タイミング | ブロック力 |
 |---|---|---|---|
 | **E2E Functional** | 機能が壊れていないか（全パターン網羅） | コミット時（該当機能のみ） | Hard block |
-| **Quality** | LLM 出力品質、検索品質、RAG 品質 | ユーザー選択時 | Non-blocking |
+| **Quality** | LLM 出力品質、検索品質、RAG 品質 | ユーザー選択時 / soft fail 検出時 | Non-blocking + confirmation required |
 | **Static Analysis** | lint, 型チェック, 保守性 | コミット時（推奨） | Soft warning |
 | **Security** | 脆弱性、secrets 漏洩、AI 生成コード検査 | 全コミット時（軽量） | Hard block (critical) |
 
@@ -261,8 +261,8 @@ pre-commit フック (`enforce-local-ai-e2e.mjs` + `security/scan/run-lightweigh
 | Layer | 内容 | 失敗時の挙動 |
 |---|---|---|
 | 1. Hard (blocking) | 禁止語、最低文字数、非空（全機能共通）。ES Review は文字数範囲・未完成末尾・companyless も含む | pytest.fail() → manifest status="failed" → pre-commit hook blocks |
-| 2. Soft (non-blocking) | token_coverage (50%)、draft_length 範囲、required_question_groups、focus_tokens/style/RAG (ES Review) | manifest status="passed" + softFailCount>0 → Claude が AskUserQuestion で対応確認 |
-| 3. LLM Judge (opt-in) | 5 軸採点。ローカル閾値: all>=2 AND avg>=3.0（CI/staging: all>=3, avg>=3.5） | Quality カテゴリで選択時のみ実行。成功=自動クリア、失敗=AskUserQuestion |
+| 2. Soft (non-blocking) | token_coverage (50%)、draft_length 範囲、required_question_groups、focus_tokens/style/RAG (ES Review) | manifest status="passed" + softFailCount>0 → AskUserQuestion 承認 checkpoint がない限り pre-commit hook blocks |
+| 3. LLM Judge (opt-in) | 5 軸採点。ローカル閾値: all>=2 AND avg>=3.0（CI/staging: all>=3, avg>=3.5） | Quality カテゴリで選択時のみ実行。judgeFailCount>0 → AskUserQuestion 承認 checkpoint がない限り pre-commit hook blocks |
 
 **実行フロー**:
 
@@ -279,11 +279,11 @@ pre-commit フック (`enforce-local-ai-e2e.mjs` + `security/scan/run-lightweigh
    - ユーザーの回答を checkpoint に記録:
      - format: `scripts/harness/diff-snapshot.mjs` の JSON checkpoint
      - command: `node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project "$(pwd)" --categories "e2e-functional=<val>,quality=<val>,static=<val>,security=<val>" > ~/.claude/sessions/career_compass/test-categories-${SESSION_ID}`
-     - e2e-functional: `run:<features>` / `skip`
-     - quality: `run` / `skip`
+     - e2e-functional: `run:<features>` / `skip:<features>`
+     - quality: `run` / `skip` / `accept:<features>`（softFail / judgeFail 承認）
      - static: `run` / `skip`
      - security: `run` / `skip`
-   - checkpoint: `~/.claude/sessions/career_compass/test-categories-${SESSION_ID}`
+   - checkpoint: `~/.claude/sessions/career_compass/test-categories-${SESSION_ID}` または `~/.codex/sessions/career_compass/test-categories-${SESSION_ID}`
    - この確認フローは `.claude/hooks/test-category-gate.sh` が PreToolUse hook で機械的に enforce する
    - **Judge 伝播**: Quality テストに `with-judge` を含める場合、`LIVE_AI_CONVERSATION_LLM_JUDGE=1` を付加。含めない場合は `LIVE_AI_CONVERSATION_LLM_JUDGE=0` を明示付加する
    → 選択されたカテゴリのテストを実行:
@@ -310,9 +310,9 @@ pre-commit フック (`enforce-local-ai-e2e.mjs` + `security/scan/run-lightweigh
 **注意事項**:
 - `git push origin develop` は AskUserQuestion でユーザー承認を得てから実行する。自動 push は禁止
 - `browserRequired: true` の全 feature は `playwrightStatus === "passed"` が必要（Playwright をスキップした場合、pre-commit hook がコミットをブロックする）
-- テストカテゴリ選択は `.claude/hooks/test-category-gate.sh` が PreToolUse hook で機械的に enforce する。checkpoint: `~/.claude/sessions/career_compass/test-categories-${SESSION_ID}`
+- テストカテゴリ選択は `.claude/hooks/test-category-gate.sh` / `.codex/hooks/test-category-gate.sh` が PreToolUse hook で機械的に enforce する。checkpoint: `~/.claude/sessions/career_compass/test-categories-${SESSION_ID}` または `~/.codex/sessions/career_compass/test-categories-${SESSION_ID}`
 - Codex `post_review`（Section B）は E2E 通過後、コミット直前に実行。修正分もレビュー対象になる
-- `tools/resolve-e2e-functional-scope.mjs` は `git diff HEAD` を使うため、ステージ前に unstaged changes がないことを前提とする
+- `tools/resolve-e2e-functional-scope.mjs` はローカルでは staged diff を使う。CI / `--github-output` / `--ci` では GitHub diff range を使うため、分割コミット中の unstaged changes で scope を広げない
 - E2E スコープ判定で feature にマッチしない functional 変更はコミット + プッシュ可（pre-commit hook が最終判定）
 - マニフェスト: `backend/tests/output/local_ai_live/status/{feature}.json`（softFailCount, softFailReasons, judgeStatus, judgeFailCount を含む）
 - pre-commit hook は 2 段階: `enforce-local-ai-e2e.mjs` (E2E マニフェスト) + `security/scan/run-lightweight-scan.sh` (セキュリティ)

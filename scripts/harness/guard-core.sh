@@ -65,6 +65,11 @@ guard_command_is_release_or_provider() {
   guard_command_predicate "$command" "releaseProvider"
 }
 
+guard_command_is_test_category() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "testCategoryCommand"
+}
+
 guard_command_has_destructive_delete() {
   local command="${1:-}"
   guard_command_predicate "$command" "destructiveDelete"

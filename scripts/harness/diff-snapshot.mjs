@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import process from "node:process";
+import { buildE2EFunctionalSnapshot } from "../ci/e2e-functional-snapshot.mjs";
 
 function argValue(name, fallback = "") {
   const index = process.argv.indexOf(name);
@@ -18,7 +19,11 @@ function runGit(project, args) {
   return result.stdout;
 }
 
-function stagedSnapshot(project) {
+function hasFlag(name) {
+  return process.argv.includes(name);
+}
+
+function stagedSnapshot(project, { includeDirtyState = false } = {}) {
   const headSha = runGit(project, ["rev-parse", "HEAD"]).trim();
   const diff = runGit(project, ["diff", "--cached", "--binary", "--no-ext-diff"]);
   const numstat = runGit(project, ["diff", "--cached", "--numstat"]);
@@ -26,31 +31,10 @@ function stagedSnapshot(project) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const unstagedFiles = runGit(project, ["diff", "--name-only"])
+  const acmrFiles = runGit(project, ["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const untrackedFiles = runGit(project, ["ls-files", "--others", "--exclude-standard"])
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const unstagedDiff = runGit(project, ["diff", "--binary", "--no-ext-diff"]);
-  const untrackedHash = createHash("sha256");
-  for (const file of untrackedFiles) {
-    untrackedHash.update(file);
-    untrackedHash.update("\0");
-    try {
-      untrackedHash.update(readFileSync(`${project}/${file}`));
-    } catch {
-      untrackedHash.update("<unreadable>");
-    }
-    untrackedHash.update("\0");
-  }
-  const dirtyHash = createHash("sha256")
-    .update(unstagedDiff)
-    .update("\0")
-    .update(untrackedHash.digest("hex"))
-    .digest("hex");
 
   let totalLines = 0;
   for (const line of numstat.split("\n")) {
@@ -66,23 +50,55 @@ function stagedSnapshot(project) {
     .update("\0")
     .update(diff)
     .digest("hex");
+  const e2eSnapshot = buildE2EFunctionalSnapshot({ cwd: project, files: acmrFiles });
 
-  return {
+  const snapshot = {
     mode: "staged",
     headSha,
     stagedDiffHash: hash,
+    e2eFunctionalSnapshotHash: e2eSnapshot.snapshotHash,
     fileCount: files.length,
     totalLines,
     files,
-    unstagedFiles,
-    untrackedFiles,
-    dirtyState: {
+  };
+
+  if (includeDirtyState) {
+    const unstagedFiles = runGit(project, ["diff", "--name-only"])
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const untrackedFiles = runGit(project, ["ls-files", "--others", "--exclude-standard"])
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const unstagedDiff = runGit(project, ["diff", "--binary", "--no-ext-diff"]);
+    const untrackedHash = createHash("sha256");
+    for (const file of untrackedFiles) {
+      untrackedHash.update(file);
+      untrackedHash.update("\0");
+      try {
+        untrackedHash.update(readFileSync(`${project}/${file}`));
+      } catch {
+        untrackedHash.update("<unreadable>");
+      }
+      untrackedHash.update("\0");
+    }
+    const dirtyHash = createHash("sha256")
+      .update(unstagedDiff)
+      .update("\0")
+      .update(untrackedHash.digest("hex"))
+      .digest("hex");
+    snapshot.unstagedFiles = unstagedFiles;
+    snapshot.untrackedFiles = untrackedFiles;
+    snapshot.dirtyState = {
       hasStaged: files.length > 0,
       hasUnstaged: unstagedFiles.length > 0,
       hasUntracked: untrackedFiles.length > 0,
       dirtyHash,
-    },
-  };
+    };
+  }
+
+  return snapshot;
 }
 
 function print(value) {
@@ -93,24 +109,32 @@ function parseCategories() {
   const source = argValue("--categories", "");
   if (!source) return undefined;
   const categories = {};
+  let currentKey = "";
   for (const pair of source.split(",")) {
     const [key, ...rest] = pair.split("=");
-    if (!key || rest.length === 0) continue;
-    categories[key.trim()] = rest.join("=").trim();
+    if (key && rest.length > 0) {
+      currentKey = key.trim();
+      categories[currentKey] = rest.join("=").trim();
+      continue;
+    }
+    if (currentKey) {
+      categories[currentKey] = `${categories[currentKey]},${pair.trim()}`;
+    }
   }
   return categories;
 }
 
 const command = process.argv[2] || "current";
 const project = argValue("--project", process.cwd());
+const includeDirtyState = hasFlag("--include-dirty-state");
 
 if (command === "current") {
-  print(stagedSnapshot(project));
+  print(stagedSnapshot(project, { includeDirtyState }));
   process.exit(0);
 }
 
 if (command === "checkpoint") {
-  const snapshot = stagedSnapshot(project);
+  const snapshot = stagedSnapshot(project, { includeDirtyState });
   const categories = parseCategories();
   print({
     schemaVersion: 1,
@@ -144,7 +168,7 @@ if (command === "verify") {
     process.exit(2);
   }
 
-  const snapshot = stagedSnapshot(project);
+  const snapshot = stagedSnapshot(project, { includeDirtyState: Boolean(checkpoint.dirtyState) });
   if (checkpoint.headSha !== snapshot.headSha || checkpoint.stagedDiffHash !== snapshot.stagedDiffHash) {
     process.stderr.write("diff-snapshot: staged diff changed after checkpoint creation.\n");
     process.exit(2);

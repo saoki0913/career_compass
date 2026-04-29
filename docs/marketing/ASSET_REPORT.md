@@ -7,7 +7,7 @@ Updated: 2026-04-27
 | Area | Files | PNG | Size |
 |---|---:|---:|---:|
 | `public/marketing/LP/assets/` active正本 | 177 | 177 | 126.6 MB |
-| `public/marketing/LP/assets/_archive/` | 267 | 258 | 170.6 MB |
+| `public/marketing/LP/assets/_archive/` | Git 管理対象外 | Git 管理対象外 | local only |
 | `public/marketing/LP/LP.png` | 1 | 1 | 1.2 MB |
 | `public/marketing/LP/section_image/` | 9 | 7 | 8.1 MB |
 
@@ -33,7 +33,7 @@ Updated: 2026-04-27
 | `ui-cards/` | 17 | 17 | 14.3 MB | 機能カードUI |
 | `ui-cards-detail/` | 4 | 4 | 4.1 MB | 詳細画面UI |
 
-## Archived Assets
+## Local Archived Assets
 
 | Folder | Files | PNG | Size | Reason |
 |---|---:|---:|---:|---|
@@ -60,3 +60,5 @@ Updated: 2026-04-27
   - `decorative/connector-arrow-3-to-4.png`
 
 Detailed usage rules are maintained in [`asset-inventory.md`](./asset-inventory.md).
+
+`_archive/` は Git 管理対象外のローカル退避領域です。復元が必要な場合のみ一時作成し、採用する素材は用途別の active 正本フォルダへ昇格させます。

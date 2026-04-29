@@ -47,3 +47,67 @@ test("detects unsafe recursive delete and allows safe cache targets", () => {
   assert.equal(findExec.destructiveDelete, true);
   assert.equal(findExec.unsafeDelete, true);
 });
+
+test("detects E2E and quality commands through wrappers and env prefixes", () => {
+  const localEnv = classify("AI_LIVE_LOCAL_FEATURES=gakuchika bash scripts/dev/run-ai-live-local.sh");
+  assert.deepEqual(localEnv.testCategories, ["e2e-functional"]);
+  assert.deepEqual(localEnv.testFeatures, ["gakuchika"]);
+
+  const npmLocal = classify("npm run test:e2e:functional:local:gakuchika");
+  assert.deepEqual(npmLocal.testCategories, ["e2e-functional"]);
+  assert.deepEqual(npmLocal.testFeatures, ["gakuchika"]);
+
+  const stagingMake = classify("make test-e2e-functional-gakuchika");
+  assert.deepEqual(stagingMake.testCategories, ["e2e-functional"]);
+  assert.deepEqual(stagingMake.testFeatures, ["gakuchika"]);
+
+  const stagingScript = classify("bash scripts/ci/run-e2e-functional.sh --features motivation");
+  assert.deepEqual(stagingScript.testCategories, ["e2e-functional"]);
+  assert.deepEqual(stagingScript.testFeatures, ["motivation"]);
+
+  const quality = classify("AI_LIVE_TEST_CATEGORY=quality AI_LIVE_FEATURE=all bash scripts/ci/run-ai-live.sh");
+  assert.deepEqual(quality.testCategories, ["quality"]);
+  assert.deepEqual(quality.testFeatures, ["all"]);
+  assert.deepEqual(quality.testCategoryFeatures.quality, ["all"]);
+
+  const npmQuality = classify("npm run test:quality:all");
+  assert.deepEqual(npmQuality.testCategories, ["quality"]);
+  assert.deepEqual(npmQuality.testFeatures, ["all"]);
+  assert.deepEqual(npmQuality.testCategoryFeatures.quality, ["all"]);
+
+  const npmSecurity = classify("npm run test:security:light");
+  assert.deepEqual(npmSecurity.testCategories, ["security"]);
+
+  const npmStatic = classify("npm run test:static");
+  assert.deepEqual(npmStatic.testCategories, ["static"]);
+
+  const npmLint = classify("npm run lint");
+  assert.deepEqual(npmLint.testCategories, ["static"]);
+
+  const typecheck = classify("npx tsc --noEmit");
+  assert.deepEqual(typecheck.testCategories, ["static"]);
+
+  const makeVariable = classify("make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES=motivation");
+  assert.deepEqual(makeVariable.testCategories, ["e2e-functional"]);
+  assert.deepEqual(makeVariable.testFeatures, ["motivation"]);
+
+  const makeVariableBeforeTarget = classify("make AI_LIVE_LOCAL_FEATURES=motivation test-e2e-functional-local");
+  assert.deepEqual(makeVariableBeforeTarget.testCategories, ["e2e-functional"]);
+  assert.deepEqual(makeVariableBeforeTarget.testFeatures, ["motivation"]);
+
+  const makeVariableAroundTarget = classify("make AI_LIVE_LOCAL_FEATURES=gakuchika test-e2e-functional-local SUITE=smoke");
+  assert.deepEqual(makeVariableAroundTarget.testCategories, ["e2e-functional"]);
+  assert.deepEqual(makeVariableAroundTarget.testFeatures, ["gakuchika"]);
+
+  const runAiLiveFlag = classify("AI_LIVE_TEST_CATEGORY=quality bash scripts/ci/run-ai-live.sh --feature motivation");
+  assert.deepEqual(runAiLiveFlag.testCategories, ["quality"]);
+  assert.deepEqual(runAiLiveFlag.testFeatures, ["motivation"]);
+  assert.deepEqual(runAiLiveFlag.testCategoryFeatures.quality, ["motivation"]);
+
+  const mixed = classify(
+    "AI_LIVE_LOCAL_FEATURES=motivation bash scripts/dev/run-ai-live-local.sh && AI_LIVE_TEST_CATEGORY=quality bash scripts/ci/run-ai-live.sh --feature gakuchika",
+  );
+  assert.deepEqual(mixed.testCategories, ["e2e-functional", "quality"]);
+  assert.deepEqual(mixed.testCategoryFeatures["e2e-functional"], ["motivation"]);
+  assert.deepEqual(mixed.testCategoryFeatures.quality, ["gakuchika"]);
+});

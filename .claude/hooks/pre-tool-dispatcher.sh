@@ -42,7 +42,7 @@ case "$TOOL" in
       run_hook "commit-codex-gate.sh"
     fi
 
-    if printf '%s' "$CMD" | grep -qE '(^|[;&|])\s*make\s+(test-e2e-functional-local|ai-live-local)\b|(^|[;&|])\s*(bash\s+)?scripts/dev/run-ai-live-local\.sh\b|(^|[;&|])\s*make\s+test-quality-|(^|[;&|])\s*bash\s+scripts/ci/run-ai-live\.sh\b|(^|[;&|])\s*npx\s+tsc\s+--noEmit\b|(^|[;&|])\s*npm\s+run\s+lint\b|(^|[;&|])\s*make\s+security-scan\b|(^|[;&|])\s*(bash\s+)?security/scan/run-lightweight-scan\.sh\b'; then
+    if guard_command_is_test_category "$CMD"; then
       run_hook "test-category-gate.sh"
     fi
     ;;

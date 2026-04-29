@@ -5,6 +5,7 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+node scripts/git-hooks/check-git-hygiene.mjs --staged
 node scripts/git-hooks/enforce-local-ai-e2e.mjs
 
 # Lightweight security scan (critical = hard block, high = warning only)

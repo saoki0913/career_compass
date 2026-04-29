@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -224,7 +224,7 @@ test("codex pre-tool dispatcher still blocks force push", () => {
   assert.match(result.stderr, /force/i);
 });
 
-test("codex pre-tool dispatcher blocks provider CLI but allows static checks", () => {
+test("codex pre-tool dispatcher blocks provider CLI and direct static checks without category approval", () => {
   const provider = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
     session_id: "sess-release",
     tool_name: "Bash",
@@ -238,26 +238,65 @@ test("codex pre-tool dispatcher blocks provider CLI but allows static checks", (
     tool_name: "Bash",
     tool_input: { command: "npx tsc --noEmit" },
   }));
-  assert.equal(staticCheck.status, 0);
-  assert.equal(staticCheck.stderr, "");
+  assert.equal(staticCheck.status, 2);
+  assert.match(staticCheck.stderr, /Test command blocked/i);
 });
 
 test("codex pre-tool dispatcher routes important test commands to test-category gate", () => {
-  const important = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
-    session_id: "sess-test-category",
-    tool_name: "Bash",
-    tool_input: { command: "bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical" },
-  }));
-  assert.equal(important.status, 2);
-  assert.match(important.stderr, /Test command blocked/i);
+  for (const [index, command] of [
+    "bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical",
+    "AI_LIVE_LOCAL_FEATURES=gakuchika bash scripts/dev/run-ai-live-local.sh",
+    "npm run test:e2e:functional:local:gakuchika",
+    "npm run test:quality:all",
+    "npm run test:security:light",
+    "npm run test:static",
+    "npx tsc --noEmit",
+    "make test-e2e-functional-gakuchika",
+    "make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES=motivation",
+    "make AI_LIVE_LOCAL_FEATURES=motivation test-e2e-functional-local",
+    "bash scripts/ci/run-e2e-functional.sh --features gakuchika",
+  ].entries()) {
+    const important = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+      session_id: `sess-test-category-${index}`,
+      tool_name: "Bash",
+      tool_input: { command },
+    }));
+    assert.equal(important.status, 2, command);
+    assert.match(important.stderr, /Test command blocked/i, command);
+  }
+});
 
-  const staticCheck = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
-    session_id: "sess-static-free",
-    tool_name: "Bash",
-    tool_input: { command: "npx tsc --noEmit" },
-  }));
-  assert.equal(staticCheck.status, 0);
-  assert.equal(staticCheck.stderr, "");
+test("codex test-category gate rejects uncovered quality feature", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "codex-test-quality-"));
+  mkdirSync(path.join(homeDir, ".codex/sessions/career_compass"), { recursive: true });
+  const checkpointPath = path.join(homeDir, ".codex/sessions/career_compass/test-categories-sess-quality");
+  const checkpoint = spawnSync("node", [
+    path.join(repoRoot, "scripts/harness/diff-snapshot.mjs"),
+    "checkpoint",
+    "--kind",
+    "test-categories",
+    "--project",
+    repoRoot,
+    "--categories",
+    "e2e-functional=skip,quality=run:gakuchika,static=run,security=run",
+  ], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(checkpoint.status, 0);
+  writeFileSync(checkpointPath, checkpoint.stdout, "utf8");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".codex/hooks/test-category-gate.sh")], {
+    cwd: repoRoot,
+    env: { ...process.env, HOME: homeDir },
+    input: JSON.stringify({
+      session_id: "sess-quality",
+      cwd: repoRoot,
+      tool_name: "Bash",
+      tool_input: { command: "AI_LIVE_TEST_CATEGORY=quality bash scripts/ci/run-ai-live.sh --feature motivation" },
+    }),
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /quality checkpoint .* does not cover command feature: motivation/);
 });
 
 test("codex user-prompt router treats hook stalls as harness diagnostics", () => {

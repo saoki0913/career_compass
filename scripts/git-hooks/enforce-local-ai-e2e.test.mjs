@@ -51,7 +51,13 @@ test("allows missing functional manifests when a fresh skip checkpoint covers af
     changedFiles: ["backend/app/routers/motivation.py"],
     snapshotHash: "fresh-hash",
     readManifestImpl: () => null,
-    readDecisionImpl: () => "skip:motivation:fresh-hash:owner accepted non-E2E docs-only follow-up",
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "fresh-hash",
+      categories: {
+        "e2e-functional": "skip:motivation",
+      },
+    }),
   });
 
   assert.equal(result.ok, true);
@@ -61,8 +67,9 @@ test("allows missing functional manifests when a fresh skip checkpoint covers af
     action: "skip",
     runFeatures: [],
     skipFeatures: ["motivation"],
+    qualityAcceptedFeatures: [],
     snapshotHash: "fresh-hash",
-    reason: "owner accepted non-E2E docs-only follow-up",
+    reason: "approved",
   });
 });
 
@@ -71,7 +78,13 @@ test("rejects stale skip checkpoint when staged snapshot changes", () => {
     changedFiles: ["backend/app/routers/motivation.py"],
     snapshotHash: "fresh-hash",
     readManifestImpl: () => null,
-    readDecisionImpl: () => "skip:motivation:old-hash:previous choice",
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "old-hash",
+      categories: {
+        "e2e-functional": "skip:motivation",
+      },
+    }),
   });
 
   assert.equal(result.ok, false);
@@ -121,11 +134,91 @@ test("allows partial checkpoint only for skipped failed features", () => {
             playwrightStatus: "passed",
           }
         : null,
-    readDecisionImpl: () => "partial:gakuchika:motivation:fresh-hash:motivation deferred",
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "fresh-hash",
+      categories: {
+        "e2e-functional": "partial:gakuchika:motivation",
+      },
+    }),
   });
 
   assert.equal(result.ok, true);
   assert.deepEqual(result.features, ["gakuchika", "motivation"]);
+  assert.deepEqual(result.failures, []);
+});
+
+test("requires quality confirmation for soft fails in passed manifests", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: ["backend/app/routers/motivation.py"],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: () => ({
+      targetEnv: "local",
+      snapshotHash: "fresh-hash",
+      status: "passed",
+      playwrightStatus: "passed",
+      softFailCount: 2,
+    }),
+    readDecisionImpl: () => null,
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.failures, [
+    {
+      feature: "motivation",
+      reason: "quality_confirmation_required",
+      softFailCount: 2,
+    },
+  ]);
+});
+
+test("accepts quality confirmation checkpoint for soft and judge failures", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: ["backend/app/routers/motivation.py"],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: () => ({
+      targetEnv: "local",
+      snapshotHash: "fresh-hash",
+      status: "passed",
+      playwrightStatus: "passed",
+      softFailCount: 1,
+      judgeFailCount: 1,
+    }),
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "fresh-hash",
+      categories: {
+        "e2e-functional": "run:motivation",
+        quality: "accept:motivation",
+      },
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.failures, []);
+});
+
+test("finds quality-only confirmation checkpoint for soft failures", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: ["backend/app/routers/motivation.py"],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: () => ({
+      targetEnv: "local",
+      snapshotHash: "fresh-hash",
+      status: "passed",
+      playwrightStatus: "passed",
+      softFailCount: 1,
+    }),
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "fresh-hash",
+      categories: {
+        quality: "accept:motivation",
+      },
+    }),
+  });
+
+  assert.equal(result.ok, true);
   assert.deepEqual(result.failures, []);
 });
 
