@@ -35,13 +35,15 @@ describe("commerce disclosure helpers", () => {
     expect(getLegalSupportUrl()).toBe("/contact");
     expect(getLegalRefundPolicyUrl()).toBe("/terms#billing");
     expect(getLegalDisclosureRequestEmail()).toBe("support@shupass.jp");
-    expect(getLegalHeadOfOperations()).toBe(
-      "販売事業者、運営責任者、所在地、電話番号は、請求があった場合に遅滞なく開示いたします。開示をご希望の方は下記メールアドレスまでご連絡ください。"
+    expect(getLegalHeadOfOperations()).toBe("青木 駿介");
+    expect(getLegalBusinessName()).toBe("青木 駿介");
+    expect(getLegalRepresentativeName()).toBe("青木 駿介");
+    expect(getLegalBusinessAddress()).toBe(
+      "請求があった場合、購入申込み前に遅滞なく電子メールにて開示いたします。開示をご希望の方は下記メールアドレスまでご連絡ください。"
     );
-    expect(getLegalBusinessName()).toContain("LEGAL_BUSINESS_NAME");
-    expect(getLegalRepresentativeName()).toContain("LEGAL_REPRESENTATIVE_NAME");
-    expect(getLegalBusinessAddress()).toContain("LEGAL_BUSINESS_ADDRESS");
-    expect(getLegalPhoneNumber()).toContain("LEGAL_PHONE_NUMBER");
+    expect(getLegalPhoneNumber()).toBe(
+      "請求があった場合、購入申込み前に遅滞なく電子メールにて開示いたします。開示をご希望の方は下記メールアドレスまでご連絡ください。"
+    );
   });
 
   it("prefers explicit env overrides for Stripe-facing disclosure items", () => {

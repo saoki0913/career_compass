@@ -125,7 +125,7 @@
 | `LEGAL_BUSINESS_ADDRESS` | Stripe の Commerce Disclosure で表示する所在地 |
 | `LEGAL_PHONE_NUMBER` | Stripe の Commerce Disclosure で表示する電話番号 |
 | `LEGAL_DISCLOSURE_REQUEST_EMAIL` | 開示請求受付メール（省略時はサポートメールと同じ） |
-| `LEGAL_DISCLOSURE_REQUEST_NOTICE` | 販売事業者・運営責任者・所在地・電話番号を「請求時に開示」とする注記文 |
+| `LEGAL_DISCLOSURE_REQUEST_NOTICE` | 所在地・電話番号を「請求時に開示」とする注記文 |
 | `LEGAL_SALES_URL` | 特商法ページの販売 URL（省略時は `https://www.shupass.jp`） |
 
 テンプレートは [`.env.example`](../../.env.example) を参照。就活Pass 本番の特商法ページ文言を確定させるときは、環境変数ではなく `/legal` の本文を更新してください。
