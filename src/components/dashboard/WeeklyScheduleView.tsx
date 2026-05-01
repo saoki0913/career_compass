@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/componen
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent } from "@/hooks/useCalendar";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export interface ScheduleDeadline {
   id: string;
@@ -134,18 +135,6 @@ interface SlotEvent {
   type: string;
 }
 
-const ChevronLeftIcon = () => (
-  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-  </svg>
-);
-
-const ChevronRightNavIcon = () => (
-  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-  </svg>
-);
-
 export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = false, isConnected = false, weekDays, weekOffset, onPrevWeek, onNextWeek, onToday }: WeeklyScheduleViewProps) {
   const todayKey = useMemo(() => toJSTDateKey(new Date()), []);
 
@@ -188,16 +177,17 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
     <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1.5">
       <CardHeader className="flex shrink-0 flex-col gap-2 px-4 sm:flex-row sm:items-center sm:justify-between lg:px-5">
         <div className="flex items-center gap-2">
-          <GoogleCalendarIcon />
           <CardTitle className="text-lg">スケジュール・選考管理</CardTitle>
           {!isGuest && (
             isConnected ? (
               <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+                <GoogleCalendarIcon className="h-3.5 w-3.5" />
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 連携中
               </span>
             ) : (
-              <Link href="/calendar" className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-primary transition-colors">
+              <Link href="/calendar" className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-primary transition-colors">
+                <GoogleCalendarIcon className="h-3.5 w-3.5" />
                 カレンダー連携
               </Link>
             )
@@ -206,7 +196,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
         <CardAction className="w-full self-auto justify-self-auto sm:w-auto">
           <div className="flex items-center gap-1 sm:justify-end">
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrevWeek}>
-              <ChevronLeftIcon />
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </Button>
             <Button
               variant={weekOffset === 0 ? "default" : "outline"}
@@ -217,7 +207,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
               今日
             </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNextWeek}>
-              <ChevronRightNavIcon />
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </Button>
             <Button variant="outline" size="sm" className="hidden h-7 sm:inline-flex" asChild>
               <Link href="/calendar">カレンダー</Link>
@@ -308,7 +298,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
             {TIME_SLOTS.map((slot) => (
               <Fragment key={slot}>
                 <div className="flex items-start justify-center border-t border-border/20 pt-1">
-                  <span className="text-[9px] font-medium text-muted-foreground">{slot}</span>
+                  <span className="text-[9px] font-medium text-muted-foreground">{`${slot}:00`}</span>
                 </div>
                 {weekDays.map((date) => {
                   const dateKey = toJSTDateKey(date);

@@ -9,30 +9,35 @@ function readSource(relativePath: string) {
 }
 
 describe("LandingFooter source drift guard", () => {
-  it("uses CSS custom properties for colors instead of hardcoded hex", () => {
+  it("uses CSS custom properties for key colors", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
     expect(source).toContain("var(--lp-navy)");
     expect(source).toContain("var(--lp-muted-text)");
     expect(source).toContain("var(--lp-footer-bg)");
   });
 
-  it("uses separate male and female character assets", () => {
+  it("uses Noto Sans JP font (no Inter)", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
-    expect(source).toContain("08_male_character.png");
-    expect(source).toContain("09_female_character.png");
-    expect(source).not.toContain("girl-couple-happy.png");
+    expect(source).toContain("Noto Sans JP");
+    expect(source).not.toMatch(/['"]Inter['"]/);
   });
 
-  it("sets character height to reference desktop scale", () => {
+  it("uses single couple character asset", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
-    expect(source).toContain("285px");
-    expect(source).not.toMatch(/height:\s*"240px"/);
+    expect(source).toContain("footer/couple.png");
+    expect(source).toContain('height: "340px"');
+    expect(source).toContain('right: "max(24px, calc((100vw - 1500px) / 2 + 24px))"');
+    expect(source).not.toContain("08_male_character.png");
+    expect(source).not.toContain("09_female_character.png");
   });
 
-  it("keeps cityscape visible behind the footer", () => {
+  it("uses new cityscape and branding assets", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
-    expect(source).toContain("opacity-[0.16]");
-    expect(source).not.toContain("opacity-[0.07]");
+    expect(source).toContain("footer/cityscape.png");
+    expect(source).toContain("footer/compass-icon-navy.png");
+    expect(source).toContain("min-h-[430px]");
+    expect(source).not.toContain("star-sparkle-1.png");
+    expect(source).not.toContain("wave-corner.png");
   });
 
   it("renders all four footer link columns", () => {
@@ -40,5 +45,16 @@ describe("LandingFooter source drift guard", () => {
     for (const title of ["サービス", "サポート", "規約", "公開ページ"]) {
       expect(source).toContain(title);
     }
+  });
+
+  it("uses var(--lp-cta) for CTA accent", () => {
+    const source = readSource("src/components/landing/LandingFooter.tsx");
+    expect(source).toContain("var(--lp-cta)");
+  });
+
+  it("keeps legal links in a dedicated one-column stack", () => {
+    const source = readSource("src/components/landing/LandingFooter.tsx");
+    expect(source).toContain("footer-legal-column");
+    expect(source).toContain("特定商取引法に基づく表記");
   });
 });

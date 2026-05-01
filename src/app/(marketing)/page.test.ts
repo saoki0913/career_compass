@@ -54,6 +54,7 @@ describe("marketing home page regressions", () => {
     expect(pageSource).toContain("<FaqJsonLd faqs={LANDING_PAGE_FAQS} />");
 
     const expectedOrder = [
+      "<LandingHeader />",
       "<HeroSection />",
       "<PainPointsSection />",
       "<FeaturesSection />",

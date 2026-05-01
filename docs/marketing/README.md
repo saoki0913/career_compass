@@ -461,7 +461,7 @@
 
 ## 4. LP の現状
 
-最終更新: 2026-04-27（`LP.png` / `section_image` 準拠のコンポーネント再現）
+最終更新: 2026-04-30（`sections/**` 正本化とトップLP Header 追加）
 
 LP の詳細な構成・デザインシステム・ファイル一覧は [`docs/marketing/LP.md`](./LP.md) を参照。
 
@@ -483,7 +483,7 @@ LP の**ビジュアル正本**（ハイブリッド DESIGN、トークン、`--
 4. BeforeAfterSection — Before / After 比較
 5. HowToUseSection — 4ステップ
 6. PricingSection — Free / Standard / Pro 3カラム
-7. LPFAQSection — 2列 x 3行のFAQカード
+7. LPFAQSection — 2列 x 5行のFAQカード（10項目）
 8. LandingFooter — ブランド説明 + 4列リンクグリッド + 人物イラスト
 
 ## 現在のブランド表記
@@ -522,14 +522,14 @@ LP 上で明示・示唆されている対象像は以下です。
 
 - 主文言: `就活の不安を、AIで一つずつ解決。`
 - CTA は `無料で始める` と `機能を見る`
-- trust signal は `クレカ登録不要` `スマホ・PC対応` `安心のセキュリティ`
-- visual は `assets/mockups/laptop-dashboard.png` と `assets/mockups/iphone-app.png`
+- trust signal は `無料プランあり` `スマホ・PC対応` `安心のセキュリティ`
+- visual は `sections/hero/product-mockup-pc-phone.png`
 - desktop は `1672px` 参照で2カラム、1024〜1279pxは縦積みで横切れを避ける
 
 ### 2. PainPointsSection
 
-- 4つの悩みを人物イラスト + アイコン + カードで提示
-- 主要素材は `assets/characters/*` と `assets/icons-line/*`
+- 4つの悩みを `sections/worries/card-*.png` の合成カードで提示
+- 装飾は `sections/worries/decoration-*.png`
 - セクション見出しは `こんな悩み、ありませんか？`
 
 ### 3. FeaturesSection
@@ -541,13 +541,13 @@ LP 上で明示・示唆されている対象像は以下です。
 ### 4. BeforeAfterSection / HowToUseSection
 
 - Before / After の変化を中央矢印付きで提示
-- 4ステップの使い方は `src/lib/marketing/landing-steps.ts` をSSOTとする
+- 4ステップの使い方は `HowToUseSection.tsx` 内の `STEPS` と `sections/how-to/step-*.png` で管理する
 - 参照LPの固定幅構図は `2xl` 以上でのみ適用し、tablet幅では2列/縦積みに落とす
 
 ### 5. PricingSection
 
 - 見出し: `シンプルで始めやすい料金プラン`
-- trust pills で `無料プランあり` `クレカ登録不要` `あとから変更OK` を整理する
+- trust pills で `無料プランあり` `30秒で簡単スタート` `あとから変更OK` を整理する
 - LP 上では `Standard` を主役にしつつ、`Free` と `Pro` も同じカードで並べる
 - 価格と機能は `src/lib/marketing/pricing-plans.ts` をSSOTとする。参照画像と差があってもコード上の課金SSOTを優先する
 - 年額プランや細かい比較は `/pricing` に寄せる
@@ -561,7 +561,7 @@ LP 上で明示・示唆されている対象像は以下です。
 ### 6. LPFAQSection
 
 - 見出し: `よくある質問`
-- 表示は2列 x 3行のカード。アコーディオンではなく参照LPに合わせて回答を常時表示する
+- 表示は2列 x 5行のFAQカード（10項目）。クリックで回答を開閉するアコーディオン
 - FAQ データは `src/lib/marketing/landing-faqs.ts` をSSOTとし、`FaqJsonLd` と共有する
 - カバーする論点は無料プラン、クレカ不要、ES添削、面接対策、企業/締切管理、Googleカレンダー連携
 
@@ -674,23 +674,25 @@ LP 上で明示・示唆されている対象像は以下です。
 
 ## 5. ランディングメディア
 
-root LP の画像素材は `public/marketing/LP/assets/**` を正本とする。`public/marketing/LP/LP.png` と `public/marketing/LP/section_image/**` は視覚参照であり、本番DOMには描画しない。用途別カテゴリと退避済み素材の対応は [`asset-inventory.md`](./asset-inventory.md) を正本にする。
+root LP の画像素材は `public/marketing/LP/sections/**` を正本とする。`public/marketing/LP/LP.png` と `public/marketing/LP/section_image/**` は視覚参照であり、本番DOMには描画しない。セクション別カテゴリと元素材の対応は [`asset-inventory.md`](./asset-inventory.md) を正本にする。
 
 ## 主要素材
 
 | 用途 | 主なファイル | 主な利用箇所 |
 |------|--------------|--------------|
-| Hero mockup | `assets/mockups/laptop-dashboard.png`, `assets/mockups/iphone-app.png` | `HeroSection` |
-| 悩みカード人物 | `assets/characters/*` | `PainPointsSection`, `BeforeAfterSection`, `HowToUseSection`, `LPFAQSection` |
-| 機能カードUI | `assets/ui-cards/*` | `FeaturesSection`, `HowToUseSection` |
-| 料金/FAQ/背景装飾 | `assets/pricing_assets_transparent/*`, `assets/faq_generated_assets_transparent/*`, `assets/decorative/*` | `PricingSection`, `LPFAQSection`, `LandingFooter` |
+| Hero mockup | `sections/hero/product-mockup-pc-phone.png` | `HeroSection` |
+| 悩みカード | `sections/worries/card-*.png` | `PainPointsSection` |
+| 機能カードUI | `sections/features/card-*.png`, `sections/features/google-calendar-integration.png` | `FeaturesSection` |
+| 使い方ステップ | `sections/how-to/step-*.png` | `HowToUseSection` |
+| Before/After | `sections/before-after/*` | `BeforeAfterSection` |
+| 料金/FAQ/背景装飾 | `sections/pricing/*`, `sections/faq/*`, `sections/footer/*` | `PricingSection`, `LPFAQSection`, `LandingFooter` |
 
-`assets/_archive/**` は削除前の退避先であり、本番コンポーネントから直接参照しない。
+`assets/_archive/**` や旧生成素材フォルダは削除前の退避先であり、本番コンポーネントから直接参照しない。
 
 ## 差し替え手順
 
-1. 差し替え先のファイルを `public/marketing/LP/assets/` 以下の用途別ディレクトリに置く。
-2. 対応セクションの `src` と `alt` を更新する。共通ベースパスは `src/lib/marketing/lp-assets.ts` の `LP_ASSET_BASE` / `lpAsset()` を使う。
+1. 差し替え先のファイルを `public/marketing/LP/sections/<section>/` 以下に英語 kebab-case で置く。
+2. 対応セクションの `src` と `alt` を更新する。共通ベースパスは `src/lib/marketing/lp-assets.ts` の `LP_SECTION_ASSET_BASE` / `lpSectionAsset()` を使う。
 3. 見出し、CTA、料金、FAQは画像化せずHTMLのまま保つ。
 4. 透過PNGの背景残りや端末透けがある場合は素材側を修正し、修正後の素材を参照する。
 5. `npx playwright screenshot --viewport-size=1672,941 --full-page http://127.0.0.1:3000/ output/playwright/lp-current-1672-full.png` で全体の見え方を確認する。
@@ -714,7 +716,7 @@ PNG / WebP にする場合は容量と鮮明度のバランスを取り、`next/
 
 ## 現在の運用
 
-LP では `public/marketing/LP/assets/**` の素材をコンポーネント内で組み合わせ、コピー・料金・FAQ・CTAはHTMLで管理する。公開面で使う画像は、デモデータか sanitized 済みのものだけを置くこと。
+LP では `public/marketing/LP/sections/**` の素材をコンポーネント内で組み合わせ、コピー・料金・FAQ・CTAはHTMLで管理する。公開面で使う画像は、デモデータか sanitized 済みのものだけを置くこと。
 
 ---
 

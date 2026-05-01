@@ -55,21 +55,34 @@ export function LandingHeader() {
           : "bg-transparent"
       )}
     >
-      <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between px-6 lg:px-12">
-        <Link href="/" className="flex items-center gap-2.5">
+      <div
+        className="mx-auto flex max-w-[1200px] items-center justify-between px-5 sm:px-8"
+        style={{
+          height: 72,
+          fontFamily: "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+        }}
+      >
+        <Link href="/" className="flex items-center gap-3">
           <Image
             src="/icon.png"
             alt="就活Pass"
-            width={28}
-            height={28}
-            className="h-7 w-7"
+            width={44}
+            height={44}
+            className="object-contain"
+            style={{ width: 44, height: 44, borderRadius: 10 }}
             priority
           />
           <span
-            className="text-lg tracking-tight text-[var(--lp-navy)]"
-            style={{ fontWeight: 800 }}
+            style={{
+              fontSize: 26,
+              fontWeight: 800,
+              color: "#1d2c4d",
+              letterSpacing: "0.01em",
+              lineHeight: 1,
+              whiteSpace: "nowrap",
+            }}
           >
-            就活Pass
+            就活<span style={{ fontWeight: 800, marginLeft: 2 }}>Pass</span>
           </span>
         </Link>
 
@@ -135,10 +148,10 @@ export function LandingHeader() {
           <button
             type="button"
             aria-label="メニューを閉じる"
-            className="fixed inset-0 top-16 z-40 bg-black/20 backdrop-blur-[1px] md:hidden"
+            className="fixed inset-0 top-[72px] z-40 bg-black/20 backdrop-blur-[1px] md:hidden"
             onClick={() => setIsMobileMenuOpen(false)}
           />
-          <div className="fixed inset-x-0 bottom-0 top-16 z-50 overflow-y-auto border-t border-slate-100 bg-white md:hidden">
+          <div className="fixed inset-x-0 bottom-0 top-[72px] z-50 overflow-y-auto border-t border-slate-100 bg-white md:hidden">
             <div className="px-6 py-4">
               <div className="space-y-1">
                 {navLinks.map((link) => (

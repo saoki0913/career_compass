@@ -1,37 +1,39 @@
 # Marketing Asset Report
 
-Updated: 2026-04-27
+Updated: 2026-04-30
 
 ## Summary
 
 | Area | Files | PNG | Size |
 |---|---:|---:|---:|
-| `public/marketing/LP/assets/` active正本 | 177 | 177 | 126.6 MB |
+| `public/marketing/LP/sections/` root LP正本 | 57 | 57 | 67 MB |
+| `public/marketing/LP/assets/` Remotion 補助 | 4 | 4 | 3.1 MB |
 | `public/marketing/LP/assets/_archive/` | Git 管理対象外 | Git 管理対象外 | local only |
 | `public/marketing/LP/LP.png` | 1 | 1 | 1.2 MB |
 | `public/marketing/LP/section_image/` | 9 | 7 | 8.1 MB |
 
-`LP.png` と `section_image/` は完成見本。root LPの本番DOMでは使わず、`assets/` の用途別カテゴリを正本として参照する。
+`LP.png` と `section_image/` は完成見本。root LPの本番DOMでは使わず、`sections/` のセクション別カテゴリを正本として参照する。`assets/` は既存の Remotion 動画が参照している最小限の互換素材だけ維持する。
 
-## Active Assets
+## Root LP Section Assets
 
 | Folder | Files | PNG | Size | Purpose |
 |---|---:|---:|---:|---|
-| `branding/` | 4 | 4 | 3.4 MB | ロゴ・cityscape |
-| `characters/` | 27 | 27 | 34.1 MB | 人物キャラクター |
-| `decorative/` | 19 | 19 | 11.4 MB | 背景装飾・接続線 |
-| `faq_generated_assets_transparent/` | 19 | 19 | 6.0 MB | FAQ補助 |
+| `hero/` | 9 | 9 | - | Hero モック・装飾・参考バッジ |
+| `worries/` | 10 | 10 | - | 悩みカード・装飾 |
+| `features/` | 8 | 8 | - | 機能カード・Google カレンダー連携 |
+| `how-to/` | 6 | 6 | - | 使い方ステップカード |
+| `before-after/` | 9 | 9 | - | Before/After 人物・矢印・モック |
+| `pricing/` | 10 | 10 | - | 料金セクション参考・装飾 |
+| `faq/` | 2 | 2 | - | FAQ 見出し・人物 |
+| `footer/` | 3 | 3 | - | ロゴ・都市景観・人物 |
+
+## Remotion Compatibility Assets
+
+| Folder | Files | PNG | Size | Purpose |
+|---|---:|---:|---:|---|
 | `flow/` | 1 | 1 | 0.9 MB | 作成・対策・管理フロー |
-| `icons-circled/` | 19 | 19 | 15.7 MB | 円形アイコン |
-| `icons-line/` | 14 | 14 | 7.2 MB | 線画アイコン |
-| `mockups/` | 5 | 5 | 4.7 MB | PC/iPhoneモック |
-| `numbers/` | 4 | 4 | 3.4 MB | ステップ番号 |
+| `mockups/` | 2 | 2 | 2.2 MB | PC/iPhoneモック |
 | `pain-cards/` | 1 | 1 | 0.2 MB | Pain補助 |
-| `pricing_assets_transparent/` | 20 | 20 | 13.7 MB | Pricing補助 |
-| `shukatsu_pass_transparent_assets/` | 19 | 19 | 3.8 MB | Footer人物・補助 |
-| `step-cards/` | 4 | 4 | 3.6 MB | HowToUseカード |
-| `ui-cards/` | 17 | 17 | 14.3 MB | 機能カードUI |
-| `ui-cards-detail/` | 4 | 4 | 4.1 MB | 詳細画面UI |
 
 ## Local Archived Assets
 
@@ -48,16 +50,8 @@ Updated: 2026-04-27
 - Active PNG duplicate groups: `0`
 - Active non-image metadata files: `0`
 - Missing asset references in `src/components/landing`, `src/lib/marketing`, `remotion`: `0`
-- Newly補完した欠落参照:
-  - `branding/compass-icon-navy.png`
-  - `decorative/blue-circle-lg.png`
-  - `decorative/star-sparkle-1.png`
-  - `decorative/dot-pattern-light.png`
-  - `decorative/dot-grid-5x5.png`
-  - `pain-cards/pain-es-barabara.png`
-  - `decorative/connector-arrow-1-to-2.png`
-  - `decorative/connector-arrow-2-to-3.png`
-  - `decorative/connector-arrow-3-to-4.png`
+- Root LP の新規参照は `src/lib/marketing/lp-assets.ts` の `lpSectionAsset()` 経由に統一。
+- Footer ロゴも `sections/footer/compass-icon-navy.png` に複製し、root LP 正本側で完結。
 
 Detailed usage rules are maintained in [`asset-inventory.md`](./asset-inventory.md).
 

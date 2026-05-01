@@ -55,7 +55,9 @@ export function SidebarNotifications({ collapsed }: SidebarNotificationsProps) {
       <span className="relative flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground">
         <BellIcon />
         {unreadCount > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-2 w-2 rounded-full bg-destructive" />
+          <span className="absolute -right-1.5 -top-1.5 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-semibold text-destructive-foreground">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
         )}
       </span>
       <span className="pointer-events-none absolute left-full z-50 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md transition-opacity group-hover:opacity-100">

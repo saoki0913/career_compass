@@ -2,10 +2,8 @@
 
 import { useState } from "react";
 import { ChevronDown, MessageCircle, Plus } from "lucide-react";
-import { LP_ASSET_BASE } from "@/lib/marketing/lp-assets";
+import { lpSectionAsset } from "@/lib/marketing/lp-assets";
 import { LANDING_PAGE_FAQS } from "@/lib/marketing/landing-faqs";
-
-const ASSET_BASE = `${LP_ASSET_BASE}/`;
 
 function getFaqIcon(index: number) {
   if (index === 2 || index === 3) {
@@ -76,6 +74,8 @@ function FAQItem({
         id={panelId}
         role="region"
         aria-labelledby={headingId}
+        aria-hidden={!isOpen}
+        hidden={!isOpen}
         className="grid transition-[grid-template-rows] duration-300 ease-in-out"
         style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}
       >
@@ -93,7 +93,11 @@ function FAQItem({
 }
 
 export function LPFAQSection() {
-  const visibleFaqs = LANDING_PAGE_FAQS.slice(0, 6);
+  const visibleFaqs = LANDING_PAGE_FAQS;
+  const faqColumns = [
+    visibleFaqs.slice(0, Math.ceil(visibleFaqs.length / 2)),
+    visibleFaqs.slice(Math.ceil(visibleFaqs.length / 2)),
+  ] as const;
   const [openItems, setOpenItems] = useState<Set<number>>(() => new Set([0]));
 
   function toggleItem(index: number) {
@@ -111,38 +115,32 @@ export function LPFAQSection() {
   return (
     <section
       id="faq"
-      className="relative overflow-hidden py-16 sm:py-20 lg:min-h-[760px]"
+      className="relative overflow-hidden py-16 sm:py-20 lg:min-h-[680px]"
       style={{
         backgroundColor: "var(--lp-surface-faq)",
-        fontFamily: "'Inter', 'Noto Sans JP', sans-serif",
+        fontFamily: "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+        fontFeatureSettings: '"palt"',
       }}
     >
-      <img
-        src={`${ASSET_BASE}decorative/wave-line-1.png`}
-        alt=""
-        role="presentation"
-        className="pointer-events-none absolute bottom-0 left-0 hidden w-full opacity-38 2xl:block"
-      />
-      <img
-        src={`${ASSET_BASE}decorative/dot-pattern-light.png`}
-        alt=""
-        role="presentation"
-        className="pointer-events-none absolute left-8 top-12 hidden w-[120px] opacity-35 2xl:block"
-      />
-      <img
-        src={`${ASSET_BASE}faq_generated_assets_transparent/18_sparkle_decoration.png`}
-        alt=""
-        role="presentation"
-        className="pointer-events-none absolute left-[29%] top-[74px] hidden w-[58px] opacity-55 2xl:block"
-      />
-      <img
-        src={`${ASSET_BASE}decorative/curved-lines-dot.png`}
-        alt=""
-        role="presentation"
-        className="pointer-events-none absolute right-0 top-0 hidden w-[620px] opacity-28 2xl:block"
-      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute hidden lg:block"
+        style={{ left: "calc(50% - 240px)", top: 84 }}
+      >
+        <span style={{ position: "absolute", width: 12, height: 2, background: "#6aa9ff", borderRadius: 2, transform: "rotate(-30deg)" }} />
+        <span style={{ position: "absolute", width: 14, height: 2, background: "#6aa9ff", borderRadius: 2, top: -6, left: 12, transform: "rotate(-70deg)" }} />
+        <span style={{ position: "absolute", width: 12, height: 2, background: "#6aa9ff", borderRadius: 2, top: 6, left: 18, transform: "rotate(20deg)" }} />
+      </span>
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute hidden lg:block"
+        style={{ right: "calc(50% - 220px)", top: 68 }}
+      >
+        <span style={{ position: "absolute", width: 10, height: 2, background: "#6aa9ff", borderRadius: 2, transform: "rotate(40deg)" }} />
+        <span style={{ position: "absolute", width: 12, height: 2, background: "#6aa9ff", borderRadius: 2, top: -4, left: 8, transform: "rotate(70deg)" }} />
+      </span>
 
-      <div className="relative mx-auto max-w-[1200px] px-5 sm:px-8">
+      <div className="relative mx-auto max-w-[1280px] px-5 sm:px-8">
         <div className="mb-10 text-center">
           <h2
             style={{
@@ -163,31 +161,41 @@ export function LPFAQSection() {
           </p>
         </div>
 
-        <div className="relative">
-          <div className="relative z-10 grid grid-cols-1 gap-5 xl:grid-cols-2">
-            {visibleFaqs.map((faq, index) => (
-              <FAQItem
-                key={faq.question}
-                faq={faq}
-                index={index}
-                isOpen={openItems.has(index)}
-                onToggle={() => toggleItem(index)}
-              />
+        <div className="relative xl:grid xl:grid-cols-[minmax(0,980px)_minmax(220px,1fr)] xl:items-end xl:gap-2">
+          <div className="relative z-10 grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
+            {faqColumns.map((columnFaqs, columnIndex) => (
+              <div key={columnIndex} className="flex flex-col gap-5">
+                {columnFaqs.map((faq, itemIndex) => {
+                  const index =
+                    columnIndex * Math.ceil(visibleFaqs.length / 2) +
+                    itemIndex;
+
+                  return (
+                    <FAQItem
+                      key={faq.question}
+                      faq={faq}
+                      index={index}
+                      isOpen={openItems.has(index)}
+                      onToggle={() => toggleItem(index)}
+                    />
+                  );
+                })}
+              </div>
             ))}
           </div>
 
-          <div className="pointer-events-none absolute bottom-0 right-[-92px] z-0 hidden h-[420px] w-[270px] 2xl:block">
+          <div className="pointer-events-none relative z-0 hidden h-[300px] w-full justify-self-end xl:block">
             <img
-              src={`${ASSET_BASE}characters/girl-at-laptop.png`}
+              src={lpSectionAsset("faq/person-pc.png")}
               alt=""
               role="presentation"
-              className="absolute bottom-0 right-0 h-auto w-[270px] object-contain"
+              className="absolute bottom-[-8px] right-[-42px] h-auto w-[270px] max-w-none object-contain"
             />
             <span
-              className="absolute right-[218px] top-[84px] flex h-[72px] w-[72px] items-center justify-center rounded-full bg-white"
+              className="absolute right-[168px] top-[54px] flex h-[52px] w-[52px] items-center justify-center rounded-full bg-white"
               style={{ color: "var(--lp-cta)", boxShadow: "0 18px 34px rgba(0, 102, 255, 0.12)" }}
             >
-              <MessageCircle className="h-8 w-8" aria-hidden />
+              <MessageCircle className="h-6 w-6" aria-hidden />
             </span>
           </div>
         </div>

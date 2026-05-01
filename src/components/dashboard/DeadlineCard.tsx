@@ -1,8 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import type { Deadline } from "@/hooks/useDeadlines";
 import { cn } from "@/lib/utils";
 
@@ -20,43 +20,42 @@ function getDaysLeftDisplay(daysLeft: number) {
   return `${daysLeft}日後`;
 }
 
-const EmptyIcon = () => (
-  <svg className="w-6 h-6 text-muted-foreground/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-    />
-  </svg>
-);
-
 interface DeadlineCardProps {
   deadlines: Deadline[];
   maxVisible?: number;
 }
 
 export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
-  const visible = deadlines.slice(0, maxVisible);
+  const visible = deadlines.filter((deadline) => deadline.isConfirmed).slice(0, maxVisible);
 
   return (
-    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1">
+    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1" data-testid="dashboard-deadline-card">
       <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
         <CardTitle className="text-lg">締切</CardTitle>
         <CardAction>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/calendar">すべて見る</Link>
-          </Button>
+          <Link
+            href="/calendar"
+            className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+          >
+            すべて見る
+          </Link>
         </CardAction>
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
         {visible.length === 0 ? (
-          <div className="flex flex-col items-center gap-1.5 py-2 text-center">
-            <EmptyIcon />
-            <p className="text-sm text-muted-foreground">今週の締切はありません</p>
+          <div className="flex h-full min-h-[150px] flex-col items-center justify-center px-4 py-2 text-center">
+            <Image
+              src="/dashboard/assets/image_05.png"
+              alt=""
+              width={1254}
+              height={1254}
+              className="h-24 w-24 object-contain"
+            />
+            <p className="mt-1 text-sm font-semibold">今週の締切はありません</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">この調子で進めましょう</p>
           </div>
         ) : (
-          <div className="space-y-1 overflow-hidden">
+          <div className="space-y-1 overflow-hidden pb-1">
             {visible.map((dl) => {
               const due = new Date(dl.dueDate);
               const color = getDaysLeftColor(dl.daysLeft);
@@ -64,9 +63,9 @@ export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
                 <Link
                   key={dl.id}
                   href={`/companies/${dl.companyId}`}
-                  className="group flex items-center gap-2 rounded-lg px-2 py-0.5 transition-colors hover:bg-muted/40"
+                  className="group flex min-h-10 items-center gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-muted/40"
                 >
-                  <span className="flex h-6 w-6 shrink-0 flex-col items-center justify-center rounded-md bg-muted text-[10px] font-medium leading-none">
+                  <span className="flex h-8 w-8 shrink-0 flex-col items-center justify-center rounded-lg bg-blue-50 text-[10px] font-bold leading-none text-blue-700">
                     <span>{due.getMonth() + 1}/{due.getDate()}</span>
                   </span>
                   <div className="min-w-0 flex-1">

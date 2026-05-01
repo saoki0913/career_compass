@@ -8,14 +8,27 @@ const SRC = fs.readFileSync(
 );
 
 describe("LandingHeader — design-system guard", () => {
-  it("does not import unused lucide-react icons", () => {
-    expect(SRC).not.toMatch(/ArrowRight/);
-  });
-
   it("renders nav links for features, how-it-works, pricing, faq", () => {
     expect(SRC).toContain("/#features");
     expect(SRC).toContain("/#how-it-works");
     expect(SRC).toContain("/#pricing");
     expect(SRC).toContain("/#faq");
+  });
+
+  it("uses Noto Sans JP font (no Inter)", () => {
+    expect(SRC).toContain("Noto Sans JP");
+    expect(SRC).not.toMatch(/['"]Inter['"]/);
+  });
+
+  it("uses reference brand color #1d2c4d", () => {
+    expect(SRC).toContain("#1d2c4d");
+  });
+
+  it("uses var(--lp-cta) for CTA buttons", () => {
+    expect(SRC).toContain("var(--lp-cta)");
+  });
+
+  it("logo is at least 40px", () => {
+    expect(SRC).toMatch(/width[=:]\s*(?:4[0-9]|5[0-6])/);
   });
 });

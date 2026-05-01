@@ -1,6 +1,6 @@
-export const LP_ASSET_BASE = "/marketing/LP/assets" as const;
+export const LP_SECTION_ASSET_BASE = "/marketing/LP/sections" as const;
 
-export function lpAsset(path: string): string {
+export function lpSectionAsset(path: string): string {
   const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
-  return `${LP_ASSET_BASE}/${normalizedPath}`;
+  return `${LP_SECTION_ASSET_BASE}/${normalizedPath}`;
 }

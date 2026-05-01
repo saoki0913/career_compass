@@ -27,6 +27,7 @@ const FORBIDDEN_EXACT = new Set(["docs/ops/agent-usage.log"]);
 
 const ALLOWED_IMAGE_PREFIXES = [
   "public/marketing/LP/assets/",
+  "public/marketing/LP/sections/",
   "public/marketing/LP/seo-lp-hero/",
   "public/marketing/LP/screenshots/",
 ];

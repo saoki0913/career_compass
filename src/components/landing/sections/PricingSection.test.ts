@@ -14,25 +14,54 @@ describe("PricingSection design-system guard", () => {
   );
 
   it("includes decorative credit card illustration for desktop", () => {
-    expect(source).toContain("shupass-v2/pricing/icon-card-y0.png");
+    expect(source).toContain("pricing/icon-credit-card-price.png");
   });
 
-  it("includes decorative shield-check icon for desktop", () => {
-    expect(source).toContain("ShieldCheck");
+  it("includes inline PricingShieldIcon SVG component", () => {
+    expect(source).toContain("PricingShieldIcon");
   });
 
   it("decorative images have alt empty and role presentation", () => {
-    // Both decorative images must have alt="" and role="presentation"
+    // All 7 decorative images must have alt="" and role="presentation"
     const decorativeMatches = source.match(/role="presentation"/g);
     expect(decorativeMatches).not.toBeNull();
-    expect(decorativeMatches!.length).toBeGreaterThanOrEqual(2);
+    expect(decorativeMatches!.length).toBeGreaterThanOrEqual(7);
   });
 
-  it("uses CSS variable --lp-navy for heading color", () => {
-    expect(source).toContain("var(--lp-navy)");
+  it("uses reference design heading color #0d1f3a", () => {
+    expect(source).toContain("#0d1f3a");
+  });
+
+  it("uses reference design accent color #2d6eff", () => {
+    expect(source).toContain("#2d6eff");
   });
 
   it("limits LP feature list to 6 items per plan", () => {
     expect(source).toContain(".slice(0, 6)");
+  });
+
+  it("uses SSOT pricing data from getMarketingPricingPlans", () => {
+    expect(source).toContain("getMarketingPricingPlans");
+    expect(source).toContain('"monthly"');
+  });
+
+  it("does not import lucide-react icons", () => {
+    expect(source).not.toContain("lucide-react");
+  });
+
+  it("includes wave SVG decoration", () => {
+    expect(source).toContain("PricingWave");
+  });
+
+  it("includes 3 plus-sign text decorations", () => {
+    // The "+" text decorations appear 3 times
+    const plusMatches = source.match(/>\s*\+\s*<\/span>/g);
+    expect(plusMatches).not.toBeNull();
+    expect(plusMatches!.length).toBe(3);
+  });
+
+  it("keeps low-friction trust copy without overstating free usage", () => {
+    expect(source).toContain("30秒で簡単スタート");
+    expect(source).toContain("無料プランあり");
   });
 });

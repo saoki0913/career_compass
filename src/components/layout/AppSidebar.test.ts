@@ -28,4 +28,11 @@ describe("AppSidebar", () => {
     expect(source).toContain("showMotivationModal");
     expect(source).toContain('modal === "interview"');
   });
+
+  it("does not stretch collapsed modal navigation buttons", async () => {
+    const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain('isCol ? "h-9 w-9 justify-center mx-auto"');
+    expect(source).toContain('!isCol && "w-full"');
+    expect(source).not.toContain('cn(itemClassName, "w-full cursor-pointer")');
+  });
 });

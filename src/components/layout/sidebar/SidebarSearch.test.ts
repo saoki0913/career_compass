@@ -37,4 +37,16 @@ describe("SidebarSearch", () => {
     expect(source).toContain("一致する候補がありません");
     expect(source).toContain("isDropdownOpen");
   });
+
+  it("has Cmd/Ctrl+K keyboard shortcut to focus search input", async () => {
+    const source = await readFile(new URL("./SidebarSearch.tsx", import.meta.url), "utf8");
+    expect(source).toContain("metaKey");
+    expect(source).toContain("ctrlKey");
+    expect(source).toContain('"k"');
+  });
+
+  it("shows shortcut hint badge in the search form", async () => {
+    const source = await readFile(new URL("./SidebarSearch.tsx", import.meta.url), "utf8");
+    expect(source).toContain("⌘K");
+  });
 });

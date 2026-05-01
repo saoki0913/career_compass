@@ -24,7 +24,7 @@ case "$environment" in
 esac
 
 capture_google_auth_if_needed() {
-  if [[ -n "${CI_E2E_AUTH_SECRET:-}" ]]; then
+  if [[ "$environment" != "production" && -n "${CI_E2E_AUTH_SECRET:-}" ]]; then
     return 0
   fi
   if [[ -n "${PLAYWRIGHT_AUTH_STATE:-}" ]]; then
@@ -84,7 +84,24 @@ run_playwright_args() {
   )
 }
 
-load_ci_e2e_auth_secret_if_available
+run_staging_functional_smoke() {
+  local scope
+  scope="${CI_E2E_SCOPE:-release-staging-$(date -u +%Y%m%dT%H%M%SZ)}"
+  release_log "Running full staging functional smoke with CI_E2E_SCOPE=${scope}"
+  (
+    cd "$repo_root"
+    PLAYWRIGHT_BASE_URL="$base_url" \
+      PLAYWRIGHT_SKIP_WEBSERVER=1 \
+      CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
+      CI_E2E_SCOPE="$scope" \
+      LIVE_AI_CONVERSATION_BLOCKING_FAILURES=1 \
+      bash scripts/ci/run-e2e-functional.sh --features all --suite smoke
+  )
+}
+
+if [[ "$environment" == "staging" ]]; then
+  load_ci_e2e_auth_secret_if_available
+fi
 capture_google_auth_if_needed
 
 if [[ "$environment" == "staging" ]]; then
@@ -102,7 +119,10 @@ if [[ "$environment" == "staging" ]]; then
         npm run test:e2e:major:live
     )
   fi
+  if [[ "${RELEASE_RUN_STAGING_FULL_SMOKE:-1}" == "1" ]]; then
+    run_staging_functional_smoke
+  fi
   exit 0
 fi
 
-run_playwright_args e2e/functional/release-production-readonly.spec.ts
+CI_E2E_AUTH_SECRET="" RELEASE_PRODUCTION_READONLY_STRICT=1 run_playwright_args e2e/functional/release-production-readonly.spec.ts

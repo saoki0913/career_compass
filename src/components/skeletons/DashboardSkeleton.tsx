@@ -85,41 +85,49 @@ export function DashboardSkeleton() {
           </div>
 
           {/* Right column */}
-          <div className="flex min-h-0 flex-col gap-3 lg:grid lg:grid-rows-[minmax(0,1fr)_minmax(0,0.72fr)] lg:gap-2 lg:overflow-hidden">
-            {/* Tasks skeleton */}
+          <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(220px,0.72fr)] gap-3 lg:gap-2 lg:overflow-hidden">
             <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1.5">
               <CardHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 px-4 lg:px-5">
                 <Skeleton className="h-6 w-28 rounded-md" shimmerDelayMs={0} />
-                <SkeletonButton className="h-8 w-20" shimmerDelayMs={40} />
+                <SkeletonPill className="h-6 w-14" shimmerDelayMs={40} />
               </CardHeader>
-              <CardContent className="min-h-0 flex-1 space-y-1.5 overflow-hidden px-4 lg:px-5">
-                {Array.from({ length: 2 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-3 rounded-lg p-2">
-                    <Skeleton className="h-6 w-1 shrink-0 rounded-full" shimmerDelayMs={i * 60} />
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <Skeleton className="h-4 w-36 rounded-md" shimmerDelayMs={i * 60 + 15} />
-                      <Skeleton className="h-3 w-20 rounded-md" shimmerDelayMs={i * 60 + 30} />
+              <CardContent className="min-h-0 flex-1 space-y-3 overflow-hidden px-4 lg:px-5">
+                {/* Urgency section skeletons */}
+                {Array.from({ length: 3 }).map((_, section) => (
+                  <div key={section} className="space-y-1">
+                    <div className="flex items-center gap-2 py-1">
+                      <Skeleton className="h-3.5 w-3.5 rounded" shimmerDelayMs={section * 80} />
+                      <Skeleton className="h-3.5 w-12 rounded" shimmerDelayMs={section * 80 + 10} />
+                      <Skeleton className="h-4 w-5 rounded-full" shimmerDelayMs={section * 80 + 20} />
                     </div>
+                    {Array.from({ length: 2 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-2 rounded-lg px-2 py-1.5">
+                        <Skeleton className="h-4 w-4 shrink-0 rounded-full" shimmerDelayMs={section * 80 + i * 40 + 30} />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <Skeleton className="h-3.5 w-32 rounded-md" shimmerDelayMs={section * 80 + i * 40 + 40} />
+                          <Skeleton className="h-3 w-20 rounded-md" shimmerDelayMs={section * 80 + i * 40 + 50} />
+                        </div>
+                        <SkeletonPill className="h-5 w-12" shimmerDelayMs={section * 80 + i * 40 + 60} />
+                      </div>
+                    ))}
                   </div>
                 ))}
               </CardContent>
             </Card>
-
-            {/* Deadline skeleton */}
             <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1">
               <CardHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 px-4 lg:px-5">
-                <Skeleton className="h-6 w-16 rounded-md" shimmerDelayMs={0} />
-                <SkeletonButton className="h-8 w-20" shimmerDelayMs={40} />
+                <Skeleton className="h-6 w-14 rounded-md" shimmerDelayMs={0} />
+                <SkeletonPill className="h-6 w-20" shimmerDelayMs={40} />
               </CardHeader>
-              <CardContent className="min-h-0 flex-1 space-y-1 overflow-hidden px-4 lg:px-5">
+              <CardContent className="min-h-0 flex-1 space-y-2 overflow-hidden px-4 lg:px-5">
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded-lg px-2 py-0.5">
-                    <Skeleton className="h-6 w-6 shrink-0 rounded-md" shimmerDelayMs={i * 50} />
+                  <div key={i} className="flex min-h-10 items-center gap-2 rounded-lg px-2 py-1">
+                    <Skeleton className="h-8 w-8 shrink-0 rounded-lg" shimmerDelayMs={i * 40} />
                     <div className="min-w-0 flex-1 space-y-1">
-                      <Skeleton className="h-3 w-24 rounded-md" shimmerDelayMs={i * 50 + 15} />
-                      <Skeleton className="h-3 w-32 rounded-md" shimmerDelayMs={i * 50 + 30} />
+                      <Skeleton className="h-3.5 w-28 rounded-md" shimmerDelayMs={i * 40 + 10} />
+                      <Skeleton className="h-3 w-20 rounded-md" shimmerDelayMs={i * 40 + 20} />
                     </div>
-                    <SkeletonPill className="h-4 w-10" shimmerDelayMs={i * 50 + 40} />
+                    <SkeletonPill className="h-5 w-12" shimmerDelayMs={i * 40 + 30} />
                   </div>
                 ))}
               </CardContent>

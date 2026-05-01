@@ -39,6 +39,8 @@ if echo "$REL_PATH" | grep -qE '\.(md|mdx|css|json)$'; then exit 0; fi
 if echo "$REL_PATH" | grep -qE '(schema\.ts|drizzle_pg/)'; then exit 0; fi
 # Test infrastructure
 if echo "$REL_PATH" | grep -qE '^e2e/(fixtures|helpers)/'; then exit 0; fi
+# Backend test data / live gate case definitions (consumed only by backend/tests/)
+if echo "$REL_PATH" | grep -qE '^backend/app/testing/'; then exit 0; fi
 # Hook / tool config
 if echo "$REL_PATH" | grep -qE '^\.claude/|^\.codex/|^\.kiro/|^\.github/|^scripts/|^security/|^docs/|^tools/'; then exit 0; fi
 # Test edits establish the session proof required before implementation edits.

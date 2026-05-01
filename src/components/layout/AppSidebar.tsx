@@ -337,7 +337,7 @@ export function AppSidebar() {
                   <button
                     type="button"
                     onClick={() => handleModalAction(modal)}
-                    className={cn(itemClassName, "w-full cursor-pointer")}
+                    className={cn(itemClassName, !isCol && "w-full", "cursor-pointer")}
                   >
                     {activeIndicator}
                     {content}

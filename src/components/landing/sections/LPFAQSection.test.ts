@@ -13,39 +13,44 @@ describe("LPFAQSection design-system guard", () => {
     "src/components/landing/sections/LPFAQSection.tsx",
   );
 
-  it("uses CSS variable --lp-navy instead of hardcoded #1a1a2e", () => {
-    expect(source).not.toContain('"#1a1a2e"');
+  it("uses CSS variable --lp-navy for heading", () => {
     expect(source).toContain("var(--lp-navy)");
   });
 
-  it("uses CSS variable --lp-cta instead of hardcoded #2563eb for main accents", () => {
-    // Inline style usage of #2563eb should be replaced with var(--lp-cta)
+  it("uses CSS variable --lp-cta for accents", () => {
     expect(source).toContain("var(--lp-cta)");
   });
 
-  it("uses reference-style six-card FAQ grid with accordion", () => {
-    expect(source).toContain("LANDING_PAGE_FAQS.slice(0, 6)");
-    expect(source).toContain("xl:grid-cols-2");
+  it("uses Noto Sans JP font (no Inter)", () => {
+    expect(source).toContain("Noto Sans JP");
+    expect(source).not.toMatch(/['"]Inter['"]/);
+  });
+
+  it("uses reference-style ten-item FAQ grid with accordion", () => {
+    expect(source).toContain("const visibleFaqs = LANDING_PAGE_FAQS");
+    expect(source).toContain("const faqColumns =");
+    expect(source).not.toContain("LANDING_PAGE_FAQS.slice(0, 6)");
     expect(source).toContain('"use client"');
     expect(source).toContain("aria-expanded");
-  });
-
-  it("places the right-side laptop character from the reference composition", () => {
-    expect(source).toContain("characters/girl-at-laptop.png");
-    expect(source).toContain("w-[270px]");
-  });
-
-  it("includes dotted grid decoration", () => {
-    expect(source).toContain("decorative/dot-pattern-light.png");
-  });
-
-  it("includes sparkle decoration", () => {
-    expect(source).toContain(
-      "faq_generated_assets_transparent/18_sparkle_decoration.png",
-    );
+    expect(source).toContain("hidden={!isOpen}");
+    expect(source).toContain("aria-hidden={!isOpen}");
   });
 
   it("preserves LANDING_PAGE_FAQS import for JSON-LD data source", () => {
     expect(source).toContain("LANDING_PAGE_FAQS");
+  });
+
+  it("uses new FAQ character image", () => {
+    expect(source).toContain("faq/person-pc.png");
+    expect(source).toContain("xl:grid-cols-[minmax(0,980px)_minmax(220px,1fr)]");
+    expect(source).toContain("w-[270px]");
+    expect(source).not.toContain("girl-at-laptop.png");
+  });
+
+  it("does not reference deleted decorative images", () => {
+    expect(source).not.toContain("wave-line-1.png");
+    expect(source).not.toContain("dot-pattern-light.png");
+    expect(source).not.toContain("18_sparkle_decoration.png");
+    expect(source).not.toContain("curved-lines-dot.png");
   });
 });

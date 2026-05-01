@@ -18,6 +18,17 @@ describe("json-ld", () => {
     });
   });
 
+  it("can serialize the full landing FAQ set for the root LP", () => {
+    const data = buildFaqPageJsonLd(LANDING_PAGE_FAQS);
+    expect(data.mainEntity).toHaveLength(10);
+    expect(data.mainEntity.map((entity) => entity.name)).toContain(
+      "無料でどこまで使えますか？",
+    );
+    expect(data.mainEntity.map((entity) => entity.name)).toContain(
+      "有料プランにすると何が増えますか？",
+    );
+  });
+
   it("escapes angle brackets for script safety", () => {
     const raw = serializeJsonLd({ x: "</script>" });
     expect(raw).not.toContain("</script>");

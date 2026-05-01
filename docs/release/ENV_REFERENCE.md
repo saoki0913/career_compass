@@ -141,8 +141,12 @@
 ## Sync Commands
 
 - auth 確認: `zsh scripts/release/provider-auth-status.sh --strict`
-- env / secrets 同期: `zsh scripts/release/sync-career-compass-secrets.sh --check|--apply`
+- env / secrets 確認: `make ops-secrets-sync`
+- env / secrets 同期: `SYNC_MODE=--apply TARGET=all make ops-secrets-sync`
+- script 直実行: `zsh scripts/release/sync-career-compass-secrets.sh --check|--apply --target <target>`
 - infra bootstrap check: `zsh scripts/bootstrap-career-compass-infra.sh --check`
+
+`--check` は secret 値を比較・表示せず、bundle 側と provider 側の key set だけを照合します。bundle にある key が provider にない場合は release を止め、provider 側だけにある key は warning として出します。staging Vercel は `github-actions.env` の `CI_E2E_AUTH_SECRET` / `CI_E2E_AUTH_ENABLED` / `PLAYWRIGHT_BASE_URL` overlay も expected key に含めます。
 
 ## Secret Rotation Checklist
 

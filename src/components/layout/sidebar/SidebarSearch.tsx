@@ -79,6 +79,12 @@ export function SidebarSearch({ collapsed, onNavigate }: SidebarSearchProps) {
       if (event.key === "Escape") {
         setIsDropdownOpen(false);
       }
+      if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        const input = containerRef.current?.querySelector<HTMLInputElement>("input[type='search']");
+        input?.focus();
+        setIsDropdownOpen(true);
+      }
     }
 
     document.addEventListener("keydown", handleKeyDown);
@@ -130,6 +136,11 @@ export function SidebarSearch({ collapsed, onNavigate }: SidebarSearchProps) {
           aria-label="検索キーワード"
           className="min-w-0 flex-1 bg-transparent text-sm text-sidebar-foreground outline-none placeholder:text-muted-foreground"
         />
+        {!query && (
+          <kbd className="pointer-events-none hidden shrink-0 select-none items-center rounded border border-sidebar-border/60 bg-sidebar-accent/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground sm:inline-flex">
+            ⌘K
+          </kbd>
+        )}
       </form>
 
       {shouldShowDropdown ? (

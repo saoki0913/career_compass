@@ -1,6 +1,6 @@
 # 実装進捗ドキュメント
 
-**最終更新**: 2026-04-28
+**最終更新**: 2026-05-01
 
 ## 人向け要約（読み始めに）
 
@@ -12,6 +12,7 @@
 
 ## 最近の更新
 
+- 2026-05-01: ダッシュボードを参照画像 `public/dashboard/906c9c70-9613-4008-8362-d44b0e2c9427.png` に構成レベルで再同期。右カラムを `TodayTasksCard` + 独立 `DeadlineCard` に戻し、今日タスクはタスク専用、締切カードは承認済み締切専用に整理。`public/dashboard/assets/image_*.png` をタスク・締切・選考企業管理の空状態イラストに利用し、旧 inline SVG と no-op のタスク完了導線を削除。`DashboardSkeleton` と dashboard unit tests を新レイアウトへ同期。
 - 2026-04-28: サイドバー検索を展開状態でも結果候補が出る形に修正。2文字以上で `useSearch` がデバウンス検索し、企業/ES/締切候補をドロップダウン表示、候補クリックまたは「すべての結果を見る」で `/search?q=` へ遷移する。`/search` ページは Next.js 16 の `searchParams` Promise に対応し、URL クエリ変更と画面状態を同期。`/api/search` は検索種別 validation、rate limit、構造化エラー、LIKE `ESCAPE`、関連企業 join の owner 条件を追加。
 - 2026-04-27: ダッシュボードサイドバーを改善。検索は隠し `SearchBar` + synthetic Cmd+K 依存を廃止し、サイドバー展開時の直接入力から `/search?q=` へ遷移する形に変更。サイドバーに「志望動機作成」を追加し、既存 `CompanySelectModal mode="motivation"` で企業選択後に `/companies/{id}/motivation` へ遷移する。`AppSidebar` の nav action を link / modal で明示し、面接対策と志望動機作成のモーダル状態を分離。
 - 2026-04-27: ダッシュボード企業ロゴ取得を主要企業向けに強化。`company_mappings.json` にロゴ専用 `logo_domains` を追加できるようにし、三菱商事は `mitsubishicorp.com`、三菱UFJ銀行は `bk.mufg.jp` を優先候補化。Logo.dev / Brandfetch / favicon fallback は複数ドメイン候補を順に試し、Brandfetch 要件に合わせて画像の `referrerPolicy` を `strict-origin-when-cross-origin` へ変更。

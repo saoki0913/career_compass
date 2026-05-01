@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import pytest
 from types import SimpleNamespace
 
 from app.testing.es_review_live_gate import (
     ALL_STANDARD_MODELS,
     DEFAULT_LIVE_PROVIDERS_EXTENDED,
+    LiveESReviewCase,
     _live_gate_allows_soft_min_shortfall,
     _matches_all_anchor_groups,
     _matches_anchor_groups,
@@ -88,11 +90,11 @@ def test_live_gate_soft_min_allows_when_only_length_fix_result_flags_soft() -> N
     rewrite = "あ" * 125 + "。"
     meta = SimpleNamespace(length_policy="strict", length_fix_result="soft_recovered")
     assert _live_gate_allows_soft_min_shortfall(
-        rewrite=rewrite, char_min=100, char_max=140, review_meta=meta
+        rewrite=rewrite, char_min=130, char_max=140, review_meta=meta
     )
     meta_both = SimpleNamespace(length_policy="soft_ok", length_fix_result="soft_recovered")
     assert _live_gate_allows_soft_min_shortfall(
-        rewrite=rewrite, char_min=100, char_max=140, review_meta=meta_both
+        rewrite=rewrite, char_min=130, char_max=140, review_meta=meta_both
     )
 
 
@@ -109,10 +111,12 @@ def test_live_gate_soft_min_allows_long_band_only_at_final_floor() -> None:
 
 def test_evaluate_live_case_accepts_companyless_assistive_case() -> None:
     case = next(target for target in get_live_cases("smoke") if target.company_context == "companyless")
+    # Rewrite must be >= char_min (130) and <= char_max (140) for gakuchika_companyless_short.
+    # Length is 136; contains all required focus and user_fact tokens.
     rewrite = (
-        "研究室で進捗共有の型を見直し、情報滞留を防いだ経験に最も力を入れた。"
-        "論点整理と共有頻度の見直しを主導し、役割分担も整えながら、チーム全体の前進を支えた。"
-        "会議前の準備を定着させ、意思決定までの流れも滑らかにした。"
+        "研究室での進捗共有が形骸化していたため、論点を先にそろえる運営への見直しに最も力を入れた。"
+        "会議前に論点を整理し、担当ごとの役割分担と共有頻度を調整することで、チーム全体の意思決定を前に進め、情報の滞留という問題を改善した。"
+        "この経験が組織全体の運営を整えることにつながった。"
     )
     failures = evaluate_live_case(
         case,
@@ -293,3 +297,19 @@ def test_evaluate_live_case_detects_unfinished_tail() -> None:
     )
 
     assert "unfinished_tail:detected" in failures
+
+
+@pytest.mark.parametrize(
+    "case", get_live_cases("extended"), ids=lambda c: c.case_id
+)
+def test_live_case_char_min_matches_production_formula(case: LiveESReviewCase) -> None:
+    """All live gate cases must use the same char_min as the production app.
+
+    Production derives char_min = max(0, char_max - 10) in
+    src/app/api/documents/_services/review-stream-context.ts::deriveCharMin.
+    """
+    expected = max(0, case.char_max - 10)
+    assert case.char_min == expected, (
+        f"{case.case_id}: char_min={case.char_min} != production formula "
+        f"max(0, {case.char_max} - 10) = {expected}"
+    )

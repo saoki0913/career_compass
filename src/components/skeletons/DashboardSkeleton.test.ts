@@ -14,4 +14,17 @@ describe("DashboardSkeleton", () => {
     expect(source).toContain("ml-auto");
     expect(source).toContain("length: 5");
   });
+
+  it("right column includes task and deadline skeleton cards", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DashboardSkeleton.tsx", import.meta.url), "utf8");
+    expect(source).toContain("grid-rows-[minmax(0,1fr)_minmax(220px,0.72fr)]");
+    expect(source).toContain("h-6 w-14");
+  });
+
+  it("has urgency section skeletons in the task card area", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DashboardSkeleton.tsx", import.meta.url), "utf8");
+    expect(source).toContain("Urgency section");
+  });
 });

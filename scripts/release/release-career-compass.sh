@@ -9,6 +9,8 @@ source "${script_dir}/common.sh"
 mode="release"
 skip_playwright=0
 skip_user_e2e=0
+skip_secret_apply=0
+apply_secrets=0
 stage_all=0
 commit_message="chore: release career_compass via develop"
 repo_slug="saoki0913/career_compass"
@@ -36,6 +38,12 @@ while [[ $# -gt 0 ]]; do
     --skip-user-e2e)
       skip_user_e2e=1
       ;;
+    --skip-secret-apply)
+      skip_secret_apply=1
+      ;;
+    --apply-secrets)
+      apply_secrets=1
+      ;;
     --stage-all)
       stage_all=1
       ;;
@@ -44,7 +52,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -h|--help)
-      echo "Usage: $0 [--check|--preflight-only|--staging-only] [--skip-playwright] [--skip-user-e2e] [--stage-all] [--commit-message MSG]" >&2
+      echo "Usage: $0 [--check|--preflight-only|--staging-only] [--skip-playwright] [--skip-user-e2e] [--apply-secrets] [--skip-secret-apply] [--stage-all] [--commit-message MSG]" >&2
       exit 0
       ;;
     *)
@@ -87,6 +95,40 @@ run_release_preflight() {
   run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check
   assert_release_branch
   assert_default_branch_develop
+}
+
+sync_release_secrets() {
+  if [[ "$skip_secret_apply" == "1" ]]; then
+    release_warn "Skipping provider secret apply"
+    return 0
+  fi
+  if [[ "$apply_secrets" != "1" ]]; then
+    release_log "Checking provider secrets without applying changes"
+    if [[ "$mode" == "staging" ]]; then
+      run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target vercel-staging
+      run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target railway-staging
+      run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target github
+      return 0
+    fi
+    run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target all
+    return 0
+  fi
+  if [[ "$mode" == "staging" ]]; then
+    release_log "Applying staging provider secrets from canonical bundle"
+    run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --apply --target vercel-staging
+    run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --apply --target railway-staging
+    run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --apply --target github
+    return 0
+  fi
+  release_log "Applying provider secrets from canonical bundle"
+  run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --apply --target all
+}
+
+assert_production_readonly_prerequisites() {
+  [[ -n "${E2E_PRODUCTION_COMPANY_ID:-}" ]] || release_die "E2E_PRODUCTION_COMPANY_ID is required before promoting to main."
+  if [[ -z "${PLAYWRIGHT_AUTH_STATE:-}" && "${RELEASE_CAPTURE_GOOGLE_AUTH:-1}" != "1" ]]; then
+    release_die "PLAYWRIGHT_AUTH_STATE is required when RELEASE_CAPTURE_GOOGLE_AUTH is not enabled."
+  fi
 }
 
 run_local_gate() {
@@ -201,6 +243,7 @@ fi
 
 run_local_gate
 commit_staged_changes_if_needed
+sync_release_secrets
 push_develop
 run_staging_checks
 
@@ -209,6 +252,7 @@ if [[ "$mode" == "staging" ]]; then
   exit 0
 fi
 
+assert_production_readonly_prerequisites
 promote_to_main
 run_production_checks
 release_log "Release completed for career_compass"

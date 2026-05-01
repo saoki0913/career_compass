@@ -2,8 +2,8 @@
 
 > **スコープ**: 公開 LP（`src/components/landing/*`、関連 `(marketing)` ルート）の見た目・トーン・コンポーネント規約の**正本**。  
 > **セクション構成・ファイル対応**: [docs/marketing/LP.md](docs/marketing/LP.md)。  
-> **モデル**: root LP は `public/marketing/LP/LP.png` を正本にする。白基調、淡いブルー装飾、青CTA、人物/端末/カード素材を活用する。
-> **採用しないもの**: テキスト入り画像を主要コピーとして使う実装。コピー、料金、FAQ、CTA は HTML で実装する。フォントは **Inter + Noto Sans JP**。
+> **モデル**: root LP は `/Users/saoki/work/design/shupass/` のリファレンスデザインを正本にする。白基調、淡いブルー装飾、青CTA、人物/端末/カード素材を活用する。
+> **採用しないもの**: テキスト入り画像を主要コピーとして使う実装（PainPoints の worry-card 画像は例外で、sr-only テキストを併置して a11y を維持）。コピー、料金、FAQ、CTA は HTML で実装する。フォントは **Noto Sans JP**（Inter は使用しない）。
 
 ---
 
@@ -22,31 +22,32 @@
 
 | トークン | 値 | 役割 |
 |----------|-----|------|
-| `--lp-navy` | `#000666` | 見出し・強調テキスト・フッター見出し |
-| `--lp-cta` | `#2563eb` | 主 CTA 背景・強調青 |
-| `--lp-cta-hover` | `#1459d9` | CTA ホバー |
-| `--lp-surface-page` | `#f6f9fc` | Stripe 系の極淡ブルーグレー地（セクション交互） |
+| `--lp-navy` | `#0b1e3a` | 見出し・強調テキスト・フッター見出し |
+| `--lp-cta` | `#2680ff` | 主 CTA 背景・強調青 |
+| `--lp-cta-hover` | `#1d6fe8` | CTA ホバー |
+| `--lp-surface-page` | `#f6f9ff` | 極淡ブルー地（セクション交互） |
 | `--lp-surface-section` | `#ffffff` | 標準白地 |
 | `--lp-surface-muted` | `#f6f9fc` | カード内・帯の薄い面 |
-| `--lp-border-default` | `#e8edf5` | Stripe 的な標準境界（表・カード・ヘッダー下線） |
+| `--lp-surface-faq` | `#f0f4fb` | FAQ セクション背景 |
+| `--lp-border-default` | `#e5e7eb` | 標準境界（表・カード・ヘッダー下線） |
 | `--lp-border-hairline` | `rgba(0,0,0,0.08)` | 極細区切り |
 | `--lp-border-tint` | `rgba(0,6,102,0.12)` | ネイビーティント境界 |
-| `--lp-muted-text` | `#64748b` | 本文補足（slate-500 相当を hex で固定） |
+| `--lp-muted-text` | `#4b5563` | 本文補足 |
 | `--lp-badge-bg` | `#eef2ff` | ヒーローバッジ（淡いトーン） |
 | `--lp-tint-navy-soft` | `#e8eef9` | 表ハイライト列・強調背景 |
-| `--lp-tint-cta-soft` | `#eef4ff` | CTA ティント背景 |
+| `--lp-tint-cta-soft` | `#e8f1ff` | CTA ティント背景 |
 | `--lp-success` | `#168542` | チェック・アクセント |
 | `--lp-on-dark-muted` / `--lp-on-dark-fine` | rgba 白 | ダーク CTA 帯の補足 |
 
 ---
 
-## 3. タイポグラフィ（Inter + Noto Sans JP）
+## 3. タイポグラフィ（Noto Sans JP）
 
-- **ヒーロー H1**: desktop では 72〜82px、字重 **800**、`line-height` 1.12 前後。
-- **セクション H2**: desktop では 64〜78px、字重 **800**。`section_image` の見出し密度を優先する。
-- **機能番号・ステップ番号**: 40px 以上で強く見せる。Feature 01 等は小さな eyebrow にしない。
-- **本文**: desktop では 18〜24px、色 `var(--lp-muted-text)`、行間 1.6〜1.8。
-- **ナビ・ボタン**: 参照 LP の CTA は高さ 74〜82px、字重 **800**。
+- **フォント**: `'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif`。全セクションで `fontFeatureSettings: '"palt"'` を指定する。
+- **ヒーロー H1**: desktop では 56px、字重 **800**、`line-height` 1.3。
+- **セクション H2**: desktop では `clamp(34px, 5.2vw, 46px)`、字重 **800**。
+- **本文**: desktop では 16〜18px、色 `var(--lp-muted-text)`、行間 1.6〜1.95。
+- **ボタン**: CTA は 18px、字重 **700**、角丸 12px。
 
 ---
 
@@ -54,8 +55,8 @@
 
 ### ボタン
 
-- **プライマリ**: 背景 `var(--lp-cta)`、白文字、**角丸 12px**（`rounded-xl`）、`px-6 py-3` 前後、ホバーは `opacity` または `--lp-cta-hover`。
-- **セカンダリ / ゴースト**: 透明または白背景、`1px solid var(--lp-border-default)` または `var(--lp-border-tint)`、ホバーで `var(--lp-surface-muted)`。
+- **プライマリ**: グラデーション `linear-gradient(180deg, #3a91ff 0%, #1f78ec 100%)`、白文字、**角丸 12px**、`padding: 20px 28px 20px 36px`、矢印アイコン付き。ホバーで矢印が `translateX(4px)`。
+- **セカンダリ / ゴースト**: 白背景、`2px solid #2680ff`、同寸法。ホバーで `#f0f6ff` 背景。
 
 ### カード
 
@@ -77,9 +78,14 @@
 
 ## 5. レイアウト
 
-- Desktop 再現基準は `1672px` viewport。主要コンテナは `1530px`〜`1600px`。
-- Hero / Pain / Features / BeforeAfter / HowToUse / Pricing / FAQ は `900px`〜`960px` 高を目安にする。
-- 主要カードの目安: Pain `360x565`、Feature `520x295`、Before/After `668px / 120px / 724px`、HowToUse `360px` x 4、Pricing `436px / 486px / 436px`、FAQ `2 columns x 3 rows`。
+- Desktop 再現基準は `1672px` viewport。主要コンテナは `1200px`（shupass リファレンス準拠）。
+- Hero: 2 カラムグリッド `minmax(420px,500px) minmax(0,1fr)`。
+- PainPoints: 4 列グリッド、gap 22px、画像カード（worry-card-{1-4}.png）。
+- Features: 6 列グリッド、各カード 2 列、3+3 配置。フロー図は 3 円（78x78px）。
+- HowToUse: 7 列 `1fr 28px 1fr 28px 1fr 28px 1fr`、矢印列付き。
+- BeforeAfter: 1200x600 固定ステージ + ResizeObserver スケーリング。
+- Pricing: 3 列グリッド、Featured カードは `translateY(-12px)`。
+- FAQ: 2 列 x 5 行アコーディオン（10 項目）。
 
 ---
 

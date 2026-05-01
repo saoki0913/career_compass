@@ -4,9 +4,9 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState, useMemo } from "react";
 import { CompanyProgressCard } from "@/components/dashboard/CompanyListCard";
-import { DeadlineCard } from "@/components/dashboard/DeadlineCard";
 import { WeeklyScheduleView, getWeekDays } from "@/components/dashboard/WeeklyScheduleView";
 import { TodayTasksCard } from "@/components/dashboard/TodayTasksCard";
+import { DeadlineCard } from "@/components/dashboard/DeadlineCard";
 import { QuickActions } from "@/components/dashboard/QuickActions";
 import { Button } from "@/components/ui/button";
 import { useCompanies, type Company } from "@/hooks/useCompanies";
@@ -50,7 +50,12 @@ export function DashboardPageClient({
     initialDeadlines && initialDeadlines.periodDays === deadlineLookaheadDays ? { initialData: initialDeadlines } : {},
   );
   const todayTask = useTodayTask(initialTodayTask ? { initialData: initialTodayTask } : {});
-  const { tasks: openTasks, isLoading: openTasksLoading } = useTasks(initialOpenTasks !== undefined ? { status: "open", initialData: initialOpenTasks } : { status: "open" });
+  const {
+    tasks: openTasks,
+    isLoading: openTasksLoading,
+    refresh: refreshOpenTasks,
+    toggleComplete,
+  } = useTasks(initialOpenTasks !== undefined ? { status: "open", initialData: initialOpenTasks } : { status: "open" });
 
   const weekDays = useMemo(() => getWeekDays(weekOffset), [weekOffset]);
   const weekStart = weekDays[0].toISOString();
@@ -64,6 +69,13 @@ export function DashboardPageClient({
   const { isCollapsed } = useSidebar();
 
   const scheduleDeadlines = useMemo(() => deadlines.map((d) => ({ id: d.id, companyId: d.companyId, company: d.company, type: d.type, title: d.title, dueDate: d.dueDate, daysLeft: d.daysLeft })), [deadlines]);
+  const handleCompleteTodayTask = async () => {
+    const completed = await todayTask.markComplete();
+    if (completed) {
+      await refreshOpenTasks();
+    }
+    return completed;
+  };
 
   if (!initialCompanies && companiesLoading && deadlinesLoading && todayTask.isLoading && (initialOpenTasks === undefined ? openTasksLoading : false)) {
     return <DashboardSkeleton />;
@@ -99,7 +111,7 @@ export function DashboardPageClient({
         </div>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,3fr)_minmax(280px,1fr)] lg:gap-2 lg:overflow-hidden">
-          <div className="flex min-h-0 flex-col gap-3 lg:grid lg:grid-rows-[minmax(0,1.42fr)_minmax(0,1fr)] lg:gap-2 lg:overflow-hidden">
+          <div className="flex min-h-0 flex-col gap-3 lg:grid lg:grid-rows-[minmax(0,1.42fr)_minmax(0,1fr)] lg:gap-2 lg:overflow-hidden animate-fade-up">
             <WeeklyScheduleView
               deadlines={scheduleDeadlines}
               calendarEvents={viewer.isGuest ? [] : calendarEvents}
@@ -113,9 +125,15 @@ export function DashboardPageClient({
             />
             <CompanyProgressCard companies={companies} />
           </div>
-          <div className="flex min-h-0 flex-col gap-3 lg:grid lg:grid-rows-[minmax(0,1fr)_minmax(0,0.72fr)] lg:gap-2 lg:overflow-hidden">
-            <TodayTasksCard todayTask={todayTask} openTasks={openTasks} maxOpenTasks={3} />
-            <DeadlineCard deadlines={deadlines} maxVisible={3} />
+          <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(220px,0.72fr)] gap-3 lg:gap-2 lg:overflow-hidden animate-fade-up delay-100">
+            <TodayTasksCard
+              todayTask={todayTask}
+              openTasks={openTasks}
+              maxOpenTasks={5}
+              onCompleteTodayTask={handleCompleteTodayTask}
+              onToggleTask={toggleComplete}
+            />
+            <DeadlineCard deadlines={deadlines} maxVisible={4} />
           </div>
         </div>
 

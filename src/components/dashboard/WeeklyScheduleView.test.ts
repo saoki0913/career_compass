@@ -7,10 +7,12 @@ describe("WeeklyScheduleView", () => {
     expect(mod.getWeekDays).toBeDefined();
   });
 
-  it("uses Google Calendar icon instead of generic calendar icon", async () => {
+  it("keeps Google Calendar icon on the calendar connection badge", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./WeeklyScheduleView.tsx", import.meta.url), "utf8");
     expect(source).toContain("GoogleCalendarIcon");
+    expect(source).toContain('<CardTitle className="text-lg">スケジュール・選考管理</CardTitle>');
+    expect(source).toContain('<GoogleCalendarIcon className="h-3.5 w-3.5" />');
     expect(source).not.toMatch(/\bCalendarIcon\b/);
   });
 
@@ -28,6 +30,12 @@ describe("WeeklyScheduleView", () => {
     expect(source).toContain('"13"');
     expect(source).toContain('"17"');
     expect(source).not.toContain('"19"');
+  });
+
+  it("displays time slots with :00 suffix", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./WeeklyScheduleView.tsx", import.meta.url), "utf8");
+    expect(source).toContain("`${slot}:00`");
   });
 });
 

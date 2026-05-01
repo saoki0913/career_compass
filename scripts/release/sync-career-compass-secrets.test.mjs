@@ -35,7 +35,7 @@ test("checks env files with spaces and emails without sourcing them", () => {
 
     const result = spawnSync(
       "zsh",
-      [scriptPath, "--check", "--target", "vercel-staging", "--secret-dir", secretDir],
+      [scriptPath, "--check", "--target", "vercel-staging", "--secret-dir", secretDir, "--skip-provider-drift"],
       {
         cwd: repoRoot,
         encoding: "utf8",
@@ -46,6 +46,127 @@ test("checks env files with spaces and emails without sourcing them", () => {
     assert.match(`${result.stdout}\n${result.stderr}`, /Checked Vercel staging env/);
   } finally {
     rmSync(secretDir, { recursive: true, force: true });
+  }
+});
+
+test("check fails on provider missing keys without printing secret values", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-staging.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "PUBLIC_SETTING=expected-public",
+        "INTERNAL_API_JWT_SECRET=super-secret-value-that-must-not-leak",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "env" && "$2" == "ls" ]]; then
+  print -r -- "PUBLIC_SETTING production"
+  print -r -- "CI_E2E_AUTH_SECRET production"
+  print -r -- "CI_E2E_AUTH_ENABLED production"
+  print -r -- "PLAYWRIGHT_BASE_URL production"
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--check", "--target", "vercel-staging", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+        },
+      },
+    );
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.notEqual(result.status, 0, output);
+    assert.match(output, /missing provider keys: INTERNAL_API_JWT_SECRET/);
+    assert.doesNotMatch(output, /super-secret-value-that-must-not-leak/);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("check accepts Vercel staging overlay keys and only warns on extra keys", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-staging.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "PUBLIC_SETTING=expected-public",
+        "SUPABASE_URL=https://example.supabase.co",
+        "SUPABASE_SERVICE_ROLE_KEY=service-role-secret-that-must-not-leak",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "env" && "$2" == "ls" ]]; then
+  print -r -- "PUBLIC_SETTING production"
+  print -r -- "SUPABASE_URL production"
+  print -r -- "SUPABASE_SERVICE_ROLE_KEY production"
+  print -r -- "CI_E2E_AUTH_SECRET production"
+  print -r -- "CI_E2E_AUTH_ENABLED production"
+  print -r -- "PLAYWRIGHT_BASE_URL production"
+  print -r -- "TEMP_PROVIDER_ONLY_KEY production"
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--check", "--target", "vercel-staging", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+        },
+      },
+    );
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 0, output);
+    assert.match(output, /unexpected provider keys: TEMP_PROVIDER_ONLY_KEY/);
+    assert.doesNotMatch(output, /missing provider keys: CI_E2E_AUTH_SECRET/);
+    assert.doesNotMatch(output, /service-role-secret-that-must-not-leak/);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
   }
 });
 

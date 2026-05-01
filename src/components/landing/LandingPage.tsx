@@ -1,4 +1,5 @@
 import { LandingFooter } from "./LandingFooter";
+import { LandingHeader } from "./LandingHeader";
 import { HeroSection } from "./sections/HeroSection";
 import { PainPointsSection } from "./sections/PainPointsSection";
 import { FeaturesSection } from "./sections/FeaturesSection";
@@ -10,6 +11,7 @@ import { LPFAQSection } from "./sections/LPFAQSection";
 export function LandingPage() {
   return (
     <div className="min-h-screen bg-white">
+      <LandingHeader />
       <main>
         <HeroSection />
         <PainPointsSection />

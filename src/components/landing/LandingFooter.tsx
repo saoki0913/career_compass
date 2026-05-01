@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { lpAsset } from "@/lib/marketing/lp-assets";
+import { lpSectionAsset } from "@/lib/marketing/lp-assets";
 
 const FOOTER_COLUMNS = [
   {
@@ -36,42 +36,27 @@ const FOOTER_COLUMNS = [
 export function LandingFooter() {
   return (
     <footer
-      className="relative min-h-[380px] overflow-hidden"
+      className="relative min-h-[430px] overflow-hidden"
       style={{
         background: "var(--lp-footer-bg)",
-        fontFamily: "'Inter', 'Noto Sans JP', sans-serif",
+        fontFamily: "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
       }}
     >
       <img
-        src={lpAsset("branding/cityscape.png")}
+        src={lpSectionAsset("footer/cityscape.png")}
         alt=""
         role="presentation"
-        className="pointer-events-none absolute bottom-0 left-0 w-full select-none object-cover object-bottom opacity-[0.16]"
-        style={{ maxHeight: "260px" }}
+        className="pointer-events-none absolute bottom-0 left-0 w-full select-none object-cover object-bottom opacity-[0.2]"
+        style={{ height: "210px", maxHeight: "none", objectPosition: "left bottom" }}
       />
 
-      <img
-        src={lpAsset("decorative/star-sparkle-1.png")}
-        alt=""
-        role="presentation"
-        className="pointer-events-none absolute left-8 top-8 hidden select-none opacity-38 md:block"
-        style={{ width: "32px", height: "32px" }}
-      />
 
-      <img
-        src={lpAsset("decorative/wave-corner.png")}
-        alt=""
-        role="presentation"
-        className="pointer-events-none absolute left-0 top-0 hidden select-none opacity-25 md:block"
-        style={{ width: "150px" }}
-      />
-
-      <div className="relative z-10 mx-auto max-w-[1200px] px-5 pb-6 pt-16 sm:px-8">
-        <div className="grid gap-10 2xl:grid-cols-[300px_1fr_260px]">
+      <div className="footer-content relative z-10 mx-auto max-w-[1500px] px-5 pb-6 pt-14 sm:px-8">
+        <div className="grid gap-12 xl:grid-cols-[330px_minmax(760px,1fr)] xl:items-start">
           <div>
             <div className="mb-7 flex items-center gap-4">
               <img
-                src={lpAsset("branding/compass-icon-navy.png")}
+                src={lpSectionAsset("footer/compass-icon-navy.png")}
                 alt="就活Pass"
                 style={{ width: "58px", height: "58px" }}
               />
@@ -100,10 +85,10 @@ export function LandingFooter() {
 
           <nav
             aria-label="フッターナビゲーション"
-            className="grid grid-cols-2 gap-x-9 gap-y-8 text-[16px] sm:grid-cols-4 md:gap-x-12"
+            className="footer-nav-grid grid grid-cols-2 gap-x-9 gap-y-8 text-[16px] sm:grid-cols-4 md:gap-x-12"
           >
             {FOOTER_COLUMNS.map((col) => (
-              <div key={col.title} className="flex flex-col gap-5">
+              <div key={col.title} className={`flex flex-col gap-5 ${col.title === "規約" ? "footer-legal-column" : ""}`}>
                 <span
                   className="text-[18px]"
                   style={{
@@ -125,6 +110,7 @@ export function LandingFooter() {
                       color: "var(--lp-navy)",
                       fontWeight: 700,
                       textDecoration: "none",
+                      whiteSpace: "nowrap",
                     }}
                   >
                     {link.label}
@@ -133,12 +119,10 @@ export function LandingFooter() {
               </div>
             ))}
           </nav>
-
-          <div aria-hidden="true" className="hidden 2xl:block" />
         </div>
 
         <div
-          className="mt-16 pt-7 text-center"
+          className="mt-10 pt-7 text-center"
           style={{ borderTop: "1px solid var(--lp-border-hairline)" }}
         >
           <p className="text-sm" style={{ color: "var(--lp-muted-text)" }}>
@@ -147,25 +131,45 @@ export function LandingFooter() {
         </div>
       </div>
 
-      <div
-        className="pointer-events-none absolute bottom-0 right-[1.5%] hidden select-none 2xl:flex"
-        style={{ opacity: 0.94 }}
-      >
-        <img
-          src={lpAsset("shukatsu_pass_transparent_assets/08_male_character.png")}
-          alt=""
-          role="presentation"
-          className="relative z-0 -mr-7 object-contain"
-          style={{ height: "285px" }}
-        />
-        <img
-          src={lpAsset("shukatsu_pass_transparent_assets/09_female_character.png")}
-          alt=""
-          role="presentation"
-          className="relative z-10 object-contain"
-          style={{ height: "285px" }}
-        />
-      </div>
+      <img
+        src={lpSectionAsset("footer/couple.png")}
+        alt=""
+        role="presentation"
+        className="pointer-events-none absolute bottom-[-18px] z-10 hidden select-none object-contain xl:block"
+        style={{
+          height: "340px",
+          right: "max(24px, calc((100vw - 1500px) / 2 + 24px))",
+        }}
+      />
+
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @media (min-width: 1280px) {
+              .footer-content {
+                padding-right: 380px;
+              }
+              .footer-nav-grid {
+                grid-template-columns: repeat(4, max-content);
+                column-gap: 58px;
+              }
+            }
+            @media (min-width: 1536px) {
+              .footer-nav-grid {
+                column-gap: 72px;
+              }
+            }
+            .footer-legal-column {
+              min-width: 250px;
+            }
+            @media (max-width: 639px) {
+              .footer-nav-link {
+                white-space: normal !important;
+              }
+            }
+          `,
+        }}
+      />
     </footer>
   );
 }

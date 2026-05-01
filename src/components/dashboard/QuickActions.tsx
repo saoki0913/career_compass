@@ -69,7 +69,7 @@ export function QuickActions({ onInterviewClick, onMotivationClick, className, i
               "group relative isolate flex items-center overflow-hidden transition-all hover:-translate-y-0.5",
               inline
                 ? "h-8 gap-1.5 rounded-lg border px-2.5 text-xs font-semibold shadow-sm"
-                : "min-h-24 gap-3 rounded-2xl px-5 py-4",
+                : "min-h-24 gap-3 rounded-xl px-5 py-4",
               inline ? tone.inline : tone.card,
             )}
           >

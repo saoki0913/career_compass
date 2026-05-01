@@ -38,7 +38,42 @@ describe("DashboardPageClient", () => {
     expect(source).toContain("lg:h-dvh");
     expect(source).toContain("lg:overflow-hidden");
     expect(source).toContain("maxOpenTasks");
-    expect(source).toContain("maxVisible");
+  });
+
+  it("renders standalone DeadlineCard below TodayTasksCard", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DashboardPageClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain("DeadlineCard");
+    expect(source).toContain("maxVisible={4}");
+  });
+
+  it("keeps deadlines out of TodayTasksCard", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DashboardPageClient.tsx", import.meta.url), "utf8");
+    expect(source).not.toContain("TodayTasksCard todayTask={todayTask} openTasks={openTasks} deadlines=");
+    expect(source).toContain("<DeadlineCard deadlines={deadlines}");
+  });
+
+  it("right column splits today tasks and deadlines", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DashboardPageClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain("grid-rows-[minmax(0,1fr)_minmax(220px,0.72fr)]");
+  });
+
+  it("passes task completion handler to task card", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DashboardPageClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain("toggleComplete");
+    expect(source).toContain("refreshOpenTasks");
+    expect(source).toContain("handleCompleteTodayTask");
+    expect(source).toContain("onCompleteTodayTask={handleCompleteTodayTask}");
+    expect(source).toContain("onToggleTask={toggleComplete}");
+  });
+
+  it("uses entrance animations on card sections", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DashboardPageClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain("animate-fade-up");
   });
 
   it("expands deadline lookahead when navigating future weeks", async () => {
