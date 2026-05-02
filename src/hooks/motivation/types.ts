@@ -10,7 +10,7 @@ import type {
   RoleOptionsResponse,
   RoleSelectionSource,
   StageStatus,
-} from "@/lib/motivation/ui";
+} from "@/features/motivation/domain/ui";
 
 export type ConversationPayload = Partial<
   Omit<
@@ -51,7 +51,6 @@ export type PendingCompleteData = {
 export interface MotivationSetupState {
   roleOptionsData: RoleOptionsResponse | null;
   isRoleOptionsLoading: boolean;
-  roleOptionsError: string | null;
   setupSnapshot: MotivationSetupSnapshot | null;
   selectedIndustry: string;
   selectedRoleName: string;

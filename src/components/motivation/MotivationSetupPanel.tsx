@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { findRoleOption, type RoleOptionsResponse, type RoleSelectionSource } from "@/lib/motivation/ui";
+import { findRoleOption, type RoleOptionsResponse, type RoleSelectionSource } from "@/features/motivation/domain/ui";
 
 export function MotivationSetupPanel({
   companyName,
@@ -21,7 +21,6 @@ export function MotivationSetupPanel({
   selectedRoleName,
   customRoleInput,
   roleOptionsData,
-  roleOptionsError,
   roleSelectionSource,
   isRoleOptionsLoading,
   isSetupComplete,
@@ -39,7 +38,6 @@ export function MotivationSetupPanel({
   selectedRoleName: string;
   customRoleInput: string;
   roleOptionsData: RoleOptionsResponse | null;
-  roleOptionsError: string | null;
   roleSelectionSource: RoleSelectionSource | null;
   isRoleOptionsLoading: boolean;
   isSetupComplete: boolean;
@@ -183,13 +181,7 @@ export function MotivationSetupPanel({
               </div>
             </div>
 
-            {roleOptionsError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/8 px-4 py-3 text-sm text-muted-foreground">
-                {roleOptionsError}
-              </div>
-            ) : null}
-
-            {!roleOptionsError && effectiveIndustry && (roleOptionsData?.roleGroups.length ?? 0) === 0 ? (
+            {effectiveIndustry && (roleOptionsData?.roleGroups.length ?? 0) === 0 ? (
               <p className="text-xs text-muted-foreground">
                 候補がないため、右側の自由入力で職種を指定してください。
               </p>

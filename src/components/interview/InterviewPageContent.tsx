@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 
@@ -10,10 +10,10 @@ import {
   ConversationWorkspaceShell,
 } from "@/components/chat/ConversationWorkspaceShell";
 import { ChatInput, ChatMessage, ThinkingIndicator } from "@/components/chat";
+import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { DrillPanel } from "@/components/interview/DrillPanel";
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import { InterviewConversationSkeleton } from "@/components/skeletons/InterviewConversationSkeleton";
-import { PrepPack } from "@/components/interview/PrepPack";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -80,9 +80,6 @@ import {
   type FeedbackHistoryItem,
   type MaterialCard,
 } from "@/lib/interview/ui";
-import { buildPrepPackSections } from "@/lib/interview/prep-pack";
-
-type LastFailedAction = "start" | "send" | "feedback" | "continue" | null;
 
 type InterviewLifecyclePhase = "questions" | "feedback" | "complete";
 
@@ -235,37 +232,6 @@ function InterviewMaterialsCard({ materials }: { materials: MaterialCard[] }) {
   );
 }
 
-function MaterialReadinessCard({
-  readiness,
-}: {
-  readiness: ReturnType<typeof useInterviewConversationController>["state"]["materialReadiness"];
-}) {
-  return (
-    <div className="space-y-3 rounded-xl border border-border/60 bg-muted/15 px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium">面接品質チェック</p>
-        <span className="rounded-full border border-border/60 bg-background px-2 py-0.5 text-[11px] text-muted-foreground">
-          {readiness.status === "strong" ? "十分" : readiness.status === "partial" ? "一部あり" : "少なめ"}
-        </span>
-      </div>
-      <p className="text-xs leading-5 text-muted-foreground">{readiness.summary}</p>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {readiness.items.map((item) => (
-          <div key={item.key} className="rounded-lg border border-border/50 bg-background px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium">{item.label}</span>
-              <span className={item.ready ? "text-[11px] text-emerald-700" : "text-[11px] text-amber-700"}>
-                {item.ready ? "あり" : "不足"}
-              </span>
-            </div>
-            <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{item.helper}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function FeedbackEvidenceList({
   feedback,
   compact = false,
@@ -409,19 +375,12 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
   const feedbackCardRef = useRef<HTMLDivElement | null>(null);
   const autoScrollEnabledRef = useRef(true);
   const lastAnnouncedFeedbackCompletionCountRef = useRef(0);
-  const [lastFailedAction, setLastFailedAction] = useState<LastFailedAction>(null);
 
   const { state, actions } = useInterviewConversationController({ companyId: normalizedCompanyId, enabled: Boolean(normalizedCompanyId) });
-  const { companyName, materials, messages, answer, feedback, streamingFeedback, feedbackHistories, selectedHistory, questionCount, stageStatus, turnState, turnMeta, interviewPlan, streamingLabel, pendingAssistantMessage, streamingText, isTextStreaming, isLoading, isGeneratingFeedback, isSavingSatisfaction, questionFlowCompleted, error, errorAction, persistenceUnavailable, legacySessionDetected, setupState, roleOptionsData, selectedRoleName, customRoleName, roleSelectionSource, effectiveIndustry, resolvedSelectedRole, setupComplete, hasStarted, isBusy, isComplete, visibleFeedback, canSend, canGenerateFeedback, canContinue, latestFeedbackHistory, feedbackHelperText, feedbackCompletionCount, billingCosts, modelLabels, materialReadiness, sessionState, shortCoaching } = state;
+  const { companyName, materials, messages, answer, feedback, streamingFeedback, feedbackHistories, selectedHistory, questionCount, stageStatus, turnMeta, streamingLabel, streamingText, isTextStreaming, isLoading, isGeneratingFeedback, isSavingSatisfaction, questionFlowCompleted, legacySessionDetected, setupState, roleOptionsData, selectedRoleName, customRoleName, roleSelectionSource, effectiveIndustry, resolvedSelectedRole, setupComplete, hasStarted, isBusy, isComplete, visibleFeedback, canSend, canGenerateFeedback, canContinue, latestFeedbackHistory, feedbackHelperText, feedbackCompletionCount, billingCosts, sessionState, shortCoaching } = state;
 
   const { weakestAxis } = useInterviewViewModel({ companyId, feedback });
-  const { setAnswer, setSetupState, setSelectedHistory, selectRole, setCustomRoleName, start: rawStart, send: rawSend, generateFeedback: rawGenerateFeedback, continueInterview: rawContinue, reset: handleReset, saveSatisfaction: handleSaveSatisfaction } = actions;
-
-  const handleStart = useCallback(async () => { setLastFailedAction(null); try { await rawStart(); } catch { setLastFailedAction("start"); } }, [rawStart]);
-  const handleSend = useCallback(async () => { setLastFailedAction(null); try { await rawSend(); } catch { setLastFailedAction("send"); } }, [rawSend]);
-  const handleGenerateFeedback = useCallback(async () => { setLastFailedAction(null); try { await rawGenerateFeedback(); } catch { setLastFailedAction("feedback"); } }, [rawGenerateFeedback]);
-  const handleContinue = useCallback(async () => { setLastFailedAction(null); try { await rawContinue(); } catch { setLastFailedAction("continue"); } }, [rawContinue]);
-  const handleRetry = useCallback(() => { if (lastFailedAction === "start") handleStart(); else if (lastFailedAction === "send") handleSend(); else if (lastFailedAction === "feedback") handleGenerateFeedback(); else if (lastFailedAction === "continue") handleContinue(); }, [lastFailedAction, handleStart, handleSend, handleGenerateFeedback, handleContinue]);
+  const { setAnswer, setSetupState, setSelectedHistory, selectRole, setCustomRoleName, start: handleStart, send: handleSend, generateFeedback: handleGenerateFeedback, continueInterview: handleContinue, reset: handleReset, saveSatisfaction: handleSaveSatisfaction } = actions;
 
   useEffect(() => { const viewport = conversationRef.current?.parentElement; if (!viewport) return; const handleScroll = () => { const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight; autoScrollEnabledRef.current = distanceFromBottom < 96; }; handleScroll(); viewport.addEventListener("scroll", handleScroll); return () => viewport.removeEventListener("scroll", handleScroll); }, [hasStarted]);
   useEffect(() => { if (!autoScrollEnabledRef.current) return; conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages.length, streamingText, streamingFeedback?.overall_comment, streamingFeedback?.improved_answer, streamingFeedback?.strengths.length, streamingFeedback?.improvements.length, streamingFeedback?.next_preparation.length, streamingFeedback?.consistency_risks.length]);
@@ -436,15 +395,18 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
         backHref={`/companies/${normalizedCompanyId}`}
         title="面接対策"
         subtitle={companyName || "企業特化模擬面接"}
-        actionBar={<ConversationActionBar helperText={feedbackHelperText} actionLabel="最終講評を作成" pendingLabel="講評を作成中..." onAction={handleGenerateFeedback} disabled={!canGenerateFeedback || persistenceUnavailable} isPending={isGeneratingFeedback} />}
+        actionBar={<ConversationActionBar helperText={feedbackHelperText} actionLabel="最終講評を作成" pendingLabel="講評を作成中..." onAction={handleGenerateFeedback} disabled={!canGenerateFeedback} isPending={isGeneratingFeedback} />}
         mobileStatus={<div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"><span>{turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || "開始前"}</span><span>{questionCount > 0 ? `${questionCount}問目` : "開始前"}</span></div>}
         conversation={
           !hasStarted ? (
             <div className="space-y-6 px-3 py-2 sm:px-4">
-              <div className="rounded-2xl border border-border/60 bg-muted/30 px-5 py-4"><p className="text-sm leading-7 text-foreground/90">開始前に応募職種、面接方式、選考種別、面接段階、面接官タイプ、厳しさを確認します。その前提で面接計画を作り、1問ずつ深掘りしながら企業に刺さる回答へ整えます。</p></div>
-              <MaterialReadinessCard readiness={materialReadiness} />
               <Card className="border-border/60">
-                <CardHeader><CardTitle className="text-base">面接の前提を決める</CardTitle></CardHeader>
+                <CardHeader className="space-y-2">
+                  <CardTitle className="text-base">面接設定</CardTitle>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    開始前に応募職種、面接方式、選考種別、面接段階、面接官タイプ、厳しさを設定します。
+                  </p>
+                </CardHeader>
                 <CardContent className="space-y-5">
                   {setupState.requiresIndustrySelection ? (<div className="space-y-2"><p className="text-sm font-medium">業界</p><Select value={effectiveIndustry || INDUSTRY_SELECT_UNSET} onValueChange={(value) => setSetupState((prev) => ({ ...prev, selectedIndustry: value === INDUSTRY_SELECT_UNSET ? null : value }))}><SelectTrigger className="w-full"><SelectValue placeholder="業界を選択" /></SelectTrigger><SelectContent><SelectItem value={INDUSTRY_SELECT_UNSET}>業界を選択</SelectItem>{setupState.industryOptions.map((industry) => (<SelectItem key={industry} value={industry}>{industry}</SelectItem>))}</SelectContent></Select></div>) : (<div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">業界: {effectiveIndustry || "未設定"}</div>)}
                   <div className="space-y-2"><p className="text-sm font-medium">職種</p><Select value={roleSelectionSource === "custom" ? ROLE_SELECT_UNSET : (selectedRoleName || ROLE_SELECT_UNSET)} onValueChange={(value) => { selectRole(value, ROLE_SELECT_UNSET); }}><SelectTrigger className="w-full"><SelectValue placeholder="候補から選択" /></SelectTrigger><SelectContent><SelectItem value={ROLE_SELECT_UNSET}>候補から選択</SelectItem>{roleOptionsData?.roleGroups.map((group) => (<SelectGroup key={group.id}><SelectLabel>{group.label}</SelectLabel>{group.options.map((option) => (<SelectItem key={`${group.id}-${option.value}`} value={option.value}>{option.label}</SelectItem>))}</SelectGroup>))}</SelectContent></Select><Input value={customRoleName} onChange={(event) => setCustomRoleName(event.target.value)} placeholder="候補にない場合は自由入力" /></div>
@@ -460,23 +422,18 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
                     {legacySessionDetected ? (
                       <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                         <p>以前の面接セッション形式が古いため、このまま続行できません。</p>
-                        <ResetConfirmButton onReset={handleReset} disabled={isBusy || persistenceUnavailable} variant="default" />
+                        <ResetConfirmButton onReset={handleReset} disabled={isBusy} variant="default" />
                       </div>
                     ) : (
                       <>
-                        <Button onClick={handleStart} disabled={!setupComplete || isBusy || persistenceUnavailable} className="w-full sm:w-auto">{isBusy ? (<><svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg><span className="ml-2">準備中...</span></>) : ("面接対策を始める")}</Button>
+                        <Button onClick={handleStart} disabled={!setupComplete || isBusy} className="w-full sm:w-auto">{isBusy ? (<><svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg><span className="ml-2">準備中...</span></>) : ("面接対策を始める")}</Button>
                         <p className="text-xs leading-5 text-muted-foreground">開始時に{billingCosts.start} credits、回答送信ごとに{billingCosts.turn} credit、最終講評は成功時に{billingCosts.feedback} creditsを消費します。</p>
-                        <p className="text-xs leading-5 text-muted-foreground">計画: {modelLabels.plan} / 質問: {modelLabels.question} / 講評: {modelLabels.feedback}</p>
-                        {!setupComplete && !isBusy && !persistenceUnavailable ? (<p className="text-xs text-muted-foreground">職種を入力すると開始できます</p>) : null}
+                        {!setupComplete && !isBusy ? (<p className="text-xs text-muted-foreground">職種を入力すると開始できます</p>) : null}
                       </>
                     )}
-                    {error ? (<div className="flex items-center gap-2"><p className="text-sm text-destructive">{error}</p>{lastFailedAction && !legacySessionDetected ? (<Button variant="outline" size="sm" onClick={handleRetry} disabled={isBusy}>再試行</Button>) : null}</div>) : null}
-                    {errorAction ? <p className="text-xs text-muted-foreground">{errorAction}</p> : null}
-                    {persistenceUnavailable ? (<div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">現在、面接対策の保存機能を一時的に利用できません。しばらくしてから再度お試しください。</div>) : null}
                   </div>
                 </CardContent>
               </Card>
-              <PrepPack companyName={companyName ?? null} sections={buildPrepPackSections({ materials, interviewPlan, recentFeedbackHistories: feedbackHistories })} />
             </div>
           ) : (
             <div ref={conversationRef} className="space-y-4">
@@ -484,17 +441,15 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
               <div className="rounded-2xl border border-border/60 bg-muted/15 px-4 py-4 text-sm text-muted-foreground"><div className="flex flex-wrap gap-x-4 gap-y-2"><span>職種: {resolvedSelectedRole || setupState.selectedRole || "未設定"}</span><span>職種分類: {ROLE_TRACK_LABELS[setupState.roleTrack]}</span><span>方式: {INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</span><span>段階: {INTERVIEW_STAGE_LABELS[setupState.interviewStage]}</span><span>面接官: {INTERVIEWER_TYPE_LABELS[setupState.interviewerType]}</span><span>厳しさ: {STRICTNESS_MODE_LABELS[setupState.strictnessMode]}</span></div>{turnMeta?.interviewSetupNote ? (<p className="mt-3 text-foreground/90">{turnMeta.interviewSetupNote}</p>) : null}</div>
               {messages.map((message, index) => (<ChatMessage key={`${message.role}-${index}-${message.content.slice(0, 20)}`} role={message.role} content={message.content} />))}
               {isBusy && !isTextStreaming && !streamingText && !streamingFeedback?.overall_comment && !streamingFeedback?.improved_answer ? (<ThinkingIndicator text={streamingLabel || (isGeneratingFeedback ? "最終講評をまとめています" : "次の質問を考え中")} />) : null}
-              {isTextStreaming && streamingText ? (<ChatMessage role="assistant" content={streamingText} isStreaming />) : null}
+              {isTextStreaming && streamingText ? (<StreamingChatMessage streamingText={streamingText} isStreaming={true} />) : null}
               {questionFlowCompleted && !feedback ? (<div className="rounded-2xl border border-border/60 bg-muted/20 px-5 py-4 text-sm text-muted-foreground">{questionCount}問の回答が完了しました。内容を振り返ったうえで、上部の「最終講評を作成」から企業別の講評を生成できます。</div>) : null}
-              {visibleFeedback ? (<div ref={feedbackCardRef} className="space-y-3"><InterviewFeedbackCard feedback={visibleFeedback} isStreaming={!feedback} currentHistory={feedback ? latestFeedbackHistory : null} onSaveSatisfaction={feedback ? handleSaveSatisfaction : undefined} isSavingSatisfaction={isSavingSatisfaction} />{feedback ? (<>{feedback.weakest_turn_id && feedback.weakest_question_snapshot && normalizedCompanyId ? (<Collapsible><CollapsibleTrigger asChild><Button variant="outline" className="w-full justify-between">最弱回答を書き直して再採点する<ChevronDown className="h-4 w-4" /></Button></CollapsibleTrigger><CollapsibleContent className="mt-3"><DrillPanel companyId={normalizedCompanyId} weakestTurnId={feedback.weakest_turn_id} weakestQuestion={feedback.weakest_question_snapshot} weakestAnswer={feedback.weakest_answer_snapshot ?? ""} weakestAxis={weakestAxis ?? "specificity"} originalScore={weakestAxis ? (feedback.scores[weakestAxis as keyof Feedback["scores"]] ?? 0) : 0} originalScores={feedback.scores as Record<string, number>} originalFeedbackId={latestFeedbackHistory?.id} interviewFormat={setupState.interviewFormat} interviewerType={setupState.interviewerType} strictnessMode={setupState.strictnessMode} /></CollapsibleContent></Collapsible>) : null}<div className="flex flex-wrap gap-3"><Button onClick={handleContinue} disabled={!canContinue || persistenceUnavailable}>面接対策を続ける（{billingCosts.continue} credit）</Button><ResetConfirmButton onReset={handleReset} disabled={isBusy || persistenceUnavailable} /></div><p className="text-xs text-muted-foreground"><Link href="/interview/dashboard" className="text-primary underline-offset-2 hover:underline">成長ダッシュボードで推移を見る →</Link></p></>) : null}</div>) : null}
-              {error ? (<div className="flex items-center gap-2"><p className="text-sm text-destructive">{error}</p>{lastFailedAction && !legacySessionDetected ? (<Button variant="outline" size="sm" onClick={handleRetry} disabled={isBusy}>再試行</Button>) : null}</div>) : null}
-              {errorAction ? <p className="text-xs text-muted-foreground">{errorAction}</p> : null}
+              {visibleFeedback ? (<div ref={feedbackCardRef} className="space-y-3"><InterviewFeedbackCard feedback={visibleFeedback} isStreaming={!feedback} currentHistory={feedback ? latestFeedbackHistory : null} onSaveSatisfaction={feedback ? handleSaveSatisfaction : undefined} isSavingSatisfaction={isSavingSatisfaction} />{feedback ? (<>{feedback.weakest_turn_id && feedback.weakest_question_snapshot && normalizedCompanyId ? (<Collapsible><CollapsibleTrigger asChild><Button variant="outline" className="w-full justify-between">最弱回答を書き直して再採点する<ChevronDown className="h-4 w-4" /></Button></CollapsibleTrigger><CollapsibleContent className="mt-3"><DrillPanel companyId={normalizedCompanyId} weakestTurnId={feedback.weakest_turn_id} weakestQuestion={feedback.weakest_question_snapshot} weakestAnswer={feedback.weakest_answer_snapshot ?? ""} weakestAxis={weakestAxis ?? "specificity"} originalScore={weakestAxis ? (feedback.scores[weakestAxis as keyof Feedback["scores"]] ?? 0) : 0} originalScores={feedback.scores as Record<string, number>} originalFeedbackId={latestFeedbackHistory?.id} interviewFormat={setupState.interviewFormat} interviewerType={setupState.interviewerType} strictnessMode={setupState.strictnessMode} /></CollapsibleContent></Collapsible>) : null}<div className="flex flex-wrap gap-3"><Button onClick={handleContinue} disabled={!canContinue}>面接対策を続ける（{billingCosts.continue} credit）</Button><ResetConfirmButton onReset={handleReset} disabled={isBusy} /></div><p className="text-xs text-muted-foreground"><Link href="/interview/dashboard" className="text-primary underline-offset-2 hover:underline">成長ダッシュボードで推移を見る →</Link></p></>) : null}</div>) : null}
               <div ref={conversationEndRef} />
             </div>
           )
         }
-        composer={hasStarted && !isComplete ? (questionFlowCompleted ? (<p className="text-sm text-muted-foreground">模擬面接は完了です。必要になったら上部のボタンから最終講評を作成してください。</p>) : (<div className="space-y-2">{shortCoaching?.next_edit ? (<div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground"><span className="font-medium text-foreground">回答ヒント: </span>{shortCoaching.next_edit}</div>) : null}<ChatInput value={answer} onChange={setAnswer} onSend={handleSend} isSending={isBusy} disableSend={!canSend || persistenceUnavailable} placeholder="回答を入力..." className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0" /></div>)) : undefined}
-        sidebar={<><ConversationSidebarCard title="進捗" actions={hasStarted ? (<ResetConfirmButton onReset={handleReset} disabled={isBusy || persistenceUnavailable} size="sm" className="h-9 rounded-xl px-3 text-xs shadow-sm" />) : null}><InterviewProgressCard stageStatus={stageStatus} questionCount={questionCount} questionFlowCompleted={questionFlowCompleted} hasFeedback={!!feedback} /></ConversationSidebarCard><ConversationSidebarCard title="面接設定"><div className="space-y-2 text-xs text-muted-foreground"><p>業界: {effectiveIndustry || "未設定"}</p><p>職種: {resolvedSelectedRole || setupState.selectedRole || "未設定"}</p><p>職種分類: {ROLE_TRACK_LABELS[setupState.roleTrack]}</p><p>面接方式: {INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</p><p>選考種別: {SELECTION_TYPE_LABELS[setupState.selectionType]}</p><p>面接段階: {INTERVIEW_STAGE_LABELS[setupState.interviewStage]}</p><p>面接官: {INTERVIEWER_TYPE_LABELS[setupState.interviewerType]}</p><p>厳しさ: {STRICTNESS_MODE_LABELS[setupState.strictnessMode]}</p></div></ConversationSidebarCard><ConversationSidebarCard title="参考にする材料"><InterviewMaterialsCard materials={materials} /></ConversationSidebarCard><ConversationSidebarCard title="過去の最終講評"><FeedbackHistoryList histories={feedbackHistories} onOpen={setSelectedHistory} /></ConversationSidebarCard></>}
+        composer={hasStarted && !isComplete ? (questionFlowCompleted ? (<p className="text-sm text-muted-foreground">模擬面接は完了です。必要になったら上部のボタンから最終講評を作成してください。</p>) : (<div className="space-y-2">{shortCoaching?.next_edit ? (<div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground"><span className="font-medium text-foreground">回答ヒント: </span>{shortCoaching.next_edit}</div>) : null}<ChatInput value={answer} onChange={setAnswer} onSend={handleSend} isSending={isBusy} disableSend={!canSend} placeholder="回答を入力..." className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0" /></div>)) : undefined}
+        sidebar={<><ConversationSidebarCard title="進捗" actions={hasStarted ? (<ResetConfirmButton onReset={handleReset} disabled={isBusy} size="sm" className="h-9 rounded-xl px-3 text-xs shadow-sm" />) : null}><InterviewProgressCard stageStatus={stageStatus} questionCount={questionCount} questionFlowCompleted={questionFlowCompleted} hasFeedback={!!feedback} /></ConversationSidebarCard><ConversationSidebarCard title="面接設定"><div className="space-y-2 text-xs text-muted-foreground"><p>業界: {effectiveIndustry || "未設定"}</p><p>職種: {resolvedSelectedRole || setupState.selectedRole || "未設定"}</p><p>職種分類: {ROLE_TRACK_LABELS[setupState.roleTrack]}</p><p>面接方式: {INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</p><p>選考種別: {SELECTION_TYPE_LABELS[setupState.selectionType]}</p><p>面接段階: {INTERVIEW_STAGE_LABELS[setupState.interviewStage]}</p><p>面接官: {INTERVIEWER_TYPE_LABELS[setupState.interviewerType]}</p><p>厳しさ: {STRICTNESS_MODE_LABELS[setupState.strictnessMode]}</p></div></ConversationSidebarCard><ConversationSidebarCard title="参考にする材料"><InterviewMaterialsCard materials={materials} /></ConversationSidebarCard><ConversationSidebarCard title="過去の最終講評"><FeedbackHistoryList histories={feedbackHistories} onOpen={setSelectedHistory} /></ConversationSidebarCard></>}
       />
       <Dialog open={Boolean(selectedHistory)} onOpenChange={(open) => !open && setSelectedHistory(null)}>
         <DialogContent className="flex max-h-[90dvh] max-w-3xl flex-col gap-0 overflow-hidden p-0">
