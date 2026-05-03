@@ -6,12 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/componen
 import type { Deadline } from "@/hooks/useDeadlines";
 import { cn } from "@/lib/utils";
 
-function getDaysLeftColor(daysLeft: number) {
-  if (daysLeft <= 3) return "text-red-600 bg-red-50";
-  if (daysLeft <= 7) return "text-orange-600 bg-orange-50";
-  return "text-emerald-600 bg-emerald-50";
-}
-
 function getDaysLeftDisplay(daysLeft: number) {
   if (daysLeft === 0) return "今日!";
   if (daysLeft === 1) return "明日!";
@@ -31,11 +25,11 @@ export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
   return (
     <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1" data-testid="dashboard-deadline-card">
       <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
-        <CardTitle className="text-lg">締切</CardTitle>
+        <CardTitle className="text-base font-semibold tracking-tight">締切</CardTitle>
         <CardAction>
           <Link
             href="/calendar"
-            className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground"
+            className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
             すべて見る
           </Link>
@@ -43,30 +37,30 @@ export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
         {visible.length === 0 ? (
-          <div className="flex h-full min-h-[150px] flex-col items-center justify-center px-4 py-2 text-center">
+          <div className="flex h-full min-h-[120px] flex-col items-center justify-center px-4 py-2 text-center">
             <Image
               src="/dashboard/assets/image_05.png"
               alt=""
               width={1254}
               height={1254}
-              className="h-24 w-24 object-contain"
+              className="h-20 w-20 object-contain"
             />
             <p className="mt-1 text-sm font-semibold">今週の締切はありません</p>
             <p className="mt-0.5 text-xs text-muted-foreground">この調子で進めましょう</p>
           </div>
         ) : (
-          <div className="space-y-1 overflow-hidden pb-1">
+          <div className="space-y-0.5 overflow-hidden pb-1">
             {visible.map((dl) => {
               const due = new Date(dl.dueDate);
-              const color = getDaysLeftColor(dl.daysLeft);
+              const isUrgent = dl.daysLeft <= 3;
               return (
                 <Link
                   key={dl.id}
                   href={`/companies/${dl.companyId}`}
-                  className="group flex min-h-10 items-center gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-muted/40"
+                  className="group flex min-h-8 items-center gap-2.5 rounded-lg px-3 py-1.5 transition-colors hover:bg-muted/40"
                 >
-                  <span className="flex h-8 w-8 shrink-0 flex-col items-center justify-center rounded-lg bg-blue-50 text-[10px] font-bold leading-none text-blue-700">
-                    <span>{due.getMonth() + 1}/{due.getDate()}</span>
+                  <span className="w-10 shrink-0 text-center text-xs font-medium tabular-nums text-muted-foreground">
+                    {due.getMonth() + 1}/{due.getDate()}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{dl.company}</p>
@@ -74,8 +68,8 @@ export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
                   </div>
                   <span
                     className={cn(
-                      "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                      color,
+                      "shrink-0 text-[11px]",
+                      isUrgent ? "font-medium text-destructive" : "text-muted-foreground",
                     )}
                   >
                     {getDaysLeftDisplay(dl.daysLeft)}

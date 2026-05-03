@@ -27,11 +27,16 @@ describe("DeadlineCard", () => {
     expect(mod.DeadlineCard).toBeDefined();
   });
 
-  it("uses compact padding for sidebar layout", async () => {
+  it("uses monochrome design matching TodayTasksCard", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./DeadlineCard.tsx", import.meta.url), "utf8");
     expect(source).toContain("py-1.5");
-    expect(source).toContain("py-1");
+    expect(source).toContain("text-muted-foreground");
+    expect(source).toContain("text-destructive");
+    expect(source).not.toContain("bg-blue-50");
+    expect(source).not.toContain("bg-red-50");
+    expect(source).not.toContain("bg-emerald-50");
+    expect(source).not.toContain("getDaysLeftColor");
   });
 
   it("supports dashboard-controlled deadline density", async () => {

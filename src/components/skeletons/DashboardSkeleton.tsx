@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Skeleton, SkeletonButton, SkeletonPill } from "@/components/ui/skeleton";
+import { Skeleton, SkeletonButton } from "@/components/ui/skeleton";
 
 export function DashboardSkeleton() {
   return (
@@ -17,7 +17,7 @@ export function DashboardSkeleton() {
           <Skeleton className="h-4 w-36 rounded hidden lg:block" shimmerDelayMs={40} />
           <div className="ml-auto hidden lg:flex items-center gap-1.5">
             {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-7 w-20 rounded-lg" shimmerDelayMs={i * 30} />
+              <Skeleton key={i} className="h-9 w-22 rounded-lg" shimmerDelayMs={i * 30} />
             ))}
           </div>
         </div>
@@ -74,8 +74,8 @@ export function DashboardSkeleton() {
                     <div key={i}>
                       <Skeleton className="h-7 w-full rounded-lg" shimmerDelayMs={i * 30} />
                       <div className="mt-1 space-y-0.5">
-                        <Skeleton className="h-10 w-full rounded-md" shimmerDelayMs={i * 30 + 15} />
-                        <Skeleton className="h-10 w-full rounded-md" shimmerDelayMs={i * 30 + 30} />
+                        <Skeleton className="h-11 w-full rounded-lg" shimmerDelayMs={i * 30 + 15} />
+                        <Skeleton className="h-11 w-full rounded-lg" shimmerDelayMs={i * 30 + 30} />
                       </div>
                     </div>
                   ))}
@@ -88,26 +88,25 @@ export function DashboardSkeleton() {
           <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(220px,0.72fr)] gap-3 lg:gap-2 lg:overflow-hidden">
             <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1.5">
               <CardHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 px-4 lg:px-5">
-                <Skeleton className="h-6 w-28 rounded-md" shimmerDelayMs={0} />
-                <SkeletonPill className="h-6 w-14" shimmerDelayMs={40} />
+                <Skeleton className="h-5 w-28 rounded-md" shimmerDelayMs={0} />
+                <Skeleton className="h-4 w-12 rounded" shimmerDelayMs={40} />
               </CardHeader>
               <CardContent className="min-h-0 flex-1 space-y-3 overflow-hidden px-4 lg:px-5">
-                {/* Urgency section skeletons */}
                 {Array.from({ length: 3 }).map((_, section) => (
                   <div key={section} className="space-y-1">
-                    <div className="flex items-center gap-2 py-1">
-                      <Skeleton className="h-3.5 w-3.5 rounded" shimmerDelayMs={section * 80} />
-                      <Skeleton className="h-3.5 w-12 rounded" shimmerDelayMs={section * 80 + 10} />
-                      <Skeleton className="h-4 w-5 rounded-full" shimmerDelayMs={section * 80 + 20} />
+                    <div className="flex items-center gap-2 pt-2 pb-1">
+                      <Skeleton className="h-3 w-10 rounded" shimmerDelayMs={section * 80} />
+                      <Skeleton className="h-3 w-4 rounded" shimmerDelayMs={section * 80 + 10} />
+                      <div className="h-px flex-1 bg-border/30" />
                     </div>
                     {Array.from({ length: 2 }).map((_, i) => (
-                      <div key={i} className="flex items-center gap-2 rounded-lg px-2 py-1.5">
-                        <Skeleton className="h-4 w-4 shrink-0 rounded-full" shimmerDelayMs={section * 80 + i * 40 + 30} />
+                      <div key={i} className="flex items-center gap-3 rounded-lg px-3 py-2">
+                        <Skeleton className="h-[18px] w-[18px] shrink-0 rounded" shimmerDelayMs={section * 80 + i * 40 + 30} />
                         <div className="min-w-0 flex-1 space-y-1">
                           <Skeleton className="h-3.5 w-32 rounded-md" shimmerDelayMs={section * 80 + i * 40 + 40} />
                           <Skeleton className="h-3 w-20 rounded-md" shimmerDelayMs={section * 80 + i * 40 + 50} />
                         </div>
-                        <SkeletonPill className="h-5 w-12" shimmerDelayMs={section * 80 + i * 40 + 60} />
+                        <Skeleton className="h-3 w-14 rounded" shimmerDelayMs={section * 80 + i * 40 + 60} />
                       </div>
                     ))}
                   </div>
@@ -116,18 +115,18 @@ export function DashboardSkeleton() {
             </Card>
             <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1">
               <CardHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 px-4 lg:px-5">
-                <Skeleton className="h-6 w-14 rounded-md" shimmerDelayMs={0} />
-                <SkeletonPill className="h-6 w-20" shimmerDelayMs={40} />
+                <Skeleton className="h-5 w-14 rounded-md" shimmerDelayMs={0} />
+                <Skeleton className="h-4 w-16 rounded" shimmerDelayMs={40} />
               </CardHeader>
-              <CardContent className="min-h-0 flex-1 space-y-2 overflow-hidden px-4 lg:px-5">
+              <CardContent className="min-h-0 flex-1 space-y-1 overflow-hidden px-4 lg:px-5">
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="flex min-h-10 items-center gap-2 rounded-lg px-2 py-1">
-                    <Skeleton className="h-8 w-8 shrink-0 rounded-lg" shimmerDelayMs={i * 40} />
+                  <div key={i} className="flex min-h-8 items-center gap-2.5 rounded-lg px-3 py-1.5">
+                    <Skeleton className="h-4 w-10 shrink-0 rounded" shimmerDelayMs={i * 40} />
                     <div className="min-w-0 flex-1 space-y-1">
                       <Skeleton className="h-3.5 w-28 rounded-md" shimmerDelayMs={i * 40 + 10} />
                       <Skeleton className="h-3 w-20 rounded-md" shimmerDelayMs={i * 40 + 20} />
                     </div>
-                    <SkeletonPill className="h-5 w-12" shimmerDelayMs={i * 40 + 30} />
+                    <Skeleton className="h-3 w-12 rounded" shimmerDelayMs={i * 40 + 30} />
                   </div>
                 ))}
               </CardContent>

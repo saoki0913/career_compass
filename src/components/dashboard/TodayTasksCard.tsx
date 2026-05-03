@@ -6,20 +6,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TASK_TYPE_LABELS, type Task, type TaskType, type TodayTask } from "@/hooks/useTasks";
 import { cn } from "@/lib/utils";
-import { AlertTriangle, Calendar, Flag, Plus, Star } from "lucide-react";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const taskTypeBadgeStyles: Record<TaskType, { bg: string; text: string }> = {
-  es: { bg: "bg-blue-100", text: "text-blue-700" },
-  web_test: { bg: "bg-purple-100", text: "text-purple-700" },
-  self_analysis: { bg: "bg-emerald-100", text: "text-emerald-700" },
-  gakuchika: { bg: "bg-emerald-100", text: "text-emerald-700" },
-  video: { bg: "bg-pink-100", text: "text-pink-700" },
-  other: { bg: "bg-gray-100", text: "text-gray-700" },
-};
+import { Plus } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // JST daysLeft helper
@@ -34,44 +21,6 @@ function getJSTDaysLeft(dueDate: string | null | undefined): number | null {
   jstNow.setHours(0, 0, 0, 0);
   jstDue.setHours(0, 0, 0, 0);
   return Math.ceil((jstDue.getTime() - jstNow.getTime()) / (1000 * 60 * 60 * 24));
-}
-
-// ---------------------------------------------------------------------------
-// Priority helpers
-// ---------------------------------------------------------------------------
-
-type PriorityLevel = "high" | "medium" | "low";
-
-function getPriority(daysLeft: number | null): PriorityLevel {
-  if (daysLeft === null) return "low";
-  if (daysLeft <= 1) return "high";
-  if (daysLeft <= 3) return "medium";
-  return "low";
-}
-
-function PriorityDot({ priority }: { priority: PriorityLevel }) {
-  return (
-    <span className="flex items-center gap-0.5">
-      <span
-        className={cn(
-          "h-2 w-2 rounded-full",
-          priority === "high" && "bg-red-500",
-          priority === "medium" && "bg-orange-500",
-          priority === "low" && "border border-muted-foreground/40"
-        )}
-      />
-      <span
-        className={cn(
-          "text-[10px] font-medium",
-          priority === "high" && "text-red-600",
-          priority === "medium" && "text-orange-600",
-          priority === "low" && "text-muted-foreground"
-        )}
-      >
-        {priority === "high" ? "高" : priority === "medium" ? "中" : "低"}
-      </span>
-    </span>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -98,36 +47,21 @@ function isUrgentDeadline(daysLeft: number | null): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Section header
+// Section header — Linear-style text divider
 // ---------------------------------------------------------------------------
 
-function SectionHeader({
-  icon,
-  label,
-  count,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-  color: "red" | "blue";
-}) {
-  const textColor = color === "red" ? "text-red-600" : "text-blue-600";
-  const badgeBg = color === "red" ? "bg-red-100 text-red-700" : "bg-blue-100 text-blue-700";
-
+function SectionHeader({ label, count }: { label: string; count: number }) {
   return (
-    <div className="flex items-center gap-2 py-2">
-      <span className={cn("shrink-0", textColor)}>{icon}</span>
-      <span className={cn("text-sm font-semibold", textColor)}>{label}</span>
-      <span className={cn("rounded-full px-1.5 py-0.5 text-xs font-bold", badgeBg)}>
-        {count}
-      </span>
+    <div className="flex items-center gap-2 pb-1 pt-3">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground/50">{count}</span>
+      <div className="h-px flex-1 bg-border" />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Task row
+// Task row — flat list item with hover feedback
 // ---------------------------------------------------------------------------
 
 function ItemRow({
@@ -142,13 +76,12 @@ function ItemRow({
   const title = displayItem.item.title;
   const companyName = displayItem.item.company?.name ?? displayItem.item.application?.name ?? null;
   const type: TaskType = displayItem.item.type;
-  const priority = getPriority(daysLeft);
   const deadlineText = formatDeadlineText(daysLeft);
   const urgent = isUrgentDeadline(daysLeft);
   const canToggle = Boolean(onToggle);
 
   return (
-    <div className="group flex items-center gap-3 rounded-lg p-2 transition-colors hover:bg-muted/30">
+    <div className="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted/40">
       <button
         type="button"
         onClick={(e) => {
@@ -159,10 +92,10 @@ function ItemRow({
         }}
         disabled={!canToggle}
         className={cn(
-          "h-5 w-5 shrink-0 rounded-full border-2 transition-colors",
+          "h-[18px] w-[18px] shrink-0 rounded border transition-colors",
           canToggle
-            ? "border-muted-foreground/40 hover:bg-primary/10 cursor-pointer"
-            : "border-muted-foreground/20 cursor-default"
+            ? "border-border hover:border-foreground/40 cursor-pointer"
+            : "border-border/60 cursor-default"
         )}
         title={canToggle ? "完了にする" : undefined}
         aria-label={`${title}を完了にする`}
@@ -180,28 +113,20 @@ function ItemRow({
         )}
       </div>
 
-      {/* Metadata badges */}
       <div className="flex shrink-0 items-center gap-2">
+        <span className="hidden text-[11px] text-muted-foreground sm:inline">
+          {TASK_TYPE_LABELS[type]}
+        </span>
         {deadlineText && (
           <span
             className={cn(
-              "hidden rounded px-1.5 py-0.5 text-[10px] font-medium sm:inline-block",
-              urgent ? "bg-red-100 text-red-700" : "bg-orange-100 text-orange-700"
+              "text-[11px]",
+              urgent ? "font-medium text-destructive" : "text-muted-foreground"
             )}
           >
             {deadlineText}
           </span>
         )}
-        <span
-          className={cn(
-            "hidden rounded px-1.5 py-0.5 text-[10px] font-medium sm:inline-block",
-            taskTypeBadgeStyles[type].bg,
-            taskTypeBadgeStyles[type].text
-          )}
-        >
-          {TASK_TYPE_LABELS[type]}
-        </span>
-        <PriorityDot priority={priority} />
       </div>
     </div>
   );
@@ -233,12 +158,10 @@ export function TodayTasksCard({
   onCompleteTodayTask,
   onToggleTask,
 }: TodayTasksCardProps) {
-  // Resolve daysLeft for the today-task
   const todayTaskDueRaw =
     todayTask.task?.dueDate ?? todayTask.task?.deadline?.dueDate ?? null;
   const todayTaskDaysLeft = getJSTDaysLeft(todayTaskDueRaw);
 
-  // Build grouped display lists
   const { dueTodayItems, thisWeekItems, laterItems } = useMemo(() => {
     const todayTaskId = todayTask.task?.id ?? null;
 
@@ -283,13 +206,16 @@ export function TodayTasksCard({
   const hasAnyContent = hasTodayTask || hasDueToday || hasThisWeek || hasLater;
   const completeTodayTask = onCompleteTodayTask ?? todayTask.markComplete;
 
+  const todayTaskDeadlineText = formatDeadlineText(todayTaskDaysLeft);
+  const todayTaskUrgent = isUrgentDeadline(todayTaskDaysLeft);
+
   return (
     <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1.5" data-testid="dashboard-today-task-card">
       <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
-        <CardTitle className="text-lg">今日のタスク</CardTitle>
+        <CardTitle className="text-base font-semibold tracking-tight">今日のタスク</CardTitle>
         <Link
           href="/tasks"
-          className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+          className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
         >
           すべて
         </Link>
@@ -316,36 +242,21 @@ export function TodayTasksCard({
             {/* ---------- Section 1: Top Priority ---------- */}
             {hasTodayTask && todayTask.task && (
               <>
-                <SectionHeader
-                  icon={<Flag className="h-4 w-4" />}
-                  label="最優先"
-                  count={1}
-                  color="red"
-                />
-                <div className="group rounded-xl border border-border bg-card p-3">
-                  <div className="flex items-start gap-2.5">
-                    {/* Checkbox */}
+                <SectionHeader label="最優先" count={1} />
+                <div className="rounded-lg bg-muted/30 px-3 py-2.5">
+                  <div className="flex items-center gap-3">
                     <button
                       type="button"
                       onClick={() => void completeTodayTask()}
-                      className="mt-0.5 h-5 w-5 shrink-0 rounded-full border-2 border-muted-foreground/40 transition-colors hover:bg-primary/10"
+                      className="h-[18px] w-[18px] shrink-0 rounded border border-border transition-colors hover:border-foreground/40"
                       title="完了にする"
                       aria-label={`${todayTask.task.title}を完了にする`}
                     />
 
-                    {/* Body */}
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-1 text-primary">
-                        <Star className="h-4 w-4 fill-current" aria-hidden="true" />
-                        <span className="text-xs font-medium">
-                          今日の最重要タスク
-                          {todayTask.mode === "DEEP_DIVE" && " · 深掘り"}
-                        </span>
-                      </div>
-
+                    <div className="min-w-0 flex-1">
                       <Link
                         href="/tasks"
-                        className="text-sm font-medium leading-snug hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
+                        className="text-sm font-semibold leading-snug hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded"
                       >
                         <p className="line-clamp-1">{todayTask.task.title}</p>
                       </Link>
@@ -355,38 +266,23 @@ export function TodayTasksCard({
                           {todayTask.task.company.name}
                         </p>
                       )}
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        {/* Type badge */}
-                        <span
-                          className={cn(
-                            "rounded px-1.5 py-0.5 text-[10px] font-medium",
-                            taskTypeBadgeStyles[todayTask.task.type].bg,
-                            taskTypeBadgeStyles[todayTask.task.type].text
-                          )}
-                        >
-                          {TASK_TYPE_LABELS[todayTask.task.type]}
-                        </span>
-
-                        {/* Deadline badge */}
-                        {todayTaskDaysLeft !== null && (
-                          <span
-                            className={cn(
-                              "rounded px-1.5 py-0.5 text-[10px] font-medium",
-                              isUrgentDeadline(todayTaskDaysLeft)
-                                ? "bg-red-100 text-red-700"
-                                : "bg-orange-100 text-orange-700"
-                            )}
-                          >
-                            {formatDeadlineText(todayTaskDaysLeft)}
-                          </span>
-                        )}
-
-                        {/* Priority */}
-                        <PriorityDot priority={getPriority(todayTaskDaysLeft)} />
-                      </div>
                     </div>
 
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                        {TASK_TYPE_LABELS[todayTask.task.type]}
+                      </span>
+                      {todayTaskDeadlineText && (
+                        <span
+                          className={cn(
+                            "text-[11px]",
+                            todayTaskUrgent ? "font-medium text-destructive" : "text-muted-foreground"
+                          )}
+                        >
+                          {todayTaskDeadlineText}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </>
@@ -395,13 +291,7 @@ export function TodayTasksCard({
             {/* ---------- Section 2: Due Today ---------- */}
             {hasDueToday && (
               <>
-                {hasTodayTask && <div className="h-px bg-border/50 my-1" />}
-                <SectionHeader
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                  label="今日中"
-                  count={dueTodayItems.length}
-                  color="red"
-                />
+                <SectionHeader label="今日中" count={dueTodayItems.length} />
                 <div className="space-y-0.5">
                   {dueTodayItems.map((di) => (
                     <ItemRow
@@ -417,15 +307,7 @@ export function TodayTasksCard({
             {/* ---------- Section 3: This Week ---------- */}
             {hasThisWeek && (
               <>
-                {(hasTodayTask || hasDueToday) && (
-                  <div className="h-px bg-border/50 my-1" />
-                )}
-                <SectionHeader
-                  icon={<Calendar className="h-4 w-4" />}
-                  label="今週"
-                  count={thisWeekItems.length}
-                  color="blue"
-                />
+                <SectionHeader label="今週" count={thisWeekItems.length} />
                 <div className="space-y-0.5">
                   {thisWeekItems.map((di) => (
                     <ItemRow
@@ -440,15 +322,7 @@ export function TodayTasksCard({
 
             {hasLater && (
               <>
-                {(hasTodayTask || hasDueToday || hasThisWeek) && (
-                  <div className="h-px bg-border/50 my-1" />
-                )}
-                <SectionHeader
-                  icon={<Calendar className="h-4 w-4" />}
-                  label="その他"
-                  count={laterItems.length}
-                  color="blue"
-                />
+                <SectionHeader label="その他" count={laterItems.length} />
                 <div className="space-y-0.5">
                   {laterItems.map((di) => (
                     <ItemRow
@@ -462,13 +336,15 @@ export function TodayTasksCard({
             )}
 
             {/* ---------- Add task link ---------- */}
-            <Link
-              href="/tasks"
-              className="flex items-center gap-1 pt-2 text-sm text-primary transition-colors hover:text-primary/80"
-            >
-              <Plus className="h-4 w-4" />
-              <span>タスクを追加</span>
-            </Link>
+            <div className="pt-3">
+              <Link
+                href="/tasks"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground py-2"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>タスクを追加</span>
+              </Link>
+            </div>
           </div>
         )}
       </CardContent>

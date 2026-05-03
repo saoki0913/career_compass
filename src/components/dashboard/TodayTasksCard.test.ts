@@ -47,12 +47,13 @@ describe("TodayTasksCard", () => {
     expect(mod.TodayTasksCard).toBeDefined();
   });
 
-  it("uses compact padding and section separators", async () => {
+  it("uses Linear-style flat list layout with hover feedback", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./TodayTasksCard.tsx", import.meta.url), "utf8");
-    expect(source).toContain("p-2");
-    expect(source).toContain("my-1");
-    expect(source).not.toMatch(/\bmy-3\b/);
+    expect(source).toContain("hover:bg-muted/40");
+    expect(source).toContain("rounded-lg");
+    expect(source).not.toContain("border-l-[3px]");
+    expect(source).not.toContain("taskTypeBadgeStyles");
   });
 
   it("supports dashboard-controlled open task density via maxOpenTasks", async () => {
@@ -90,11 +91,15 @@ describe("TodayTasksCard", () => {
     expect(source).not.toContain("confirmedDeadlines");
   });
 
-  it("does not wrap entire task rows in Link (no nested interactive elements)", async () => {
+  it("uses monochrome design without colored badges or priority dots", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./TodayTasksCard.tsx", import.meta.url), "utf8");
-    // The ItemRow wrapper should be a div, not a Link
-    expect(source).toContain('<div className="group flex items-center gap-3 rounded-lg p-2');
+    expect(source).toContain("text-muted-foreground");
+    expect(source).toContain("text-destructive");
+    expect(source).not.toContain("PriorityDot");
+    expect(source).not.toContain("bg-amber-");
+    expect(source).not.toContain("bg-blue-50");
+    expect(source).not.toContain("bg-violet-50");
   });
 
   it("uses dashboard assets and a real task toggle callback", async () => {
@@ -129,5 +134,14 @@ describe("TodayTasksCard", () => {
     );
 
     expect(html).not.toContain("その他のアクション");
+  });
+
+  it("uses Linear-style section dividers instead of colored headers", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./TodayTasksCard.tsx", import.meta.url), "utf8");
+    expect(source).toContain("h-px flex-1 bg-border");
+    expect(source).not.toContain("AlertTriangle");
+    expect(source).not.toContain("Flag");
+    expect(source).not.toContain("Star");
   });
 });
