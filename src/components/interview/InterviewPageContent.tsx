@@ -377,7 +377,7 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
   const lastAnnouncedFeedbackCompletionCountRef = useRef(0);
 
   const { state, actions } = useInterviewConversationController({ companyId: normalizedCompanyId, enabled: Boolean(normalizedCompanyId) });
-  const { companyName, materials, messages, answer, feedback, streamingFeedback, feedbackHistories, selectedHistory, questionCount, stageStatus, turnMeta, streamingLabel, streamingText, isTextStreaming, isLoading, isGeneratingFeedback, isSavingSatisfaction, questionFlowCompleted, legacySessionDetected, setupState, roleOptionsData, selectedRoleName, customRoleName, roleSelectionSource, effectiveIndustry, resolvedSelectedRole, setupComplete, hasStarted, isBusy, isComplete, visibleFeedback, canSend, canGenerateFeedback, canContinue, latestFeedbackHistory, feedbackHelperText, feedbackCompletionCount, billingCosts, sessionState, shortCoaching } = state;
+  const { companyName, materials, messages, answer, feedback, streamingFeedback, feedbackHistories, selectedHistory, questionCount, stageStatus, turnMeta, streamingLabel, streamingText, isTextStreaming, isLoading, isGeneratingFeedback, isSavingSatisfaction, questionFlowCompleted, legacySessionDetected, setupState, roleOptionsData, selectedRoleName, customRoleName, roleSelectionSource, effectiveIndustry, resolvedSelectedRole, setupComplete, hasStarted, isBusy, isComplete, visibleFeedback, canSend, canGenerateFeedback, canContinue, latestFeedbackHistory, feedbackHelperText, feedbackCompletionCount, billingCosts, sessionState, shortCoaching, availabilityIssue, isInteractionBlocked } = state;
 
   const { weakestAxis } = useInterviewViewModel({ companyId, feedback });
   const { setAnswer, setSetupState, setSelectedHistory, selectRole, setCustomRoleName, start: handleStart, send: handleSend, generateFeedback: handleGenerateFeedback, continueInterview: handleContinue, reset: handleReset, saveSatisfaction: handleSaveSatisfaction } = actions;
@@ -388,6 +388,30 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
 
   if (isLoading) { return (<div className="min-h-screen bg-background"><main><InterviewConversationSkeleton accent="面接の準備を進めています" /></main></div>); }
   if (!normalizedCompanyId) { return (<div className="min-h-screen bg-background"><main className="mx-auto max-w-2xl px-4 py-10 sm:px-6"><Card className="border-border/60"><CardHeader><CardTitle className="text-base">企業を特定できません</CardTitle></CardHeader><CardContent className="space-y-4"><p className="text-sm text-muted-foreground">URLが不完全な可能性があります。企業一覧から対象の企業を開き直してください。</p><Button asChild className="w-full sm:w-auto"><Link href="/companies">企業一覧へ</Link></Button></CardContent></Card></main></div>); }
+  if (availabilityIssue) {
+    return (
+      <div className="min-h-screen bg-background">
+        <main className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
+          <Card className="border-border/60">
+            <CardHeader>
+              <CardTitle className="text-base">{availabilityIssue.title}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm leading-6 text-muted-foreground">{availabilityIssue.description}</p>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button type="button" onClick={() => window.location.reload()} className="w-full sm:w-auto">
+                  再試行
+                </Button>
+                <Button asChild variant="outline" className="w-full sm:w-auto">
+                  <Link href={`/companies/${normalizedCompanyId}`}>企業詳細へ戻る</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -426,7 +450,7 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
                       </div>
                     ) : (
                       <>
-                        <Button onClick={handleStart} disabled={!setupComplete || isBusy} className="w-full sm:w-auto">{isBusy ? (<><svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg><span className="ml-2">準備中...</span></>) : ("面接対策を始める")}</Button>
+                        <Button onClick={handleStart} disabled={!setupComplete || isInteractionBlocked || isBusy} className="w-full sm:w-auto">{isBusy ? (<><svg className="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" /></svg><span className="ml-2">準備中...</span></>) : ("面接対策を始める")}</Button>
                         <p className="text-xs leading-5 text-muted-foreground">開始時に{billingCosts.start} credits、回答送信ごとに{billingCosts.turn} credit、最終講評は成功時に{billingCosts.feedback} creditsを消費します。</p>
                         {!setupComplete && !isBusy ? (<p className="text-xs text-muted-foreground">職種を入力すると開始できます</p>) : null}
                       </>

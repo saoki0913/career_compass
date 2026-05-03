@@ -105,7 +105,8 @@ describe("api/companies/[id]/interview", () => {
       code: "INTERVIEW_PERSISTENCE_UNAVAILABLE",
       companyId: "company-1",
       operation: "interview:get",
-      missingTables: ["interview_conversations"],
+      missingTables: [],
+      missingColumns: ["interview_feedback_histories.score_evidence_by_axis"],
     };
     buildInterviewContextMock.mockRejectedValue(dbError);
     normalizeInterviewPersistenceErrorMock.mockReturnValue(normalized);
@@ -120,6 +121,9 @@ describe("api/companies/[id]/interview", () => {
       companyId: "company-1",
       operation: "interview:get",
     });
-    expect(createInterviewPersistenceUnavailableResponseMock).toHaveBeenCalled();
+    expect(createInterviewPersistenceUnavailableResponseMock).toHaveBeenCalledWith(
+      expect.any(NextRequest),
+      normalized,
+    );
   });
 });

@@ -266,7 +266,7 @@ export async function signInWithGoogle(page: Page, expectedPath: string) {
     throw new Error("Missing PLAYWRIGHT_AUTH_STATE");
   }
 
-  await page.goto(expectedPath, { waitUntil: "networkidle" });
+  await page.goto(expectedPath, { waitUntil: "domcontentloaded" });
   await page.waitForURL((url) => url.pathname.startsWith(expectedPath), {
     timeout: 30000,
   });
@@ -276,7 +276,7 @@ export async function signInWithGoogle(page: Page, expectedPath: string) {
 export async function signInAsAuthenticatedUser(page: Page, expectedPath: string) {
   if (hasCiE2EAuth) {
     await ensureCiE2EAuthSession(page);
-    await page.goto(expectedPath, { waitUntil: "networkidle" });
+    await page.goto(expectedPath, { waitUntil: "domcontentloaded" });
     await page.waitForURL((url) => url.pathname.startsWith(expectedPath), {
       timeout: 30000,
     });

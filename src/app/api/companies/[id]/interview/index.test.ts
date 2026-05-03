@@ -213,4 +213,34 @@ describe("buildInterviewContext", () => {
       missingColumns: ["interview_conversations.role_track"],
     });
   });
+
+  it("detects missing interview feedback evidence columns", async () => {
+    const { normalizeInterviewPersistenceError } = await import("./persistence-errors");
+
+    for (const columnName of [
+      "score_evidence_by_axis",
+      "score_rationale_by_axis",
+      "confidence_by_axis",
+    ]) {
+      const cause = new Error(
+        `column "${columnName}" of relation "interview_feedback_histories" does not exist`,
+      );
+      Object.assign(cause, { code: "42703" });
+      const wrapped = new Error(
+        `Failed query: select "${columnName}" from "interview_feedback_histories" where "company_id" = $1`,
+      );
+      wrapped.cause = cause;
+
+      expect(
+        normalizeInterviewPersistenceError(wrapped, {
+          companyId: "company-1",
+          operation: "interview:test-feedback-columns",
+        }),
+      ).toMatchObject({
+        code: "INTERVIEW_PERSISTENCE_UNAVAILABLE",
+        missingTables: [],
+        missingColumns: [`interview_feedback_histories.${columnName}`],
+      });
+    }
+  });
 });

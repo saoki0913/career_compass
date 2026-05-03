@@ -5,6 +5,7 @@
  *  1. Returned state type no longer exposes error / errorAction / persistenceUnavailable
  *  2. The module imports the shared SSE and timeout utilities
  *  3. The module imports notifyError for persistence error routing
+ *  4. Persistence schema failures expose an operation-blocking availability issue
  */
 import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
@@ -81,6 +82,14 @@ describe("useInterviewConversationController module", () => {
       expect(source).toContain("INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE");
       expect(source).toContain("notifyError({");
       expect(source).toContain("window.location.reload()");
+    });
+
+    it("blocks interview actions when persistence is unavailable", () => {
+      expect(source).toContain("const [availabilityIssue, setAvailabilityIssue]");
+      expect(source).toContain("const isInteractionBlocked = Boolean(availabilityIssue)");
+      expect(source).toContain("availabilityIssue,");
+      expect(source).toContain("isInteractionBlocked,");
+      expect(source).toContain("!isInteractionBlocked && !isBusy");
     });
 
     it("calls notifyUserFacingAppError for other errors", () => {

@@ -51,6 +51,12 @@ import {
 
 type StreamKind = "start" | "send" | "feedback" | "continue";
 
+type InterviewAvailabilityIssue = {
+  code: typeof INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE;
+  title: string;
+  description: string;
+};
+
 const DEFAULT_SETUP_STATE: SetupState = {
   selectedIndustry: null,
   selectedRole: null,
@@ -156,6 +162,8 @@ export function useInterviewConversationController({
   const [customRoleName, setCustomRoleNameState] = useState("");
   const [roleSelectionSource, setRoleSelectionSource] = useState<RoleSelectionSource | null>(null);
   const [feedbackCompletionCount, setFeedbackCompletionCount] = useState(0);
+  const [availabilityIssue, setAvailabilityIssue] =
+    useState<InterviewAvailabilityIssue | null>(null);
   const [shortCoaching, setShortCoaching] =
     useState<import("@/lib/interview/conversation").InterviewShortCoaching | null>(null);
 
@@ -233,12 +241,13 @@ export function useInterviewConversationController({
   const resolvedSelectedRole = customRoleName.trim() || selectedRoleName.trim();
   const setupComplete = Boolean(resolvedSelectedRole) && (!setupState.requiresIndustrySelection || Boolean(effectiveIndustry));
   const hasStarted = !legacySessionDetected && (messages.length > 0 || feedback !== null || questionFlowCompleted);
+  const isInteractionBlocked = Boolean(availabilityIssue);
   const isBusy = isSending || isGeneratingFeedback || isContinuing;
   const isComplete = feedback !== null;
   const visibleFeedback = feedback ?? streamingFeedback;
-  const canSend = answer.trim().length > 0 && !isBusy && !isComplete && !questionFlowCompleted && hasStarted;
-  const canGenerateFeedback = questionFlowCompleted && !isComplete && !isBusy;
-  const canContinue = Boolean(feedback) && !isBusy;
+  const canSend = answer.trim().length > 0 && !isInteractionBlocked && !isBusy && !isComplete && !questionFlowCompleted && hasStarted;
+  const canGenerateFeedback = questionFlowCompleted && !isInteractionBlocked && !isComplete && !isBusy;
+  const canContinue = Boolean(feedback) && !isInteractionBlocked && !isBusy;
   const latestFeedbackHistory = feedbackHistories[0] ?? null;
   const feedbackHelperText = questionFlowCompleted
     ? `${questionCount}問の回答をもとに最終講評を作成します。成功時のみ ${creditCost} credits 消費です。`
@@ -251,6 +260,11 @@ export function useInterviewConversationController({
   ) => {
     const uiError = toAppUiError(errorValue, fallback, source);
     if (uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE) {
+      setAvailabilityIssue({
+        code: INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
+        title: uiError.message,
+        description: uiError.action ?? fallback.action,
+      });
       notifyError({
         title: uiError.message,
         description: uiError.action,
@@ -305,6 +319,7 @@ export function useInterviewConversationController({
         const roleData = roleResponse.ok ? ((await roleResponse.json()) as RoleOptionsResponse) : null;
         if (!isMounted) return;
 
+        setAvailabilityIssue(null);
         const conversation = interviewData.conversation as HydratedConversation;
         const isLegacy = Boolean(conversation?.isLegacySession);
         setCompanyName(interviewData.company?.name || "");
@@ -579,7 +594,7 @@ export function useInterviewConversationController({
   }, [applyCompleteState, isPlaybackComplete, isTextStreaming, pendingCompleteState]);
 
   const handleStart = useCallback(async () => {
-    if (!setupComplete || isBusy || hasStarted) return;
+    if (!setupComplete || isInteractionBlocked || isBusy || hasStarted) return;
     setIsSending(true);
     try {
       await runStream("start", {
@@ -600,7 +615,7 @@ export function useInterviewConversationController({
     } finally {
       setIsSending(false);
     }
-  }, [effectiveIndustry, hasStarted, isBusy, reportError, resolvedSelectedRole, roleSelectionSource, runStream, setupComplete, setupState]);
+  }, [effectiveIndustry, hasStarted, isBusy, isInteractionBlocked, reportError, resolvedSelectedRole, roleSelectionSource, runStream, setupComplete, setupState]);
 
   const handleSend = useCallback(async () => {
     if (!canSend) return;
@@ -656,7 +671,7 @@ export function useInterviewConversationController({
   }, [canContinue, feedback, reportError, runStream]);
 
   const handleReset = useCallback(async () => {
-    if (!companyId || isBusy) return;
+    if (!companyId || isInteractionBlocked || isBusy) return;
     try {
       const response = await resetInterviewConversation(companyId);
 
@@ -697,10 +712,10 @@ export function useInterviewConversationController({
         "interview:reset",
       );
     }
-  }, [companyId, isBusy, reportError]);
+  }, [companyId, isBusy, isInteractionBlocked, reportError]);
 
   const handleSaveSatisfaction = useCallback(async (score: number) => {
-    if (!companyId || !latestFeedbackHistory || isSavingSatisfaction) return;
+    if (!companyId || isInteractionBlocked || !latestFeedbackHistory || isSavingSatisfaction) return;
     setIsSavingSatisfaction(true);
     try {
       const response = await saveInterviewFeedbackSatisfaction(companyId, {
@@ -737,7 +752,7 @@ export function useInterviewConversationController({
     } finally {
       setIsSavingSatisfaction(false);
     }
-  }, [companyId, isSavingSatisfaction, latestFeedbackHistory, reportError]);
+  }, [companyId, isInteractionBlocked, isSavingSatisfaction, latestFeedbackHistory, reportError]);
 
   const handleSelectRole = useCallback((value: string, unsetValue: string) => {
     if (value === unsetValue) {
@@ -807,6 +822,8 @@ export function useInterviewConversationController({
       latestFeedbackHistory,
       feedbackHelperText,
       feedbackCompletionCount,
+      availabilityIssue,
+      isInteractionBlocked,
       shortCoaching,
     },
     actions: {
