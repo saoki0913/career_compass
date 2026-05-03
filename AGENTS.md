@@ -99,7 +99,7 @@ Edit/Write でその場しのぎのコードパターンを追加しようとし
 - **Company Data Flow** — Next API で auth / ゲスト identity と所有権を検証し、企業情報取得と corporate info enrichment は FastAPI へ proxy する。RAG ソース URL、PDF ingest ジョブ、取得時刻は Postgres に保存。締切抽出結果はユーザー承認を経て初めて確定する。
 - **ES Review Flow** — ドキュメントは Postgres に版管理され (`src/app/api/documents`)、レビューは `src/app/api/documents/[id]/review/stream` の SSE。成功時のみクレジット消費。
 - **Motivation / Gakuchika Flow** — 会話開始 / stream / draft 生成の 3 エンドポイント構成。共通 chat-like UI は `src/components/chat/`。
-- **Request Identity** — 認証済みユーザーは Better Auth session、ゲストは HttpOnly cookie から解決し、proxy が内部 `x-device-token` を再構成する。共通化済みロジックは `src/app/api/_shared/request-identity.ts`。
+- **Request Identity** — 認証済みユーザーは Better Auth session、ゲストは HttpOnly cookie から解決し、proxy が内部 `x-device-token` を再構成する。共通化済みロジックは `src/bff/identity/request-identity.ts`。
 
 ---
 
@@ -221,7 +221,7 @@ commit を作成する直前に、以下の閾値チェックを行う:
    - 変更行数（追加+削除）>= 500
    - hotspot ファイルの変更を含む（正本: `.claude/hooks/lib/skill-recommender.sh` の `HOTSPOT_FILES` 配列）
 3. 該当時: `bash scripts/codex/delegate.sh post_review` を実行（Bash timeout: Policy 参照）
-4. 最新の handoff ディレクトリを特定する: `ls -td .claude/state/codex-handoffs/post_review-*/ | head -1`
+4. 最新の handoff ディレクトリを特定する: `ls -td .codex/state/handoffs/post_review-*/ .claude/state/codex-handoffs/post_review-*/ 2>/dev/null | head -1`
 5. `meta.json` と `review.json` を Read する。`meta.json.status` は Codex 実行成否 (`SUCCESS` / `TIMEOUT` / `CODEX_ERROR` / `PARSE_FAILURE`)、`review.json.reviewStatus` はレビュー判定 (`APPROVE` / `REQUEST_CHANGES` / `NEEDS_DISCUSSION`) として扱う
 6. Status 判定:
    - `meta.json.status != SUCCESS` → Claude 自身の code-reviewer skill で fallback review を行う

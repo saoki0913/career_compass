@@ -193,15 +193,44 @@ async function mockGakuchikaDetailApi(
   );
 }
 
+async function mockInterviewSummaryApi(
+  page: Page,
+  getSummaryValue: () => unknown,
+) {
+  await page.route(
+    `**/api/gakuchika/${GAKUCHIKA_ID}/interview-summary`,
+    async (route) => {
+      if (route.request().method() !== "POST") {
+        return route.continue();
+      }
+      const summaryValue = getSummaryValue();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          summary:
+            summaryValue !== null
+              ? JSON.stringify(summaryValue)
+              : null,
+          conversationState:
+            CONVERSATION_RESPONSE_INTERVIEW_READY.conversationState,
+        }),
+      });
+    },
+  );
+}
+
 test.describe("Gakuchika CompletionSummary (interview_ready state)", () => {
   test("displays structured summary when interview_ready", async ({ page }) => {
     await setupAuthenticatedUser(page);
     await mockConversationApi(page, true);
-    await mockGakuchikaDetailApi(page, STRUCTURED_SUMMARY);
+    await mockGakuchikaDetailApi(page, null);
+    await mockInterviewSummaryApi(page, () => STRUCTURED_SUMMARY);
 
     await page.goto(`/gakuchika/${GAKUCHIKA_ID}`);
+    await page.getByRole("button", { name: "フィードバックを表示" }).click();
 
-    // The heading only appears when hasVisibleBody is true (structured summary loaded)
+    // The heading only appears when generated feedback has visible body.
     await expect(
       page.getByRole("heading", {
         name: "面接用の補足まで整理できました",
@@ -252,65 +281,30 @@ test.describe("Gakuchika CompletionSummary (interview_ready state)", () => {
     ).toBeVisible();
   });
 
-  test("shows error fallback when summary is null and retry recovers", async ({
+  test("keeps feedback action when summary is null and retry recovers", async ({
     page,
-  }, testInfo) => {
-    testInfo.setTimeout(90000);
+  }) => {
     await setupAuthenticatedUser(page);
     await mockConversationApi(page, true);
 
-    // Initial state: no summary — polling will start and exhaust
     let summaryToReturn: unknown = null;
 
-    await page.route(
-      `**/api/gakuchika/${GAKUCHIKA_ID}`,
-      async (route) => {
-        if (route.request().method() !== "GET") {
-          return route.continue();
-        }
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            gakuchika: {
-              id: GAKUCHIKA_ID,
-              title: "学園祭実行委員",
-              content: "模擬店エリアの導線改善",
-              userId: "user-e2e",
-              guestId: null,
-              charLimitType: "400",
-              summary:
-                summaryToReturn !== null
-                  ? JSON.stringify(summaryToReturn)
-                  : null,
-              createdAt: "2026-04-01T00:00:00Z",
-              updatedAt: "2026-04-01T00:00:00Z",
-            },
-          }),
-        });
-      },
-    );
+    await mockGakuchikaDetailApi(page, null);
+    await mockInterviewSummaryApi(page, () => summaryToReturn);
 
     await page.goto(`/gakuchika/${GAKUCHIKA_ID}`);
+    await page.getByRole("button", { name: "フィードバックを表示" }).click();
 
-    // After polling exhausts (12 attempts × ~1500ms + 7 attempts × ~3000ms ≈ 39s max),
-    // the error fallback becomes visible. Use a generous timeout.
+    // Empty generated feedback keeps the explicit action visible for retry.
     await expect(
-      page.getByText("要点の本文を表示できませんでした"),
-    ).toBeVisible({ timeout: 50000 });
-
-    // The retry button must be present
-    await expect(
-      page.getByRole("button", { name: "要約を再取得" }),
+      page.getByRole("heading", { name: "面接準備の要点", level: 2 }),
     ).toBeVisible();
+    await expect(page.getByRole("button", { name: "フィードバックを表示" })).toBeVisible();
 
-    // Before clicking retry, update the mock to return a valid summary so the
-    // next polling cycle finds it immediately
     summaryToReturn = STRUCTURED_SUMMARY;
 
-    await page.getByRole("button", { name: "要約を再取得" }).click();
+    await page.getByRole("button", { name: "フィードバックを表示" }).click();
 
-    // After retry triggers a new poll cycle, the heading appears
     await expect(
       page.getByRole("heading", {
         name: "面接用の補足まで整理できました",
@@ -318,18 +312,19 @@ test.describe("Gakuchika CompletionSummary (interview_ready state)", () => {
       }),
     ).toBeVisible({ timeout: 15000 });
 
-    // Error text must disappear
     await expect(
-      page.getByText("要点の本文を表示できませんでした"),
+      page.getByRole("heading", { name: "面接準備の要点", level: 2 }),
     ).not.toBeVisible();
   });
 
   test("renders legacy summary format", async ({ page }) => {
     await setupAuthenticatedUser(page);
     await mockConversationApi(page, true);
-    await mockGakuchikaDetailApi(page, LEGACY_SUMMARY);
+    await mockGakuchikaDetailApi(page, null);
+    await mockInterviewSummaryApi(page, () => LEGACY_SUMMARY);
 
     await page.goto(`/gakuchika/${GAKUCHIKA_ID}`);
+    await page.getByRole("button", { name: "フィードバックを表示" }).click();
 
     // The legacy branch shows a "要約" section heading
     await expect(page.getByText("要約")).toBeVisible({ timeout: 10000 });

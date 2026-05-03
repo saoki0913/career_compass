@@ -35,7 +35,7 @@ function parseArgs(argv) {
 
 export function getStagedFiles({ cwd = process.cwd() } = {}) {
   try {
-    const output = execFileSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR"], {
+    const output = execFileSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMRD"], {
       cwd,
       encoding: "utf8",
     });
@@ -46,11 +46,15 @@ export function getStagedFiles({ cwd = process.cwd() } = {}) {
 }
 
 function getStagedBlob({ cwd, path }) {
-  return execFileSync("git", ["show", `:${path}`], {
-    cwd,
-    encoding: "utf8",
-    maxBuffer: 10 * 1024 * 1024,
-  });
+  try {
+    return execFileSync("git", ["show", `:${path}`], {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch {
+    return "<deleted>";
+  }
 }
 
 export function buildE2EFunctionalSnapshot({

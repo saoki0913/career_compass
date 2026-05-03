@@ -9,6 +9,7 @@ describe("parseUiReviewArgs", () => {
   it("parses route paths and auth mode", () => {
     expect(parseUiReviewArgs(["/dashboard", "/companies", "--auth=guest"])).toEqual({
       authMode: "guest",
+      headed: false,
       paths: ["/dashboard", "/companies"],
     });
   });
@@ -16,6 +17,7 @@ describe("parseUiReviewArgs", () => {
   it("accepts mock auth mode for authenticated UI review", () => {
     expect(parseUiReviewArgs(["/companies/ui-review-company/motivation", "--auth=mock"])).toEqual({
       authMode: "mock",
+      headed: false,
       paths: ["/companies/ui-review-company/motivation"],
     });
   });
@@ -23,7 +25,16 @@ describe("parseUiReviewArgs", () => {
   it("defaults auth mode to none", () => {
     expect(parseUiReviewArgs(["/"])).toEqual({
       authMode: "none",
+      headed: false,
       paths: ["/"],
+    });
+  });
+
+  it("parses headed mode", () => {
+    expect(parseUiReviewArgs(["/dashboard", "--headed"])).toEqual({
+      authMode: "none",
+      headed: true,
+      paths: ["/dashboard"],
     });
   });
 
@@ -48,6 +59,20 @@ describe("buildUiReviewEnv", () => {
     ).toEqual({
       PLAYWRIGHT_UI_AUTH_MODE: "mock",
       PLAYWRIGHT_UI_PATHS: "/dashboard,/companies/ui-review-company/motivation",
+    });
+  });
+
+  it("passes headed mode to Playwright", () => {
+    expect(
+      buildUiReviewEnv({
+        authMode: "guest",
+        headed: true,
+        paths: ["/dashboard"],
+      })
+    ).toEqual({
+      PLAYWRIGHT_UI_AUTH_MODE: "guest",
+      PLAYWRIGHT_UI_HEADED: "1",
+      PLAYWRIGHT_UI_PATHS: "/dashboard",
     });
   });
 });

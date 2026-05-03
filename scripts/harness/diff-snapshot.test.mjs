@@ -66,6 +66,24 @@ test("checkpoint includes review fields and staged E2E snapshot hash", () => {
   }
 });
 
+test("checkpoint includes deleted staged files in E2E snapshot hash", () => {
+  const dir = createRepo();
+  try {
+    run("git", ["rm", "README.md"], dir);
+
+    const output = run("node", [scriptPath, "checkpoint", "--project", dir], repoRoot);
+    const checkpoint = JSON.parse(output);
+    const expected = buildE2EFunctionalSnapshot({ cwd: dir, files: ["README.md"] });
+
+    assert.equal(checkpoint.fileCount, 1);
+    assert.deepEqual(checkpoint.files, ["README.md"]);
+    assert.equal(checkpoint.e2eFunctionalSnapshotHash, expected.snapshotHash);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+
 test("verify ignores unrelated dirty tree state by default", () => {
   const dir = createRepo();
   try {

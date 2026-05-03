@@ -313,7 +313,7 @@ async function mockCompanyDetailApis(page: Page, company: MockCompany) {
     });
   });
 
-  await page.route(`**/api/companies/${company.id}/fetch-corporate/estimate`, async (route) => {
+  await page.route(`**/api/companies/${company.id}/fetch-corporate/estimate**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -327,7 +327,7 @@ async function mockCompanyDetailApis(page: Page, company: MockCompany) {
     });
   });
 
-  await page.route(`**/api/companies/${company.id}/search-corporate-pages`, async (route) => {
+  await page.route(`**/api/companies/${company.id}/search-corporate-pages**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -406,7 +406,7 @@ async function mockCompanyDetailApis(page: Page, company: MockCompany) {
     });
   });
 
-  await page.route(`**/api/companies/${company.id}/fetch-corporate-upload/estimate`, async (route) => {
+  await page.route(`**/api/companies/${company.id}/fetch-corporate-upload/estimate**`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -543,13 +543,20 @@ async function mockESApis(page: Page, documentId: string, company: MockCompany) 
 }
 
 async function chooseEsReviewRole(page: Page) {
-  const rolePicker = page
-    .getByText("職種を選択してください")
-    .locator("..")
-    .getByRole("combobox");
+  const rolePicker = page.getByRole("combobox").filter({ hasText: "職種を選択してください" });
   await expect(rolePicker).toBeEnabled({ timeout: 10_000 });
   await rolePicker.click();
   await page.getByRole("option", { name: "企画職" }).click();
+}
+
+async function chooseRequiredRoleEsReviewTemplate(page: Page) {
+  const templatePicker = page
+    .getByText("設問タイプを選択してください")
+    .locator("..")
+    .getByRole("combobox");
+  await expect(templatePicker).toBeEnabled({ timeout: 10_000 });
+  await templatePicker.click();
+  await page.getByRole("option", { name: "志望理由", exact: true }).click();
 }
 
 test.describe("bug regressions", () => {
@@ -679,11 +686,16 @@ test.describe("bug regressions", () => {
 
     await page.getByRole("button", { name: "企業情報を取得" }).click();
     await page.getByRole("button", { name: "資料アップロード" }).click();
+    const { PDFDocument } = await import("pdf-lib");
+    const testPdf = await PDFDocument.create();
+    testPdf.addPage([240, 320]);
+    const testPdfBytes = await testPdf.save();
     await page.setInputFiles('input[type="file"]', {
       name: "company.pdf",
       mimeType: "application/pdf",
-      buffer: Buffer.from("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"),
+      buffer: Buffer.from(testPdfBytes),
     });
+    await expect(page.getByText("取り込みと消費の目安")).toBeVisible({ timeout: 15000 });
     await page.getByRole("button", { name: "1件を取り込む" }).click();
 
     await expect(page.getByRole("button", { name: "登録済みソースを見る" })).toBeVisible({ timeout: 15000 });
@@ -720,6 +732,7 @@ test.describe("bug regressions", () => {
 
     await page.goto("/es/doc-review-validation");
     await page.getByRole("button", { name: "この設問をAI添削" }).first().click();
+    await chooseRequiredRoleEsReviewTemplate(page);
     await page.getByRole("button", { name: "この設問をAI添削" }).last().click();
 
     await expect(page.getByText("赤字の枠内を入力・選択してください。")).toBeVisible();

@@ -70,7 +70,7 @@ CLAUDE.md §B の Codex post_review + delegation 確認が必要です。
 
 手順:
   1. bash scripts/codex/delegate.sh post_review を実行
-  2. 最新 handoff: ls -td $PROJECT_DIR/.claude/state/codex-handoffs/post_review-*/ | head -1
+  2. 最新 handoff: ls -td $PROJECT_DIR/.codex/state/handoffs/post_review-*/ $PROJECT_DIR/.claude/state/codex-handoffs/post_review-*/ 2>/dev/null | head -1
   3. meta.json の status と result.md を確認
   4. AskUserQuestion で以下を提示:
        - post_review の status / 主要 findings
@@ -137,9 +137,14 @@ EOF
     exit 2
   fi
 
-  REVIEW_DIR="$PROJECT_DIR/.claude/state/codex-handoffs/$REVIEW_REQUEST_ID"
-  REVIEW_JSON="$REVIEW_DIR/review.json"
-  if [ ! -f "$REVIEW_JSON" ]; then
+  REVIEW_JSON=""
+  for dir in "$PROJECT_DIR/.codex/state/handoffs/$REVIEW_REQUEST_ID" "$PROJECT_DIR/.claude/state/codex-handoffs/$REVIEW_REQUEST_ID"; do
+    if [ -f "$dir/review.json" ]; then
+      REVIEW_JSON="$dir/review.json"
+      break
+    fi
+  done
+  if [ -z "$REVIEW_JSON" ]; then
     echo "git commit blocked: review.json not found for $REVIEW_REQUEST_ID." >&2
     exit 2
   fi

@@ -31,7 +31,7 @@ function stagedSnapshot(project, { includeDirtyState = false } = {}) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-  const acmrFiles = runGit(project, ["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
+  const e2eFiles = runGit(project, ["diff", "--cached", "--name-only", "--diff-filter=ACMRD"])
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
@@ -50,7 +50,7 @@ function stagedSnapshot(project, { includeDirtyState = false } = {}) {
     .update("\0")
     .update(diff)
     .digest("hex");
-  const e2eSnapshot = buildE2EFunctionalSnapshot({ cwd: project, files: acmrFiles });
+  const e2eSnapshot = buildE2EFunctionalSnapshot({ cwd: project, files: e2eFiles });
 
   const snapshot = {
     mode: "staged",

@@ -83,6 +83,7 @@ describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
     );
 
     const page = {
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
       context: () => ({
         request: {
           post: loginPostMock,
@@ -221,6 +222,7 @@ describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
     );
 
     const page = {
+      waitForTimeout: vi.fn().mockResolvedValue(undefined),
       context: () => ({
         request: {
           post: loginPostMock,
@@ -236,6 +238,7 @@ describe("ensureCiE2EAuthSession", { timeout: 15000 }, () => {
     await expect(ensureCiE2EAuthSession(page as never)).rejects.toThrow(
       "browser context is not authenticated",
     );
-    expect(addCookiesMock).toHaveBeenCalledTimes(1);
+    expect(addCookiesMock).toHaveBeenCalledTimes(4);
+    expect(page.waitForTimeout).toHaveBeenCalledTimes(3);
   });
 });
