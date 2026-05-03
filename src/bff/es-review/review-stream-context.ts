@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import {
@@ -16,17 +17,29 @@ import { calculateESReviewCost } from "@/lib/credits";
 import { FREE_PLAN_ES_REVIEW_MODEL, isStandardESReviewModel } from "@/lib/ai/es-review-models";
 import { resolveEffectiveTemplateTypeWithoutCompany } from "@/lib/es-review/companyless-templates";
 import { inferTemplateTypeDetailsFromQuestion } from "@/lib/es-review/infer-template-type";
+import {
+  requiresIndustryForESReviewTemplate,
+  requiresRoleForESReviewTemplate,
+  type ESReviewTemplateType,
+} from "@/lib/es-review/template-requirements";
 import { resolveIndustryForReview } from "@/lib/constants/es-review-role-catalog";
 import { parseCorporateInfoSources } from "@/lib/company-info/sources";
-import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
-import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/request-identity";
-import { getOwnedDocument } from "@/app/api/_shared/owner-access";
+import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
+import { getRequestIdentity, type RequestIdentity } from "@/bff/identity/request-identity";
+import { getOwnedDocument } from "@/bff/identity/owner-access";
 import { enforceRateLimitLayers, REVIEW_RATE_LAYERS } from "@/lib/rate-limit-spike";
 import { getViewerPlan } from "@/lib/server/loader-helpers";
-import type { TemplateType } from "@/hooks/useESReview";
 
-const jsonErr = (msg: string, status: number) =>
-  new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
+type TemplateType = ESReviewTemplateType;
+
+const jsonErr = (request: NextRequest, msg: string, status: number, code = "ES_REVIEW_INVALID_REQUEST") =>
+  createApiErrorResponse(request, {
+    status,
+    code,
+    userMessage: msg,
+    action: "入力内容や設定を確認して、もう一度お試しください。",
+    retryable: status >= 500,
+  });
 
 function deriveCharMin(charLimit?: number | null) {
   if (!charLimit) return null;
@@ -129,7 +142,7 @@ function buildRetrievalQuery(input: {
     : joined;
 }
 
-function parseCorporateInfoUrls(raw: string | null): CorporateInfoUrlEntry[] {
+function parseCorporateInfoUrls(raw: unknown): CorporateInfoUrlEntry[] {
   return parseCorporateInfoSources(raw) as CorporateInfoUrlEntry[];
 }
 
@@ -143,9 +156,20 @@ function collectUserProvidedCorporateUrls(entries: CorporateInfoUrlEntry[]): str
   const urls: string[] = [];
   for (const entry of entries) {
     if (!entry.url || entry.complianceStatus === "blocked") continue;
+    if (entry.trustedForEsReview === false) continue;
     if (!urls.includes(entry.url)) urls.push(entry.url);
   }
   return urls;
+}
+
+function normalizeReviewText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeSectionCharLimit(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  if (typeof value !== "number" || !Number.isInteger(value)) return NaN;
+  return value;
 }
 
 export type ReviewStreamPreparedContext =
@@ -176,7 +200,7 @@ export async function prepareReviewStreamContext(
   documentId: string,
 ): Promise<ReviewStreamPreparedContext> {
   const identity = await getRequestIdentity(request);
-  if (!identity) return { ok: false, response: jsonErr("Authentication required", 401) };
+  if (!identity) return { ok: false, response: jsonErr(request, "ログインが必要です。", 401, "AUTH_REQUIRED") };
   const limitResponse = await guardDailyTokenLimit(identity);
   if (limitResponse) return { ok: false, response: limitResponse };
   const { userId, guestId } = identity;
@@ -185,9 +209,12 @@ export async function prepareReviewStreamContext(
   if (rateLimited) return { ok: false, response: rateLimited };
 
   const documentRow = await getOwnedDocument(documentId, identity);
-  if (!documentRow) return { ok: false, response: jsonErr("Document not found", 404) };
+  if (!documentRow) return { ok: false, response: jsonErr(request, "ドキュメントが見つかりません。", 404, "DOCUMENT_NOT_FOUND") };
 
-  const body = await request.json();
+  const body = await request.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return { ok: false, response: jsonErr(request, "リクエスト形式が正しくありません。", 400) };
+  }
   const {
     content, sectionId, companyId: requestCompanyId,
     sectionTitle, sectionCharLimit, templateType, internName, roleName,
@@ -197,6 +224,28 @@ export async function prepareReviewStreamContext(
     sectionTitle?: string; sectionCharLimit?: number; templateType?: TemplateType;
     internName?: string; roleName?: string; industryOverride?: string; llmModel?: string;
   };
+  const normalizedContent = normalizeReviewText(content);
+  const normalizedSectionTitle = normalizeReviewText(sectionTitle);
+  const normalizedSectionCharLimit = normalizeSectionCharLimit(sectionCharLimit);
+
+  if (normalizedContent.length < 6) {
+    return { ok: false, response: jsonErr(request, "本文を6文字以上入力してください。", 400) };
+  }
+  if (normalizedContent.length > 1500) {
+    return { ok: false, response: jsonErr(request, "本文は1500文字以内で入力してください。", 400) };
+  }
+  if (!normalizedSectionTitle) {
+    return { ok: false, response: jsonErr(request, "設問タイトルを入力してください。", 400) };
+  }
+  if (normalizedSectionTitle.length > 300) {
+    return { ok: false, response: jsonErr(request, "設問タイトルは300文字以内で入力してください。", 400) };
+  }
+  if (
+    Number.isNaN(normalizedSectionCharLimit) ||
+    (normalizedSectionCharLimit != null && (normalizedSectionCharLimit < 1 || normalizedSectionCharLimit > 1500))
+  ) {
+    return { ok: false, response: jsonErr(request, "文字数上限は1〜1500文字で指定してください。", 400) };
+  }
   let resolvedLLMModel = typeof llmModel === "string" && isStandardESReviewModel(llmModel) ? llmModel : null;
 
   let userPlan: "free" | "standard" | "pro" = "free";
@@ -218,12 +267,13 @@ export async function prepareReviewStreamContext(
       .from(companies)
       .where(eq(companies.id, requestCompanyId))
       .limit(1);
-    if (
-      ownedCompany &&
-      ((userId && ownedCompany.userId === userId) || (guestId && ownedCompany.guestId === guestId))
-    ) {
-      companyId = requestCompanyId;
+    if (!ownedCompany) {
+      return { ok: false, response: jsonErr(request, "企業情報が見つかりません。", 404, "COMPANY_NOT_FOUND") };
     }
+    if (!((userId && ownedCompany.userId === userId) || (guestId && ownedCompany.guestId === guestId))) {
+      return { ok: false, response: jsonErr(request, "この企業情報は利用できません。", 403, "FORBIDDEN") };
+    }
+    companyId = requestCompanyId;
   } else if (requestCompanyId) {
     companyId = requestCompanyId;
   }
@@ -233,48 +283,61 @@ export async function prepareReviewStreamContext(
   };
   if (companyId) {
     const [company] = await db
-      .select({ name: companies.name, industry: companies.industry, corporateInfoUrls: companies.corporateInfoUrls })
+      .select({
+        name: companies.name,
+        industry: companies.industry,
+        corporateInfoUrls: companies.corporateInfoUrls,
+        userId: companies.userId,
+        guestId: companies.guestId,
+      })
       .from(companies)
       .where(eq(companies.id, companyId))
       .limit(1);
-    if (company) {
-      companyInfo = { name: company.name, industry: company.industry, corporateInfoUrls: parseCorporateInfoUrls(company.corporateInfoUrls) };
+    if (!company) {
+      return { ok: false, response: jsonErr(request, "企業情報が見つかりません。", 404, "COMPANY_NOT_FOUND") };
     }
+    if (!((userId && company.userId === userId) || (guestId && company.guestId === guestId))) {
+      return { ok: false, response: jsonErr(request, "この企業情報は利用できません。", 403, "FORBIDDEN") };
+    }
+    companyInfo = { name: company.name, industry: company.industry, corporateInfoUrls: parseCorporateInfoUrls(company.corporateInfoUrls) };
   }
 
-  const inferredTemplateDetails = inferTemplateTypeDetailsFromQuestion(sectionTitle || "");
+  const inferredTemplateDetails = inferTemplateTypeDetailsFromQuestion(normalizedSectionTitle);
   let effectiveTemplateType: TemplateType;
   if (!companyId) {
-    const resolved = resolveEffectiveTemplateTypeWithoutCompany(templateType, sectionTitle || "");
+    const resolved = resolveEffectiveTemplateTypeWithoutCompany(templateType, normalizedSectionTitle);
     if (!resolved.ok) {
       return {
         ok: false,
-        response: jsonErr("企業未選択の添削では、設問タイプは自動・ガクチカ・自己PR・価値観のいずれかにしてください", 400),
+        response: jsonErr(request, "企業未選択の添削では、設問タイプは自動・ガクチカ・自己PR・価値観のいずれかにしてください", 400),
       };
     }
     effectiveTemplateType = resolved.effective;
   } else {
-    effectiveTemplateType = templateType ?? inferTemplateTypeWithCompany(sectionTitle || "");
+    effectiveTemplateType = templateType ?? inferTemplateTypeWithCompany(normalizedSectionTitle);
   }
   const resolvedIndustry = resolveIndustryForReview({ companyName: companyInfo.name, companyIndustry: companyInfo.industry, industryOverride });
   const resolvedRoleContext = resolveRoleContext(roleName);
   const [profileContext, gakuchikaContext] = userId
     ? await Promise.all([fetchProfileContext(userId), fetchGakuchikaContext(userId, { allowIncomplete: true, limit: 4 })])
     : [null, []];
-  const otherSections = extractOtherDocumentSections(documentRow.content, sectionTitle || null, { maxSections: 4, maxCharsPerSection: 260 });
+  const otherSections = extractOtherDocumentSections(documentRow.content, normalizedSectionTitle, { maxSections: 4, maxCharsPerSection: 260 });
 
-  if (!content || content.trim().length === 0) return { ok: false, response: jsonErr("内容が空です", 400) };
-  if (companyId && !resolvedIndustry) return { ok: false, response: jsonErr("企業に合わせた添削では、先に業界を選択してください", 400) };
-  if (companyId && !resolvedRoleContext.primary_role) return { ok: false, response: jsonErr("企業に合わせた添削では、先に職種を選択してください", 400) };
+  if (companyId && requiresIndustryForESReviewTemplate(effectiveTemplateType) && !resolvedIndustry) {
+    return { ok: false, response: jsonErr(request, "この設問タイプでは、先に業界を選択してください。", 400) };
+  }
+  if (companyId && requiresRoleForESReviewTemplate(effectiveTemplateType) && !resolvedRoleContext.primary_role) {
+    return { ok: false, response: jsonErr(request, "この設問タイプでは、先に職種を選択してください。", 400) };
+  }
 
   const retrievalQuery = buildRetrievalQuery({
     templateType: effectiveTemplateType, industry: resolvedIndustry,
-    sectionTitle: sectionTitle || "", sectionContent: content,
+    sectionTitle: normalizedSectionTitle, sectionContent: normalizedContent,
     companyName: companyInfo.name, roleName: resolvedRoleContext.primary_role,
     internName: internName || null, profileContext, gakuchikaContext, otherSections,
   });
 
-  const creditCost = calculateESReviewCost(content.length, resolvedLLMModel, { userPlan });
+  const creditCost = calculateESReviewCost(normalizedContent.length, resolvedLLMModel, { userPlan });
   const userProvidedCorporateUrls = collectUserProvidedCorporateUrls(companyInfo.corporateInfoUrls);
   const principalPlan = await getViewerPlan(identity);
 
@@ -292,20 +355,20 @@ export async function prepareReviewStreamContext(
       plan: principalPlan,
     },
     payload: {
-      content,
+      content: normalizedContent,
       section_id: sectionId,
       company_id: companyId || null,
-      section_title: sectionTitle || null,
-      section_char_limit: sectionCharLimit || null,
+      section_title: normalizedSectionTitle,
+      section_char_limit: normalizedSectionCharLimit,
       template_request: effectiveTemplateType
         ? {
             template_type: effectiveTemplateType,
             company_name: companyInfo.name,
             industry: resolvedIndustry,
-            question: sectionTitle || "",
-            answer: content,
-            char_min: deriveCharMin(sectionCharLimit),
-            char_max: sectionCharLimit || null,
+            question: normalizedSectionTitle,
+            answer: normalizedContent,
+            char_min: deriveCharMin(normalizedSectionCharLimit),
+            char_max: normalizedSectionCharLimit,
             intern_name: internName || null,
             role_name: resolvedRoleContext.primary_role || null,
             inferred_template_type: inferredTemplateDetails.templateType,

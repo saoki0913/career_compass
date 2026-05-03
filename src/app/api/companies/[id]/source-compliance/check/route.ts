@@ -3,10 +3,10 @@ import { db } from "@/lib/db";
 import { companies } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { readGuestDeviceToken } from "@/lib/auth/guest-cookie";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
 import { COMPANY_COMPLIANCE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { getRequestIdentity, type RequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity, type RequestIdentity } from "@/bff/identity/request-identity";
 
 async function resolveCompany(
   identity: RequestIdentity | null,

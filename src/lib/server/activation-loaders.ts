@@ -1,6 +1,6 @@
 import { asc, eq, sql } from "drizzle-orm";
 
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
 import {
   companies,

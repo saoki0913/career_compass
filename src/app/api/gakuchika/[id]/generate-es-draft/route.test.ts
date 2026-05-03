@@ -55,7 +55,7 @@ vi.mock("@/lib/rate-limit-spike", () => ({
   DRAFT_RATE_LAYERS: [],
 }));
 
-vi.mock("@/app/api/gakuchika", () => ({
+vi.mock("@/bff/gakuchika", () => ({
   getIdentity: getIdentityMock,
   isDraftReady: isDraftReadyMock,
   safeParseConversationState: safeParseConversationStateMock,
@@ -79,7 +79,7 @@ vi.mock("@/lib/es-review/es-document-section-titles", () => ({
   buildGakuchikaEsSectionTitle: vi.fn(() => "ガクチカ"),
 }));
 
-vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+vi.mock("@/bff/identity/llm-cost-guard", () => ({
   guardDailyTokenLimit: vi.fn().mockResolvedValue(null),
 }));
 
@@ -233,7 +233,7 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
   });
 
   it("passes structured draft material to FastAPI", async () => {
-    const { POST } = await import("@/app/api/gakuchika/[id]/generate-es-draft/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/generate-es-draft/route");
     const request = new NextRequest("http://localhost:3000/api/gakuchika/g-1/generate-es-draft", {
       method: "POST",
       body: JSON.stringify({ charLimit: 400 }),
@@ -281,7 +281,7 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
       ),
     );
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/generate-es-draft/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/generate-es-draft/route");
     const request = new NextRequest("http://localhost:3000/api/gakuchika/g-1/generate-es-draft", {
       method: "POST",
       body: JSON.stringify({ charLimit: 400 }),
@@ -299,7 +299,7 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
   it("returns the persisted draft even if credit confirmation fails after persistence", async () => {
     confirmReservationMock.mockRejectedValueOnce(new Error("credit store unavailable"));
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/generate-es-draft/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/generate-es-draft/route");
     const request = new NextRequest("http://localhost:3000/api/gakuchika/g-1/generate-es-draft", {
       method: "POST",
       body: JSON.stringify({ charLimit: 400 }),

@@ -9,7 +9,7 @@ import { auth } from "@/lib/auth";
 import { migrateGuestToUser } from "@/lib/auth/guest";
 import { clearGuestDeviceTokenCookie, readGuestDeviceToken } from "@/lib/auth/guest-cookie";
 import { headers } from "next/headers";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {

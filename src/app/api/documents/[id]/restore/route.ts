@@ -8,8 +8,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { documents } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 async function verifyDocumentAccess(
   documentId: string,

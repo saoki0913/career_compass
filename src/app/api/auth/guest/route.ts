@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { getOrCreateGuestUser, getGuestUser } from "@/lib/auth/guest";
 import {
   clearGuestDeviceTokenCookie,

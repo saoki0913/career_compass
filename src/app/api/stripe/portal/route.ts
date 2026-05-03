@@ -12,7 +12,7 @@ import { db } from "@/lib/db";
 import { subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getAppUrl } from "@/lib/app-url";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { logError } from "@/lib/logger";
 import { getCsrfFailureReason } from "@/lib/csrf";
 

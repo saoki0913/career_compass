@@ -9,7 +9,7 @@ import { db } from "@/lib/db";
 import { contactMessages } from "@/lib/db/schema";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { CSRF_COOKIE_NAME } from "@/lib/csrf";
 import { parseBody, contactSchema } from "@/lib/validation";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";

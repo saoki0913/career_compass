@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { userPins } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 const VALID_ENTITY_TYPES = ["document", "gakuchika"] as const;
 type EntityType = typeof VALID_ENTITY_TYPES[number];

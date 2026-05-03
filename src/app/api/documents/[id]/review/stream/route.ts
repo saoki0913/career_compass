@@ -5,7 +5,7 @@
  */
 
 import type { NextRequest } from "next/server";
-import { handleReviewStream } from "@/app/api/documents/_services/handle-review-stream";
+import { handleReviewStream } from "@/bff/es-review/handle-review-stream";
 
 export async function POST(
   request: NextRequest,

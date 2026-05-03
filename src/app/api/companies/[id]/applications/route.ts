@@ -8,8 +8,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { applications, companies, deadlines } from "@/lib/db/schema";
+import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
 import { eq, and, desc, count } from "drizzle-orm";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 // Default phases by type
 const DEFAULT_PHASES: Record<string, string[]> = {
@@ -132,7 +133,9 @@ export async function GET(
 
       return {
         ...application,
-        phase: application.phase ? JSON.parse(application.phase) : DEFAULT_PHASES[application.type] || [],
+        phase: parseStringArrayCompat(application.phase).length
+          ? parseStringArrayCompat(application.phase)
+          : DEFAULT_PHASES[application.type] || [],
         deadlineCount: deadlineList.length,
         upcomingDeadlineCount: upcomingDeadlines.length,
         nearestDeadline: nearestDeadline
@@ -227,7 +230,7 @@ export async function POST(
         guestId,
         name,
         type,
-        phase: JSON.stringify(DEFAULT_PHASES[type] || []),
+        phase: DEFAULT_PHASES[type] || [],
         sortOrder: existingAppCount,
         createdAt: now,
         updatedAt: now,

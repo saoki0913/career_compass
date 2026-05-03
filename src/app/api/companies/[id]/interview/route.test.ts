@@ -13,7 +13,7 @@ const {
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
 }));
 
-vi.mock("@/app/api/_shared/request-identity", () => ({
+vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
@@ -69,7 +69,7 @@ describe("api/companies/[id]/interview", () => {
     });
   });
 
-  it("returns model metadata that matches the interview backend defaults", async () => {
+  it("returns interview hydration data without UI-only readiness or model labels", async () => {
     const { GET } = await import("./route");
 
     const response = await GET(
@@ -79,25 +79,17 @@ describe("api/companies/[id]/interview", () => {
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(data.models).toEqual({
-      plan: "GPT-5.4",
-      question: "Claude Haiku 4.5",
-      feedback: "Claude Sonnet 4.6",
-    });
-    expect(data.questionModel).toBe("Claude Haiku 4.5");
-    expect(data.feedbackModel).toBe("Claude Sonnet 4.6");
+    expect(data).not.toHaveProperty("models");
+    expect(data).not.toHaveProperty("planModel");
+    expect(data).not.toHaveProperty("questionModel");
+    expect(data).not.toHaveProperty("feedbackModel");
+    expect(data).not.toHaveProperty("model");
+    expect(data).not.toHaveProperty("materialReadiness");
     expect(data.billingCosts).toEqual({
       start: 2,
       turn: 1,
       continue: 1,
       feedback: 6,
-    });
-    expect(data.materialReadiness).toMatchObject({
-      status: "partial",
-      items: expect.arrayContaining([
-        expect.objectContaining({ key: "motivation", ready: true }),
-        expect.objectContaining({ key: "gakuchika", ready: false }),
-      ]),
     });
     expect(data.sessionState).toMatchObject({
       status: "setup_pending",

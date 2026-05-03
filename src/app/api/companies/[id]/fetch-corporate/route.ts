@@ -9,7 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, companyPdfIngestJobs, userProfiles } from "@/lib/db/schema";

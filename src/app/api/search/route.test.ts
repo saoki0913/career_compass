@@ -7,7 +7,7 @@ const { getRequestIdentityMock, performSearchMock, enforceRateLimitLayersMock } 
   enforceRateLimitLayersMock: vi.fn(),
 }));
 
-vi.mock("@/app/api/_shared/request-identity", () => ({
+vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 

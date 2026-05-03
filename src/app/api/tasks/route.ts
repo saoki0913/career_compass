@@ -8,13 +8,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tasks } from "@/lib/db/schema";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 import {
   hasOwnedApplication,
   hasOwnedCompany,
   hasOwnedDeadline,
-} from "@/app/api/_shared/owner-access";
+} from "@/bff/identity/owner-access";
 import { getTasksPageData } from "@/lib/server/task-loaders";
 
 const TASK_TYPE_LABELS: Record<string, string> = {

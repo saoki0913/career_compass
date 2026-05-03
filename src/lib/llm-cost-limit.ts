@@ -10,7 +10,7 @@
 
 import { Redis } from "@upstash/redis";
 
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import type { InternalCostTelemetry } from "@/lib/ai/cost-summary-log";
 import { getJstDateKey, startOfJstDayAsUtc } from "@/lib/datetime/jst";
 

@@ -153,8 +153,6 @@ export function getDefaultConversationState(): ConversationState {
   };
 }
 
-export const defaultConversationState = getDefaultConversationState;
-
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
@@ -310,8 +308,8 @@ function parseLegacyState(value: Record<string, unknown>, status: string | null 
   };
 }
 
-export function safeParseConversationState(json: string | null, status?: string | null): ConversationState {
-  if (!json) {
+export function safeParseConversationState(value: unknown, status?: string | null): ConversationState {
+  if (!value) {
     return status === "completed"
       ? {
           ...getDefaultConversationState(),
@@ -327,7 +325,7 @@ export function safeParseConversationState(json: string | null, status?: string 
   }
 
   try {
-    const parsed = JSON.parse(json) as Record<string, unknown>;
+    const parsed = typeof value === "string" ? JSON.parse(value) as Record<string, unknown> : value as Record<string, unknown>;
     const legacy = parseLegacyState(parsed, status);
     if (legacy) return legacy;
 
@@ -389,8 +387,8 @@ export function safeParseConversationState(json: string | null, status?: string 
   }
 }
 
-export function serializeConversationState(state: ConversationState): string {
-  return JSON.stringify({
+export function serializeConversationState(state: ConversationState): Record<string, unknown> {
+  return {
     stage: state.stage,
     focus_key: state.focusKey,
     progress_label: state.progressLabel,
@@ -424,7 +422,7 @@ export function serializeConversationState(state: ConversationState): string {
     coach_progress_message: state.coachProgressMessage,
     remaining_questions_estimate: state.remainingQuestionsEstimate,
     paused_question: state.pausedQuestion,
-  });
+  };
 }
 
 export function buildConversationStatePatch(

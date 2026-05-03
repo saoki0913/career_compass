@@ -10,10 +10,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { getOwnedCompanyRecord } from "@/app/api/_shared/owner-access";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { getOwnedCompanyRecord } from "@/bff/identity/owner-access";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -29,7 +29,7 @@ import {
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
-import { companyFetchPolicy } from "@/lib/api-route/billing/company-fetch-policy";
+import { companyFetchPolicy } from "@/bff/billing/company-fetch-policy";
 import { saveExtractedDeadlines } from "@/lib/company-info/deadline-persistence";
 import type { ExtractedDeadline } from "@/lib/company-info/deadline-persistence";
 

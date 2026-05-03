@@ -78,11 +78,11 @@ vi.mock("@/lib/rate-limit-spike", () => ({
   DRAFT_RATE_LAYERS: [],
 }));
 
-vi.mock("@/app/api/_shared/request-identity", () => ({
+vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
-vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+vi.mock("@/bff/identity/llm-cost-guard", () => ({
   guardDailyTokenLimit: vi.fn().mockResolvedValue(null),
 }));
 

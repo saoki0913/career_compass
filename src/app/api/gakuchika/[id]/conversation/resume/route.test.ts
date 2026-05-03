@@ -24,7 +24,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+vi.mock("@/bff/identity/llm-cost-guard", () => ({
   guardDailyTokenLimit: vi.fn().mockResolvedValue(null),
 }));
 
@@ -33,7 +33,7 @@ vi.mock("@/lib/llm-cost-limit", () => ({
   incrementDailyTokenCount: vi.fn(),
 }));
 
-vi.mock("@/app/api/gakuchika", () => ({
+vi.mock("@/bff/gakuchika", () => ({
   getIdentity: getIdentityMock,
   verifyGakuchikaAccess: verifyGakuchikaAccessMock,
   getQuestionFromFastAPI: getQuestionFromFastAPIMock,
@@ -129,7 +129,7 @@ describe("api/gakuchika/[id]/conversation/resume", () => {
   });
 
   it("resumes from persisted pausedQuestion without generating a second question", async () => {
-    const { POST } = await import("@/app/api/gakuchika/[id]/conversation/resume/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/conversation/resume/route");
     const request = new NextRequest("http://localhost:3000/api/gakuchika/g-1/conversation/resume", {
       method: "POST",
       body: JSON.stringify({ sessionId: "c-1" }),
@@ -217,7 +217,7 @@ describe("api/gakuchika/[id]/conversation/resume", () => {
       telemetry: null,
     });
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/conversation/resume/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/conversation/resume/route");
     const request = new NextRequest("http://localhost:3000/api/gakuchika/g-1/conversation/resume", {
       method: "POST",
       body: JSON.stringify({ sessionId: "c-1" }),

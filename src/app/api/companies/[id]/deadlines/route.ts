@@ -11,7 +11,7 @@ import { deadlines, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { syncDeadlineImmediately, type ImmediateSyncResult } from "@/lib/calendar/sync";
 import { generateTasksForDeadline } from "@/lib/server/task-generation";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 type DeadlineType =
   | "es_submission"

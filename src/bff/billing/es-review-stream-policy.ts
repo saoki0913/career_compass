@@ -87,7 +87,7 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
     if (!reservationId) {
       return;
     }
-    await confirmReservation(reservationId).catch(console.error);
+    await confirmReservation(reservationId);
   },
 
   async cancel(

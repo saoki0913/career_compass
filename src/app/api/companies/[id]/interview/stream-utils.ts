@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { splitInternalTelemetry } from "@/lib/ai/cost-summary-log";
 import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
 import { STREAM_FEATURE_CONFIGS } from "@/lib/fastapi/stream-config";

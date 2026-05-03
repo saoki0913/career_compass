@@ -12,9 +12,9 @@ import { eq } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { createServerTimingRecorder } from "@/bff/api/server-timing";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { getCompaniesPageData } from "@/lib/server/app-loaders";
 
 // Plan limits for companies

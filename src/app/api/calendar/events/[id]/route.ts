@@ -14,7 +14,7 @@ import {
   syncWorkBlockDeleteImmediately,
   type ImmediateSyncResult,
 } from "@/lib/calendar/sync";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 
 export async function DELETE(
   request: NextRequest,

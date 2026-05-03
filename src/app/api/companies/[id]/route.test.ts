@@ -17,11 +17,11 @@ const {
   dbDeleteMock: vi.fn(),
 }));
 
-vi.mock("@/app/api/_shared/request-identity", () => ({
+vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
-vi.mock("@/app/api/_shared/owner-access", () => ({
+vi.mock("@/bff/identity/owner-access", () => ({
   hasOwnedCompany: hasOwnedCompanyMock,
 }));
 

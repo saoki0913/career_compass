@@ -7,9 +7,9 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { createServerTimingRecorder } from "@/bff/api/server-timing";
 import { db } from "@/lib/db";
 import { deadlines, companies, tasks } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -19,6 +19,7 @@ import {
   type ImmediateSyncResult,
 } from "@/lib/calendar/sync";
 import { generateTasksForDeadline } from "@/lib/server/task-generation";
+import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
 
 type DeadlineType =
   | "es_submission"
@@ -265,9 +266,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
     // If unmarking as completed (completedAt is being unset)
     else if (completedAt === null && currentDeadline.completedAt) {
-      const storedTaskIds: string[] = currentDeadline.autoCompletedTaskIds
-        ? JSON.parse(currentDeadline.autoCompletedTaskIds)
-        : [];
+      const storedTaskIds = parseStringArrayCompat(currentDeadline.autoCompletedTaskIds);
 
       if (storedTaskIds.length > 0) {
         await db
@@ -304,7 +303,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     if (completedAt !== undefined) {
       updateData.completedAt = completedAt;
       if (completedAt) {
-        updateData.autoCompletedTaskIds = JSON.stringify(autoCompletedTaskIds);
+        updateData.autoCompletedTaskIds = autoCompletedTaskIds;
       } else {
         updateData.autoCompletedTaskIds = null;
       }

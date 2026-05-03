@@ -4,7 +4,7 @@ import { companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { STATUS_POLL_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { getViewerPlan } from "@/lib/server/loader-helpers";
 
 export async function GET(

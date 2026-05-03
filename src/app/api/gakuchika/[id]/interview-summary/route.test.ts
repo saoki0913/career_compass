@@ -39,7 +39,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+vi.mock("@/bff/identity/llm-cost-guard", () => ({
   guardDailyTokenLimit: guardDailyTokenLimitMock,
 }));
 
@@ -48,7 +48,7 @@ vi.mock("@/lib/rate-limit-spike", () => ({
   DRAFT_RATE_LAYERS: [],
 }));
 
-vi.mock("@/app/api/gakuchika/summary-server", () => ({
+vi.mock("@/bff/gakuchika/summary-server", () => ({
   generateGakuchikaSummaryWithTelemetry: generateGakuchikaSummaryWithTelemetryMock,
 }));
 
@@ -61,7 +61,7 @@ vi.mock("@/lib/csrf", () => ({
   getCsrfFailureReason: getCsrfFailureReasonMock,
 }));
 
-vi.mock("@/app/api/gakuchika", () => ({
+vi.mock("@/bff/gakuchika", () => ({
   getIdentity: getIdentityMock,
   isInterviewReady: (state: { stage?: string; draftText?: string | null } | null) =>
     state?.stage === "interview_ready" && Boolean(state.draftText),
@@ -137,7 +137,7 @@ describe("api/gakuchika/[id]/interview-summary", () => {
       }]))
       .mockReturnValueOnce(makeSelectResult([{ id: "c-1", gakuchikaId: "g-1", messages: "[]" }]));
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/interview-summary/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/interview-summary/route");
     const response = await POST(
       new NextRequest("http://localhost:3000/api/gakuchika/g-1/interview-summary", {
         method: "POST",
@@ -187,7 +187,7 @@ describe("api/gakuchika/[id]/interview-summary", () => {
       }]))
       .mockReturnValueOnce(makeSelectResult([{ id: "c-1", gakuchikaId: "g-1", messages: "[]" }]));
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/interview-summary/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/interview-summary/route");
     const response = await POST(
       new NextRequest("http://localhost:3000/api/gakuchika/g-1/interview-summary", {
         method: "POST",
@@ -225,7 +225,7 @@ describe("api/gakuchika/[id]/interview-summary", () => {
       .mockReturnValueOnce(makeSelectResult([{ id: "g-1", userId: "user-1", title: "学園祭", summary: null }]))
       .mockReturnValueOnce(makeSelectResult([{ id: "c-1", gakuchikaId: "g-1", messages: "[]" }]));
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/interview-summary/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/interview-summary/route");
     const response = await POST(
       new NextRequest("http://localhost:3000/api/gakuchika/g-1/interview-summary", {
         method: "POST",
@@ -241,7 +241,7 @@ describe("api/gakuchika/[id]/interview-summary", () => {
   it("rejects missing CSRF before resolving identity", async () => {
     getCsrfFailureReasonMock.mockReturnValue("missing_token");
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/interview-summary/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/interview-summary/route");
     const response = await POST(
       new NextRequest("http://localhost:3000/api/gakuchika/g-1/interview-summary", {
         method: "POST",

@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
 
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 import {
   cancelReservation,
   confirmReservation,

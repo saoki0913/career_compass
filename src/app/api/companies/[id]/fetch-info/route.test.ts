@@ -108,7 +108,8 @@ describe("api/companies/[id]/fetch-info", () => {
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     dbSelectMock
       .mockReturnValueOnce(makeProfileQuery("free"))
-      .mockReturnValueOnce(makeCompanyQuery());
+      .mockReturnValueOnce(makeCompanyQuery())
+      .mockImplementation(() => makeCompanyQuery());
     enforceRateLimitLayersMock.mockResolvedValue(null);
     getRemainingFreeFetchesMock.mockResolvedValue(1);
     validatePublicUrlMock.mockResolvedValue({

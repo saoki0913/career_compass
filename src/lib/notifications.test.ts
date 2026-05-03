@@ -40,6 +40,48 @@ describe("notifications", () => {
     });
   });
 
+  it("passes action button config through to snackbar", async () => {
+    const { notifyError } = await import("./notifications");
+    const onClick = vi.fn();
+
+    notifyError({
+      title: "Failed to load",
+      description: "Please try again",
+      action: { label: "Retry", onClick },
+    });
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith({
+      tone: "error",
+      title: "Failed to load",
+      description: "Please try again",
+      duration: 8000,
+      action: { label: "Retry", onClick },
+    });
+  });
+
+  it("uses ACTION_DURATION when action is provided without explicit duration", async () => {
+    const { notifyError } = await import("./notifications");
+
+    notifyError({
+      title: "Error",
+      action: { label: "Retry", onClick: vi.fn() },
+    });
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith(
+      expect.objectContaining({ duration: 8000 }),
+    );
+  });
+
+  it("uses ERROR_DURATION when no action is provided", async () => {
+    const { notifyError } = await import("./notifications");
+
+    notifyError({ title: "Error" });
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith(
+      expect.objectContaining({ duration: 5200 }),
+    );
+  });
+
   it("shows neutral snackbar copy for non-destructive info", async () => {
     const { notifyInfo } = await import("./notifications");
 

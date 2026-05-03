@@ -1,6 +1,6 @@
 import { serializeSignedCookie } from "better-call";
 import { NextRequest, NextResponse } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { auth } from "@/lib/auth";
 import {
   getBetterAuthSessionCookieAttributes,

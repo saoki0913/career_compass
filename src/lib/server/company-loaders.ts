@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
 import {
   applications,
@@ -15,6 +15,7 @@ import {
   serializeCompanyRecord,
   serializeDate,
 } from "./loader-helpers";
+import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
 import { estimateCompanyLogoProfile } from "./company-domain-estimator";
 import { getDocumentsPageData } from "./document-loaders";
 
@@ -186,7 +187,7 @@ export async function getCompanyApplicationsData(identity: RequestIdentity, comp
 
     return {
       ...application,
-      phase: application.phase ? JSON.parse(application.phase) : [],
+      phase: parseStringArrayCompat(application.phase),
       deadlineCount: appDeadlines.length,
       nearestDeadline: nearestDeadline ? nearestDeadline.dueDate.toISOString() : null,
       sortOrder: application.sortOrder ?? 0,

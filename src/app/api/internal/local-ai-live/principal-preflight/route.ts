@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);

@@ -10,7 +10,7 @@ import {
   type LegacySummary,
   type StructuredSummary,
 } from "@/lib/gakuchika/summary";
-import { type Message } from "@/app/api/gakuchika";
+import { type Message } from "@/bff/gakuchika";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -147,7 +147,7 @@ export async function generateGakuchikaSummaryWithTelemetry(
   return { summary: buildFallbackSummary(messages), telemetry: null };
 }
 
-export async function generateGakuchikaSummary(
+async function generateGakuchikaSummary(
   gakuchikaTitle: string,
   draftText: string,
   messages: Message[]
@@ -156,7 +156,7 @@ export async function generateGakuchikaSummary(
   return result.summary;
 }
 
-export async function persistGakuchikaSummary(
+async function persistGakuchikaSummary(
   gakuchikaId: string,
   gakuchikaTitle: string,
   draftText: string,

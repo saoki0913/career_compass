@@ -1,7 +1,7 @@
 import { and, count, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import type { Notification } from "@/hooks/useNotifications";
 
 export interface NotificationsPageData {

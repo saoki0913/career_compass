@@ -13,10 +13,10 @@ import { eq } from "drizzle-orm";
 import { VALID_STATUSES } from "@/lib/constants/status";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
 import { encrypt } from "@/lib/crypto";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { hasOwnedCompany } from "@/app/api/_shared/owner-access";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { createServerTimingRecorder } from "@/bff/api/server-timing";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { hasOwnedCompany } from "@/bff/identity/owner-access";
 import { getCompanyDetailPageData } from "@/lib/server/app-loaders";
 
 type RouteContext = {

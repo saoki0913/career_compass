@@ -6,7 +6,7 @@ import {
   type InterviewTurnState,
 } from "@/lib/interview/session";
 import { safeParseInterviewShortCoaching } from "@/lib/interview/conversation";
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import {
   buildInterviewContext,
   listInterviewTurnEvents,

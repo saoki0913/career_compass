@@ -164,7 +164,7 @@ export async function notifySyncFailure(userId: string, entityType: SyncEntityTy
     type: "calendar_sync_failed",
     title: "Googleカレンダー同期に失敗しました",
     message,
-    data: JSON.stringify({ entityType, entityId }),
+    data: { entityType, entityId },
     isRead: false,
     createdAt: new Date(),
     expiresAt: null,

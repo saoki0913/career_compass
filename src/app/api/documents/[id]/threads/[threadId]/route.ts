@@ -10,8 +10,9 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { documents, aiThreads, aiMessages } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { parseJsonRecordCompat } from "@/lib/db/jsonb-compat";
 
 const patchBodySchema = z.object({
   status: z.enum(["active", "archived"]).optional(),
@@ -95,7 +96,7 @@ export async function GET(
         id: msg.id,
         role: msg.role,
         content: msg.content,
-        metadata: msg.metadata ? JSON.parse(msg.metadata) : null,
+        metadata: parseJsonRecordCompat(msg.metadata),
         createdAt: msg.createdAt.toISOString(),
       })),
     };

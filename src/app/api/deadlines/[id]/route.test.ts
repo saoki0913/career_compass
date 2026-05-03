@@ -46,6 +46,7 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/calendar/sync", () => ({
   enqueueDeadlineDelete: vi.fn(),
   enqueueDeadlineSync: enqueueDeadlineSyncMock,
+  syncDeadlineImmediately: vi.fn(),
 }));
 
 vi.mock("@/lib/server/task-generation", () => ({

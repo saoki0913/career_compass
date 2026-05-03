@@ -13,7 +13,7 @@ import {
 import { db } from "@/lib/db";
 import { userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 import {
   getMonthlyScheduleFetchFreeLimit,
   getMonthlyRagHtmlFreeUnits,

@@ -45,7 +45,7 @@ vi.mock("@/lib/rate-limit", () => ({
   RATE_LIMITS: { guestAuth: { windowMs: 60000, max: 10 } },
 }));
 
-vi.mock("@/app/api/_shared/error-response", () => ({
+vi.mock("@/bff/api/error-response", () => ({
   createApiErrorResponse: vi.fn(),
 }));
 

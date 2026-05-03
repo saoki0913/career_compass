@@ -41,7 +41,7 @@ describe("getHeadersIdentity", () => {
   });
 
   it("returns null when session lookup fails without a guest token", async () => {
-    const { getHeadersIdentity } = await import("@/app/api/_shared/request-identity");
+    const { getHeadersIdentity } = await import("@/bff/identity/request-identity");
     getSessionMock.mockRejectedValue(new Error("Failed query: select * from sessions where token = secret-token"));
 
     await expect(getHeadersIdentity(new Headers())).resolves.toBeNull();
@@ -57,7 +57,7 @@ describe("getHeadersIdentity", () => {
   });
 
   it("falls back to guest identity when session lookup fails but a device token is present", async () => {
-    const { getHeadersIdentity } = await import("@/app/api/_shared/request-identity");
+    const { getHeadersIdentity } = await import("@/bff/identity/request-identity");
     getSessionMock.mockRejectedValue(new Error("Failed to get session"));
     getGuestUserMock.mockResolvedValue({ id: "guest-1" });
     readGuestDeviceTokenFromCookieHeaderMock.mockReturnValue(null);
@@ -85,7 +85,7 @@ describe("getHeadersIdentity", () => {
   });
 
   it("prefers the HttpOnly guest cookie and ignores a public x-device-token header by default", async () => {
-    const { getHeadersIdentity } = await import("@/app/api/_shared/request-identity");
+    const { getHeadersIdentity } = await import("@/bff/identity/request-identity");
     getSessionMock.mockResolvedValue(null);
     readGuestDeviceTokenFromCookieHeaderMock.mockReturnValue("cookie-device-token");
     getGuestUserMock.mockResolvedValue({ id: "guest-cookie" });

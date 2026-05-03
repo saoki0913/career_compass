@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
-import { motivationStreamPolicy } from "@/lib/api-route/billing/motivation-stream-policy";
+import { motivationStreamPolicy } from "@/bff/billing/motivation-stream-policy";
 import { CONVERSATION_CREDITS_PER_TURN } from "@/lib/credits";
 import {
   type CausalGap,

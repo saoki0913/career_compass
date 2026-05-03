@@ -27,7 +27,7 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-vi.mock("@/app/api/gakuchika", () => ({
+vi.mock("@/bff/gakuchika", () => ({
   getIdentity: getIdentityMock,
   safeParseConversationState: safeParseConversationStateMock,
   serializeConversationState: serializeConversationStateMock,
@@ -97,7 +97,7 @@ describe("api/gakuchika/[id]/discard-generated-draft", () => {
         content: "本文",
       }]));
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/discard-generated-draft/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/discard-generated-draft/route");
     const response = await POST(
       new NextRequest("http://localhost:3000/api/gakuchika/g-1/discard-generated-draft", {
         method: "POST",
@@ -137,7 +137,7 @@ describe("api/gakuchika/[id]/discard-generated-draft", () => {
         content: "本文",
       }]));
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/discard-generated-draft/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/discard-generated-draft/route");
     const response = await POST(
       new NextRequest("http://localhost:3000/api/gakuchika/g-1/discard-generated-draft", {
         method: "POST",
@@ -153,7 +153,7 @@ describe("api/gakuchika/[id]/discard-generated-draft", () => {
   it("rejects missing CSRF before resolving identity", async () => {
     getCsrfFailureReasonMock.mockReturnValue("missing_token");
 
-    const { POST } = await import("@/app/api/gakuchika/[id]/discard-generated-draft/route");
+    const { POST } = await import("@/bff/gakuchika/[id]/discard-generated-draft/route");
     const response = await POST(
       new NextRequest("http://localhost:3000/api/gakuchika/g-1/discard-generated-draft", {
         method: "POST",

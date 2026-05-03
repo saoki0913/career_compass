@@ -12,8 +12,8 @@ import { calendarEvents, deadlines, companies } from "@/lib/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { headers } from "next/headers";
 import { syncWorkBlockImmediately, type ImmediateSyncResult } from "@/lib/calendar/sync";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { hasOwnedDeadline } from "@/app/api/_shared/owner-access";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { hasOwnedDeadline } from "@/bff/identity/owner-access";
 
 export async function GET(request: NextRequest) {
   try {

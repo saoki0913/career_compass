@@ -10,7 +10,7 @@ import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
 import { listCalendars, createCalendar, GoogleCalendarScopeError } from "@/lib/calendar/google";
 import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 
 export async function GET(request: NextRequest) {
   try {

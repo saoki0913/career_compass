@@ -10,8 +10,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { applications, companies, deadlines, jobTypes } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { getOwnedApplicationRecord } from "@/app/api/_shared/owner-access";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { getOwnedApplicationRecord } from "@/bff/identity/owner-access";
+import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
 
 export async function GET(
   request: NextRequest,
@@ -60,7 +65,7 @@ export async function GET(
     return NextResponse.json({
       application: {
         ...application,
-        phase: application.phase ? JSON.parse(application.phase) : [],
+        phase: parseStringArrayCompat(application.phase),
       },
       company: company
         ? {
@@ -134,7 +139,13 @@ export async function PUT(
       updateData.status = status;
     }
     if (phase !== undefined) {
-      updateData.phase = JSON.stringify(phase);
+      if (!isStringArray(phase)) {
+        return NextResponse.json(
+          { error: "無効な選考フェーズです" },
+          { status: 400 }
+        );
+      }
+      updateData.phase = phase;
     }
     if (sortOrder !== undefined) {
       updateData.sortOrder = sortOrder;
@@ -149,7 +160,7 @@ export async function PUT(
     return NextResponse.json({
       application: {
         ...updated[0],
-        phase: updated[0].phase ? JSON.parse(updated[0].phase) : [],
+        phase: parseStringArrayCompat(updated[0].phase),
       },
     });
   } catch (error) {

@@ -10,9 +10,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { documents, documentVersions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { createServerTimingRecorder } from "@/bff/api/server-timing";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 import {
   getOwnedApplication,
   getOwnedCompany,
@@ -20,7 +20,7 @@ import {
   hasOwnedApplication,
   hasOwnedCompany,
   hasOwnedJobType,
-} from "@/app/api/_shared/owner-access";
+} from "@/bff/identity/owner-access";
 import { getDocumentDetailPageData } from "@/lib/server/app-loaders";
 import { esDocumentCategorySchema } from "@/lib/es-document-category";
 

@@ -59,7 +59,7 @@ vi.mock("@/lib/logger", () => ({
   logError: vi.fn(),
 }));
 
-vi.mock("@/app/api/_shared/error-response", () => ({
+vi.mock("@/bff/api/error-response", () => ({
   createApiErrorResponse: createApiErrorResponseMock,
 }));
 

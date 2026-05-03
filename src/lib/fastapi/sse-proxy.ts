@@ -147,6 +147,7 @@ export function createSSEProxyStream(
   } = options;
 
   const upstreamBody = upstreamResponse.body;
+  let runFinallyFromCancel: ((success: boolean) => Promise<void>) | null = null;
   if (!upstreamBody) {
     // Degenerate case — produce a stream that emits a single error event and closes.
     return new ReadableStream<Uint8Array>({
@@ -203,6 +204,7 @@ export function createSSEProxyStream(
           }
         }
       };
+      runFinallyFromCancel = runFinally;
 
       const forwardRaw = (text: string) => {
         controller.enqueue(encoder.encode(text));
@@ -320,6 +322,7 @@ export function createSSEProxyStream(
       }
     },
     async cancel() {
+      await runFinallyFromCancel?.(false);
       await reader.cancel().catch(() => undefined);
     },
   });

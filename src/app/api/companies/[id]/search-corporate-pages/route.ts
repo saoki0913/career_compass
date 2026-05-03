@@ -6,7 +6,7 @@ import { readGuestDeviceToken } from "@/lib/auth/guest-cookie";
 import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
 import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 interface SearchCandidate {
   url: string;

@@ -181,6 +181,24 @@ describe("createSSEProxyStream", () => {
     expect(onFinally).toHaveBeenCalledOnce();
   });
 
+  it("invokes onFinally when the browser cancels the proxied stream", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "progress", step: 1 })}\n\n`));
+      },
+    });
+    const onFinally = vi.fn();
+
+    const stream = createSSEProxyStream(new Response(body), { ...baseOpts, onFinally });
+    const reader = stream.getReader();
+    await reader.read();
+    await reader.cancel();
+
+    expect(onFinally).toHaveBeenCalledOnce();
+    expect(onFinally).toHaveBeenCalledWith({ success: false });
+  });
+
   it("emits error event to client when upstream body is null", async () => {
     const response = { body: null } as unknown as Response;
     const onFinally = vi.fn();

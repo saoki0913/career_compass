@@ -8,10 +8,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { documents } from "@/lib/db/schema";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { hasOwnedApplication, hasOwnedCompany, hasOwnedJobType } from "@/app/api/_shared/owner-access";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { createServerTimingRecorder } from "@/bff/api/server-timing";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { hasOwnedApplication, hasOwnedCompany, hasOwnedJobType } from "@/bff/identity/owner-access";
 import { getDocumentsPageData } from "@/lib/server/app-loaders";
 import { DEFAULT_ES_DOCUMENT_CATEGORY, esDocumentCategorySchema } from "@/lib/es-document-category";
 import { getDefaultBlocksForEsCategory } from "@/lib/es-document-templates";

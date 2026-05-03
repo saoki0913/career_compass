@@ -17,7 +17,7 @@ import {
   ensureCalendarSettingsRecord,
   parseStoredJsonArray,
 } from "@/lib/calendar/connection";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { cancelPendingCalendarSyncJobsForUser, getCalendarSyncSummary } from "@/lib/calendar/sync";
 
 const calendarSettingsSchema = z.object({

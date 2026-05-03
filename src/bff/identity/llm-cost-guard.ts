@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { checkDailyTokenLimit, getRetryAfterSeconds } from "@/lib/llm-cost-limit";
 import { getUserPlan } from "@/lib/credits/shared";
 

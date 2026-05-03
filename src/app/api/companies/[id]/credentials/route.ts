@@ -13,7 +13,7 @@ import { companies } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
 import { logError } from "@/lib/logger";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 type RouteContext = {
   params: Promise<{ id: string }>;

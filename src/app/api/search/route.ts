@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { performSearch } from "@/lib/server/search-loader";
 import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 

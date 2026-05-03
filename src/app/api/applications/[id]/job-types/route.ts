@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { applications, jobTypes } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 async function getIdentity(request: NextRequest): Promise<{
   userId: string | null;

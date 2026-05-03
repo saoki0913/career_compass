@@ -7,9 +7,9 @@
 
 import { db } from "@/lib/db";
 import { deadlines, companies, tasks } from "@/lib/db/schema";
-import { eq, and, sql, asc, desc } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { computeDeadlineStatus, type DeadlineComputedStatus } from "./deadline-status";
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 
 export interface DeadlineDashboardItem {
   id: string;
@@ -64,17 +64,31 @@ export async function getDeadlinesDashboardData(
     return { deadlines: [], summary: { total: 0, notStarted: 0, inProgress: 0, completed: 0, overdue: 0, completionRate: 0 } };
   }
 
-  // Fetch all confirmed deadlines with company info
+  const taskStats = db
+    .select({
+      deadlineId: tasks.deadlineId,
+      totalTasks: sql<number>`count(*)`.as("total_tasks"),
+      completedTasks: sql<number>`count(*) filter (where ${tasks.status} = 'done')`.as("completed_tasks"),
+    })
+    .from(tasks)
+    .innerJoin(deadlines, eq(tasks.deadlineId, deadlines.id))
+    .innerJoin(companies, eq(deadlines.companyId, companies.id))
+    .where(and(ownerCondition, eq(deadlines.isConfirmed, true)))
+    .groupBy(tasks.deadlineId)
+    .as("task_stats");
+
+  // Fetch all confirmed deadlines with company info and pre-aggregated task counts.
   const rows = await db
     .select({
       deadline: deadlines,
       companyName: companies.name,
       companyId: companies.id,
-      totalTasks: sql<number>`(select count(*) from ${tasks} where ${tasks.deadlineId} = ${deadlines.id})`,
-      completedTasks: sql<number>`(select count(*) from ${tasks} where ${tasks.deadlineId} = ${deadlines.id} and ${tasks.status} = 'done')`,
+      totalTasks: sql<number>`coalesce(${taskStats.totalTasks}, 0)`,
+      completedTasks: sql<number>`coalesce(${taskStats.completedTasks}, 0)`,
     })
     .from(deadlines)
     .innerJoin(companies, eq(deadlines.companyId, companies.id))
+    .leftJoin(taskStats, eq(taskStats.deadlineId, deadlines.id))
     .where(and(ownerCondition, eq(deadlines.isConfirmed, true)));
 
   // Compute status and build items

@@ -8,7 +8,7 @@ import {
   resolveIndustryForReview,
   requiresIndustrySelection,
 } from "@/lib/constants/es-review-role-catalog";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 export async function GET(
   request: NextRequest,
