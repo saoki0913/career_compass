@@ -1,16 +1,5 @@
 import { Skeleton, SkeletonText } from "@/components/ui/skeleton";
-
-function StatCardSkeleton({ delay }: { delay: number }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-border/50 bg-card p-3">
-      <Skeleton className="h-8 w-8 shrink-0 rounded-lg" shimmerDelayMs={delay} />
-      <div className="min-w-0 flex-1 space-y-1.5">
-        <Skeleton className="h-3 w-12 rounded-md" shimmerDelayMs={delay + 20} />
-        <Skeleton className="h-5 w-10 rounded-md" shimmerDelayMs={delay + 40} />
-      </div>
-    </div>
-  );
-}
+import { ListPageFilterBarSkeleton } from "@/components/shared/ListPageFilterBarSkeleton";
 
 function KanbanColumnSkeleton({ delay }: { delay: number }) {
   return (
@@ -81,7 +70,7 @@ export function DeadlinesDashboardSkeleton() {
 
 /**
  * Full page skeleton used in the loading.tsx file.
- * Includes stat cards, filter bar placeholders, and kanban columns.
+ * Includes heading, filter bar placeholder, and kanban columns.
  */
 export function DeadlinesDashboardPageSkeleton() {
   return (
@@ -92,21 +81,7 @@ export function DeadlinesDashboardPageSkeleton() {
         <SkeletonText lines={1} widths={["14rem"]} />
       </div>
 
-      {/* Summary stats */}
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <StatCardSkeleton key={i} delay={i * 30} />
-        ))}
-      </div>
-
-      {/* Filter bar */}
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-1 flex-wrap items-center gap-2">
-          <Skeleton className="h-9 w-full rounded-md sm:max-w-xs" shimmerDelayMs={10} />
-          <Skeleton className="h-9 w-36 rounded-md" shimmerDelayMs={30} />
-        </div>
-        <Skeleton className="h-9 w-36 rounded-lg" shimmerDelayMs={50} />
-      </div>
+      <ListPageFilterBarSkeleton variant="deadlines" />
 
       {/* Kanban board */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

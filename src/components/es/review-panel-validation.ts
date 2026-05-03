@@ -1,5 +1,5 @@
-/** 本文がこれ未満なら添削開始不可（UI で赤字枠・フッター案内）。FastAPI 側の旧 10 文字下限とは別。 */
-export const MIN_REVIEW_SECTION_BODY_CHARS = 5;
+/** 5文字以下は添削不可。FastAPI 側も同じ 6 文字下限で拒否する。 */
+export const MIN_REVIEW_SECTION_BODY_CHARS = 6;
 
 export type ReviewValidationField = "section_content" | "intern_name" | "industry" | "role_name";
 
@@ -16,6 +16,7 @@ interface ReviewValidationInput {
   internName: string;
   hasSelectedCompany: boolean;
   requiresIndustrySelection: boolean;
+  requiresRoleSelection: boolean;
   selectedIndustry: string | null;
   selectedRoleName: string;
 }
@@ -28,7 +29,7 @@ export function getReviewValidationIssues(input: ReviewValidationInput): ReviewV
       field: "section_content",
       section: "section_preview",
       label: "本文",
-      message: "本文を5文字以上入力してください。",
+      message: "本文を6文字以上入力してください。",
     });
   }
 
@@ -50,7 +51,7 @@ export function getReviewValidationIssues(input: ReviewValidationInput): ReviewV
     });
   }
 
-  if (input.hasSelectedCompany && !input.selectedRoleName.trim()) {
+  if (input.hasSelectedCompany && input.requiresRoleSelection && !input.selectedRoleName.trim()) {
     issues.push({
       field: "role_name",
       section: "industry",

@@ -2,7 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import Link from "next/link";
 
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { CompanyHeatmap } from "@/components/interview/dashboard/CompanyHeatmap";
 import { FormatHeatmap } from "@/components/interview/dashboard/FormatHeatmap";

@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getTodayTaskData } from "@/lib/server/app-loaders";
 import { getTasksPageData } from "@/lib/server/task-loaders";
 import { safeLoad } from "@/lib/server/safe-loader";

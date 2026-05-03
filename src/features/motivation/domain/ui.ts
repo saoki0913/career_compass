@@ -1,0 +1,32 @@
+export {
+  CONVERSATION_MODE_LABELS,
+  deriveMotivationModeLabel,
+  findRoleOption,
+  getMotivationLifecyclePhase,
+  getMotivationPhaseStatus,
+  getMotivationSlotPillStatus,
+  INTENT_LABELS,
+  MOTIVATION_LIFECYCLE_PHASES,
+  SLOT_PILL_LABELS,
+  STAGE_ANSWER_GUIDE,
+  STAGE_LABELS,
+  STAGE_ORDER,
+} from "@/lib/motivation/ui";
+
+export type {
+  CausalGap,
+  ConversationMode,
+  EvidenceCard,
+  MotivationCompany,
+  MotivationMessage,
+  MotivationProgress,
+  MotivationSetupSnapshot,
+  MotivationStageKey,
+  PillStatus,
+  RoleGroup,
+  RoleOptionItem,
+  RoleOptionSource,
+  RoleOptionsResponse,
+  RoleSelectionSource,
+  StageStatus,
+} from "@/lib/motivation/ui";

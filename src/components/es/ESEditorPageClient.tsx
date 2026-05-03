@@ -457,8 +457,11 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
 
   // Section review request state
   const [sectionReviewRequest, setSectionReviewRequest] = useState<{
+    sectionId: string;
     sectionTitle: string;
     sectionContent: string;
+    originalTextHash: string;
+    companyId: string | null;
     sectionCharLimit?: number;
   } | null>(null);
   const currentCompanyId = document?.companyId ?? document?.company?.id ?? null;
@@ -467,6 +470,28 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
     document?.company?.corporateInfoFetchedAt ?? null;
   const currentCompanyAnyFetchedAt =
     currentCompanyCorporateInfoFetchedAt ?? currentCompanyInfoFetchedAt;
+
+  const computeReviewTextHash = useCallback((value: string) => {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+    }
+    return hash.toString(16);
+  }, []);
+
+  const getSectionContentById = useCallback((sectionId: string) => {
+    const sectionIndex = blocks.findIndex((block) => block.id === sectionId && block.type === "h2");
+    if (sectionIndex < 0) return null;
+    let sectionContent = "";
+    for (let index = sectionIndex + 1; index < blocks.length; index += 1) {
+      if (blocks[index].type === "h2") break;
+      sectionContent += blocks[index].content;
+    }
+    return {
+      sectionTitle: blocks[sectionIndex].content.trim(),
+      sectionContent,
+    };
+  }, [blocks]);
 
   // Initialize state from document
   useEffect(() => {
@@ -672,14 +697,17 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
 
     // Set section review request
     setSectionReviewRequest({
+      sectionId: block.id,
       sectionTitle: block.content.trim(),
       sectionContent,
+      originalTextHash: computeReviewTextHash(sectionContent),
+      companyId: currentCompanyId,
       sectionCharLimit: block.charLimit,
     });
 
     // Ensure review panel is open
     setShowReviewPanel(true);
-  }, [blocks]);
+  }, [blocks, computeReviewTextHash, currentCompanyId]);
 
   // Clear section review request (called when returning to full mode)
   const handleClearSectionReview = useCallback(() => {
@@ -725,11 +753,15 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
     // Save current state for undo
     setUndoContent(JSON.stringify(blocks));
 
-    if (sectionTitle) {
+    const targetSectionId = sectionReviewRequest?.sectionId;
+    if (targetSectionId || sectionTitle) {
       // Section mode: replace paragraph blocks under the matching H2
       const newBlocks = [...blocks];
       for (let i = 0; i < newBlocks.length; i++) {
-        if (newBlocks[i].type === "h2" && newBlocks[i].content.trim() === sectionTitle) {
+        const sectionMatches = targetSectionId
+          ? newBlocks[i].id === targetSectionId
+          : newBlocks[i].content.trim() === sectionTitle;
+        if (newBlocks[i].type === "h2" && sectionMatches) {
           // Find range of non-H2 blocks after this H2
           let endIndex = i + 1;
           while (endIndex < newBlocks.length && newBlocks[endIndex].type !== "h2") {
@@ -748,7 +780,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
       setBlocks(newBlocks);
       setHasChanges(true);
     }
-  }, [blocks]);
+  }, [blocks, sectionReviewRequest?.sectionId]);
 
   // Handle undo for reflected content
   const handleUndoReflect = useCallback(() => {
@@ -794,6 +826,18 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
       : companyReviewStatusOverride?.companyId === currentCompanyId
         ? companyReviewStatusOverride.status
         : "company_status_checking";
+
+  const currentReviewSection = sectionReviewRequest
+    ? getSectionContentById(sectionReviewRequest.sectionId)
+    : null;
+  const isReviewSnapshotStale = Boolean(
+    sectionReviewRequest && (
+      !currentReviewSection ||
+      currentReviewSection.sectionTitle !== sectionReviewRequest.sectionTitle ||
+      computeReviewTextHash(currentReviewSection.sectionContent) !== sectionReviewRequest.originalTextHash ||
+      currentCompanyId !== sectionReviewRequest.companyId
+    ),
+  );
 
   if (isLoading) {
     return <ESEditorSkeleton />;
@@ -1062,6 +1106,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
                   onApplyRewrite={handleApplyRewrite}
                   onUndo={handleUndoReflect}
                   sectionReviewRequest={sectionReviewRequest}
+                  isSectionSnapshotStale={isReviewSnapshotStale}
                   onClearSectionReview={handleClearSectionReview}
                   supplementalContent={
                     <div className="mt-4 pt-4 border-t border-border/50">
@@ -1091,6 +1136,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
             onApplyRewrite={handleApplyRewrite}
             onUndo={handleUndoReflect}
             sectionReviewRequest={sectionReviewRequest}
+            isSectionSnapshotStale={isReviewSnapshotStale}
             onClearSectionReview={handleClearSectionReview}
           />
         </div>

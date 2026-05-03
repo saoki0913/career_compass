@@ -14,7 +14,7 @@ import {
   type StageStatus,
   type MotivationProgress,
   type CausalGap,
-} from "@/lib/motivation/ui";
+} from "@/features/motivation/domain/ui";
 
 // ---------------------------------------------------------------------------
 // Input: subset of controller state consumed by business derivations

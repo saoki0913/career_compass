@@ -6,16 +6,16 @@ export function DashboardSkeleton() {
   return (
     <div className="bg-background">
       <div
-        className="mx-auto flex min-h-screen max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:h-dvh lg:min-h-0 lg:gap-2 lg:overflow-hidden lg:px-5 lg:py-3"
+        className="mx-auto flex min-h-screen max-w-7xl flex-col gap-3 px-4 pb-3 pt-14 sm:px-6 lg:h-dvh lg:min-h-0 lg:gap-2 lg:overflow-hidden lg:px-5 lg:py-3"
         role="status"
         aria-busy="true"
         aria-live="polite"
       >
-        {/* Greeting + inline QA pills */}
-        <div className="flex min-h-9 items-center gap-3">
-          <Skeleton className="h-6 w-48 max-w-full rounded-lg" shimmerDelayMs={0} />
-          <Skeleton className="h-4 w-36 rounded hidden lg:block" shimmerDelayMs={40} />
-          <div className="ml-auto hidden lg:flex items-center gap-1.5">
+        {/* Greeting + quick action rail */}
+        <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-2 lg:flex-nowrap">
+          <Skeleton className="h-6 w-48 max-w-full rounded-lg lg:min-w-0 lg:shrink" shimmerDelayMs={0} />
+          <Skeleton className="hidden h-4 w-36 shrink-0 rounded 2xl:block" shimmerDelayMs={40} />
+          <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-2 overflow-hidden px-4 sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:ml-auto lg:mr-0 lg:min-w-0 lg:flex-1 lg:justify-end lg:px-0 lg:pb-1 xl:overflow-visible xl:pb-0">
             {Array.from({ length: 5 }).map((_, i) => (
               <Skeleton key={i} className="h-9 w-22 rounded-lg" shimmerDelayMs={i * 30} />
             ))}

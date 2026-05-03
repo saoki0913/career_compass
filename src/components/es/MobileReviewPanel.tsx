@@ -14,10 +14,16 @@ import {
 } from "@/components/ui/sheet";
 import { ReviewPanel } from "./ReviewPanel";
 import type { CompanyReviewStatus } from "./ReviewPanel";
+import type { TemplateType } from "@/features/es-review";
 
 interface SectionReviewRequest {
+  sectionId?: string;
   sectionTitle: string;
   sectionContent: string;
+  originalTextHash?: string;
+  templateType?: TemplateType;
+  companyId?: string | null;
+  roleName?: string | null;
   sectionCharLimit?: number;
 }
 
@@ -29,6 +35,7 @@ interface MobileReviewPanelProps {
   onApplyRewrite?: (newContent: string, sectionTitle?: string | null) => void;
   onUndo?: () => void;
   sectionReviewRequest?: SectionReviewRequest | null;
+  isSectionSnapshotStale?: boolean;
   onClearSectionReview?: () => void;
   className?: string;
 }
@@ -50,6 +57,7 @@ export function MobileReviewPanel({
   onApplyRewrite,
   onUndo,
   sectionReviewRequest,
+  isSectionSnapshotStale = false,
   onClearSectionReview,
   className,
 }: MobileReviewPanelProps) {
@@ -129,6 +137,7 @@ export function MobileReviewPanel({
             onApplyRewrite={onApplyRewrite}
             onUndo={onUndo}
             sectionReviewRequest={sectionReviewRequest}
+            isSectionSnapshotStale={isSectionSnapshotStale}
             onClearSectionReview={onClearSectionReview}
             className="h-full"
           />

@@ -11,10 +11,11 @@ import {
 export function CalendarSkeleton() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
-      <div className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 lg:px-8">
         <div className="mb-4 flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <Skeleton className="h-7 w-36 rounded-xl sm:h-8 sm:w-40" />
+            <Skeleton className="h-6 w-28 rounded-full" />
+            <Skeleton className="mt-2 h-8 w-36 rounded-xl sm:h-9 sm:w-40" />
             <SkeletonText className="mt-2" lines={1} widths={["12rem"]} />
           </div>
           <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end sm:gap-3">

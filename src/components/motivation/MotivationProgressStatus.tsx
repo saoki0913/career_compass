@@ -12,7 +12,7 @@ import {
   type ConversationMode,
   type MotivationStageKey,
   type CausalGap,
-} from "@/lib/motivation/ui";
+} from "@/features/motivation/domain/ui";
 
 type SlotKey = Exclude<MotivationStageKey, "closing">;
 
@@ -247,5 +247,3 @@ export const MotivationProgressStatus = memo(function MotivationProgressStatus({
     </div>
   );
 });
-
-export default MotivationProgressStatus;

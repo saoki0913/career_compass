@@ -9,6 +9,12 @@ import { cn } from "@/lib/utils";
 import { sanitizeSearchInput } from "@/lib/search/utils";
 import { useSearch } from "@/hooks/useSearch";
 import { SearchResultItem } from "@/components/search/SearchResultItem";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SidebarSearchProps {
   collapsed: boolean;
@@ -93,17 +99,23 @@ export function SidebarSearch({ collapsed, onNavigate }: SidebarSearchProps) {
 
   if (collapsed) {
     return (
-      <Link
-        href="/search"
-        onClick={onNavigate}
-        className="group relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-        aria-label="検索"
-      >
-        <SearchIcon />
-        <span className="pointer-events-none absolute left-full z-50 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-          検索
-        </span>
-      </Link>
+      <TooltipProvider delayDuration={0}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              href="/search"
+              onClick={onNavigate}
+              className="group relative mx-auto flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
+              aria-label="検索"
+            >
+              <SearchIcon />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>
+            検索
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 

@@ -8,7 +8,7 @@ import {
   getMotivationPhaseStatus,
   type PillStatus,
   type ConversationMode,
-} from "@/lib/motivation/ui";
+} from "@/features/motivation/domain/ui";
 
 interface MotivationPhaseBarProps {
   isDraftReady: boolean;

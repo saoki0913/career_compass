@@ -1,4 +1,4 @@
-import { TEMPLATE_LABELS, type TemplateType } from "@/hooks/useESReview";
+import { TEMPLATE_LABELS, type TemplateType } from "@/features/es-review";
 import type { InferredESReviewTemplateDetails } from "@/lib/es-review/infer-template-type";
 
 interface BuildTemplateRecommendationCopyInput {

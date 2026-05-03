@@ -12,7 +12,7 @@ vi.mock("next/headers", () => ({
   headers: headersMock,
 }));
 
-vi.mock("@/app/api/_shared/request-identity", () => ({
+vi.mock("@/bff/identity/request-identity", () => ({
   getHeadersIdentity: getHeadersIdentityMock,
 }));
 

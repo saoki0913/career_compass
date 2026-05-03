@@ -56,6 +56,7 @@ export function ConversationWorkspaceShell({
   backLabel,
   title,
   subtitle,
+  titleExtra,
   actionBar,
   headerActions,
   mobileStatus,
@@ -67,6 +68,7 @@ export function ConversationWorkspaceShell({
   backLabel?: string;
   title: string;
   subtitle?: string | null;
+  titleExtra?: ReactNode;
   actionBar?: ReactNode;
   headerActions?: HeaderAction[];
   mobileStatus?: ReactNode;
@@ -76,7 +78,7 @@ export function ConversationWorkspaceShell({
 }) {
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
-      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col overflow-hidden px-3 py-4 sm:px-6 lg:px-8">
+      <main className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-3 py-4 sm:px-6 lg:px-8">
         <div className="mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div className="flex items-center gap-3">
             {backHref ? (
@@ -97,11 +99,12 @@ export function ConversationWorkspaceShell({
                     <p className="text-sm text-muted-foreground">{subtitle}</p>
                   </>
                 ) : null}
+                {titleExtra}
               </div>
             </div>
           </div>
 
-          <div className="flex w-full flex-col gap-2 xl:max-w-[760px] xl:items-end">
+          <div className="flex w-full flex-col gap-2 xl:max-w-[820px] xl:items-end">
             {headerActions && headerActions.length > 0 ? (
               <div className="flex w-full flex-wrap items-center justify-end gap-2">
                 {headerActions.map((action) =>
@@ -126,7 +129,7 @@ export function ConversationWorkspaceShell({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-3.5 flex-1 overflow-hidden xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.75fr)]">
+        <div className="grid grid-cols-1 gap-3.5 flex-1 overflow-hidden xl:grid-cols-[minmax(0,1.9fr)_minmax(280px,0.7fr)] 2xl:grid-cols-[minmax(0,2.2fr)_minmax(300px,0.65fr)]">
           <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border/50 bg-card">
             {mobileStatus ? (
               <div className="border-b border-border/50 px-3 py-3 sm:px-4 xl:hidden">{mobileStatus}</div>

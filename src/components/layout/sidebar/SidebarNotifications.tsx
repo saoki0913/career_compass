@@ -8,6 +8,12 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SidebarNotificationsProps {
   collapsed: boolean;
@@ -46,7 +52,7 @@ export function SidebarNotifications({ collapsed }: SidebarNotificationsProps) {
   const { notifications, unreadCount, markAsRead, markAllAsRead } =
     useNotifications({ limit: 5 });
 
-  const trigger = collapsed ? (
+  const triggerButton = collapsed ? (
     <button
       type="button"
       className="group relative flex h-10 w-10 items-center justify-center mx-auto rounded-lg transition-colors hover:bg-sidebar-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
@@ -59,9 +65,6 @@ export function SidebarNotifications({ collapsed }: SidebarNotificationsProps) {
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
-      </span>
-      <span className="pointer-events-none absolute left-full z-50 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-        通知{unreadCount > 0 ? ` (${unreadCount})` : ""}
       </span>
     </button>
   ) : (
@@ -85,8 +88,15 @@ export function SidebarNotifications({ collapsed }: SidebarNotificationsProps) {
   );
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+    <TooltipProvider delayDuration={0}>
+    <Tooltip>
+      <Popover>
+      <TooltipTrigger asChild>
+        <PopoverTrigger asChild>{triggerButton}</PopoverTrigger>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8}>
+        通知{unreadCount > 0 ? ` (${unreadCount})` : ""}
+      </TooltipContent>
       <PopoverContent side="right" align="end" className="w-80 p-0">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <span className="text-sm font-semibold text-foreground">通知</span>
@@ -147,5 +157,7 @@ export function SidebarNotifications({ collapsed }: SidebarNotificationsProps) {
         </div>
       </PopoverContent>
     </Popover>
+    </Tooltip>
+    </TooltipProvider>
   );
 }

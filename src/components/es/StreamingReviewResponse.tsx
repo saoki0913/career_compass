@@ -18,7 +18,7 @@ import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import type {
   ReviewPlaybackPhase,
   VisibleTemplateSource,
-} from "@/hooks/useESReview";
+} from "@/features/es-review";
 
 interface StreamingReviewResponseProps {
   visibleRewriteText: string;
@@ -117,20 +117,41 @@ function getReviewProviderLabel(reviewMeta?: StreamingReviewResponseProps["revie
   });
 }
 
-type QualityGrade = "S" | "A" | "B" | "C";
+type SubmissionCheckStatus = "confirmed" | "needs_review" | "weak_evidence";
 
-interface QualityScores {
-  logic: QualityGrade;
-  specificity: QualityGrade;
-  companyFit: QualityGrade;
+interface SubmissionCheckItem {
+  label: string;
+  status: SubmissionCheckStatus;
 }
 
-function computeQualityScores(
+function getCheckStatus(points: number): SubmissionCheckStatus {
+  if (points >= 4) return "confirmed";
+  if (points >= 2) return "needs_review";
+  return "weak_evidence";
+}
+
+function getEvidenceConstraintLabel(
   meta: StreamingReviewResponseProps["reviewMeta"],
-): QualityScores | null {
+): SubmissionCheckStatus {
+  if (meta?.weak_evidence_notice) return "weak_evidence";
+
+  switch (meta?.evidence_coverage_level) {
+    case "strong":
+    case "partial":
+      return "confirmed";
+    case "weak":
+    case "none":
+      return "weak_evidence";
+    default:
+      return "needs_review";
+  }
+}
+
+function computeSubmissionChecks(
+  meta: StreamingReviewResponseProps["reviewMeta"],
+): SubmissionCheckItem[] | null {
   if (!meta) return null;
 
-  // Logic score: opening conclusion length + sentence count + rewrite attempts
   const openingChars = meta.opening_conclusion_chars ?? 0;
   const attempts = (meta as Record<string, unknown>).rewrite_attempt_count as number | undefined ?? 1;
   const sentenceCount = meta.rewrite_sentence_count ?? 0;
@@ -141,10 +162,7 @@ function computeQualityScores(
   else if (sentenceCount >= 2) logicPoints += 1;
   if (attempts <= 1) logicPoints += 2;
   else if (attempts <= 2) logicPoints += 1;
-  const logic: QualityGrade =
-    logicPoints >= 6 ? "S" : logicPoints >= 4 ? "A" : logicPoints >= 2 ? "B" : "C";
 
-  // Specificity score: concrete markers + AI smell tier
   const concreteCount = meta.concrete_marker_count ?? 0;
   const smellTier = meta.ai_smell_tier ?? 0;
   let specPoints = 0;
@@ -153,54 +171,52 @@ function computeQualityScores(
   else if (concreteCount >= 1) specPoints += 2;
   if (smellTier === 0) specPoints += 3;
   else if (smellTier === 1) specPoints += 1;
-  const specificity: QualityGrade =
-    specPoints >= 6 ? "S" : specPoints >= 4 ? "A" : specPoints >= 2 ? "B" : "C";
 
-  // Company Fit score: grounding mode + evidence coverage
   const grounding = meta.grounding_mode ?? "none";
-  const coverage = meta.evidence_coverage_level ?? "none";
-  let fitPoints = 0;
-  if (grounding === "role_grounded") fitPoints += 4;
-  else if (grounding === "company_general") fitPoints += 2;
-  if (coverage === "strong") fitPoints += 3;
-  else if (coverage === "partial") fitPoints += 2;
-  else if (coverage === "weak") fitPoints += 1;
-  const companyFit: QualityGrade =
-    fitPoints >= 6 ? "S" : fitPoints >= 4 ? "A" : fitPoints >= 2 ? "B" : "C";
+  const connectionStatus: SubmissionCheckStatus =
+    grounding === "role_grounded"
+      ? "confirmed"
+      : grounding === "company_general"
+        ? "needs_review"
+        : "weak_evidence";
 
-  return { logic, specificity, companyFit };
+  return [
+    { label: "構成", status: getCheckStatus(logicPoints) },
+    { label: "具体性", status: getCheckStatus(specPoints) },
+    { label: "企業接続", status: connectionStatus },
+    { label: "根拠制約", status: getEvidenceConstraintLabel(meta) },
+  ];
 }
 
-const GRADE_COLORS: Record<QualityGrade, string> = {
-  S: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200",
-  A: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200",
-  B: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-200",
-  C: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800/50 dark:text-zinc-300",
+const CHECK_STATUS_STYLES: Record<SubmissionCheckStatus, string> = {
+  confirmed: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200",
+  needs_review: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-200",
+  weak_evidence: "bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-100",
 };
 
-const QualityScoreBadges = memo(function QualityScoreBadges({
-  scores,
-}: {
-  scores: QualityScores;
-}) {
-  const axes = [
-    { label: "論理性", grade: scores.logic },
-    { label: "具体性", grade: scores.specificity },
-    { label: "企業適合", grade: scores.companyFit },
-  ] as const;
+const CHECK_STATUS_LABELS: Record<SubmissionCheckStatus, string> = {
+  confirmed: "確認済み",
+  needs_review: "要確認",
+  weak_evidence: "根拠不足",
+};
 
+const SubmissionCheckBadges = memo(function SubmissionCheckBadges({
+  checks,
+}: {
+  checks: SubmissionCheckItem[];
+}) {
   return (
     <div className="flex items-center gap-2">
-      {axes.map(({ label, grade }) => (
+      {checks.map(({ label, status }) => (
         <div
           key={label}
           className={cn(
             "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium",
-            GRADE_COLORS[grade],
+            CHECK_STATUS_STYLES[status],
           )}
         >
           <span>{label}</span>
-          <span className="font-bold">{grade}</span>
+          <span className="font-bold">{CHECK_STATUS_LABELS[status]}</span>
         </div>
       ))}
     </div>
@@ -275,8 +291,8 @@ export function StreamingReviewResponse({
       : 98;
   const rewriteCharCount = (rewriteForActions || visibleRewriteText).trim().length;
   const providerLabel = getReviewProviderLabel(reviewMeta);
-  const qualityScores = useMemo(
-    () => computeQualityScores(reviewMeta),
+  const submissionChecks = useMemo(
+    () => computeSubmissionChecks(reviewMeta),
     [reviewMeta],
   );
 
@@ -355,7 +371,7 @@ export function StreamingReviewResponse({
                   <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
                   <span>
                     {reviewMeta.rewrite_validation_user_hint?.trim() ||
-                      "厳密な品質チェックをすべて満たせませんでしたが、最も近い改善案を表示しています。提出前に、文体（だ・である調）・指定字数・冒頭の結論の置き方を確認し、不足している点を直してください。"}
+                      "提出条件をすべて満たせなかったため、最も近い改善案を表示しています。提出前に、文体（だ・である調）・指定字数・冒頭の結論の置き方を確認し、不足している点を直してください。"}
                   </span>
                 </p>
               ) : null}
@@ -433,10 +449,10 @@ export function StreamingReviewResponse({
           ) : null}
         </div>
 
-        {isPlaybackComplete && qualityScores ? (
+        {isPlaybackComplete && submissionChecks ? (
           <div className="mt-4 flex flex-col gap-2">
-            <p className="text-xs font-medium text-muted-foreground">品質スコア</p>
-            <QualityScoreBadges scores={qualityScores} />
+            <p className="text-xs font-medium text-muted-foreground">提出前チェック</p>
+            <SubmissionCheckBadges checks={submissionChecks} />
           </div>
         ) : null}
 

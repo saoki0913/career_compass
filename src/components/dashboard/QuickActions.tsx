@@ -19,31 +19,26 @@ const ACTIONS: ActionDef[] = [
   { key: "motivation", title: "志望動機作成", actionType: "motivation", tone: "blue", Icon: Heart },
 ];
 
-const ACTION_TONES: Record<string, { inline: string; card: string; icon: string }> = {
+const ACTION_TONES: Record<string, { pill: string; icon: string }> = {
   purple: {
-    inline: "border-[#6d5dfc]/50 bg-[#f6f4ff] text-[#4033d6] hover:bg-[#eeeaff]",
-    card: "bg-[#4d2fe9] text-white shadow-[0_14px_26px_rgba(77,47,233,0.24)]",
-    icon: "bg-white/18",
+    pill: "border-[#6d5dfc]/65 bg-[#f6f4ff] text-[#4033d6] hover:bg-[#eeeaff] focus-visible:ring-[#6d5dfc]/35",
+    icon: "bg-[#4033d6]/10",
   },
   orange: {
-    inline: "border-[#ff8a1f]/55 bg-[#fff5eb] text-[#e15d00] hover:bg-[#ffe8d2]",
-    card: "bg-[#ff6607] text-white shadow-[0_14px_26px_rgba(255,102,7,0.24)]",
-    icon: "bg-white/18",
+    pill: "border-[#ff8a1f]/65 bg-[#fff5eb] text-[#e15d00] hover:bg-[#ffe8d2] focus-visible:ring-[#ff8a1f]/35",
+    icon: "bg-[#e15d00]/10",
   },
   green: {
-    inline: "border-[#19bf77]/55 bg-[#edfff7] text-[#04975f] hover:bg-[#dcfcea]",
-    card: "bg-[#08a86f] text-white shadow-[0_14px_26px_rgba(8,168,111,0.22)]",
-    icon: "bg-white/18",
+    pill: "border-[#19bf77]/65 bg-[#edfff7] text-[#04975f] hover:bg-[#dcfcea] focus-visible:ring-[#19bf77]/35",
+    icon: "bg-[#04975f]/10",
   },
   pink: {
-    inline: "border-[#ff3a74]/55 bg-[#fff0f5] text-[#e41452] hover:bg-[#ffe0eb]",
-    card: "bg-[#f7084f] text-white shadow-[0_14px_26px_rgba(247,8,79,0.22)]",
-    icon: "bg-white/18",
+    pill: "border-[#ff3a74]/65 bg-[#fff0f5] text-[#e41452] hover:bg-[#ffe0eb] focus-visible:ring-[#ff3a74]/35",
+    icon: "bg-[#e41452]/10",
   },
   blue: {
-    inline: "border-[#20a7e8]/55 bg-[#eef9ff] text-[#087fc2] hover:bg-[#dcf2ff]",
-    card: "bg-[#119bd8] text-white shadow-[0_14px_26px_rgba(17,155,216,0.22)]",
-    icon: "bg-white/18",
+    pill: "border-[#20a7e8]/65 bg-[#eef9ff] text-[#087fc2] hover:bg-[#dcf2ff] focus-visible:ring-[#20a7e8]/35",
+    icon: "bg-[#087fc2]/10",
   },
 };
 
@@ -51,43 +46,28 @@ interface QuickActionsProps {
   onInterviewClick: () => void;
   onMotivationClick: () => void;
   className?: string;
-  inline?: boolean;
 }
 
-export function QuickActions({ onInterviewClick, onMotivationClick, className, inline }: QuickActionsProps) {
+export function QuickActions({ onInterviewClick, onMotivationClick, className }: QuickActionsProps) {
   return (
     <div className={cn(
-      inline ? "flex items-center gap-1.5" : "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5",
+      "flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:overflow-visible lg:pb-0",
       className,
     )}>
       {ACTIONS.map((action) => {
         const tone = ACTION_TONES[action.tone];
         const Icon = action.Icon;
-        const card = (
-          <div
-            className={cn(
-              "group relative isolate flex items-center overflow-hidden transition-all hover:-translate-y-0.5",
-              inline
-                ? "h-8 gap-1.5 rounded-lg border px-2.5 text-xs font-semibold shadow-sm"
-                : "min-h-24 gap-3 rounded-xl px-5 py-4",
-              inline ? tone.inline : tone.card,
-            )}
-          >
-            {!inline && (
-              <span className="absolute -right-8 -top-12 h-28 w-28 rounded-full bg-white/10" aria-hidden="true" />
-            )}
-            <div className={cn(
-              "flex shrink-0 items-center justify-center rounded-md",
-              inline ? "h-5 w-5" : "h-10 w-10",
-              inline ? "bg-white/70" : tone.icon,
-            )}>
-              <Icon className={cn(inline ? "h-3.5 w-3.5" : "h-5 w-5")} aria-hidden="true" strokeWidth={2.2} />
-            </div>
-            <p className={cn(
-              "font-semibold leading-tight whitespace-nowrap",
-              inline ? "text-[11px]" : "text-lg",
-            )}>{action.title}</p>
-          </div>
+        const content = (
+          <>
+            <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-md", tone.icon)}>
+              <Icon className="h-4 w-4" aria-hidden="true" strokeWidth={2.2} />
+            </span>
+            <span className="whitespace-nowrap text-xs font-semibold leading-tight">{action.title}</span>
+          </>
+        );
+        const actionClassName = cn(
+          "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border-[1.5px] px-3 text-left shadow-sm transition-all duration-150 hover:-translate-y-px hover:shadow-md active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          tone.pill,
         );
 
         if (action.actionType) {
@@ -96,16 +76,16 @@ export function QuickActions({ onInterviewClick, onMotivationClick, className, i
               key={action.key}
               type="button"
               onClick={action.actionType === "interview" ? onInterviewClick : onMotivationClick}
-              className="cursor-pointer text-left"
+              className={cn(actionClassName, "cursor-pointer")}
             >
-              {card}
+              {content}
             </button>
           );
         }
 
         return (
-          <Link key={action.key} href={action.href!}>
-            {card}
+          <Link key={action.key} href={action.href!} className={actionClassName}>
+            {content}
           </Link>
         );
       })}

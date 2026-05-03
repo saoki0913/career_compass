@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getNotificationsPageData } from "@/lib/server/notification-loaders";
 import { NotificationsPageClient } from "@/components/notifications/NotificationsPageClient";
 

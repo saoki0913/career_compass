@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { Check, RotateCcw, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -34,6 +34,7 @@ interface ReflectModalProps {
   originalText: string;
   newText: string;
   isFullDocument?: boolean;
+  isStale?: boolean;
 }
 
 const MOBILE_MEDIA_QUERY = "(max-width: 1023px)";
@@ -445,6 +446,7 @@ export function ReflectModal({
   originalText,
   newText,
   isFullDocument = false,
+  isStale = false,
 }: ReflectModalProps) {
   const [showUndo, setShowUndo] = useState(false);
   const [undoTimer, setUndoTimer] = useState(10);
@@ -482,18 +484,22 @@ export function ReflectModal({
 
   const title = useMemo(
     () =>
-      isFullDocument
+      isStale
+        ? "添削開始後に内容が変更されています"
+        : isFullDocument
         ? "改善案をコピーしますか？"
         : "この改善案を反映しますか？",
-    [isFullDocument],
+    [isFullDocument, isStale],
   );
 
   const description = useMemo(
     () =>
-      isFullDocument
+      isStale
+        ? "設問本文・会社・職種のいずれかが変わっています。古い改善案をそのまま反映すると、現在の本文とずれる可能性があります。"
+        : isFullDocument
         ? "変更後の本文だけをコピーします。"
         : "変更前と変更後を見比べてから反映できます。",
-    [isFullDocument],
+    [isFullDocument, isStale],
   );
 
   const handleConfirm = useCallback(() => {
@@ -544,10 +550,11 @@ export function ReflectModal({
           ) : (
             <Button
               className="rounded-full sm:min-w-[11rem]"
+              variant={isStale ? "outline" : "default"}
               onClick={handleConfirm}
             >
-              <Sparkles className="size-4" />
-              この改善案を反映
+              {isStale ? <AlertTriangle className="size-4" /> : <Sparkles className="size-4" />}
+              {isStale ? "内容のずれを確認して反映" : "この改善案を反映"}
             </Button>
           )}
           <Button variant="outline" className="rounded-full" onClick={onClose}>
@@ -563,6 +570,11 @@ export function ReflectModal({
     <div className="flex shrink-0 flex-wrap items-center gap-2">
       <DiffBadge originalText={originalText} newText={newText} />
       <ChangeCountBadge count={changeCount} />
+      {isStale ? (
+        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          要確認
+        </Badge>
+      ) : null}
     </div>
   );
 

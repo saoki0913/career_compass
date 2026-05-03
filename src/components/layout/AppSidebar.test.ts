@@ -33,6 +33,18 @@ describe("AppSidebar", () => {
     const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
     expect(source).toContain('isCol ? "h-9 w-9 justify-center mx-auto"');
     expect(source).toContain('!isCol && "w-full"');
-    expect(source).not.toContain('cn(itemClassName, "w-full cursor-pointer")');
+  });
+
+  it("provides aria-label on collapsed nav items for accessibility", async () => {
+    const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain('aria-label={isCol ? item.label : undefined}');
+  });
+
+  it("uses Radix Tooltip for nav item labels", async () => {
+    const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain("TooltipProvider");
+    expect(source).toContain("TooltipTrigger");
+    expect(source).toContain("TooltipContent");
+    expect(source).toContain("{item.label}");
   });
 });

@@ -15,6 +15,7 @@ describe("resolveE2EFunctionalScope", () => {
       changedFiles: [
         "backend/app/routers/es_review.py",
         "src/app/api/documents/_services/handle-review-stream.ts",
+        "src/features/es-review/hooks/transport.ts",
       ],
     });
 
@@ -27,6 +28,7 @@ describe("resolveE2EFunctionalScope", () => {
       changedFiles: [
         "src/app/(product)/gakuchika/[id]/page.tsx",
         "src/app/(product)/companies/[id]/motivation/page.tsx",
+        "src/features/motivation/hooks/useMotivationConversationController.ts",
       ],
     });
 

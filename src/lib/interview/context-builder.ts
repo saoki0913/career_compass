@@ -1,4 +1,4 @@
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import {
   buildCompanySummary,
   buildGakuchikaSummary,

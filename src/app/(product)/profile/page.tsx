@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getProfilePageData } from "@/lib/server/account-loaders";
 
 const ArrowLeftIcon = () => (

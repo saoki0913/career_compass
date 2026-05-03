@@ -19,6 +19,7 @@ import {
   notifyCalendarEventDeleted,
   notifyCalendarSynced,
   notifyCalendarSyncFailed,
+  notifyError,
 } from "@/lib/notifications";
 import { toAppUiError } from "@/lib/api-errors";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
@@ -136,16 +137,15 @@ function AddEventModal({ isOpen, selectedDate, onClose, onCreate }: AddEventModa
       });
       onClose();
     } catch (err) {
-      setError(
-        toAppUiError(
-          err,
-          {
-            code: "CALENDAR_EVENT_SUBMIT_FAILED",
-            userMessage: "イベントを保存できませんでした。",
-          },
-          "CalendarPage:submitEvent",
-        ).message,
+      const ui = toAppUiError(
+        err,
+        {
+          code: "CALENDAR_EVENT_SUBMIT_FAILED",
+          userMessage: "イベントを保存できませんでした。",
+        },
+        "CalendarPage:submitEvent",
       );
+      notifyError({ title: ui.message, description: ui.action });
     } finally {
       setIsSubmitting(false);
     }
@@ -233,7 +233,7 @@ function AddEventModal({ isOpen, selectedDate, onClose, onCreate }: AddEventModa
   );
 }
 
-export default function CalendarPage() {
+export default function CalendarPageContent() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -456,13 +456,20 @@ export default function CalendarPage() {
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-background">
-      <main className="flex max-w-7xl flex-1 flex-col overflow-hidden px-4 pt-4 max-lg:pb-4 sm:px-6 lg:px-8 lg:pb-4">
+    <div className="flex h-screen flex-col overflow-hidden bg-background">
+      <main className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-4 pt-4 max-lg:pb-4 sm:px-6 lg:px-8 lg:pb-4">
         {/* Header */}
         <div className="mb-4 flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <h1 className="text-xl font-bold sm:text-2xl">カレンダー</h1>
-            <p className="mt-1 text-muted-foreground">締切とタスクを管理</p>
+            <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
+              スケジュール
+            </p>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+              カレンダー
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+              締切と作業ブロックを月単位で確認し、Google カレンダー連携の状態もここで管理します。
+            </p>
           </div>
           <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end sm:gap-3">
             <Button variant="ghost" asChild className="shrink-0">

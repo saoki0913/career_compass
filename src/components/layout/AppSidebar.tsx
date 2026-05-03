@@ -7,6 +7,12 @@ import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/layout/SidebarContext";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   SidebarUserMenu,
   SidebarNotifications,
   SidebarCredits,
@@ -284,69 +290,69 @@ export function AppSidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto px-2 py-2" aria-label="メインナビゲーション">
-          <ul className="flex flex-col gap-0.5" role="list">
-            {NAV_ITEMS.map((item) => {
-              const active = isActive(item);
-              const Icon = item.icon;
+          <TooltipProvider delayDuration={0}>
+            <ul className="flex flex-col gap-0.5" role="list">
+              {NAV_ITEMS.map((item) => {
+                const active = isActive(item);
+                const Icon = item.icon;
 
-              const content = (
-                <>
-                  <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center", active ? "text-sidebar-primary" : "text-muted-foreground")}>
-                    <Icon />
-                  </span>
-                  {!isCol && (
-                    <span className={cn("truncate text-sm", active ? "font-semibold text-sidebar-primary" : "font-medium text-sidebar-foreground")}>
-                      {item.label}
+                const content = (
+                  <>
+                    <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center", active ? "text-sidebar-primary" : "text-muted-foreground")}>
+                      <Icon />
                     </span>
-                  )}
-                </>
-              );
-
-              const itemClassName = cn(
-                "group relative flex items-center gap-3 rounded-lg transition-colors duration-150",
-                isCol ? "h-9 w-9 justify-center mx-auto" : "h-9 px-3",
-                active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-              );
-
-              const activeIndicator = active && (
-                <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-sidebar-primary" aria-hidden="true" />
-              );
-
-              const tooltip = isCol && (
-                <span className="pointer-events-none absolute left-full z-50 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md transition-opacity group-hover:opacity-100" role="tooltip">
-                  {item.label}
-                </span>
-              );
-
-              if (item.action.type === "link") {
-                return (
-                  <li key={item.label} className="relative">
-                    <Link href={item.action.href} className={itemClassName} aria-current={active ? "page" : undefined}>
-                      {activeIndicator}
-                      {content}
-                      {tooltip}
-                    </Link>
-                  </li>
+                    {!isCol && (
+                      <span className={cn("truncate text-sm", active ? "font-semibold text-sidebar-primary" : "font-medium text-sidebar-foreground")}>
+                        {item.label}
+                      </span>
+                    )}
+                  </>
                 );
-              }
 
-              const modal = item.action.modal;
-              return (
-                <li key={item.label} className="relative">
+                const itemClassName = cn(
+                  "group relative flex items-center gap-3 rounded-lg transition-colors duration-150",
+                  isCol ? "h-9 w-9 justify-center mx-auto" : "h-9 px-3",
+                  active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                );
+
+                const activeIndicator = active && (
+                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-sidebar-primary" aria-hidden="true" />
+                );
+
+                const action = item.action;
+                const trigger = action.type === "link" ? (
+                  <Link href={action.href} className={itemClassName} aria-current={active ? "page" : undefined} aria-label={isCol ? item.label : undefined}>
+                    {activeIndicator}
+                    {content}
+                  </Link>
+                ) : (
                   <button
                     type="button"
-                    onClick={() => handleModalAction(modal)}
+                    onClick={() => handleModalAction(action.modal)}
                     className={cn(itemClassName, !isCol && "w-full", "cursor-pointer")}
+                    aria-label={isCol ? item.label : undefined}
                   >
                     {activeIndicator}
                     {content}
-                    {tooltip}
                   </button>
-                </li>
-              );
-            })}
-          </ul>
+                );
+
+                return (
+                  <li key={item.label} className="relative">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        {trigger}
+                      </TooltipTrigger>
+                      <TooltipContent side="right" sideOffset={8}>
+                        {item.label}
+                      </TooltipContent>
+                    </Tooltip>
+                  </li>
+                );
+              })}
+            </ul>
+          </TooltipProvider>
         </nav>
 
         {/* Bottom section */}

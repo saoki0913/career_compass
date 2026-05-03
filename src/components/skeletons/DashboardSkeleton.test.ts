@@ -8,12 +8,17 @@ describe("DashboardSkeleton", () => {
     expect(source).toContain("lg:h-dvh");
   });
 
-  it("has inline QA skeleton pills in the greeting header", async () => {
+  it("has responsive quick action skeleton pills in the greeting header", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./DashboardSkeleton.tsx", import.meta.url), "utf8");
     expect(source).toContain("ml-auto");
     expect(source).toContain("length: 5");
     expect(source).toContain("h-9");
+    expect(source).toContain("w-[calc(100%+2rem)]");
+    expect(source).toContain("flex-wrap");
+    expect(source).toContain("lg:flex-nowrap");
+    expect(source).toContain("lg:min-w-0");
+    expect(source).toContain("2xl:block");
   });
 
   it("right column includes task and deadline skeleton cards", async () => {

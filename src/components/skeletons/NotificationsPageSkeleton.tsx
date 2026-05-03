@@ -1,7 +1,6 @@
 import {
   Skeleton,
   SkeletonButton,
-  SkeletonPill,
   SkeletonText,
 } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
@@ -44,10 +43,6 @@ export function NotificationsPageSkeleton() {
         <div className="space-y-2">
           <Skeleton className="h-8 w-24 rounded-xl" />
           <SkeletonText lines={1} widths={["11rem"]} />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <SkeletonButton className="h-10 w-36" />
-          <SkeletonButton className="h-10 w-32" />
         </div>
       </div>
       <NotificationsListSkeleton />

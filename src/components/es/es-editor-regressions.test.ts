@@ -43,4 +43,18 @@ describe("ES editor regressions", () => {
     expect(hookSource).toContain('event.path === "improvement_explanation"');
     expect(hookSource).toContain("explanationComplete: true");
   });
+
+  it("guards review reflection with the generation snapshot", () => {
+    const editorSource = readSource("src/components/es/ESEditorPageClient.tsx");
+    const reviewPanelSource = readSource("src/components/es/ReviewPanel.tsx");
+    const modalSource = readSource("src/components/es/ReflectModal.tsx");
+
+    expect(editorSource).toContain("originalTextHash");
+    expect(editorSource).toContain("getSectionContentById");
+    expect(editorSource).toContain("isReviewSnapshotStale");
+    expect(reviewPanelSource).toContain("generationSnapshot");
+    expect(reviewPanelSource).toContain("isReflectSnapshotStale");
+    expect(modalSource).toContain("添削開始後に内容が変更されています");
+    expect(modalSource).toContain("内容のずれを確認して反映");
+  });
 });

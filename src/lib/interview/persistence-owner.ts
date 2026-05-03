@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import {
   interviewConversations,
   interviewFeedbackHistories,

@@ -224,5 +224,3 @@ export function NaturalProgressStatus({
     </div>
   );
 }
-
-export default NaturalProgressStatus;

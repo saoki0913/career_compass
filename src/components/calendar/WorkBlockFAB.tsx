@@ -47,5 +47,3 @@ export function WorkBlockFAB({ onClick, isVisible = true, className }: WorkBlock
     </button>
   );
 }
-
-export default WorkBlockFAB;

@@ -163,7 +163,7 @@ export function STARStatusBadge({
       : "bg-muted text-muted-foreground";
 
   return (
-    <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", colorClass, className)}>
+    <span className={cn("inline-flex items-center shrink-0 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium", colorClass, className)}>
       {label}
     </span>
   );

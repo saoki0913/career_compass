@@ -5,7 +5,7 @@ import { OperationLockProvider } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
-import { GakuchikaConversationContent } from "@/components/gakuchika/GakuchikaConversationContent";
+import { GakuchikaConversationContent } from "@/features/gakuchika";
 
 export default function GakuchikaConversationPage() {
   const params = useParams();

@@ -7,7 +7,7 @@ import { ConversationSidebarCard } from "@/components/chat/ConversationWorkspace
 import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
 import { MotivationPhaseBar } from "@/components/motivation/MotivationPhaseBar";
 import { MotivationProgressStatus } from "@/components/motivation/MotivationProgressStatus";
-import { type CausalGap, type ConversationMode, type EvidenceCard, type StageStatus } from "@/lib/motivation/ui";
+import { type CausalGap, type ConversationMode, type EvidenceCard, type StageStatus } from "@/features/motivation/domain/ui";
 
 import { ResetIcon } from "./motivation-icons";
 
@@ -54,6 +54,7 @@ export function MotivationConversationSidebar({
   isGeneratingDraft,
   isResetting,
   isStartingConversation,
+  draftHelperText,
   onResetConversation,
 }: {
   effectiveIndustry: string;
@@ -80,12 +81,12 @@ export function MotivationConversationSidebar({
   isGeneratingDraft: boolean;
   isResetting: boolean;
   isStartingConversation: boolean;
+  draftHelperText: string;
   onResetConversation: () => void;
 }) {
   return (
-    <div className="space-y-4 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
-      <div className="space-y-3 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-        <ConversationSidebarCard
+    <>
+      <ConversationSidebarCard
           title="進捗"
           actions={
             hasSavedConversation ? (
@@ -155,6 +156,9 @@ export function MotivationConversationSidebar({
                   hasNextQuestion={Boolean(nextQuestion)}
                   hasCausalGaps={causalGaps.length > 0}
                 />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {draftHelperText}
+                </p>
               </>
             )}
           </div>
@@ -210,7 +214,6 @@ export function MotivationConversationSidebar({
             </CardContent>
           </Card>
         ) : null}
-      </div>
-    </div>
+    </>
   );
 }

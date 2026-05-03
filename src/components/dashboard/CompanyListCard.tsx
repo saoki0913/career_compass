@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,42 +26,34 @@ function CompanyFavicon({ urls, name }: { urls: ReturnType<typeof getCompanyLogo
   }
 
   return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white shadow-sm ring-1 ring-border/50">
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white shadow-sm ring-1 ring-border/50 transition-all group-hover:ring-primary/30">
       <img src={src} alt="" width={24} height={24} className="h-5 w-5 rounded-sm object-contain" loading="lazy" referrerPolicy="strict-origin-when-cross-origin" onError={() => setSourceIndex((i) => i + 1)} />
     </span>
   );
 }
 
-function DashboardAsset({ src, className }: { src: string; className?: string }) {
-  return (
-    <Image
-      src={src}
-      alt=""
-      width={1254}
-      height={1254}
-      className={cn("object-contain", className)}
-    />
-  );
-}
-
-const CompanyEmptyIcon = () => (
-  <DashboardAsset src="/dashboard/assets/image_01.png" className="h-10 w-10" />
-);
-
-const EMPTY_COLUMN_ILLUSTRATIONS: Record<string, string> = {
-  not_applied: "/dashboard/assets/image_01.png",
-  es_test: "/dashboard/assets/image_03.png",
-  interview: "/dashboard/assets/image_04.png",
-  waiting: "/dashboard/assets/image_05.png",
-  offer: "/dashboard/assets/image_07.png",
+const COLUMN_HEADER_COLORS: Record<string, string> = {
+  slate: "bg-slate-500/90 text-white",
+  blue: "bg-blue-500/90 text-white",
+  purple: "bg-purple-500/90 text-white",
+  amber: "bg-amber-500/90 text-white",
+  green: "bg-emerald-500/90 text-white",
 };
 
-const COLUMN_HEADER_COLORS: Record<string, string> = {
-  slate: "bg-slate-100/80 text-slate-700",
-  blue: "bg-blue-100/80 text-blue-700",
-  purple: "bg-purple-100/80 text-purple-700",
-  amber: "bg-amber-100/80 text-amber-700",
-  green: "bg-emerald-100/80 text-emerald-700",
+const COLUMN_DOT_COLORS: Record<string, string> = {
+  slate: "bg-slate-300",
+  blue: "bg-blue-300",
+  purple: "bg-purple-300",
+  amber: "bg-amber-300",
+  green: "bg-emerald-300",
+};
+
+const COLUMN_COUNT_COLORS: Record<string, string> = {
+  slate: "text-slate-600",
+  blue: "text-blue-600",
+  purple: "text-purple-600",
+  amber: "text-amber-600",
+  green: "text-emerald-600",
 };
 
 interface CompanyProgressCardProps {
@@ -75,7 +66,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
   return (
     <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1">
       <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
-        <CardTitle className="text-lg">選考の企業管理</CardTitle>
+        <CardTitle className="text-lg">選考管理</CardTitle>
         <CardAction>
           <Button variant="outline" size="sm" asChild>
             <Link href="/companies">すべて見る</Link>
@@ -85,7 +76,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
       <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
         {pipeline.totalActive === 0 ? (
           <EmptyState
-            icon={<CompanyEmptyIcon />}
+            icon={<Plus className="h-8 w-8 text-muted-foreground/60" />}
             title="企業が未登録です"
             description="企業を追加して、選考を管理しましょう"
             action={{ label: "企業を追加", href: "/companies/new" }}
@@ -105,7 +96,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
                       )}
                     >
                       <span className="flex-1 text-xs font-semibold">{col.label}</span>
-                      <span className="rounded-full bg-white/60 px-1.5 text-[10px] font-bold">
+                      <span className={cn("rounded-full bg-white/90 px-1.5 text-[10px] font-bold", COLUMN_COUNT_COLORS[col.color])}>
                         {count}
                       </span>
                     </div>
@@ -122,14 +113,16 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
                           <Link
                             key={company.id}
                             href={`/companies/${company.id}`}
-                            className="group flex min-h-[42px] items-center gap-1.5 rounded-lg border border-border/40 bg-card px-1.5 py-1 transition-colors hover:border-primary/30 hover:bg-muted/30"
+                            className="group flex min-h-[44px] items-center gap-2 rounded-lg border border-border/50 bg-card px-2 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-150 hover:border-primary/40 hover:bg-primary/5 hover:shadow-sm"
                           >
                             <CompanyFavicon urls={faviconUrls} name={company.name} />
                             <div className="min-w-0 flex-1">
-                              <p className="truncate text-xs font-medium">{company.name}</p>
+                              <p className="line-clamp-2 break-words text-xs font-medium leading-4" title={company.name}>
+                                {company.name}
+                              </p>
                               <span
                                 className={cn(
-                                  "text-[9px] font-medium",
+                                  "text-[9px] font-medium rounded px-1 py-px",
                                   status.color,
                                 )}
                               >
@@ -142,20 +135,15 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
                       {col.companies.length > 3 && (
                         <Link
                           href="/companies"
-                          className="block text-center text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+                          className="block text-center text-[10px] font-medium text-muted-foreground hover:text-primary transition-colors"
                         >
                           +{col.companies.length - 3}社
                         </Link>
                       )}
                       {col.companies.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-3">
-                          <DashboardAsset
-                            src={EMPTY_COLUMN_ILLUSTRATIONS[col.key] ?? "/dashboard/assets/image_08.png"}
-                            className="h-12 w-12 opacity-85"
-                          />
-                          <p className="mt-1 text-center text-[9px] text-muted-foreground/50">
-                            ここに企業を追加
-                          </p>
+                        <div className="flex flex-col items-center justify-center py-4 text-center">
+                          <span className={cn("h-2 w-2 rounded-full", COLUMN_DOT_COLORS[col.color])} />
+                          <p className="mt-1.5 text-[10px] text-muted-foreground/60">--</p>
                         </div>
                       )}
                     </div>
@@ -167,7 +155,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
         )}
       </CardContent>
       {pipeline.totalActive > 0 && (
-        <div className="flex items-center justify-between border-t border-border/30 px-4 py-2 lg:px-5">
+        <div className="flex items-center justify-between border-t border-border/40 bg-muted/20 px-4 py-2 lg:px-5">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium text-primary">次の一歩</span>
             <span className="hidden sm:inline">企業詳細から締切や選考状況を更新できます</span>

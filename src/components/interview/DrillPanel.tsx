@@ -273,5 +273,3 @@ export function DrillPanel(props: DrillPanelProps) {
     </Card>
   );
 }
-
-export default DrillPanel;

@@ -5,4 +5,3 @@ export { ListPageSkeleton } from "./ListPageSkeleton";
 export { ListPageEmptyState } from "./ListPageEmptyState";
 export { FavoritesSection } from "./FavoritesSection";
 export { ViewToggle } from "./ViewToggle";
-export { DeleteConfirmDialog } from "./DeleteConfirmDialog";

@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getDeadlinesDashboardData } from "@/lib/server/deadline-loaders";
 import { safeLoad } from "@/lib/server/safe-loader";
 import { DeadlinesDashboardClient } from "@/components/deadlines/DeadlinesDashboardClient";

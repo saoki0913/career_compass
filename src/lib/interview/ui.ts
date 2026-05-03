@@ -83,25 +83,6 @@ export type InterviewBillingCosts = {
   feedback: number;
 };
 
-export type InterviewModelLabels = {
-  plan: string;
-  question: string;
-  feedback: string;
-};
-
-export type InterviewMaterialReadinessItem = {
-  key: "motivation" | "gakuchika" | "es" | "companyInfo" | "academic" | "research" | "feedbackHistory";
-  label: string;
-  ready: boolean;
-  helper: string;
-};
-
-export type InterviewMaterialReadiness = {
-  status: "strong" | "partial" | "thin";
-  summary: string;
-  items: InterviewMaterialReadinessItem[];
-};
-
 export type InterviewSessionState = {
   status: HydratedConversation["status"];
   isActive: boolean;

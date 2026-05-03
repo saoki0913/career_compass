@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import {
   getCompaniesPageData,
   getUpcomingDeadlinesData,

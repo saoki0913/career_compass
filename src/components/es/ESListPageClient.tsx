@@ -573,10 +573,17 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
       <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">ES作成</h1>
-            <p className="mt-1 text-muted-foreground">{activeDocuments.length}件の文書</p>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight">ES作成</h1>
+              <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                {activeDocuments.length}件の文書
+              </span>
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              エントリーシートの作成・管理ができます
+            </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 sm:self-start">
             <Button variant="outline" onClick={() => setShowTrash((current) => !current)}>
               <Trash2 className="w-4 h-4" />
               <span className="ml-1.5">{showTrash ? "通常表示" : "ゴミ箱"}</span>
@@ -647,7 +654,9 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                   onValueChange={(v) => setSelectedEsCategory(v as "all" | EsDocumentCategory)}
                 >
                   <SelectTrigger className="h-9 w-full sm:w-[170px] font-normal text-sm">
-                    <SelectValue placeholder="分類" />
+                    <span className="min-w-0 flex-1 truncate text-left">
+                      {selectedEsCategory === "all" ? "分類: すべて" : ES_DOCUMENT_CATEGORY_LABELS[selectedEsCategory]}
+                    </span>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">すべての分類</SelectItem>

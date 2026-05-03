@@ -52,9 +52,9 @@ function ESCardComponent({
   return (
     <Link href={`/es/${doc.id}`}>
       <Card className="h-full hover:shadow-md transition-all duration-200 hover:border-primary/30 hover:-translate-y-0.5 active:scale-[0.99] cursor-pointer group">
-        <CardContent className="p-4 flex flex-col h-full">
+        <CardContent className="p-2.5 flex flex-col h-full">
           {/* Header: Star + Title + Status */}
-          <div className="flex items-start justify-between gap-2 mb-1">
+          <div className="flex items-center justify-between gap-2 mb-1">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
               {onTogglePin && (
                 <button
@@ -83,7 +83,7 @@ function ESCardComponent({
                   />
                 </button>
               )}
-              <h3 className="font-semibold text-base text-foreground truncate group-hover:text-primary transition-colors">
+              <h3 className="font-semibold text-sm text-foreground truncate group-hover:text-primary transition-colors">
                 {doc.title}
               </h3>
             </div>
@@ -104,27 +104,29 @@ function ESCardComponent({
                   <Trash2 className="h-4 w-4" />
                 </Button>
               ) : null}
-              <Badge
-                variant="outline"
-                className={cn(
-                  "text-xs px-2 py-0.5 h-6 flex-shrink-0 font-medium",
-                  statusConfig.bgColor,
-                  statusConfig.color
-                )}
-              >
-                {statusConfig.label}
-              </Badge>
             </div>
           </div>
 
-          {/* Company */}
-          <p className="text-sm text-muted-foreground mb-2 truncate flex items-center gap-1">
-            <Building2 className="w-3.5 h-3.5 flex-shrink-0" />
-            {doc.company?.name || "企業未設定"}
-          </p>
+          {/* Meta: Company + Status */}
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+              <Building2 className="w-3.5 h-3.5 flex-shrink-0" />
+              {doc.company?.name || "企業未設定"}
+            </p>
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-xs px-2 py-0.5 h-6 flex-shrink-0 font-medium",
+                statusConfig.bgColor,
+                statusConfig.color
+              )}
+            >
+              {statusConfig.label}
+            </Badge>
+          </div>
 
           {/* Document type badge */}
-          <div className="mb-3">
+          <div className="mb-1.5">
             <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
               {categoryLabel}
             </span>

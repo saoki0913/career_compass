@@ -67,6 +67,24 @@ function SnackbarCard({ item, onDismiss }: { item: SnackbarPayload; onDismiss: (
             {item.description}
           </p>
         ) : null}
+        {item.action ? (
+          <button
+            type="button"
+            onClick={() => {
+              item.action!.onClick();
+              onDismiss();
+            }}
+            className={cn(
+              "mt-2 shrink-0 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+              isError && "text-rose-800 bg-rose-200/60 hover:bg-rose-200 focus-visible:ring-rose-500",
+              isSuccess && "text-emerald-800 bg-emerald-200/60 hover:bg-emerald-200 focus-visible:ring-emerald-500",
+              item.tone === "info" && "text-slate-700 bg-slate-200/60 hover:bg-slate-200 focus-visible:ring-slate-400",
+            )}
+          >
+            {item.action.label}
+          </button>
+        ) : null}
       </div>
       <button
         type="button"

@@ -9,15 +9,17 @@ import {
   generateMotivationDraftDirect,
   resumeMotivationDeepDive,
   saveMotivationDraft,
-} from "@/lib/motivation/client-api";
+} from "@/features/motivation/application/client-api";
 import type {
   MotivationMessage,
   RoleOptionsResponse,
   RoleSelectionSource,
   MotivationSetupSnapshot,
-} from "@/lib/motivation/ui";
+} from "@/features/motivation/domain/ui";
 import type { MotivationConversationPayload } from "@/lib/motivation/conversation-payload";
 import {
+  notifyError,
+  notifyInfo,
   notifyMotivationDraftGenerated,
   notifyMotivationDraftSaved,
 } from "@/lib/notifications";
@@ -45,8 +47,6 @@ export interface PostDraftDeps {
   setupSnapshot: MotivationSetupSnapshot | null;
   acquireLock: (label: string) => boolean;
   releaseLock: () => void;
-  setError: (err: string | null) => void;
-  setConversationLoadError: (err: string | null) => void;
   applyConversationPayload: (payload: ConversationPayload, roleOptions: RoleOptionsResponse | null) => void;
   fetchData: () => Promise<void>;
 }
@@ -69,7 +69,6 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
     if (!deps.acquireLock("志望動機を生成中")) return;
 
     setIsGeneratingDraft(true);
-    deps.setError(null);
 
     try {
       const shouldUseDirectRegeneration = Boolean(generatedDraft) && deps.messages.length === 0;
@@ -81,7 +80,7 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
           deps.selectedIndustry || deps.roleOptionsData?.industry || deps.setupSnapshot?.resolvedIndustry || "";
 
         if (!trimmedRole || (requiresIndustrySelection && !resolvedIndustry)) {
-          deps.setError("先に業界と職種の設定を完了してください");
+          notifyError({ title: "先に業界と職種の設定を完了してください" });
           return;
         }
 
@@ -137,17 +136,15 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
       notifyMotivationDraftGenerated();
       setIsDraftModalOpen(true);
     } catch (err) {
-      deps.setError(
-        reportUserFacingError(
-          err,
-          {
-            code: "MOTIVATION_DRAFT_GENERATE_FAILED",
-            userMessage: "ES生成に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleGenerateDraft",
-        ),
+      reportUserFacingError(
+        err,
+        {
+          code: "MOTIVATION_DRAFT_GENERATE_FAILED",
+          userMessage: "ES生成に失敗しました。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "MotivationPage.handleGenerateDraft",
       );
     } finally {
       setIsGeneratingDraft(false);
@@ -164,18 +161,16 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
       deps.selectedIndustry || deps.roleOptionsData?.industry || deps.setupSnapshot?.resolvedIndustry || "";
 
     if (!trimmedRole || (requiresIndustrySelection && !resolvedIndustry)) {
-      deps.setError("先に業界と職種の設定を完了してください");
+      notifyError({ title: "先に業界と職種の設定を完了してください" });
       return;
     }
 
     if (!deps.acquireLock("志望動機を生成中")) {
-      deps.setError(`${deps.activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。`);
+      notifyInfo({ title: `${deps.activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。` });
       return;
     }
 
     setIsGeneratingDraft(true);
-    deps.setError(null);
-    deps.setConversationLoadError(null);
 
     try {
       const response = await generateMotivationDraftDirect(deps.companyId, {
@@ -228,17 +223,15 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
         await deps.fetchData();
       }
     } catch (err) {
-      deps.setError(
-        reportUserFacingError(
-          err,
-          {
-            code: "MOTIVATION_DRAFT_DIRECT_FAILED",
-            userMessage: "会話なし下書きの生成に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleGenerateDraftDirect",
-        ),
+      reportUserFacingError(
+        err,
+        {
+          code: "MOTIVATION_DRAFT_DIRECT_FAILED",
+          userMessage: "会話なし下書きの生成に失敗しました。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "MotivationPage.handleGenerateDraftDirect",
       );
     } finally {
       setIsGeneratingDraft(false);
@@ -250,12 +243,11 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
     if (!generatedDraft || generatedDocumentId || isSavingDraft || isGeneratingDraft || deps.isLocked) return null;
 
     if (!deps.acquireLock("下書きを保存中")) {
-      deps.setError(`${deps.activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。`);
+      notifyInfo({ title: `${deps.activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。` });
       return null;
     }
 
     setIsSavingDraft(true);
-    deps.setError(null);
 
     try {
       const response = await saveMotivationDraft(deps.companyId);
@@ -278,17 +270,15 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
       notifyMotivationDraftSaved();
       return docId;
     } catch (err) {
-      deps.setError(
-        reportUserFacingError(
-          err,
-          {
-            code: "MOTIVATION_DRAFT_SAVE_FAILED",
-            userMessage: "下書きを保存できませんでした。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleSaveGeneratedDraft",
-        ),
+      reportUserFacingError(
+        err,
+        {
+          code: "MOTIVATION_DRAFT_SAVE_FAILED",
+          userMessage: "下書きを保存できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "MotivationPage.handleSaveGeneratedDraft",
       );
       return null;
     } finally {
@@ -300,7 +290,6 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
   const handleResumeDeepDive = useCallback(async () => {
     if ((!generatedDraft && !deps.isDraftReady) || deps.isLocked) return;
     if (!deps.acquireLock("深掘り質問を取得中")) return;
-    deps.setError(null);
 
     try {
       const response = await resumeMotivationDeepDive(deps.companyId);
@@ -321,17 +310,15 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
       setGeneratedDocumentId(null);
       deps.applyConversationPayload(data, deps.roleOptionsData);
     } catch (err) {
-      deps.setError(
-        reportUserFacingError(
-          err,
-          {
-            code: "MOTIVATION_RESUME_DEEPDIVE_FAILED",
-            userMessage: "深掘り質問の取得に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleResumeDeepDive",
-        ),
+      reportUserFacingError(
+        err,
+        {
+          code: "MOTIVATION_RESUME_DEEPDIVE_FAILED",
+          userMessage: "深掘り質問の取得に失敗しました。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "MotivationPage.handleResumeDeepDive",
       );
     } finally {
       deps.releaseLock();

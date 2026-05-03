@@ -56,9 +56,14 @@ function LayoutInner({ children }: { children: ReactNode }) {
   );
 }
 
-export function ProductLayoutClient({ children }: { children: ReactNode }) {
+interface ProductLayoutClientProps {
+  children: ReactNode;
+  initialCollapsed?: boolean;
+}
+
+export function ProductLayoutClient({ children, initialCollapsed }: ProductLayoutClientProps) {
   return (
-    <SidebarProvider>
+    <SidebarProvider initialCollapsed={initialCollapsed}>
       <LayoutInner>{children}</LayoutInner>
     </SidebarProvider>
   );

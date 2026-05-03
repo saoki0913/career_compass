@@ -50,17 +50,14 @@ describe("CompanyProgressCard", () => {
     expect(urls?.fallbacks.some((url) => url.includes("icons.duckduckgo.com"))).toBe(true);
   });
 
-  it("uses dashboard asset illustrations for all empty pipeline keys", async () => {
+  it("uses minimal placeholder for empty pipeline columns", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./CompanyListCard.tsx", import.meta.url), "utf8");
-    expect(source).toContain("EMPTY_COLUMN_ILLUSTRATIONS");
-    expect(source).toContain("next/image");
-    expect(source).toContain("/dashboard/assets/image_01.png");
-    for (const key of ["not_applied", "es_test", "interview", "waiting", "offer"]) {
-      expect(source).toContain(key);
-    }
-    expect(source).not.toContain("EmptyColumnInboxIcon");
-    expect(source).toContain("ここに企業を追加");
+    expect(source).not.toContain("EMPTY_COLUMN_ILLUSTRATIONS");
+    expect(source).not.toContain("next/image");
+    expect(source).toContain("COLUMN_DOT_COLORS");
+    expect(source).toContain("col.companies.length === 0");
+    expect(source).toContain("--");
   });
 
   it("does not render inert column menu buttons", async () => {
@@ -68,6 +65,14 @@ describe("CompanyProgressCard", () => {
     const source = await readFile(new URL("./CompanyListCard.tsx", import.meta.url), "utf8");
     expect(source).not.toContain("MoreHorizontal");
     expect(source).not.toContain("aria-label={`${col.label} メニュー`}");
+  });
+
+  it("uses polished card styling with shadow and hover transitions", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./CompanyListCard.tsx", import.meta.url), "utf8");
+    expect(source).toContain("shadow-[0_1px_2px_rgba(0,0,0,0.04)]");
+    expect(source).toContain("hover:shadow-sm");
+    expect(source).toContain("bg-muted/20");
   });
 
   it("has actionable footer links shown when active companies exist", async () => {

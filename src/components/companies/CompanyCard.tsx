@@ -110,10 +110,10 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
   return (
     <Link href={`/companies/${company.id}`}>
       <Card className="h-full hover:shadow-md transition-all duration-200 hover:border-primary/30 hover:-translate-y-0.5 active:scale-[0.99] cursor-pointer group">
-        <CardContent className="p-4 flex flex-col h-full">
-          {/* Header: Star + Name + Status */}
-          <div className="flex items-start justify-between gap-2 mb-1">
-            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        <CardContent className="p-2.5 flex flex-col h-full">
+          {/* Header: Star + Name + Delete */}
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5">
               {/* Pin toggle button - Endowment Effect: personalization creates attachment */}
               {onTogglePin && (
                 <button
@@ -142,11 +142,14 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
                   />
                 </button>
               )}
-              <h3 className="font-semibold text-base text-foreground truncate group-hover:text-primary transition-colors">
+              <h3
+                className="min-w-0 truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary"
+                title={company.name}
+              >
                 {company.name}
               </h3>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
               {onDeleteStart ? (
                 <Button
                   type="button"
@@ -163,42 +166,47 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
                   <Trash2 className="h-4 w-4" />
                 </Button>
               ) : null}
-              <Badge
-                variant="outline"
-                className={cn("text-xs px-2 py-0.5 h-6 flex-shrink-0 font-medium", statusConfig.bgColor, statusConfig.color)}
-              >
-                {statusConfig.label}
-              </Badge>
             </div>
           </div>
 
-          {/* Industry */}
-          <p className="text-sm text-muted-foreground mb-3 truncate">
-            {company.industry || "業界未設定"}
-          </p>
+          {/* Meta: Industry + Status */}
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <p className="text-xs text-muted-foreground truncate" title={company.industry || "業界未設定"}>
+              {company.industry || "業界未設定"}
+            </p>
+            <Badge
+              variant="outline"
+              className={cn("h-6 shrink-0 px-2 py-0.5 text-xs font-medium", statusConfig.bgColor, statusConfig.color)}
+            >
+              {statusConfig.label}
+            </Badge>
+          </div>
 
           {/* Deadline */}
           <div className={cn(
-            "py-2 px-2 -mx-2 rounded-lg mb-3",
+            "py-1.5 px-2 -mx-2 rounded-lg mb-2",
             deadlineInfo.bgClass || "bg-muted/30"
           )}>
             {deadlineInfo.content}
           </div>
 
-          {/* Stats Row */}
-          <div className="flex items-center justify-between text-sm text-muted-foreground mt-auto">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1.5">
-                <Briefcase className="w-4 h-4" />
-                <span>{company.activeApplicationCount}</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <FileText className="w-4 h-4" />
-                <span>{company.esDocumentCount}</span>
-              </span>
-            </div>
+          {/* Stats (card-specific) */}
+          <div className="flex items-center gap-3 text-sm text-muted-foreground mb-1.5">
+            <span className="flex items-center gap-1.5">
+              <Briefcase className="w-4 h-4" />
+              <span>{company.activeApplicationCount}</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <FileText className="w-4 h-4" />
+              <span>{company.esDocumentCount}</span>
+            </span>
+          </div>
 
-            {/* External links - Selective Attention: recruitment link always visible */}
+          {/* Footer */}
+          <div className="flex items-center justify-between text-sm text-muted-foreground mt-auto">
+            <span className="text-xs">
+              更新: {new Date(company.updatedAt).toLocaleDateString("ja-JP", { year: "numeric", month: "short", day: "numeric" })}
+            </span>
             <div className="flex items-center gap-1">
               {company.recruitmentUrl && (
                 <button

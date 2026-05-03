@@ -11,6 +11,12 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SidebarUserMenuProps {
   collapsed: boolean;
@@ -184,75 +190,75 @@ export function SidebarUserMenu({ collapsed }: SidebarUserMenuProps) {
 
   if (!isAuthenticated && !isGuest) {
     return (
-      <Link
-        href="/login"
-        className={cn(
-          "group relative flex items-center rounded-lg transition-colors hover:bg-sidebar-accent/60",
-          collapsed ? "h-10 w-10 justify-center mx-auto" : "h-10 px-3 gap-3",
-        )}
-      >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sidebar-foreground">
-          <UserIcon />
-        </span>
-        {!collapsed && (
-          <span className="truncate text-sm font-medium text-sidebar-foreground">
+      <TooltipProvider delayDuration={0}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              href="/login"
+              className={cn(
+                "group relative flex items-center rounded-lg transition-colors hover:bg-sidebar-accent/60",
+                collapsed ? "h-10 w-10 justify-center mx-auto" : "h-10 px-3 gap-3",
+              )}
+            >
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sidebar-accent text-sidebar-foreground">
+                <UserIcon />
+              </span>
+              {!collapsed && (
+                <span className="truncate text-sm font-medium text-sidebar-foreground">
+                  ログイン
+                </span>
+              )}
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>
             ログイン
-          </span>
-        )}
-        {collapsed && (
-          <span className="pointer-events-none absolute left-full z-50 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-            ログイン
-          </span>
-        )}
-      </Link>
-    );
-  }
-
-  if (collapsed) {
-    return (
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="group relative flex h-10 w-10 items-center justify-center mx-auto rounded-lg transition-colors hover:bg-sidebar-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-            aria-label={displayName}
-          >
-            {avatar}
-            <span className="pointer-events-none absolute left-full z-50 ml-2 whitespace-nowrap rounded-md bg-foreground px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-              {displayName}
-            </span>
-          </button>
-        </PopoverTrigger>
-        {menuContent}
-      </Popover>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="group flex h-10 w-full items-center gap-3 rounded-lg px-3 transition-colors hover:bg-sidebar-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
-          aria-label={displayName}
-        >
-          {avatar}
-          <span className="flex min-w-0 flex-1 flex-col items-start">
-            <span className="truncate text-sm font-medium text-sidebar-foreground leading-tight">
-              {displayName}
-            </span>
-          </span>
-          <span
-            className={cn(
-              "inline-flex shrink-0 items-center justify-center rounded-md px-2 py-0.5 text-xs font-semibold leading-none",
-              planBadgeStyle,
-            )}
-          >
-            {planLabel}
-          </span>
-        </button>
-      </PopoverTrigger>
-      {menuContent}
-    </Popover>
+    <TooltipProvider delayDuration={0}>
+      <Tooltip>
+        <Popover>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "group flex items-center rounded-lg transition-colors hover:bg-sidebar-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                  collapsed ? "relative h-10 w-10 justify-center mx-auto" : "h-10 w-full gap-3 px-3",
+                )}
+                aria-label={displayName}
+              >
+                {avatar}
+                {!collapsed && (
+                  <>
+                    <span className="flex min-w-0 flex-1 flex-col items-start">
+                      <span className="truncate text-sm font-medium text-sidebar-foreground leading-tight">
+                        {displayName}
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        "inline-flex shrink-0 items-center justify-center rounded-md px-2 py-0.5 text-xs font-semibold leading-none",
+                        planBadgeStyle,
+                      )}
+                    >
+                      {planLabel}
+                    </span>
+                  </>
+                )}
+              </button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>
+            {displayName}
+          </TooltipContent>
+          {menuContent}
+        </Popover>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

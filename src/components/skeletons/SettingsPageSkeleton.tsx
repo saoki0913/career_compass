@@ -93,7 +93,7 @@ export function SettingsPageSkeleton() {
           <Skeleton className="mt-2 h-4 w-52 rounded-md" />
         </CardHeader>
         <CardContent className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: 5 }).map((_, i) => (
             <div
               key={i}
               className="flex items-center justify-between rounded-xl border border-border/60 p-4"
@@ -102,7 +102,7 @@ export function SettingsPageSkeleton() {
                 <Skeleton className="h-4 w-36 rounded-full" />
                 <SkeletonText lines={1} widths={["10rem"]} />
               </div>
-              <SkeletonPill className="h-6 w-12" />
+              <SkeletonPill className="h-6 w-11" />
             </div>
           ))}
         </CardContent>

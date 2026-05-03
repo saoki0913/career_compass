@@ -4,7 +4,6 @@ import {
   createContext,
   useContext,
   useState,
-  useEffect,
   useCallback,
   type ReactNode,
 } from "react";
@@ -22,14 +21,20 @@ const SidebarContext = createContext<SidebarState | null>(null);
 
 const STORAGE_KEY = "sidebar-collapsed";
 
-export function SidebarProvider({ children }: { children: ReactNode }) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
+function persistCollapsed(value: boolean): void {
+  const v = String(value);
+  document.cookie = `sidebar-collapsed=${v}; path=/; max-age=31536000; SameSite=Lax`;
+  localStorage.setItem(STORAGE_KEY, v);
+}
 
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "true") setIsCollapsed(true);
-  }, []);
+interface SidebarProviderProps {
+  children: ReactNode;
+  initialCollapsed?: boolean;
+}
+
+export function SidebarProvider({ children, initialCollapsed }: SidebarProviderProps) {
+  const [isCollapsed, setIsCollapsed] = useState(initialCollapsed ?? false);
+  const [isOpen, setIsOpen] = useState(false);
 
   const toggle = useCallback(() => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
@@ -37,7 +42,7 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
     } else {
       setIsCollapsed((prev) => {
         const next = !prev;
-        localStorage.setItem(STORAGE_KEY, String(next));
+        persistCollapsed(next);
         return next;
       });
     }
@@ -45,12 +50,12 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
 
   const collapse = useCallback(() => {
     setIsCollapsed(true);
-    localStorage.setItem(STORAGE_KEY, "true");
+    persistCollapsed(true);
   }, []);
 
   const expand = useCallback(() => {
     setIsCollapsed(false);
-    localStorage.setItem(STORAGE_KEY, "false");
+    persistCollapsed(false);
   }, []);
 
   const setOpen = useCallback((open: boolean) => {

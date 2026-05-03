@@ -150,5 +150,3 @@ export const GAKUCHIKA_STEPS: ProcessingStep[] = [
   { id: "analyze", label: "深掘りポイントを分析中...", duration: 2000 },
   { id: "generate", label: "質問を生成中...", duration: 1500 },
 ];
-
-export default ProcessingSteps;

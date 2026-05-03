@@ -27,7 +27,6 @@ export function GakuchikaStartScreen({
   title,
   content,
   showStarInfo,
-  error,
   isStarting,
   onShowStarInfoChange,
   onStartDeepDive,
@@ -35,7 +34,6 @@ export function GakuchikaStartScreen({
   title: string;
   content: string | null;
   showStarInfo: boolean;
-  error: string | null;
   isStarting: boolean;
   onShowStarInfoChange: (open: boolean) => void;
   onStartDeepDive: () => void;
@@ -103,12 +101,6 @@ export function GakuchikaStartScreen({
             ))}
           </div>
         </details>
-
-        {error ? (
-          <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
-            <p className="text-sm text-destructive">{error}</p>
-          </div>
-        ) : null}
 
         <Button onClick={onStartDeepDive} disabled={isStarting} className="w-full h-12 text-base font-medium" size="lg">
           {isStarting ? (

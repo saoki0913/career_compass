@@ -50,7 +50,7 @@ export interface Notification {
   type: NotificationType;
   title: string;
   message: string;
-  data: string | null;
+  data: Record<string, unknown> | null;
   isRead: boolean;
   createdAt: string;
   expiresAt: string | null;

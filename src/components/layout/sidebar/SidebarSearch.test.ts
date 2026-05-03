@@ -49,4 +49,10 @@ describe("SidebarSearch", () => {
     const source = await readFile(new URL("./SidebarSearch.tsx", import.meta.url), "utf8");
     expect(source).toContain("⌘K");
   });
+
+  it("uses Radix Tooltip for collapsed search icon", async () => {
+    const source = await readFile(new URL("./SidebarSearch.tsx", import.meta.url), "utf8");
+    expect(source).toContain("TooltipProvider");
+    expect(source).toContain("TooltipContent");
+  });
 });

@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { SearchPageClient } from "@/components/search/SearchPageClient";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getInitialSearchResults } from "@/lib/server/search-loader";
 import { sanitizeSearchInput } from "@/lib/search/utils";
 

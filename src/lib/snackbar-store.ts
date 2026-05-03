@@ -5,12 +5,18 @@
 
 export type SnackbarTone = "success" | "error" | "info";
 
+export type SnackbarAction = {
+  label: string;
+  onClick: () => void;
+};
+
 export type SnackbarPayload = {
   id: string;
   tone: SnackbarTone;
   title: string;
   description?: string;
   duration: number;
+  action?: SnackbarAction;
 };
 
 const listeners = new Set<() => void>();
@@ -61,6 +67,7 @@ export function enqueueSnackbar(
     title: item.title,
     description: item.description,
     duration: item.duration,
+    action: item.action,
   });
   pump();
 }

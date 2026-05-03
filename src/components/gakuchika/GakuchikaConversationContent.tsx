@@ -10,24 +10,25 @@ import { cn } from "@/lib/utils";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
+import { CharLimitSelector } from "@/components/chat/CharLimitSelector";
 import { GeneratedDraftActionCard } from "@/components/chat/GeneratedDraftActionCard";
 import {
   ConversationSidebarCard,
   ConversationWorkspaceShell,
 } from "@/components/chat/ConversationWorkspaceShell";
-import { useGakuchikaConversationController } from "@/hooks/useGakuchikaConversationController";
-import { useGakuchikaViewModel } from "@/hooks/gakuchika/useGakuchikaViewModel";
+import { useGakuchikaConversationController } from "@/features/gakuchika/hooks/useGakuchikaConversationController";
+import { useGakuchikaViewModel } from "@/features/gakuchika/hooks/useGakuchikaViewModel";
 import {
   CompletionSummary,
-  GakuchikaDraftModal,
   GakuchikaRestartConfirmDialog,
   NaturalProgressStatus,
 } from "@/components/gakuchika";
+import { DraftPreviewModal } from "@/components/chat/DraftPreviewModal";
 import { GakuchikaStartScreen } from "@/components/gakuchika/GakuchikaStartScreen";
 import { notifyGakuchikaDraftSaved } from "@/lib/notifications";
 import { GakuchikaDeepDiveSkeleton } from "@/components/skeletons/GakuchikaDeepDiveSkeleton";
-import { getConversationBadgeLabel } from "@/lib/gakuchika/conversation-state";
-import { PROCESSING_LABELS } from "@/lib/gakuchika/ui";
+import { getConversationBadgeLabel } from "@/features/gakuchika/domain/conversation-state";
+import { PROCESSING_LABELS } from "@/features/gakuchika/domain/ui";
 
 type GakuchikaConversationContentProps = {
   gakuchikaId: string;
@@ -47,7 +48,6 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     isSending,
     isWaitingForResponse,
     answer,
-    error,
     isAIPowered,
     conversationState,
     conversationStarted,
@@ -73,19 +73,16 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     interviewReady,
     generatedDraft,
     shouldPauseConversation,
-    gakuchikaDraftHelperText,
     currentSessionLabel,
     isDraftModalOpen,
     generatedDraftText,
     generatedDocumentId,
     generatedDraftQuality,
+    gakuchikaDraftHelperText,
   } = state;
   const {
     setAnswer,
-    setError,
-    setIsLoading,
     setShowStarInfo,
-    fetchConversation,
     retrySummary: handleRetrySummary,
     startDeepDive: handleStartDeepDive,
     send: handleSend,
@@ -126,7 +123,6 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
           title={gakuchikaTitle}
           content={gakuchikaContent}
           showStarInfo={showStarInfo}
-          error={error}
           isStarting={isStarting}
           onShowStarInfoChange={setShowStarInfo}
           onStartDeepDive={handleStartDeepDive}
@@ -152,35 +148,17 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
           />
         ) : (
           <ConversationActionBar
-            helperText={gakuchikaDraftHelperText}
             actionLabel="ガクチカESを作成"
             pendingLabel="作成中..."
             onAction={handleGenerateDraft}
             disabled={!draftReady || isGeneratingDraft || interviewReady}
             isPending={isGeneratingDraft}
             controls={
-              <>
-                <p className="text-xs font-medium text-muted-foreground xl:shrink-0">文字数</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {([300, 400, 500] as const).map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setDraftCharLimit(n)}
-                      disabled={isGeneratingDraft}
-                      className={cn(
-                        "rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
-                        draftCharLimit === n
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-border bg-background hover:bg-secondary",
-                        isGeneratingDraft ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-                      )}
-                    >
-                      {n}字
-                    </button>
-                  ))}
-                </div>
-              </>
+              <CharLimitSelector
+                value={draftCharLimit}
+                onChange={setDraftCharLimit}
+                disabled={isGeneratingDraft}
+              />
             }
           />
         )
@@ -255,23 +233,6 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
               <p className="text-sm text-amber-800">
                 <strong>基本質問モード:</strong> AIサーバーに接続できないため、定型の質問を使用しています。回答は通常通り保存されます。
               </p>
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
-              <p className="mb-3 text-sm text-destructive">{error}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setError(null);
-                  setIsLoading(true);
-                  fetchConversation();
-                }}
-              >
-                もう一度試す
-              </Button>
             </div>
           ) : null}
 
@@ -410,13 +371,11 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                 state={conversationState}
                 answeredCount={answeredCount}
               />
-              {interviewReady ? (
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {conversationState?.progressLabel
-                    ? `${conversationState.progressLabel}。`
-                    : "短い会話で ES の骨格を整え、その後に必要なら面接向けの深掘りへ進みます。"}
-                </p>
-              ) : null}
+              <p className="text-xs leading-5 text-muted-foreground">
+                {interviewReady && conversationState?.progressLabel
+                  ? `${conversationState.progressLabel}。`
+                  : gakuchikaDraftHelperText}
+              </p>
             </div>
           </ConversationSidebarCard>
 
@@ -473,13 +432,16 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       onConfirm={handleConfirmRestartConversation}
       isConfirming={isStarting && restartDialogOpen}
     />
-    <GakuchikaDraftModal
+    <DraftPreviewModal
       isOpen={isDraftModalOpen}
+      title="生成したガクチカES"
+      description="内容を確認して開くか、現在の下書きを削除して深掘りから作り直せます。"
       draft={generatedDraftText ?? ""}
       charLimit={draftCharLimit}
       draftQuality={generatedDraftQuality}
       isSaving={false}
-      onSave={() => {
+      primaryLabel="ESを開く"
+      onPrimary={() => {
         setIsDraftModalOpen(false);
         if (generatedDocumentId) {
           notifyGakuchikaDraftSaved();
@@ -491,6 +453,16 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
         await handleDiscardDraftAndResumeSession();
       }}
       onClose={() => setIsDraftModalOpen(false)}
+      deepDiveConfirm={{
+        title: "このES下書きを削除しますか？",
+        description: "深掘りを再開すると、今表示しているES下書きは削除されます。削除後は会話を続けてから再生成します。",
+        confirmLabel: "削除して深掘りする",
+      }}
+      preBodyNotice={
+        <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
+          「もっと深掘りして再生成する」を選ぶと、今表示しているES下書きは削除されます。残したい場合は先にESを開いてください。
+        </div>
+      }
     />
     </>
   );

@@ -13,4 +13,10 @@ describe("SidebarNotifications", () => {
     expect(source).toContain("unreadCount");
     expect(source).toContain("text-destructive-foreground");
   });
+
+  it("uses Radix Tooltip for hover label", async () => {
+    const source = await readFile(new URL("./SidebarNotifications.tsx", import.meta.url), "utf8");
+    expect(source).toContain("TooltipProvider");
+    expect(source).toContain("TooltipContent");
+  });
 });

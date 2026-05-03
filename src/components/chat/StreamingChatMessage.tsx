@@ -34,5 +34,3 @@ export function StreamingChatMessage({
     </div>
   );
 }
-
-export default StreamingChatMessage;

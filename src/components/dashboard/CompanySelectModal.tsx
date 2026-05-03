@@ -135,5 +135,3 @@ export function CompanySelectModal({
     </Dialog>
   );
 }
-
-export default CompanySelectModal;

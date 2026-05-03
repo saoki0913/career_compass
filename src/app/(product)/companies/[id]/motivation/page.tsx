@@ -5,7 +5,7 @@ import { OperationLockProvider } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
-import { MotivationConversationContent } from "@/components/motivation/MotivationConversationContent";
+import { MotivationConversationContent } from "@/features/motivation";
 
 export default function MotivationConversationPage() {
   const params = useParams();
