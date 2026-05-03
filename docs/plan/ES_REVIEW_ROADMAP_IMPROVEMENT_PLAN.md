@@ -1,7 +1,7 @@
 ---
 topic: es-review
 plan_date: 2026-04-26
-status: planned
+status: 完了 (P0 safety 完了、P1/P2 は次期計画へ分離)
 based_on_review: user-provided ES review improvement audit
 ---
 
@@ -42,6 +42,8 @@ based_on_review: user-provided ES review improvement audit
 
 ## P0: 安全性・課金・誤反映防止
 
+**P0 closeout (2026-05-01):** 入力境界、owner-scoped RAG URL、テンプレート別必須条件、成功時のみ消費、キャンセル、stale 反映警告、合否誤認を避ける表示を実装済み。P1/P2 は次期計画として残す。
+
 ### Task 1: サーバ側入力バリデーションを正本化する
 
 **Files:**
@@ -51,11 +53,11 @@ based_on_review: user-provided ES review improvement audit
 - Test: `backend/tests/es_review/`
 - Test: `src/app/api/documents/_services/handle-review-stream.test.ts`
 
-- [ ] `ReviewRequest.content` に `min_length=6`, `max_length=1500` 相当の制約を入れる。
-- [ ] `section_title` は必須扱いを維持し、空文字と過長値をFastAPIで拒否する。
-- [ ] `section_char_limit` は `1..1500` の範囲に制限する。
-- [ ] Next API側も同じ境界で早期に構造化エラーを返す。
-- [ ] フロント側の既存5文字未満ブロックと文言を、サーバ境界と矛盾しない形に更新する。
+- [x] `ReviewRequest.content` に `min_length=6`, `max_length=1500` 相当の制約を入れる。
+- [x] `section_title` は必須扱いを維持し、空文字と過長値をFastAPIで拒否する。
+- [x] `section_char_limit` は `1..1500` の範囲に制限する。
+- [x] Next API側も同じ境界で早期に構造化エラーを返す。
+- [x] フロント側の既存5文字未満ブロックと文言を、サーバ境界と矛盾しない形に更新する。
 
 **Verification:**
 - `pytest backend/tests/es_review -k "validation or char_limit" -v`
@@ -72,10 +74,10 @@ based_on_review: user-provided ES review improvement audit
 - Test: `backend/tests/es_review/`
 - Test: `src/app/api/documents/_services/handle-review-stream.test.ts`
 
-- [ ] ブラウザrequest bodyから `hasCompanyRag` を削除するか、UI表示用advisoryとしてのみ扱う。
-- [ ] FastAPI側は `company_id` とテンプレート条件をもとに `has_company_rag(company_id)` を常に再判定する。
-- [ ] `user_provided_corporate_urls` は所有済みcompany rowの `corporateInfoUrls` から、`blocked` 以外かつES添削に使えるものだけ渡す。
-- [ ] `hasCompanyRag=true` 偽装で企業RAGあり扱いにならないテストを追加する。
+- [x] ブラウザrequest bodyから `hasCompanyRag` を削除するか、UI表示用advisoryとしてのみ扱う。
+- [x] FastAPI側は `company_id` とテンプレート条件をもとに `has_company_rag(company_id)` を常に再判定する。
+- [x] `user_provided_corporate_urls` は所有済みcompany rowの `corporateInfoUrls` から、`blocked` 以外かつES添削に使えるものだけ渡す。
+- [x] `hasCompanyRag=true` 偽装で企業RAGあり扱いにならないテストを追加する。
 
 **Verification:**
 - `pytest backend/tests/es_review -k "rag or company_rag" -v`
@@ -90,11 +92,11 @@ based_on_review: user-provided ES review improvement audit
 - Test: `src/components/es/review-panel-validation.test.ts`
 - Test: `src/app/api/documents/_services/handle-review-stream.test.ts`
 
-- [ ] `company_motivation`, `post_join_goals`, `role_course_reason` は業界・職種必須にする。
-- [ ] `intern_reason`, `intern_goals` は業界必須、職種は推奨または任意にする。
-- [ ] `gakuchika`, `self_pr`, `work_values`, `basic` は企業ありでも業界・職種を任意にする。
-- [ ] UI文言は「企業接続を強めるには職種を選択」など、任意入力として自然に見せる。
-- [ ] Next API側でも同じテンプレート別判定を行い、フロントだけに依存しない。
+- [x] `company_motivation`, `post_join_goals`, `role_course_reason` は業界・職種必須にする。
+- [x] `intern_reason`, `intern_goals` は業界必須、職種は推奨または任意にする。
+- [x] `gakuchika`, `self_pr`, `work_values`, `basic` は企業ありでも業界・職種を任意にする。
+- [x] UI文言は「企業接続を強めるには職種を選択」など、任意入力として自然に見せる。
+- [x] Next API側でも同じテンプレート別判定を行い、フロントだけに依存しない。
 
 **Verification:**
 - `npm run test:unit -- src/components/es/review-panel-validation.test.ts`
@@ -109,19 +111,19 @@ based_on_review: user-provided ES review improvement audit
 - Modify: `src/lib/fastapi/sse-proxy.ts`
 - Modify: `backend/app/routers/es_review.py`
 - Test: `src/lib/fastapi/sse-proxy.test.ts`
-- Test: `src/hooks/es-review/transport.test.ts`
+- Test: `src/features/es-review/hooks/transport.test.ts`
 - Test: `backend/tests/es_review/`
 
-- [ ] 添削中はデスクトップ/モバイル両方に「中止」ボタンを出す。
-- [ ] 中止中は `isCancelling` を使って「中止しています」状態を表示する。
-- [ ] ブラウザの `AbortController` によりNext SSE proxyの `onFinally` が必ず走ることをテストで固定する。
-- [ ] FastAPI generator cancellation時に `review_task.cancel()` を呼び、LLM処理とqueue処理を終了する。
-- [ ] `complete` 未受信、HTTP非2xx、FastAPI `error`、ブラウザ切断、`onComplete` hook失敗はすべて予約cancelにする。
-- [ ] `complete` を受信し、result payloadが有効な場合だけ `confirmReservation` する。
+- [x] 添削中はデスクトップ/モバイル両方に「中止」ボタンを出す。
+- [x] 中止中は `isCancelling` を使って「中止しています」状態を表示する。
+- [x] ブラウザの `AbortController` によりNext SSE proxyの `onFinally` が必ず走ることをテストで固定する。
+- [x] FastAPI generator cancellation時に `review_task.cancel()` を呼び、LLM処理とqueue処理を終了する。
+- [x] `complete` 未受信、HTTP非2xx、FastAPI `error`、ブラウザ切断、`onComplete` hook失敗はすべて予約cancelにする。
+- [x] `complete` を受信し、result payloadが有効な場合だけ `confirmReservation` する。
 
 **Verification:**
 - `npm run test:unit -- src/lib/fastapi/sse-proxy.test.ts`
-- `npm run test:unit -- src/hooks/es-review/transport.test.ts`
+- `npm run test:unit -- src/features/es-review/hooks/transport.test.ts`
 - `pytest backend/tests/es_review -k "cancel or stream" -v`
 
 ### Task 5: 誤反映防止を生成時スナップショットで守る
@@ -132,11 +134,11 @@ based_on_review: user-provided ES review improvement audit
 - Modify: `src/components/es/ReflectModal.tsx`
 - Test: relevant `src/components/es/**/*.test.tsx`
 
-- [ ] セクション添削requestに `sectionId` を含める。
-- [ ] 添削開始時に `sectionId`, `sectionTitle`, `originalTextHash`, `templateType`, `companyId`, `roleName` を保持する。
-- [ ] 反映前に現在の `sectionId` と本文hashを照合する。
-- [ ] 本文・設問・会社・職種が変わっている場合は、ReflectModalでstale警告を出し、明示確認なしに反映しない。
-- [ ] 既存のBefore/After差分UIは維持し、変更点の視認性は落とさない。
+- [x] セクション添削requestに `sectionId` を含める。
+- [x] 添削開始時に `sectionId`, `sectionTitle`, `originalTextHash`, `templateType`, `companyId`, `roleName` を保持する。
+- [x] 反映前に現在の `sectionId` と本文hashを照合する。
+- [x] 本文・設問・会社・職種が変わっている場合は、ReflectModalでstale警告を出し、明示確認なしに反映しない。
+- [x] 既存のBefore/After差分UIは維持し、変更点の視認性は落とさない。
 
 **Verification:**
 - `npm run test:unit -- src/components/es`
@@ -148,10 +150,10 @@ based_on_review: user-provided ES review improvement audit
 - Modify: `src/components/es/StreamingReviewResponse.tsx`
 - Test: `src/components/es/streaming-review-response.regression.test.ts`
 
-- [ ] 「品質スコア」という見出しを「提出前チェック」または「改善観点」に変更する。
-- [ ] `S/A/B/C` は廃止し、「確認済み」「要確認」「根拠不足」のような行動ラベルにする。
-- [ ] `weak_evidence_notice` と `evidence_coverage_level` は、品質点ではなく根拠制約として別表示する。
-- [ ] `degraded` / `soft_ok` の注意文を、提出前に何を確認すべきかへ寄せる。
+- [x] 「品質スコア」という見出しを「提出前チェック」または「改善観点」に変更する。
+- [x] `S/A/B/C` は廃止し、「確認済み」「要確認」「根拠不足」のような行動ラベルにする。
+- [x] `weak_evidence_notice` と `evidence_coverage_level` は、品質点ではなく根拠制約として別表示する。
+- [x] `degraded` / `soft_ok` の注意文を、提出前に何を確認すべきかへ寄せる。
 
 **Verification:**
 - `npm run test:unit -- src/components/es/streaming-review-response.regression.test.ts`
@@ -191,7 +193,7 @@ based_on_review: user-provided ES review improvement audit
 - Modify: `src/hooks/es-review/transport.ts`
 - Modify: `src/lib/fastapi/sse-proxy.ts`
 - Modify: `backend/app/routers/es_review.py`
-- Test: `src/hooks/es-review/transport.test.ts`
+- Test: `src/features/es-review/hooks/transport.test.ts`
 - Test: `src/lib/fastapi/sse-proxy.test.ts`
 
 - [ ] SSE parserはblockを空行で分割し、複数 `data:` 行を結合する。
@@ -236,7 +238,7 @@ based_on_review: user-provided ES review improvement audit
 ## 全体検証コマンド
 
 ```bash
-npm run test:unit -- src/hooks/es-review/transport.test.ts
+npm run test:unit -- src/features/es-review/hooks/transport.test.ts
 npm run test:unit -- src/lib/fastapi/sse-proxy.test.ts
 npm run test:unit -- src/app/api/documents/_services/handle-review-stream.test.ts
 npm run test:unit -- src/components/es

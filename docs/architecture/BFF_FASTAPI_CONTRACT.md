@@ -91,7 +91,7 @@ owner 判定の配置:
 
 SSE concurrency は FastAPI の `backend/app/security/sse_concurrency.py` が actor 単位で制御する。BFF は stream feature の開始時に `scope: "ai-stream"` の principal を付与し、FastAPI は actor と plan を制限判定の入力に使う。
 
-rate limit と concurrency の契約は feature 固有の payload から分離し、`X-Career-Principal` と stream feature config を境界にする。CA-1 以降で route を `src/bff/` / `src/features/` へ移しても、制限点はこの契約に従う。
+rate limit と concurrency の契約は feature 固有の payload から分離し、`X-Career-Principal` と stream feature config を境界にする。CA-1〜CA-4 で motivation / es-review / gakuchika / company-info を `src/bff/` / `src/features/` / `backend/app/services/` へ移した後も、制限点はこの契約に従う。
 
 ## Billing Policy
 
@@ -105,12 +105,18 @@ AI stream の contract は次の3種類だけを許容する。
 
 現状の `STREAM_FEATURE_CONFIGS` は motivation/gakuchika が `post_success`、ES review が `three_phase`、interview が `free`。interview の start/turn/feedback 個別課金は route 側の既存仕様として残し、CA-1 以降で feature boundary を切るときに再整理する。
 
-## CA-1 への引き継ぎ
+## CA-5 時点の配置
 
-CA-1 ではこの契約テストを維持したまま、motivation pilot の `src/features/`、`src/bff/`、`backend/app/services/` 移行を別 PR で行う。CA-0 の範囲では既存 route の責務移動、FastAPI router 分割、DB schema 変更、LLM prompt 変更は行わない。
+CA-5 時点では、CA-0 の契約テストを維持したまま以下を現行構成として扱う。
 
-CA-1 着手条件:
+- Request identity / owner access / LLM cost guard: `src/bff/identity/`
+- Structured API error / Server-Timing: `src/bff/api/`
+- Feature billing policy: `src/bff/billing/`
+- Feature-local UI / hook / domain: `src/features/{motivation,es-review,gakuchika,company-info}/`
+- FastAPI use case service: `backend/app/services/{motivation,es_review,gakuchika,company_info}/`
 
-- CA-0 contract tests が PASS している
-- `docs/review/TRACKER.md` と `docs/plan/EXECUTION_ORDER.md` が CA-0 完了状態
-- RAG P0-2 を先に実施する場合、CA-1 は RAG / company_info 変更を含めない
+CA-5 の architecture guard:
+
+- Frontend: `eslint-plugin-boundaries` で `features/* -> bff/*` と `features/* -> app/*`、`components/* -> bff/*` を禁止する。
+- Backend: `import-linter` で `app.services -> app.routers` の逆依存を禁止する。
+- 実行コマンド: `npm run lint:architecture`

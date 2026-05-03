@@ -226,19 +226,19 @@ RAG（Retrieval-Augmented Generation）のための検索システム。
 
 ```json
 {
-  "@aws-sdk/client-s3": "^3.975.0",
-  "@aws-sdk/s3-request-presigner": "^3.975.0",
   "@radix-ui/react-label": "^2.1.8",
   "@radix-ui/react-select": "^2.2.6",
   "@radix-ui/react-slot": "^1.2.4",
   "@radix-ui/react-switch": "^1.2.6",
-  "better-auth": "^1.4.17",
+  "better-auth": "^1.5.6",
+  "better-call": "^1.3.2",
   "class-variance-authority": "^0.7.1",
   "clsx": "^2.1.1",
   "drizzle-orm": "^0.45.1",
   "lucide-react": "^0.563.0",
-  "next": "16.1.5",
+  "next": "^16.2.1",
   "postgres": "^3.4.7",
+  "postcss": "^8.5.8",
   "react": "19.2.3",
   "react-dom": "19.2.3",
   "stripe": "^20.2.0",

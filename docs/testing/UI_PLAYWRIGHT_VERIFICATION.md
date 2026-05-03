@@ -30,6 +30,10 @@ guest 導線:
 ```bash
 npm run test:ui:review -- /companies --auth=guest
 npm run test:ui:review -- /dashboard --auth=guest
+npm run test:ui:review -- /tasks --auth=guest
+npm run test:ui:review -- /deadlines --auth=guest
+npm run test:ui:review -- /calendar --auth=guest
+npm run test:ui:review -- /gakuchika --auth=guest
 ```
 
 mock 認証で detail / conversation UI を確認:
@@ -48,7 +52,7 @@ npm run test:ui:review -- /companies/ui-review-company/motivation --auth=real --
 複数ページをまとめて確認:
 
 ```bash
-npm run test:ui:review -- / /pricing /companies --auth=guest
+npm run test:ui:review -- /dashboard /companies /tasks /deadlines /calendar /gakuchika --auth=guest
 ```
 
 ## 2. 実行内容

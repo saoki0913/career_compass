@@ -962,7 +962,7 @@
 - plan 生成は `MODEL_INTERVIEW_PLAN=gpt`（既定 GPT-5.4）。質問生成は `MODEL_INTERVIEW=claude-haiku`（既定 Claude Haiku 4.5）。最終講評は `MODEL_INTERVIEW_FEEDBACK`（既定 Claude Sonnet 系。表示名は `docs/features/INTERVIEW.md` 参照）
 - 画面は `DashboardHeader` + `max-w-7xl` の 2 カラム product UI
 - 開始前、進行中、完了後は同一レイアウト上で切り替える
-- 開始前に `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` を確認する
+- 開始前は `面接設定` として `業界 / 職種 / 面接方式 / 選考種別 / 面接段階 / 面接官タイプ / 厳しさ` を設定する。材料充足度チェック、準備カード、モデル分業表示は出さない
 - `roleTrack` は UI で直接選ばせず、応募職種から内部自動分類する
 - 固定段階ではなく、`interview_plan` と `turn_state` に基づく論点管理で進める
 - `turn_state.coverageState` を deterministic coverage の正本にし、`coveredTopics` は read model とする

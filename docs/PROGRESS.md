@@ -357,7 +357,7 @@ ESテンプレートギャラリー機能の代替として実装。ガクチカ
 
 | 機能 | 状態 | 備考 |
 |------|------|------|
-| 企業別模擬面接UI | ✅ 更新 | motivation 準拠の 2 カラム UI + setup-first + 論点ベース進捗 + 自動スクロール |
+| 企業別模擬面接UI | ✅ 更新 | motivation 準拠の 2 カラム UI + setup-first + 論点ベース進捗 + 自動スクロール。開始前は `面接設定` に集約し、材料充足度チェック・準備カード・モデル分業表示は出さない |
 | 面接対策 API | ✅ 更新 | `GET /interview` + `POST /interview/start` + `POST /interview/stream` + `POST /interview/feedback` |
 | FastAPI interview router | ✅ 更新 | adaptive 6〜10 問 + opening / turn / feedback SSE |
 | モデル固定 | ✅ 完了 | plan `GPT-5.4`、質問 `Claude Haiku 4.5`、講評 `Claude Sonnet 4.6` |

@@ -171,7 +171,7 @@ seed は repo 内の設定資産として保持し、実行時に毎回 live sea
 ## Next API
 
 - `GET /api/companies/[id]/interview`
-  - hydrate 用。`setup`, `materials`, `materialReadiness`, `conversation`, `sessionState`, `feedbackHistories`, `creditCost`, `billingCosts`, `models` を返す
+  - hydrate 用。`setup`, `materials`, `conversation`, `sessionState`, `feedbackHistories`, `creditCost`, `billingCosts` を返す
 - `POST /api/companies/[id]/interview/start`
   - 既存進行中セッションがなければ v2 setup を保存し、`plan -> opening question` を SSE で返す。成功時に 2 credits を消費する
 - `POST /api/companies/[id]/interview/stream`
@@ -261,8 +261,10 @@ seed は repo 内の設定資産として保持し、実行時に毎回 live sea
 
 ## UI / UX
 
-- 開始前は setup card を表示し、設定確認後に開始できる
-- 開始前に材料充足度チェックを表示し、志望動機 / ガクチカ / 関連 ES / 企業情報 / 学業・研究 / 過去講評の有無を示す。不足があっても開始は止めない
+- 開始前は `面接設定` card を表示し、設定確認後に開始できる
+  - 見出し下に「開始前に応募職種、面接方式、選考種別、面接段階、面接官タイプ、厳しさを設定します。」と表示する
+  - 応募職種、面接方式、選考種別、面接段階、面接官タイプ、厳しさを設定する
+  - 画面上では材料充足度チェック、準備カード、モデル分業表示は出さない
 - 右カラムにガクチカ風の進捗カードを表示する
   - トピックピル: 確認済み (emerald + ✓) / 進行中 (sky) / 未着手 (muted) の 3 色バッジ
   - 内部キー（`motivation_fit` 等）は `labelTopic()` で日本語ラベル（「志望動機」等）に変換して表示する
@@ -272,8 +274,8 @@ seed は repo 内の設定資産として保持し、実行時に毎回 live sea
   - SSE `string_chunk` はローカル蓄積のみ行い、`complete` イベント後に playback を開始する
   - playback 完了 + 180ms 遅延後に `startTransition` で全 state を一括適用し、ステータス切り替え時のガタつきを防ぐ
   - フィードバックの `string_chunk` は従来どおり即時表示（文字送り不要）
-- 右カラムに `面接設定 / PrepPack / 論点詳細 / 参考にする材料 / 過去の最終講評` を表示する
-- PrepPack は折りたたみ式（accordion）で面接設定カードの下に配置する
+- 右カラムに `進捗 / 面接設定 / 参考にする材料 / 過去の最終講評` を表示する
+- 参考材料は志望動機 / ガクチカ / 関連 ES / 企業情報 / 業界 seed を compact 表示する。カード表示を廃止しても、質問生成・講評ではこれらの材料を引き続き使う
 - 過去講評は compact 表示にし、クリックでモーダル全文表示する
 - 最終講評後は `最弱設問 / そのときの回答 / improved_answer / 次に準備すべき論点 / 採点根拠 / 1問満足度` を表示する
 - 最終講評後は `面接対策を続ける` と `会話をやり直す` を表示する

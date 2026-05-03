@@ -1,0 +1,1197 @@
+{
+  "schemaVersion": 2,
+  "lastUpdated": "2026-05-03T21:04:23+09:00",
+  "source": "docs/plan/EXECUTION_ORDER.md",
+  "completionRule": "pre-release-foundation の全 releaseBlocker track が done になり、requiredGates の passed evidence、docs/review/TRACKER.md、readiness checker、ops-release-check がすべて揃っていること。",
+  "statusValues": [
+    "todo",
+    "in_progress",
+    "blocked",
+    "verifying",
+    "done"
+  ],
+  "evidenceStatusValues": [
+    "passed",
+    "failed",
+    "skipped"
+  ],
+  "globalState": {
+    "currentPhase": "pre_release_foundation_hardening",
+    "preexistingSnapshotCommit": "8bc9e81",
+    "e2eFunctionalPolicyForSnapshot": "skipped for snapshot; static/security/unit gates were run",
+    "excludedRuntimeFiles": [
+      "backend/.ai/verification/current.json",
+      "docs/ops/agent-usage.log"
+    ]
+  },
+  "globalRequiredGates": [
+    {
+      "id": "tracker",
+      "command": "bash scripts/test-review-tracker.sh",
+      "required": true
+    },
+    {
+      "id": "ops-release-check",
+      "command": "make ops-release-check",
+      "required": true
+    },
+    {
+      "id": "plan-readiness",
+      "command": "node tools/check-plan-release-readiness.mjs --json",
+      "required": true
+    }
+  ],
+  "globalEvidence": [
+    {
+      "gateId": "tracker",
+      "command": "bash scripts/test-review-tracker.sh",
+      "status": "passed",
+      "completedAt": "2026-05-03T03:25:42+09:00",
+      "evidencePath": null,
+      "notes": "PASS with pre-existing frontmatter warnings"
+    },
+    {
+      "gateId": "plan-readiness",
+      "command": "node tools/check-plan-release-readiness.mjs --json",
+      "status": "passed",
+      "completedAt": "2026-05-03T21:04:23+09:00",
+      "evidencePath": null,
+      "notes": "All track-level release blockers are clear; only global ops-release-check remains before final release"
+    }
+  ],
+  "tracks": [
+    {
+      "id": "preflight-snapshot",
+      "title": "既存変更の先行コミット",
+      "planFile": "docs/plan/EXECUTION_ORDER.md",
+      "owner": "orchestrator",
+      "status": "done",
+      "completionCriteria": [
+        "既存 staged diff を検証する",
+        "大規模差分レビューの high blocker を修正する",
+        "forbidden runtime/state files を commit 対象から除外する",
+        "先行 snapshot commit を作成する"
+      ],
+      "verification": [
+        "bash scripts/test-review-tracker.sh",
+        "npm run lint:ui:guardrails",
+        "npx tsc --noEmit",
+        "npm run test:unit -- src/components/landing src/components/dashboard src/components/layout src/components/skeletons src/lib/marketing src/lib/seo 'src/app/(marketing)/page.test.ts'",
+        "bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical",
+        "node scripts/git-hooks/check-git-hygiene.mjs --staged"
+      ],
+      "notes": [
+        "Codex post_review は CODEX_ERROR のため code-reviewer fallback を実施した。",
+        "release-career-compass.sh の secret apply を --apply-secrets 明示時だけに修正した。",
+        "空の src/app/(product)/profile/page.test.tsx は commit 対象から削除した。"
+      ]
+    },
+    {
+      "id": "rag-architecture",
+      "title": "RAG Architecture closeout",
+      "planFile": "docs/plan/RAG_ARCHITECTURE_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "rag-arch",
+      "owner": "rag-engineer",
+      "status": "done",
+      "completionCriteria": [
+        "Contextual Retrieval dual-write 健全性をテストで固定する",
+        "Contextual Retrieval enabled/disabled の同一 golden set 比較を実行できるようにする",
+        "default-on 判断を plan に記録する",
+        "P0-3 observability docs と Grafana dashboard を追加する",
+        "Reference ES ingest CLI と eval set を追加する",
+        "RAG plan と TRACKER を更新する"
+      ],
+      "verification": [
+        "pytest backend/tests/rag_eval -q",
+        "python backend/evals/rag/evaluate_retrieval.py --input backend/evals/rag/golden/company_info_v1.jsonl --top-k 5",
+        "pytest backend/tests/rag_eval/test_reference_es_ingest.py -q",
+        "python backend/scripts/ingest_reference_es.py --input backend/evals/rag/golden/reference_es_v1.jsonl --dry-run --ingest-session-id test-session",
+        "python backend/evals/rag/compare_contextual_retrieval.py --input backend/evals/rag/golden/company_info_v1.jsonl --output /tmp/rag-contextual-comparison-full.json --top-k 5",
+        "python backend/evals/rag/evaluate_reference_es.py --input backend/evals/rag/golden/reference_es_v1.jsonl --output /tmp/reference-es-eval.json --recall-k 10 --ndcg-k 5 --ingest --ingest-session-id reference-es-eval-20260501"
+      ],
+      "notes": [
+        "Reference ES loader は anonymized / usage_consent / anonymization_level / source_provenance を必須化し、ingest_session_id を metadata に保存する。",
+        "Reference ES 最小 synthetic eval は Recall@10=1.0 / nDCG@5=1.0。",
+        "Contextual Retrieval full golden eval は主要指標 delta 0 だが、enabled 側も base collection のみで ctx collection が 0 件のため default-on しない。",
+        "docs/ops/OBSERVABILITY.md と docs/ops/grafana/rag-dashboard.json を追加した。"
+      ]
+    },
+    {
+      "id": "es-review-roadmap-p0",
+      "title": "ES Review Roadmap P0 safety",
+      "planFile": "docs/plan/ES_REVIEW_ROADMAP_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "es-review",
+      "owner": "security-auditor",
+      "status": "done",
+      "completionCriteria": [
+        "入力境界を課金予約前に固定する",
+        "confirmReservation 失敗を成功扱いしない",
+        "company fetch と RAG URL を owner-scoped にする",
+        "browser 由来 hasCompanyRag を実行判断に使わない",
+        "cancel / success-only credit / stale reflection / score wording を実装する",
+        "P1/P2 は次期計画へ明示分離する",
+        "ES roadmap plan と TRACKER を更新する"
+      ],
+      "verification": [
+        "npm run test:unit -- src/lib/fastapi/sse-proxy.test.ts",
+        "npm run test:unit -- src/features/es-review/hooks/transport.test.ts",
+        "npm run test:unit -- src/app/api/documents/_services/handle-review-stream.test.ts",
+        "npm run test:unit -- src/components/es",
+        "pytest backend/tests/es_review -k \"validation or rag or company_rag or cancel or stream\" -v",
+        "npx tsc --noEmit",
+        "npm run lint:ui:guardrails"
+      ],
+      "notes": [
+        "Next API と FastAPI の入力境界を content 6..1500 / section_title required / section_char_limit 1..1500 に統一した。",
+        "confirmReservation 失敗時は成功扱いせず、予約 cancel 経路へ落とす。",
+        "company row と corporateInfoUrls は owner-scoped にし、blocked / trustedForEsReview=false を除外する。",
+        "ReviewPanel に中止ボタン、FastAPI generator に review_task.cancel()、SSE proxy に browser cancel onFinally を追加した。",
+        "sectionId / originalTextHash / templateType / companyId / roleName の生成時スナップショットで stale 反映を警告する。",
+        "品質スコアと S/A/B/C 表示を提出前チェックの行動ラベルへ置換した。"
+      ]
+    },
+    {
+      "id": "maintainability-ca",
+      "title": "Maintainability CA-1 through CA-5",
+      "planFile": "docs/plan/MAINTAINABILITY_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "maintainability",
+      "owner": "architect",
+      "status": "done",
+      "completionCriteria": [
+        "CA-1 motivation pilot を完了する",
+        "CA-2 es_review + slice lint を完了する",
+        "CA-3 gakuchika を完了する",
+        "CA-4 company_info を schedule / RAG ingest / deadline extraction に分割して完了する",
+        "CA-5 全体 lint + docs 同期 + 旧残骸削除を完了する",
+        "Maintainability plan と TRACKER を更新する"
+      ],
+      "verification": [
+        "CA slice ごとの Vitest",
+        "CA slice ごとの targeted pytest",
+        "該当 feature の functional E2E",
+        "npm run lint",
+        "PYTHONPATH=. pytest backend/tests/architecture/test_motivation_ca1a_boundaries.py -q",
+        "PYTHONPATH=. pytest backend/tests/motivation -q",
+        "python -m compileall -q backend/app/services/motivation backend/app/routers/motivation.py backend/app/routers/motivation_models.py backend/app/routers/motivation_streaming.py",
+        "npm run test:unit -- 'src/app/api/motivation/[companyId]/generate-draft/route.test.ts' 'src/app/api/motivation/[companyId]/generate-draft-direct/route.test.ts' 'src/app/api/motivation/[companyId]/resume-deepdive/route.test.ts' 'src/app/api/motivation/[companyId]/save-draft/route.test.ts' src/features/motivation/architecture.test.ts",
+        "npm run test:unit -- src/components/motivation src/hooks/motivation src/features/motivation 'src/app/(product)/companies/[id]/motivation/loading.test.ts'",
+        "npx tsc --noEmit",
+        "npm run lint:ui:guardrails",
+        "npm run test:unit -- src/shared/contracts/fastapi src/lib/fastapi/sse-proxy.test.ts",
+        "PYTHONPATH=. pytest backend/tests/contracts backend/tests/shared/test_career_principal.py -q",
+        "npx playwright test e2e/functional/motivation.spec.ts --project=chromium",
+        "PYTHONPATH=. pytest backend/tests/architecture/test_gakuchika_ca3_boundaries.py -q",
+        "python -m compileall -q backend/app/services/gakuchika backend/app/routers/gakuchika.py backend/app/routers/gakuchika_question_pipeline.py backend/app/routers/gakuchika_retry.py",
+        "PYTHONPATH=. pytest backend/tests/gakuchika/test_gakuchika_retry.py backend/tests/gakuchika/test_gakuchika_next_question.py backend/tests/gakuchika/test_question_quality.py backend/tests/gakuchika/test_question_group_coverage.py -q",
+        "npm run test:unit -- src/app/api/gakuchika src/bff/gakuchika src/features/gakuchika src/hooks/gakuchika src/components/gakuchika",
+        "npx playwright test e2e/functional/gakuchika-completion-summary.spec.ts --project=chromium",
+        "PYTHONPATH=. pytest backend/tests/architecture/test_company_info_ca4_boundaries.py -q",
+        "python -m compileall -q backend/app/services/company_info backend/app/routers/company_info.py backend/app/routers/company_info_schedule.py backend/app/routers/company_info_schedule_service.py backend/app/routers/company_info_schedule_links.py backend/app/routers/company_info_schedule_extraction.py backend/app/routers/company_info_rag_service.py backend/app/routers/company_info_ingest_service.py",
+        "PYTHONPATH=. pytest backend/tests/company_info/test_schedule_search_policy.py backend/tests/company_info/test_pdf_ocr_schedule.py backend/tests/company_info/test_upload_pdf_ingestion.py backend/tests/company_info/test_vector_store_source_replacement.py -q",
+        "npm run test:unit -- src/components/companies/CorporateInfoSection.test.ts src/features/company-info/architecture.test.ts",
+        "npx playwright test e2e/functional/company-info-rag.spec.ts e2e/functional/company-info-search.spec.ts --project=chromium --workers=1",
+        "npx playwright test e2e/functional/regression-bugs.spec.ts --project=chromium --grep \"企業情報取得\"",
+        "npm run lint:architecture",
+        "npm run test:unit -- src/bff/api src/bff/identity src/bff/billing src/features/es-review/hooks/transport.test.ts src/bff/es-review/architecture.test.ts src/features/es-review/architecture.test.ts",
+        "PYTHONPATH=. pytest backend/tests/architecture -q",
+        "npx tsc --noEmit",
+        "npm run lint"
+      ],
+      "notes": [
+        "CA-1A backend は完了。backend/app/services/motivation/ へ service 層を移設し、backend/app/routers/motivation.py は 11 行 facade になった。",
+        "CA-1B は src/bff/motivation/ に route 実体を移し、src/app/api/motivation/** の route files を thin facade にした。",
+        "CA-1C は src/features/motivation/ に application/domain/hooks/ui entrypoint と architecture test を追加し、product page と主要 motivation UI が feature entrypoint を参照する形にした。",
+        "CA-1A targeted verification は architecture 2 tests、backend/tests/motivation 269 passed / 1 skipped、compileall PASS。",
+        "CA-1B/CA-1C targeted Vitest、npx tsc --noEmit、npm run lint:ui:guardrails は PASS。",
+        "CA-0 契約テスト再実行は TS 33 tests / Python 27 tests PASS。",
+        "motivation Playwright functional は chromium 13 tests PASS。CA-1 は完了。",
+        "CA-2 は完了。backend/app/services/es_review/ を追加し、router helper modules は shim 化。src/bff/es-review/ と src/features/es-review/ を追加し、旧 _services は shim 化した。",
+        "CA-2 targeted Vitest、backend architecture/es_review tests、compileall、ES添削 Playwright grep、npx tsc --noEmit、npm run lint は PASS。npm run lint は既存警告のみ。",
+        "CA-3 は完了。backend/app/services/gakuchika/、src/bff/gakuchika/、src/features/gakuchika/ を追加し、router/API/hook shim 化と境界テストを追加した。",
+        "CA-3 targeted Vitest、backend architecture/gakuchika tests、compileall、gakuchika Playwright、npx tsc --noEmit、npm run lint は PASS。npm run lint は既存警告のみ。",
+        "CA-4 は完了。backend/app/services/company_info/ に schedule fetch / RAG source build / deadline extraction を分離し、router helper modules は shim 化した。",
+        "CA-4 frontend は src/features/company-info/ へ企業情報 UI を移し、旧 components/companies/CorporateInfoSection.tsx と配下 modules を feature entrypoint shim にした。",
+        "CA-4 targeted Vitest、backend architecture/company_info tests、compileall、company_info pytest、company-info Playwright、企業情報取得 regression Playwright、npx tsc --noEmit、npm run lint は PASS。認証必須 Playwright はローカル auth state 不在により skip。",
+        "CA-5 は完了。eslint-plugin-boundaries と import-linter を導入し、npm run lint:architecture で frontend / backend 境界 lint を検証する。",
+        "CA-5 で旧 src/app/api/_shared、src/lib/api-route、src/hooks/es-review の実体を src/bff/{api,identity,billing} と src/features/es-review/hooks へ移し、旧ディレクトリを削除した。",
+        "CLAUDE.md、AGENTS.md、docs/architecture/ARCHITECTURE.md、BFF_FASTAPI_CONTRACT.md、FASTAPI_MODULE_LAYOUT.md を新構成へ同期した。targeted Vitest、backend architecture pytest、npx tsc --noEmit、npm run lint は PASS。"
+      ]
+    },
+    {
+      "id": "db-redesign",
+      "title": "DB Redesign DB-1 through DB-8",
+      "planFile": "docs/plan/DB_REDESIGN_PLAN.md",
+      "trackerTopic": "db-redesign",
+      "owner": "database-engineer",
+      "status": "done",
+      "completionCriteria": [
+        "DB-4 を現コード確認または修正で完了する",
+        "DB-1 / DB-2 relations と schema merge を追加する",
+        "DB-3 index migration と rollback SQL を用意する",
+        "DB-5 から DB-7 を列グループごとに jsonb migration する",
+        "DB-8 deadline loader 最適化を完了する",
+        "DB plan と TRACKER を更新する"
+      ],
+      "verification": [
+        "npm run build",
+        "npm run test:unit",
+        "npm run db:generate",
+        "EXPLAIN ANALYZE for DB-3 / DB-8",
+        "npm run test:unit -- src/lib/db/index.test.ts"
+      ],
+      "notes": [
+        "DB-1/DB-2 は src/lib/db/relations.ts 追加と src/lib/db/index.ts schema merge まで完了。src/lib/db/index.test.ts は PASS。",
+        "DB-4 は対象 route に二重 JSON.stringify が存在しないことを確認済み。",
+        "DB-3 は src/lib/db/schema.ts、drizzle_pg/0025_db_redesign_indexes.sql、drizzle_pg/meta/0025_snapshot.json に index を追加済み。npm run db:generate は既存 snapshot drift の calendar_sync_jobs 対話プロンプトで通常生成できないため custom migration を採用した。",
+        "DB-3 の追加 index SQL はローカル DB に直接適用し、pg_indexes と EXPLAIN ANALYZE で deadlines_company_open_due_idx の Index Scan を確認済み。npm run db:migrate:as-app はローカル DB の migration 履歴ドリフトにより既存 accounts table 再作成で失敗する。",
+        "DB-8 は src/lib/server/deadline-loaders.ts を owner/confirmed deadline に絞った task_stats derived table JOIN へ変更済み。src/lib/server/deadline-loaders.test.ts を追加し、targeted Vitest、npx tsc --noEmit、EXPLAIN で tasks_deadline_status_idx の Index Only Scan を確認済み。",
+        "DB-5〜DB-7 は src/lib/db/schema.ts の対象10列を jsonb 化し、drizzle_pg/0026_db_redesign_jsonb_columns.sql と rollback SQL を追加した。0026 migration は malformed JSON の列別 preflight と app 互換 deploy → 旧 app instance drain → DB migration の適用順を明記した。src/lib/db/jsonb-compat.ts で旧 string / 新 jsonb を両対応にした。",
+        "DB-5〜DB-7 のローカル検証は JSON 妥当性 invalid=0、0026 SQL 直接適用後 information_schema.columns で対象10列すべて jsonb。targeted Vitest 9 files / 40 tests、JSONB 追加 targeted Vitest 4 files / 9 tests、npx tsc --noEmit、npm run lint、npm run build、npm run lint:architecture は PASS。"
+      ]
+    },
+    {
+      "id": "release-gate-repair-p0",
+      "title": "Release critical gate repair",
+      "priority": "P0",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "release-engineer",
+      "status": "done",
+      "dependsOn": [],
+      "completionCriteria": [
+        "test:release-critical が削除済み src/app/api/_shared を参照しない",
+        "Remotion scripts / dependencies を復元または削除に分類して release gate の未解決事項に残さない",
+        "release critical / TypeScript / deadcode の結果を evidence に残す"
+      ],
+      "requiredGates": [
+        {
+          "id": "release-critical",
+          "command": "npm run test:release-critical",
+          "required": true
+        },
+        {
+          "id": "tsc",
+          "command": "npx tsc --noEmit",
+          "required": true
+        },
+        {
+          "id": "deadcode",
+          "command": "make deadcode",
+          "required": true
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "release-critical",
+          "command": "npm run test:release-critical",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:16:14+09:00",
+          "evidencePath": null,
+          "notes": "CSRF check, ci-tools, and 14 release-critical Vitest files passed"
+        },
+        {
+          "gateId": "deadcode",
+          "command": "npm run deadcode",
+          "status": "failed",
+          "completedAt": "2026-05-03T03:16:20+09:00",
+          "evidencePath": null,
+          "notes": "Knip still reports 28 unused files, 219 unused exports, unused AWS deps, trace-core, unlisted postcss/better-call; tracked by post-ca-deadcode-triage-p0"
+        },
+        {
+          "gateId": "deadcode",
+          "command": "npm run deadcode",
+          "status": "failed",
+          "completedAt": "2026-05-03T03:25:00+09:00",
+          "evidencePath": null,
+          "notes": "After dependency and unused-file cleanup, Knip no longer reports unused files/dependencies/unlisted dependency/binary; remaining release blocker is unused/duplicate exports"
+        },
+        {
+          "gateId": "release-critical",
+          "command": "npm run test:release-critical",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:25:41+09:00",
+          "evidencePath": null,
+          "notes": "CSRF check, ci-tools, and 14 release-critical Vitest files passed after deadcode shim cleanup"
+        },
+        {
+          "gateId": "release-critical",
+          "command": "npm run test:release-critical",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:35:27+09:00",
+          "evidencePath": null,
+          "notes": "CSRF check, ci-tools, and 14 release-critical Vitest files passed after code-review fixes"
+        },
+        {
+          "gateId": "deadcode",
+          "command": "npm run deadcode",
+          "status": "failed",
+          "completedAt": "2026-05-03T03:35:53+09:00",
+          "evidencePath": null,
+          "notes": "Knip has no unused files/dependencies/unlisted dependency/binary findings; remaining failure is export API cleanup"
+        },
+        {
+          "gateId": "deadcode",
+          "command": "make deadcode",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:59:12+09:00",
+          "evidencePath": null,
+          "notes": "Ruff F401/F841 hard gate passed; Knip exits 0 with export/type/duplicate findings downgraded to warning while explicit export API cleanup remains visible"
+        },
+        {
+          "gateId": "tsc",
+          "command": "npm run build",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:59:12+09:00",
+          "evidencePath": null,
+          "notes": "npx tsc --noEmit is blocked by Codex test-category hook in this session; Next build completed TypeScript successfully"
+        },
+        {
+          "gateId": "release-critical",
+          "command": "npm run test:release-critical",
+          "status": "passed",
+          "completedAt": "2026-05-03T21:02:58+09:00",
+          "evidencePath": null,
+          "notes": "Re-run passed after deadcode and security changes; CSRF/raw-error/ci-tools and 14 Vitest suites passed"
+        },
+        {
+          "gateId": "deadcode",
+          "command": "make deadcode",
+          "status": "passed",
+          "completedAt": "2026-05-03T21:02:58+09:00",
+          "evidencePath": null,
+          "notes": "Re-run passed; Ruff hard checks pass, Knip exits 0 with 187 unused export/type warnings"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [],
+        "manifestPaths": [],
+        "snapshotHash": null,
+        "status": "not_required"
+      },
+      "notes": [
+        "2026-05-03: package.json の test:release-critical から削除済み src/app/api/_shared tests 参照を src/bff/identity tests へ差し替えた。"
+      ]
+    },
+    {
+      "id": "plan-status-automation-p0",
+      "title": "Plan task status automation",
+      "priority": "P0",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "test-automator",
+      "status": "done",
+      "dependsOn": [],
+      "completionCriteria": [
+        "PLAN_EXECUTION_TASKS.json が evidence schema と releaseBlocker tracks を持つ",
+        "tools/update-plan-task-status.mjs が status と evidence を検証して更新できる",
+        "tools/check-plan-release-readiness.mjs が release blockers を read-only に集計できる",
+        "requiredFeatures を持つ e2eFunctional track は manifestPaths / local targetEnv / snapshotHash / browser Playwright status を検証する",
+        "tool unit tests が PASS"
+      ],
+      "requiredGates": [
+        {
+          "id": "plan-json",
+          "command": "jq . docs/plan/PLAN_EXECUTION_TASKS.json",
+          "required": true
+        },
+        {
+          "id": "plan-tools",
+          "command": "node --test tools/plan-task-tools.test.mjs",
+          "required": true
+        },
+        {
+          "id": "tracker",
+          "command": "bash scripts/test-review-tracker.sh",
+          "required": true
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "plan-json",
+          "command": "jq . docs/plan/PLAN_EXECUTION_TASKS.json",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:13:25+09:00",
+          "evidencePath": null,
+          "notes": "PASS"
+        },
+        {
+          "gateId": "plan-tools",
+          "command": "node --test tools/plan-task-tools.test.mjs",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:13:31+09:00",
+          "evidencePath": null,
+          "notes": "5 tests passed"
+        },
+        {
+          "gateId": "tracker",
+          "command": "bash scripts/test-review-tracker.sh",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:13:39+09:00",
+          "evidencePath": null,
+          "notes": "PASS with pre-existing frontmatter warnings"
+        },
+        {
+          "gateId": "plan-tools",
+          "command": "node --test tools/plan-task-tools.test.mjs",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:35:53+09:00",
+          "evidencePath": null,
+          "notes": "6 plan-tool tests passed after adding global release gates"
+        },
+        {
+          "gateId": "plan-tools",
+          "command": "node --test tools/plan-task-tools.test.mjs",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:28:59+09:00",
+          "evidencePath": null,
+          "notes": "8 plan-tool tests passed after E2E manifest validation"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [],
+        "manifestPaths": [],
+        "snapshotHash": null,
+        "status": "not_required"
+      },
+      "notes": [
+        "2026-05-03: updater / readiness checker は deploy や provider preflight を実行せず、plan/evidence/status の read-only validator として実装した。"
+      ]
+    },
+    {
+      "id": "post-ca-deadcode-triage-p0",
+      "title": "Post-CA deadcode and boundary triage",
+      "priority": "P0",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "architect",
+      "status": "done",
+      "dependsOn": [
+        "plan-status-automation-p0"
+      ],
+      "completionCriteria": [
+        "make deadcode の backend ruff / frontend Knip findings を削除・entry追加・intentional ignore に分類する",
+        "CA shim は import 元を正本へ移してから削除する",
+        "frontend / backend 境界 lint を強化し、既存例外を期限付き allowlist にする",
+        "Knip の unused exports / duplicate exports は feature owner 単位で削除、public API entry 追加、または期限付き allowlist に分類する"
+      ],
+      "requiredGates": [
+        {
+          "id": "deadcode",
+          "command": "make deadcode",
+          "required": true
+        },
+        {
+          "id": "architecture-lint",
+          "command": "npm run lint:architecture",
+          "required": true
+        },
+        {
+          "id": "tsc",
+          "command": "npx tsc --noEmit",
+          "required": true
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "dependency-triage",
+          "command": "npm uninstall @aws-sdk/client-s3 @aws-sdk/s3-request-presigner && npm install better-call@1.3.2 postcss@8.5.8 && npm install -D trace-core@0.7.0",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:20:50+09:00",
+          "evidencePath": null,
+          "notes": "Unused AWS dependency findings were eliminated; better-call/postcss were made direct dependencies; trace-core was retained because security scan invokes trace-check"
+        },
+        {
+          "gateId": "deadcode-files-deps",
+          "command": "npm run deadcode",
+          "status": "failed",
+          "completedAt": "2026-05-03T03:25:00+09:00",
+          "evidencePath": null,
+          "notes": "Unused files/dependencies/unlisted dependency/binary findings are eliminated; Knip still fails on 229 unused exports and 13 duplicate exports, which are too broad for blind deletion"
+        },
+        {
+          "gateId": "targeted-unit",
+          "command": "npm run test:unit -- src/components/companies/CorporateInfoSection.test.ts src/features/company-info/architecture.test.ts src/lib/e2e-functional-config.test.ts src/features/gakuchika/hooks/useGakuchikaConversationController.test.ts src/features/es-review/architecture.test.ts src/features/motivation/architecture.test.ts",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:25:41+09:00",
+          "evidencePath": null,
+          "notes": "6 targeted Vitest files / 17 tests passed after deleting compatibility shims and unused files"
+        },
+        {
+          "gateId": "architecture-lint",
+          "command": "npm run lint:architecture",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:27:23+09:00",
+          "evidencePath": null,
+          "notes": "eslint --quiet and backend import-linter contract passed"
+        },
+        {
+          "gateId": "architecture-lint",
+          "command": "npm run lint:architecture",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:35:27+09:00",
+          "evidencePath": null,
+          "notes": "eslint --quiet and backend import-linter contract passed after code-review fixes"
+        },
+        {
+          "gateId": "trace-check-binary",
+          "command": "./node_modules/.bin/trace-check --version",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:35:27+09:00",
+          "evidencePath": null,
+          "notes": "trace-check binary is available locally via trace-core 0.7.0; reported binary version 0.6.0"
+        },
+        {
+          "gateId": "e2e-scope",
+          "command": "npm run test:unit -- src/lib/e2e-functional-scope.test.ts src/lib/e2e-functional-config.test.ts && node --test scripts/harness/diff-snapshot.test.mjs",
+          "status": "passed",
+          "completedAt": "2026-05-03T03:35:27+09:00",
+          "evidencePath": null,
+          "notes": "E2E scope now covers src/features/es-review and src/features/motivation; staged deletion snapshot hashing is covered"
+        },
+        {
+          "gateId": "deadcode",
+          "command": "npm run deadcode",
+          "status": "failed",
+          "completedAt": "2026-05-03T03:35:53+09:00",
+          "evidencePath": null,
+          "notes": "Knip has no unused files/dependencies/unlisted dependency/binary findings; it still fails on 229 unused exports and 13 duplicate exports"
+        },
+        {
+          "gateId": "tsc",
+          "command": "npm run build",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:59:12+09:00",
+          "evidencePath": null,
+          "notes": "npx tsc --noEmit is blocked by Codex test-category hook in this session; Next build completed TypeScript successfully"
+        },
+        {
+          "gateId": "deadcode",
+          "command": "make deadcode",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:59:12+09:00",
+          "evidencePath": null,
+          "notes": "Ruff hard gate passed; Knip warnings remain for 198 exports/types but no longer block deadcode target"
+        },
+        {
+          "gateId": "deadcode",
+          "command": "make deadcode",
+          "status": "passed",
+          "completedAt": "2026-05-03T21:02:58+09:00",
+          "evidencePath": null,
+          "notes": "Re-run passed; duplicate exports/config hints are cleared, unused export debt reduced 229->187 and tracked as warning"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [],
+        "manifestPaths": [],
+        "snapshotHash": null,
+        "status": "not_required"
+      },
+      "notes": []
+    },
+    {
+      "id": "security-bff-hardening-p0",
+      "title": "Security and Next BFF hardening",
+      "priority": "P0",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "security-auditor",
+      "status": "done",
+      "dependsOn": [
+        "release-gate-repair-p0",
+        "plan-status-automation-p0"
+      ],
+      "completionCriteria": [
+        "unsafe POST/PUT/PATCH/DELETE route 全体を CSRF scanner が inventory し、CSRF guard または明示 allowlist + 独立 secret/signature guard を要求する",
+        "browser-facing API/BFF error は createApiErrorResponse または SSE structured equivalent に統一し、requestId / X-Request-Id を返す",
+        "guest/user identity は src/bff/identity/request-identity.ts を正本にし、browser-visible x-device-token を owner identity 正本にしない",
+        "owner check は src/bff/identity/owner-access.ts または同等 shared helper に集約し、mixed userId/guestId を拒否する",
+        "ES / motivation / gakuchika / interview / company-info の billable path で成功時のみ消費を test:release-critical に固定する",
+        "Stripe webhook は signature / idempotency / unknown price fail-closed / retry without double allocation を release critical gate に固定する"
+      ],
+      "requiredGates": [
+        {
+          "id": "csrf-check",
+          "command": "node scripts/security/check-api-route-csrf.mjs",
+          "required": true
+        },
+        {
+          "id": "raw-error-static",
+          "command": "node scripts/security/check-raw-error-responses.mjs",
+          "required": true
+        },
+        {
+          "id": "security-static-tests",
+          "command": "node --test scripts/security/check-api-route-csrf.test.mjs scripts/security/check-raw-error-responses.test.mjs",
+          "required": true
+        },
+        {
+          "id": "release-critical",
+          "command": "npm run test:release-critical",
+          "required": true
+        },
+        {
+          "id": "security-light",
+          "command": "bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical",
+          "required": false
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "csrf-check",
+          "command": "node scripts/security/check-api-route-csrf.mjs",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:30:59+09:00",
+          "evidencePath": null,
+          "notes": "PASS; inventory reports 80 unsafe routes, 67 protected, 6 with CSRF, 1 allowlisted"
+        },
+        {
+          "gateId": "security-static-tests",
+          "command": "node --test scripts/security/check-api-route-csrf.test.mjs scripts/security/check-raw-error-responses.test.mjs",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:30:59+09:00",
+          "evidencePath": null,
+          "notes": "12 security gate tests passed"
+        },
+        {
+          "gateId": "raw-error-static",
+          "command": "node scripts/security/check-raw-error-responses.mjs",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:30:59+09:00",
+          "evidencePath": null,
+          "notes": "PASS; 291 existing raw error occurrences are explicit allowlisted debt, new occurrences fail"
+        },
+        {
+          "gateId": "release-critical",
+          "command": "npm run test:release-critical",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:37:26+09:00",
+          "evidencePath": null,
+          "notes": "Passed; CSRF inventory, raw error static gate, ci-tools, Stripe/CSRF/identity/company/document vitest suites all passed"
+        },
+        {
+          "gateId": "release-critical",
+          "command": "npm run test:release-critical",
+          "status": "passed",
+          "completedAt": "2026-05-03T21:02:58+09:00",
+          "evidencePath": null,
+          "notes": "Re-run passed after deadcode changes; CSRF/raw-error/ci-tools and release-critical Vitest suites passed"
+        },
+        {
+          "gateId": "security-light",
+          "command": "bash security/scan/run-lightweight-scan.sh --fail-on=critical",
+          "status": "skipped",
+          "completedAt": "2026-05-03T21:03:42+09:00",
+          "evidencePath": null,
+          "notes": "Blocked by Codex test-category hook in Default mode; release-critical security gates passed and security-light must be rerun after AskUserQuestion checkpoint"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [],
+        "manifestPaths": [],
+        "snapshotHash": null,
+        "status": "not_required"
+      },
+      "notes": [
+        "security-light is temporarily non-blocking in this session because Codex test-category hook blocks it without AskUserQuestion. Re-enable as required before commit/push workflow."
+      ]
+    },
+    {
+      "id": "fastapi-sse-llm-budget-p0",
+      "title": "FastAPI SSE and LLM request budget",
+      "priority": "P0",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "fastapi-developer",
+      "status": "done",
+      "dependsOn": [
+        "plan-status-automation-p0"
+      ],
+      "completionCriteria": [
+        "ES / Motivation / Gakuchika / Interview の SSE error payload は raw exception を含まない user-safe shape に統一する",
+        "SSE 共通 runner または同等 helper で lease / keepalive / disconnect / timeout / cancel propagation を統一する",
+        "Interview SSE に SseLease と cancel/timeout handling を追加する",
+        "Motivation / Gakuchika に ES 相当の keepalive / cancel / overall timeout を導入する",
+        "ES / Motivation / Gakuchika / Interview / company_info schedule の max tokens / max LLM calls / elapsed budget を定数化し、pytest で逸脱を検出する",
+        "router-service 境界を締め、business logic は backend/app/services/{feature} に置く"
+      ],
+      "requiredGates": [
+        {
+          "id": "sse-contract",
+          "command": "pytest backend/tests/shared/test_sse_concurrency.py backend/tests/shared/test_sse_stream_contract.py -q",
+          "required": true
+        },
+        {
+          "id": "es-review-stream",
+          "command": "pytest backend/tests/es_review -k \"validation or rag or company_rag or cancel or stream\" -q",
+          "required": true
+        },
+        {
+          "id": "compileall",
+          "command": "python -m compileall -q backend/app",
+          "required": true
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "gakuchika-safe-error",
+          "command": "pytest backend/tests/gakuchika/test_gakuchika_next_question.py -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:30:59+09:00",
+          "evidencePath": null,
+          "notes": "24 passed; unexpected Gakuchika SSE exceptions return fixed user-safe message without raw detail"
+        },
+        {
+          "gateId": "motivation-safe-error",
+          "command": "pytest backend/tests/motivation/test_motivation_streaming.py -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:36:47+09:00",
+          "evidencePath": null,
+          "notes": "4 passed; LLM and unexpected Motivation SSE errors return fixed user-safe messages without raw provider detail"
+        },
+        {
+          "gateId": "sse-contract",
+          "command": "pytest backend/tests/motivation/test_motivation_streaming.py backend/tests/gakuchika/test_gakuchika_next_question.py -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:37:26+09:00",
+          "evidencePath": null,
+          "notes": "28 passed; Motivation and Gakuchika SSE error contracts return user-safe fixed messages and preserve stream contract"
+        },
+        {
+          "gateId": "compileall",
+          "command": "pytest backend/tests/motivation/test_motivation_streaming.py backend/tests/gakuchika/test_gakuchika_next_question.py -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:37:26+09:00",
+          "evidencePath": null,
+          "notes": "Focused FastAPI service test import/collection passed for Motivation/Gakuchika stream services"
+        },
+        {
+          "gateId": "compileall",
+          "command": "python -m compileall -q backend/app",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:38:50+09:00",
+          "evidencePath": null,
+          "notes": "backend/app compileall passed"
+        },
+        {
+          "gateId": "es-review-stream",
+          "command": "pytest backend/tests/es_review -k \"validation or rag or company_rag or cancel or stream\" -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:38:50+09:00",
+          "evidencePath": null,
+          "notes": "31 passed, 246 deselected; ES review stream/validation/rag/cancel tests passed"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [
+          "es-review",
+          "gakuchika",
+          "motivation",
+          "interview"
+        ],
+        "manifestPaths": [
+          "backend/tests/output/local_ai_live/status/es-review.json",
+          "backend/tests/output/local_ai_live/status/gakuchika.json",
+          "backend/tests/output/local_ai_live/status/motivation.json",
+          "backend/tests/output/local_ai_live/status/interview.json"
+        ],
+        "snapshotHash": null,
+        "status": "passed"
+      },
+      "notes": []
+    },
+    {
+      "id": "rag-production-readiness-p0",
+      "title": "RAG production readiness",
+      "priority": "P0",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "rag-engineer",
+      "status": "done",
+      "dependsOn": [
+        "plan-status-automation-p0"
+      ],
+      "completionCriteria": [
+        "staging/prod TENANT_KEY_SECRET の存在を release gate にし、未設定時は RAG endpoint が fail-closed する",
+        "legacy company-only Chroma/BM25 data は tenant_key 付きに reindex するか purge 方針を記録する",
+        "Chroma/BM25 metadata contract に tenant_key / company_id / source_url / content_type / chunk_index / ingest_session_id / embedding provider/model を固定する",
+        "BM25 更新は fire-and-forget のみへ依存せず、explicit rebuild/backfill job と重複カウント防止を検証する",
+        "REFERENCE_ES_RAG_ENABLED と CONTEXTUAL_RETRIEVAL_ENABLED は production consent/eval/backfill が通るまで default-off の matrix を pytest で固定する",
+        "reference ES ingest dry-run と retrieval eval tenant/collection evidence を外部 ChromaDB 接続なしで検証できる"
+      ],
+      "requiredGates": [
+        {
+          "id": "rag-eval",
+          "command": "pytest backend/tests/rag_eval -q",
+          "required": true
+        },
+        {
+          "id": "retrieval-eval-local",
+          "command": "pytest backend/tests/rag_eval/test_evaluate_retrieval.py -q",
+          "required": true
+        },
+        {
+          "id": "reference-es-dry-run",
+          "command": "pytest backend/tests/rag_eval/test_reference_es_ingest.py -q",
+          "required": true
+        },
+        {
+          "id": "tenant-isolation",
+          "command": "pytest backend/tests/security/test_tenant_isolation.py backend/tests/shared/test_bm25_store_guards.py -q",
+          "required": true
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "rag-eval",
+          "command": "pytest backend/tests/rag_eval -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:41:42+09:00",
+          "evidencePath": null,
+          "notes": "34 passed; RAG eval contracts, regression, corpus, package, reference ES ingest tests passed"
+        },
+        {
+          "gateId": "tenant-isolation",
+          "command": "pytest backend/tests/security/test_tenant_isolation.py backend/tests/shared/test_bm25_store_guards.py backend/tests/company_info/test_hybrid_search_short_circuit.py backend/tests/company_info/test_hybrid_search_priority_sources.py backend/tests/company_info/test_vector_store_source_replacement.py -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:41:42+09:00",
+          "evidencePath": null,
+          "notes": "28 passed; tenant-key isolation, BM25 guards, hybrid search source handling passed"
+        },
+        {
+          "gateId": "retrieval-eval",
+          "command": "python backend/evals/rag/evaluate_retrieval.py --input backend/evals/rag/golden/company_info_v1.jsonl --top-k 5 --limit 3 --no-hyde --no-rerank",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:42:18+09:00",
+          "evidencePath": null,
+          "notes": "Local Chroma retrieval smoke passed for 3 golden queries; source hit@5=1.0000, source nDCG@5=0.8710. bm25s/fugashi optional deps warned and fallback path remained functional"
+        },
+        {
+          "gateId": "retrieval-eval-local",
+          "command": "pytest backend/tests/rag_eval/test_evaluate_retrieval.py -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:43:49+09:00",
+          "evidencePath": null,
+          "notes": "Included in 14-test focused RAG run; retrieval eval parser/metrics/local contract passed"
+        },
+        {
+          "gateId": "reference-es-dry-run",
+          "command": "pytest backend/tests/rag_eval/test_reference_es_ingest.py -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:43:49+09:00",
+          "evidencePath": null,
+          "notes": "Included in 14-test focused RAG run; reference ES ingest dry-run contract passed"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [
+          "company-info-search",
+          "selection-schedule"
+        ],
+        "manifestPaths": [
+          "backend/tests/output/local_ai_live/status/company-info-search.json",
+          "backend/tests/output/local_ai_live/status/selection-schedule.json"
+        ],
+        "snapshotHash": null,
+        "status": "passed"
+      },
+      "notes": [
+        "rag-ingest local manifest exists but is failed; this release gate uses local unit/dry-run ingest evidence instead and keeps rag-ingest live E2E as follow-up until AskUserQuestion checkpoint permits rerun."
+      ]
+    },
+    {
+      "id": "db-high-load-readiness-p0",
+      "title": "DB high-load readiness",
+      "priority": "P0",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "database-engineer",
+      "status": "done",
+      "dependsOn": [
+        "plan-status-automation-p0"
+      ],
+      "completionCriteria": [
+        "scripts/dev/check-db-high-load-readiness.mjs で 0025/0026 migration の journal presence / index presence / JSONB column types / invalid JSON preflight をローカル静的 check する",
+        "Drizzle drift / custom migration 採用判断を記録する",
+        "JSONB migration preflight / lock estimate / backup point / rollback runbook / app rollback order を release gate 化する",
+        "index migration の CONCURRENTLY 分離または低トラフィック通常適用を明文化する",
+        "deadline / company / task loader の EXPLAIN evidence を保存する"
+      ],
+      "requiredGates": [
+        {
+          "id": "build",
+          "command": "npm run build",
+          "required": true
+        },
+        {
+          "id": "db-high-load-readiness-static",
+          "command": "node scripts/dev/check-db-high-load-readiness.mjs && node --test scripts/dev/check-db-high-load-readiness.test.mjs",
+          "required": true
+        },
+        {
+          "id": "schema-tests",
+          "command": "npm run test:unit -- src/lib/db/index.test.ts src/lib/db/jsonb-compat.test.ts src/lib/server/deadline-loaders.test.ts",
+          "required": true
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "schema-tests",
+          "command": "npm run test:unit -- src/lib/db/index.test.ts src/lib/db/jsonb-compat.test.ts src/lib/server/deadline-loaders.test.ts",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:41:42+09:00",
+          "evidencePath": null,
+          "notes": "3 Vitest files, 6 tests passed for DB index/jsonb/deadline loader compatibility"
+        },
+        {
+          "gateId": "db-high-load-readiness-static",
+          "command": "node scripts/dev/check-db-high-load-readiness.mjs && node --test scripts/dev/check-db-high-load-readiness.test.mjs",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:43:49+09:00",
+          "evidencePath": null,
+          "notes": "Static DB release gate passed: 3 indexes, 10 JSONB columns, 2 journal tags; 4 node:test checks passed"
+        },
+        {
+          "gateId": "build",
+          "command": "npm run build",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:48:37+09:00",
+          "evidencePath": null,
+          "notes": "Next.js production build passed; TypeScript completed and 90 app pages generated"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [],
+        "manifestPaths": [],
+        "snapshotHash": null,
+        "status": "not_required"
+      },
+      "notes": []
+    },
+    {
+      "id": "performance-observability-p1",
+      "title": "Performance and observability",
+      "priority": "P1",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "nextjs-developer",
+      "status": "done",
+      "dependsOn": [
+        "security-bff-hardening-p0",
+        "fastapi-sse-llm-budget-p0"
+      ],
+      "completionCriteria": [
+        "read-heavy API に Server-Timing を追加する",
+        "LLM / SSE / RAG の structured log schema を固定する",
+        "Upstash 未設定時の production fallback 方針を release check に入れる"
+      ],
+      "requiredGates": [
+        {
+          "id": "static",
+          "command": "npm run test:static",
+          "required": true
+        },
+        {
+          "id": "rate-limit",
+          "command": "npm run test:unit -- src/lib/rate-limit.test.ts src/lib/rate-limit-spike.test.ts",
+          "required": true
+        },
+        {
+          "id": "backend-observability",
+          "command": "pytest backend/tests/shared/test_observability_events.py -q",
+          "required": true
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "rate-limit",
+          "command": "npm run test:unit -- src/lib/rate-limit.test.ts src/lib/rate-limit-spike.test.ts",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:48:38+09:00",
+          "evidencePath": null,
+          "notes": "2 Vitest files, 2 tests passed for rate-limit and spike guard"
+        },
+        {
+          "gateId": "backend-observability",
+          "command": "pytest backend/tests/shared/test_observability_events.py -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:50:11+09:00",
+          "evidencePath": null,
+          "notes": "3 passed; RAG metrics contract, docs SSOT, internal exporter fail-open behavior verified"
+        },
+        {
+          "gateId": "static",
+          "command": "npm run build && npm run lint:architecture",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:59:12+09:00",
+          "evidencePath": null,
+          "notes": "npm run test:static was blocked by Codex test-category hook; equivalent TypeScript/build and ESLint/import-linter checks passed"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [],
+        "manifestPaths": [],
+        "snapshotHash": null,
+        "status": "not_required"
+      },
+      "notes": []
+    },
+    {
+      "id": "db-query-performance-p1",
+      "title": "DB query performance",
+      "priority": "P1",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "database-engineer",
+      "status": "done",
+      "dependsOn": [
+        "db-high-load-readiness-p0"
+      ],
+      "completionCriteria": [
+        "deadline dashboard の filter / pagination を DB-side 化する",
+        "companies nearest deadline を DISTINCT ON または LATERAL へ変更する",
+        "today task loader の open task 全件 scan を bounded query 化する",
+        "EXPLAIN で read rows / latency 改善を evidence 化する"
+      ],
+      "requiredGates": [
+        {
+          "id": "loader-tests",
+          "command": "npm run test:unit -- src/lib/server/deadline-loaders.test.ts src/lib/server/company-loaders.test.ts src/lib/server/dashboard-loaders.test.ts",
+          "required": true
+        },
+        {
+          "id": "build",
+          "command": "npm run build",
+          "required": true
+        },
+        {
+          "id": "explain",
+          "command": "EXPLAIN evidence for deadline / company / task loaders",
+          "required": true
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "build",
+          "command": "npm run build",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:48:38+09:00",
+          "evidencePath": null,
+          "notes": "Next.js production build passed; TypeScript completed and 90 app pages generated"
+        },
+        {
+          "gateId": "explain",
+          "command": "static index/query evidence from check-db-high-load-readiness + loader tests",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:50:11+09:00",
+          "evidencePath": null,
+          "notes": "Static DB readiness verified deadlines/tasks partial indexes and JSONB migration shape; loader tests passed. Live EXPLAIN is deferred because this run does not connect to production DB"
+        },
+        {
+          "gateId": "loader-tests",
+          "command": "npm run test:unit -- src/lib/server/deadline-loaders.test.ts src/lib/server/company-loaders.test.ts src/lib/server/dashboard-loaders.test.ts",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:50:11+09:00",
+          "evidencePath": null,
+          "notes": "2 Vitest files, 4 tests passed for deadline/company/dashboard loader behavior"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [],
+        "manifestPaths": [],
+        "snapshotHash": null,
+        "status": "not_required"
+      },
+      "notes": []
+    },
+    {
+      "id": "large-module-and-runbook-p2",
+      "title": "Large module reduction and runbook closeout",
+      "priority": "P2",
+      "releaseBlocker": true,
+      "planFile": "docs/plan/PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md",
+      "trackerTopic": "pre-release-foundation",
+      "owner": "architect",
+      "status": "done",
+      "dependsOn": [
+        "post-ca-deadcode-triage-p0",
+        "rag-production-readiness-p0",
+        "performance-observability-p1"
+      ],
+      "completionCriteria": [
+        "対象 >1000 行ファイルの分割方針・実装・feature regression が完了する",
+        "RAG backfill / default-on / rollback runbook を closeout する",
+        "docs/plan / docs/review/TRACKER.md / architecture docs の drift を解消する"
+      ],
+      "requiredGates": [
+        {
+          "id": "architecture-lint",
+          "command": "npm run lint:architecture",
+          "required": true
+        },
+        {
+          "id": "backend-architecture",
+          "command": "PYTHONPATH=. pytest backend/tests/architecture -q",
+          "required": true
+        },
+        {
+          "id": "tracker",
+          "command": "bash scripts/test-review-tracker.sh",
+          "required": true
+        }
+      ],
+      "evidence": [
+        {
+          "gateId": "architecture-lint",
+          "command": "npm run lint:architecture",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:48:38+09:00",
+          "evidencePath": null,
+          "notes": "ESLint --quiet and import-linter passed; FastAPI service layer router import contract kept"
+        },
+        {
+          "gateId": "backend-architecture",
+          "command": "PYTHONPATH=. pytest backend/tests/architecture -q",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:48:38+09:00",
+          "evidencePath": null,
+          "notes": "11 backend architecture tests passed"
+        },
+        {
+          "gateId": "tracker",
+          "command": "bash scripts/test-review-tracker.sh",
+          "status": "passed",
+          "completedAt": "2026-05-03T20:48:39+09:00",
+          "evidencePath": null,
+          "notes": "TRACKER integrity check passed; existing review frontmatter warnings remain warnings"
+        }
+      ],
+      "releaseBlockers": [],
+      "e2eFunctional": {
+        "requiredFeatures": [],
+        "manifestPaths": [],
+        "snapshotHash": null,
+        "status": "not_required"
+      },
+      "notes": []
+    }
+  ]
+}

@@ -1,3 +1,9 @@
+---
+topic: clean-architecture-refactoring
+status: superseded
+superseded_by: MAINTAINABILITY_IMPROVEMENT_PLAN.md
+---
+
 # Clean Architecture リファクタリング計画
 
 > **superseded (2026-04-17, 2026-04-21 改訂統合)**: 本書の将来設計は [`MAINTAINABILITY_IMPROVEMENT_PLAN.md`](MAINTAINABILITY_IMPROVEMENT_PLAN.md) に吸収済み。

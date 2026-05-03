@@ -92,6 +92,9 @@ preflight では、最低限次の 7 点を言語化する。
 - calm surface hierarchy、few colors、minimal chrome を基本にする。
 - section heading は「その領域で何ができるか」「何を見ているか」を明示する。
 - operator が heading、label、number だけを見ても理解できることを目指す。
+- pipeline / kanban ではカラムヘッダーに飽和色（500 weight）を使い、パイプライン進行を視覚的に伝える。カウントバッジは `bg-white/90` + カラム固有テキスト色で視認性を確保する。
+- タスクカードの最優先アイテムは shadow + ring + gradient で視覚的重みを付ける。通常行との階層差を明確にする。
+- インラインアクションボタンは `border-[1.5px]` + `shadow-sm` + tone-specific `iconInline` 背景で深度を出す。
 
 ## 5. 実装と検証フロー（推奨）
 
@@ -129,14 +132,57 @@ preflight では、最低限次の 7 点を言語化する。
 
 - **標準は trust-oriented skeleton UI**。白い空白と小さい spinner だけの待機面は作らない。
 - `src/components/ui/skeleton.tsx` をプリミティブにし、loading の主役は skeleton 自体にする。説明カードを積み増して情報量を増やさない。
-- app 全体の route transition は `src/app/loading.tsx` を起点にした minimal surface で受け、通常ヘッダーと本文骨格を先に見せる。
+- product UI ではトップレベルの汎用 loading surface を置かず、各 route segment の `loading.tsx` で本文と同じ skeleton を返す。`src/app/loading.tsx` で product 遷移を受ける実装は、ページ専用 skeleton と競合しやすいため採用しない。
 - product route の `loading.tsx` は、可能な限りページ見出し・フィルタ帯など**本文**の文脈を保った skeleton を返す。`(product)/layout` はヘッダーを持たないため、**実装に応じて** `loading.tsx` やページ側で `<DashboardHeader />` を含め、遷移中もトップナビの見た目を揃える（通知・クレジットは SWR でキー共有されデデュープされる）。
 - 一覧ページでは `ListPageFilterBar` を loading 中でも極力残し、検索・絞り込みの位置関係を消さない。
+- 企業、ES、ガクチカ、タスク、締切などの一覧ページは `ListPageFilterBar` / `ListPageFilterBarSkeleton` を標準にする。検索、並び替え、追加フィルタ、表示切替、追加/CSV などの action は同じ横スクロール行に載せ、active filter chip はバー下に表示する。
+- product workspace の見出しは、カテゴリ pill、H1、短い説明、右側 summary/action の順に揃える。カレンダーや会話画面のような作業画面は `max-w-[96rem]` を上限にし、通常一覧より広く使ってよい。
 - ページ別 skeleton は `src/components/skeletons/` に配置し、`DashboardSkeleton`、`CompaniesListSkeleton`、`ESListSkeleton` などの naming を維持する。
+- 会話系ページ（志望動機・面接・ガクチカ）の skeleton は `ConversationWorkspaceShellSkeleton` を共有基盤にし、`sidebarSkeleton` prop で機能固有のサイドバーを差し替える。Shell のレイアウトクラス（grid 比率・breakpoint・container 幅）を SSOT としてスケルトンにコピーし、drift を防ぐ。
 - shimmer は控えめに使い、pulse や spinner を主役にしない。
 - `RouteProgressBar` のような細い top bar 単体や、汎用 spinner + 「読み込み中...」だけの UI は使わない。
 
-## 9. Codex 向け運用メモ
+## 9. 会話 UI コンポーネント構成
+
+ガクチカ深掘り、志望動機作成、面接練習などの会話系機能は、共通の chat コンポーネント群を使う。
+
+### レイアウト: `ConversationWorkspaceShell`
+
+`src/components/chat/ConversationWorkspaceShell.tsx` が会話画面の共通レイアウト。slot-based で以下を受け取る:
+
+| slot | 用途 |
+|---|---|
+| `backHref` / `title` / `subtitle` | ヘッダー (戻るリンク + タイトル) |
+| `titleExtra` | タイトル横の追加要素 (Badge 等) |
+| `actionBar` | ES 生成バー / 生成済みカード |
+| `headerActions` | ヘッダー右側のアクション |
+| `mobileStatus` | モバイル用ステータスバー (`xl:hidden`) |
+| `conversation` | メッセージリスト / セットアップ画面 |
+| `composer` | 入力欄 / エラーバナー |
+| `sidebar` | サイドバーカード (Fragment で渡す) |
+
+各機能ページは Shell を使い、独自のレイアウト div を持たない。対応する skeleton は `ConversationWorkspaceShellSkeleton`（`src/components/skeletons/ConversationWorkspaceShellSkeleton.tsx`）を共有し、サイドバー slot で機能別コンテンツを注入する。
+
+### ES 生成アクションバー: `ConversationActionBar`
+
+`src/components/chat/ConversationActionBar.tsx` は文字数選択 + 生成ボタンのコンパクトなバー。`helperText` は省略可能で、省略時は 2 カラム (controls + button) のみの 1 行レイアウトになる。
+
+### 文字数選択: `CharLimitSelector`
+
+`src/components/chat/CharLimitSelector.tsx` は 300/400/500 字の選択ボタン。`ConversationActionBar` の `controls` slot に渡して使う。
+
+### 下書きプレビュー: `DraftPreviewModal`
+
+`src/components/chat/DraftPreviewModal.tsx` は ES 下書きのプレビューモーダル。ガクチカ・志望動機で共通。props で差分を吸収:
+- `deepDiveConfirm` — ガクチカのみ AlertDialog 確認付き
+- `draftQuality` — ガクチカのみ品質警告表示
+- `preBodyNotice` — ガクチカのみ削除注意バナー
+
+### サイドバー
+
+サイドバーの中身は各機能が Fragment (`<>...</>`) で返す。`ConversationSidebarCard` をカード単位で使い、外側のラッパーは Shell が提供する。
+
+## 10. Codex 向け運用メモ
 
 - UI タスクでは `frontend-design`, `ui-ux-pro-max`, `vercel-react-best-practices`, `component-refactoring` を適宜使う。
 - 既存画面を触るときは、まず repo 内の既存 visual language と component pattern を確認する。

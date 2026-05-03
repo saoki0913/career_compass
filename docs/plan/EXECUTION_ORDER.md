@@ -1,6 +1,11 @@
+---
+topic: plan-execution-order
+status: 完了
+---
+
 # プラン実行順序
 
-**最終更新**: 2026-04-27
+**最終更新**: 2026-05-03
 **進捗追跡**: [docs/review/TRACKER.md](../review/TRACKER.md)
 **この文書の役割**: 「`docs/plan` を実行して」と依頼されたときに、次セッションが迷わず並列開発を始めるための正本入口。
 
@@ -41,14 +46,15 @@
 | [LP_IMPROVEMENT_PLAN.md](LP_IMPROVEMENT_PLAN.md) | 完了 | 再実装しない |
 | [CLEAN_ARCHITECTURE_REFACTORING.md](CLEAN_ARCHITECTURE_REFACTORING.md) | superseded | `MAINTAINABILITY_IMPROVEMENT_PLAN.md` を正本にする |
 
-### 1.2 未完了・実装対象の計画
+### 1.2 今回の正本計画
 
 | 優先 | 計画書 | 現状態 | 次にやること |
 |---:|---|---|---|
-| 1 | [RAG_ARCHITECTURE_IMPROVEMENT_PLAN.md](RAG_ARCHITECTURE_IMPROVEMENT_PLAN.md) | P0-1検証完了、P0-3/P2残件あり | Contextual Retrieval dual-write 健全性修正、評価、P0-3 dashboard |
-| 2 | [ES_REVIEW_ROADMAP_IMPROVEMENT_PLAN.md](ES_REVIEW_ROADMAP_IMPROVEMENT_PLAN.md) | planned | P0 の安全性、課金、RAG信頼境界、誤反映防止 |
-| 3 | [MAINTAINABILITY_IMPROVEMENT_PLAN.md](MAINTAINABILITY_IMPROVEMENT_PLAN.md) | M系 + CA-0 完了、CA-1着手 | CA-1 motivation pilot 継続 |
-| 4 | [DB_REDESIGN_PLAN.md](DB_REDESIGN_PLAN.md) | 未着手 | DB-4/DB-1/DB-2/DB-8準備を先行。DB-5〜DB-7は最後 |
+| 1 | [PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md](PRE_RELEASE_FOUNDATION_IMPROVEMENT_PLAN.md) | 進行中 | 全 release blocker track を P0 → P1 → P2 の順で完了する |
+| 2 | [RAG_ARCHITECTURE_IMPROVEMENT_PLAN.md](RAG_ARCHITECTURE_IMPROVEMENT_PLAN.md) | closeout完了 / default-on deferred | 新規 RAG 本番 readiness は pre-release 正本で扱う |
+| 3 | [ES_REVIEW_ROADMAP_IMPROVEMENT_PLAN.md](ES_REVIEW_ROADMAP_IMPROVEMENT_PLAN.md) | P0 safety 完了 | 新規 SSE / BFF / credit hardening は pre-release 正本で扱う |
+| 4 | [MAINTAINABILITY_IMPROVEMENT_PLAN.md](MAINTAINABILITY_IMPROVEMENT_PLAN.md) | 完了 | Post-CA hardening は pre-release 正本で扱う |
+| 5 | [DB_REDESIGN_PLAN.md](DB_REDESIGN_PLAN.md) | 完了 | DB 本番適用 gate / query performance は pre-release 正本で扱う |
 
 ---
 
@@ -131,7 +137,7 @@ Gate:
 
 ```bash
 npm run test:unit -- src/lib/fastapi/sse-proxy.test.ts
-npm run test:unit -- src/hooks/es-review/transport.test.ts
+npm run test:unit -- src/features/es-review/hooks/transport.test.ts
 npm run test:unit -- src/app/api/documents/_services/handle-review-stream.test.ts
 pytest backend/tests/es_review -k "validation or rag or company_rag or cancel or stream" -v
 ```
@@ -154,19 +160,18 @@ CA 系は基本直列。CA-1 内だけ限定並列を許可する。
 
 CA-1A backend:
 
-- `backend/app/services/motivation/` を stream だけでなく next-question / draft / profile-draft use case へ広げる。
-- `stream_service.py` から router private 関数依存を減らす。
-- `backend/app/routers/motivation.py` を 200 行以下にする。
+- 完了 (2026-05-02)。`backend/app/services/motivation/` へ motivation service 層を移設し、`backend/app/routers/motivation.py` は 11 行 facade。
+- targeted gate は `backend/tests/architecture/test_motivation_ca1a_boundaries.py`、`backend/tests/motivation`、`compileall` が PASS。
 
 CA-1B BFF:
 
-- `src/app/api/motivation/**` の identity / owner / FastAPI proxy / billing 寄り処理を `src/bff/motivation/` と `src/bff/identity/` へ段階移動する。
-- `src/shared/` に request-context 依存の auth / billing policy を置かない。
+- 完了 (2026-05-02)。`src/app/api/motivation/**` の route 実体を `src/bff/motivation/` へ移し、旧 route files は re-export facade にした。
+- `src/shared/` に request-context 依存の auth / billing policy を置かない方針を維持。
 
 CA-1C frontend feature:
 
-- `src/features/motivation/` を作る。
-- まず hook / application / domain から移し、UI component の一括移動は最後にする。
+- 完了 (2026-05-02)。`src/features/motivation/` に application / domain / hooks / ui entrypoint と architecture test を追加。
+- product page と主要 UI は feature entrypoint / domain facade を参照する。UI component の物理移動は CA-2 以降の lint 導入前に必要性を再判断する。
 
 CA-1 closeout gate:
 
@@ -177,12 +182,12 @@ CA-1 closeout gate:
 
 CA-1 が完了するまで CA-2 に進まない。
 
-### Step 4: DB 低リスク作業だけ先行する
+### Step 4: DB redesign を完了する
 
 **担当**: `database-engineer`
 **正本**: [DB_REDESIGN_PLAN.md](DB_REDESIGN_PLAN.md)
 
-先行してよい順序:
+完了済みの順序:
 
 1. DB-4: gakuchika 二重 `JSON.stringify` 修正。ただし既存 stringified data の読み取り互換を先に確認する。
 2. DB-1 → DB-2: Drizzle relations 追加と schema merge。owner 境界 (`userId` / `guestId`) を FK 実体と照合する。
@@ -208,7 +213,7 @@ npm run build
 npm run test:unit
 ```
 
-DB-5〜DB-7 は最後に別スプリントで行う。安全な順序は、互換読み取り追加 → migration → fallback 削除。
+DB-5〜DB-7 は `0026_db_redesign_jsonb_columns.sql` で実装済み。安全側に倒し、互換読み取り追加 → migration → 保存用 stringify 除去の順で closeout した。
 
 ---
 
@@ -286,7 +291,7 @@ make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES=<features>
 - RAG: P0-3 closeout、Reference ES eval、Contextual Retrieval default-on 判断が完了し、`RAG_ARCHITECTURE_IMPROVEMENT_PLAN.md` と TRACKER が更新済み。
 - ES roadmap: P0 safety 完了、P1/P2 を実装するか次期計画として明示分離し、`ES_REVIEW_ROADMAP_IMPROVEMENT_PLAN.md` と TRACKER が更新済み。
 - Maintainability: CA-1〜CA-5 完了、全体 lint / docs 同期 / 旧残骸削除まで完了。
-- DB: DB-1〜DB-8 完了。DB-5〜DB-7 は staging migration、rollback SQL、smoke、TRACKER 更新まで完了。
+- DB: DB-1〜DB-8 完了。DB-5〜DB-7 は local migration 直接適用、malformed JSON preflight、rollback SQL、targeted unit/build、TRACKER 更新まで完了。
 - superseded 計画: `CLEAN_ARCHITECTURE_REFACTORING.md` は superseded のまま維持し、完了対象に数えない。
 
 ---
@@ -297,5 +302,5 @@ make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES=<features>
 
 1. `docs/plan/*_PLAN.md` を作成する。
 2. [docs/review/TRACKER.md](../review/TRACKER.md) に行を追加する。
-3. この文書の「未完了・実装対象の計画」または「完了済み・再実装しない計画」に分類する。
+3. この文書の「今回の正本計画」または「完了済み・再実装しない計画」に分類する。
 4. `bash scripts/test-review-tracker.sh` を実行する。
