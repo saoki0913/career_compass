@@ -94,7 +94,7 @@ async def fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
             raise
         except httpx.TimeoutException:
             raise
-        except httpx.HTTPStatusError as e:
+        except httpx.HTTPStatusError:
             raise
 
     logger.warning(

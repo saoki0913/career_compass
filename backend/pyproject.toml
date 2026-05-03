@@ -9,3 +9,10 @@ select = ["F401", "F841"]
 "__init__.py" = ["F401"]
 # llm.py is a facade module that re-exports from llm_*.py submodules
 "app/utils/llm.py" = ["F401"]
+# Compatibility facades keep imported symbols as module attributes for tests and legacy imports.
+"app/routers/interview.py" = ["F401"]
+# Router compatibility modules still expose split-out ES/Gakuchika helpers during the CA migration.
+"app/routers/es_review.py" = ["F401"]
+"app/routers/gakuchika.py" = ["F401"]
+# Prompt composition keeps intermediate labels close to their source maps for reviewability.
+"app/prompts/reference_es.py" = ["F841"]

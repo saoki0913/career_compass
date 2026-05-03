@@ -186,6 +186,15 @@ def _extract_retrieved(results: Iterable[dict]) -> tuple[list[str], list[str]]:
     return ids, sources
 
 
+def _extract_collections(results: Iterable[dict]) -> list[str]:
+    collections: list[str] = []
+    for item in results:
+        collection = item.get("collection")
+        if isinstance(collection, str) and collection:
+            collections.append(collection)
+    return collections
+
+
 def _extract_baseline(baseline: Iterable) -> tuple[list[str], list[str]]:
     ids: list[str] = []
     sources: list[str] = []
@@ -339,6 +348,7 @@ async def _evaluate_item(
     )
 
     retrieved_ids, retrieved_sources = _extract_retrieved(results)
+    retrieved_collections = _extract_collections(results)
     gold_ids, gold_sources = _extract_gold(item)
 
     dense_precision_ids, dense_recall_ids = _precision_recall(retrieved_ids, gold_ids)
@@ -399,6 +409,7 @@ async def _evaluate_item(
         "baseline_ndcg_sources": baseline_ndcg_src,
         "dense_retrieved_ids": retrieved_ids,
         "dense_retrieved_sources": retrieved_sources,
+        "dense_retrieved_collections": retrieved_collections,
     }
 
 

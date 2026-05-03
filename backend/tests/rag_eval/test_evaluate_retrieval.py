@@ -31,7 +31,13 @@ async def test_run_evaluation_uses_item_tenant_key(monkeypatch):
 
     async def fake_dense_hybrid_search(**kwargs):
         captured.append(kwargs.get("tenant_key"))
-        return []
+        return [
+            {
+                "id": "chunk-1",
+                "collection": "company_openai_text_embedding_3_small",
+                "metadata": {"source_url": "https://example.com/recruit"},
+            }
+        ]
 
     monkeypatch.setattr(
         evaluate_retrieval,
@@ -39,7 +45,7 @@ async def test_run_evaluation_uses_item_tenant_key(monkeypatch):
         fake_dense_hybrid_search,
     )
 
-    await evaluate_retrieval.run_evaluation(
+    result = await evaluate_retrieval.run_evaluation(
         [
             {
                 "company_id": "company-1",
@@ -52,6 +58,10 @@ async def test_run_evaluation_uses_item_tenant_key(monkeypatch):
     )
 
     assert captured == ["a" * 32]
+    assert result.per_item[0]["dense_retrieved_collections"] == [
+        "company_openai_text_embedding_3_small"
+    ]
+    assert result.hit_rate_src == pytest.approx(1.0)
 
 
 @pytest.mark.asyncio

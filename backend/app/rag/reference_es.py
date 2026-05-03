@@ -18,6 +18,10 @@ class ReferenceEsRecord:
     industry: str | None = None
     char_max: int | None = None
     source_version: str = "v1"
+    ingest_session_id: str = ""
+    anonymization_level: str = "synthetic"
+    source_provenance: str = ""
+    usage_consent: bool = False
 
 
 def reference_collection_name(backend: EmbeddingBackend) -> str:
@@ -26,6 +30,15 @@ def reference_collection_name(backend: EmbeddingBackend) -> str:
         provider=backend.provider,
         model=backend.model,
     )
+
+
+def _and_where(*clauses: dict) -> dict:
+    non_empty = [clause for clause in clauses if clause]
+    if not non_empty:
+        return {}
+    if len(non_empty) == 1:
+        return non_empty[0]
+    return {"$and": non_empty}
 
 
 async def ingest_reference_es(
@@ -66,6 +79,10 @@ async def ingest_reference_es(
                 "char_max": record.char_max or 0,
                 "source_hash": source_hash,
                 "anonymized": True,
+                "anonymization_level": record.anonymization_level,
+                "source_provenance": record.source_provenance,
+                "usage_consent": record.usage_consent,
+                "ingest_session_id": record.ingest_session_id,
                 "source_version": record.source_version,
             }
         )
@@ -92,9 +109,13 @@ async def retrieve_reference_es_semantic(
     if query_embedding is None:
         return []
     collection = _get_collection(reference_collection_name(backend))
-    where: dict = {"question_type": question_type, "anonymized": True}
+    where: dict = _and_where(
+        {"question_type": question_type},
+        {"anonymized": True},
+        {"usage_consent": True},
+    )
     if industry:
-        where = {"$and": [where, {"industry": industry}]}
+        where = _and_where(where, {"industry": industry})
     results = collection.query(
         query_embeddings=[query_embedding],
         n_results=max(1, top_k),

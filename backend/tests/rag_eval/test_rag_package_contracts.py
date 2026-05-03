@@ -5,6 +5,20 @@ from dataclasses import dataclass
 import pytest
 
 
+def test_rag_production_flags_default_off(monkeypatch) -> None:
+    from app.config import Settings
+
+    monkeypatch.delenv("REFERENCE_ES_RAG_ENABLED", raising=False)
+    monkeypatch.delenv("CONTEXTUAL_RETRIEVAL_ENABLED", raising=False)
+    monkeypatch.delenv("CONTEXTUAL_RETRIEVAL_DUAL_WRITE", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.reference_es_rag_enabled is False
+    assert settings.contextual_retrieval_enabled is False
+    assert settings.contextual_retrieval_dual_write is False
+
+
 def test_reference_es_collection_name_is_separate_from_company_rag() -> None:
     from app.rag.ids import collection_name_for_backend
 

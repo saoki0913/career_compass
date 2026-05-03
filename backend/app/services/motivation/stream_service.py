@@ -10,18 +10,23 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import AsyncGenerator
 
 from fastapi import HTTPException
 
-from app.routers.motivation_contract import build_stream_complete_event
-from app.routers.motivation_models import NextQuestionRequest
-from app.routers.motivation_summarize import (
+from app.services.motivation.contract import build_stream_complete_event
+from app.services.motivation.models import NextQuestionRequest
+from app.services.motivation.summarize import (
     append_summary_to_system_prompt,
     maybe_summarize_older_messages,
 )
 from app.utils.llm import consume_request_llm_cost_summary
 from app.utils.llm_streaming import call_llm_streaming_fields
+
+logger = logging.getLogger(__name__)
+MOTIVATION_STREAM_LLM_ERROR_MESSAGE = "AIサービスに接続できませんでした。時間をおいてもう一度お試しください。"
+MOTIVATION_STREAM_UNEXPECTED_ERROR_MESSAGE = "予期しないエラーが発生しました。時間をおいてもう一度お試しください。"
 
 
 def _sse_event(event_type: str, data: dict) -> str:
@@ -34,6 +39,12 @@ def _error_type_from_llm_error(error_type: str | None) -> str:
     if error_type == "parse":
         return "question_parse_failure"
     return "question_provider_failure"
+
+
+def _safe_llm_error_message(error_type: str | None) -> str:
+    if error_type == "parse":
+        return "AIから有効な質問を取得できませんでした。時間をおいてもう一度お試しください。"
+    return MOTIVATION_STREAM_LLM_ERROR_MESSAGE
 
 
 def _http_exception_error_payload(exc: HTTPException) -> dict:
@@ -63,8 +74,8 @@ async def _generate_next_question_progress(
     Generate SSE events for motivation next-question with progress updates.
     Shares preparation and post-processing with get_next_question.
     """
-    from app.routers.motivation_pipeline import _prepare_motivation_next_question
-    from app.routers.motivation_question import (
+    from app.services.motivation.pipeline import _prepare_motivation_next_question
+    from app.services.motivation.question import (
         _assemble_regular_next_question_response,
         _build_draft_ready_response,
         _build_draft_ready_unlock_response,
@@ -145,8 +156,15 @@ async def _generate_next_question_progress(
             elif event.type == "error":
                 error = event.result.error if event.result else None
                 upstream_error_type = error.error_type if error else None
+                if error:
+                    logger.warning(
+                        "[Motivation/SSE] LLM stream error type=%s provider=%s detail=%s",
+                        getattr(error, "error_type", "unknown"),
+                        getattr(error, "provider", "unknown"),
+                        getattr(error, "detail", ""),
+                    )
                 yield _sse_event("error", {
-                    "message": error.message if error else "AIサービスに接続できませんでした。",
+                    "message": _safe_llm_error_message(upstream_error_type),
                     "error_type": _error_type_from_llm_error(upstream_error_type),
                     "upstream_error_type": upstream_error_type or "unknown",
                     "status_code": 503,
@@ -159,8 +177,15 @@ async def _generate_next_question_progress(
         if llm_result is None or not llm_result.success:
             error = llm_result.error if llm_result else None
             upstream_error_type = error.error_type if error else None
+            if error:
+                logger.warning(
+                    "[Motivation/SSE] LLM completion error type=%s provider=%s detail=%s",
+                    getattr(error, "error_type", "unknown"),
+                    getattr(error, "provider", "unknown"),
+                    getattr(error, "detail", ""),
+                )
             yield _sse_event("error", {
-                "message": error.message if error else "AIサービスに接続できませんでした。",
+                "message": _safe_llm_error_message(upstream_error_type),
                 "error_type": _error_type_from_llm_error(upstream_error_type),
                 "upstream_error_type": upstream_error_type or "unknown",
                 "status_code": 503,
@@ -192,8 +217,9 @@ async def _generate_next_question_progress(
             "internal_telemetry": consume_request_llm_cost_summary("motivation"),
         })
     except Exception:
+        logger.exception("[Motivation/SSE] unexpected next-question error")
         yield _sse_event("error", {
-            "message": "予期しないエラーが発生しました。",
+            "message": MOTIVATION_STREAM_UNEXPECTED_ERROR_MESSAGE,
             "error_type": "unexpected_error",
             "status_code": 500,
             "internal_telemetry": consume_request_llm_cost_summary("motivation"),

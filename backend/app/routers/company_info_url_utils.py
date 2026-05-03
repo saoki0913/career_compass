@@ -15,7 +15,6 @@ from app.utils.company_names import (
     is_blog_platform,
     has_personal_site_pattern,
     get_company_domain_patterns,
-    is_registered_official_domain,
 )
 from app.utils.secure_logger import get_logger
 
@@ -167,7 +166,6 @@ def _is_irrelevant_url(url: str) -> bool:
 def _get_source_type_legacy(url: str, company_name: str) -> str:
     """Legacy source-type classifier (used by scoring functions)."""
     from app.routers.company_info_config import JOB_SITES
-    from app.utils.web_search import is_trusted_schedule_job_site
 
     domain = _domain_from_url(url).lower()
     raw_source_type: str | None = None

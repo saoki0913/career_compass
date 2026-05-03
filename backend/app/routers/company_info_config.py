@@ -7,7 +7,6 @@ Extracted from company_info.py to reduce file size.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
 
 # ===== Hybrid Search Configuration =====
 # Imported from settings in company_info.py; re-exported here for consumers.

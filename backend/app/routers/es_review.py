@@ -19,6 +19,7 @@ import math
 import time
 from urllib.parse import urlparse
 import os
+from contextlib import suppress
 
 from app.config import settings
 from app.utils.secure_logger import get_logger
@@ -71,7 +72,7 @@ from app.utils.es_template_classifier import classify_es_question
 # ---------------------------------------------------------------------------
 # Extraction module imports — functions/constants split out of this file
 # ---------------------------------------------------------------------------
-from app.routers.es_review_request import (
+from app.services.es_review.request import (
     iter_string_leaves as _iter_string_leaves,
     collect_injection_scan_targets as _collect_injection_scan_targets,
     detect_request_injection_risk as _detect_request_injection_risk,
@@ -79,7 +80,7 @@ from app.routers.es_review_request import (
     sanitize_optional_prompt_text as _sanitize_optional_prompt_text,
     sanitize_review_request as _sanitize_review_request,
 )
-from app.routers.es_review_validation import (
+from app.services.es_review.validation import (
     SHORT_ANSWER_CHAR_MAX,
     FINAL_SOFT_MIN_FLOOR_RATIO,
     TIGHT_LENGTH_TEMPLATES,
@@ -106,7 +107,7 @@ from app.routers.es_review_validation import (
     _validate_standard_conclusion_focus,
     _validate_rewrite_candidate,
 )
-from app.routers.es_review_issue import (
+from app.services.es_review.issue import (
     DIFFICULTY_LEVELS,
     REQUIRED_ACTIONS,
     _normalize_difficulty,
@@ -119,7 +120,7 @@ from app.routers.es_review_issue import (
     _fallback_improvement_points,
     _merge_with_fallback_issues,
 )
-from app.routers.es_review_grounding import (
+from app.services.es_review.grounding import (
     COMPANY_HONORIFIC_TOKENS,
     COMPANY_REFERENCE_TOKENS,
     ROLE_SUPPORTIVE_CONTENT_TYPES,
@@ -147,7 +148,7 @@ from app.routers.es_review_grounding import (
     _assess_company_evidence_coverage,
     _collect_user_context_sources,
 )
-from app.routers.es_review_retry import (
+from app.services.es_review.retry import (
     REWRITE_MAX_ATTEMPTS,
     LENGTH_FIX_REWRITE_ATTEMPTS,
     _OPENAI_ES_REVIEW_OUTPUT_TOKEN_FLOOR,
@@ -182,14 +183,14 @@ from app.routers.es_review_retry import (
     _build_second_pass_content_type_boosts,
     _should_run_role_focused_second_pass,
 )
-from app.routers.es_review_pipeline import (
+from app.services.es_review.pipeline import (
     _empty_review_token_usage,
     _accumulate_review_token_usage,
     _maybe_review_token_usage,
     _evaluate_template_rag_availability,
     _build_review_meta,
 )
-from app.routers.es_review_stream import (
+from app.services.es_review.stream import (
     _queue_progress_event,
     _queue_stream_event,
     _stream_final_rewrite,
@@ -199,7 +200,7 @@ from app.routers.es_review_stream import (
     _extract_domain,
     _build_keyword_sources,
 )
-from app.routers.es_review_models import (
+from app.services.es_review.models import (
     TemplateRequest,
     TemplateVariant,
     TemplateSource,
@@ -216,24 +217,6 @@ from app.routers.es_review_models import (
     ReviewResponse,
     CompanyReviewStatusResponse,
 )
-from app.routers.es_review_models import (
-    TemplateRequest,
-    TemplateVariant,
-    TemplateSource,
-    RoleContext,
-    ProfileContext,
-    GakuchikaContextItem,
-    DocumentSectionContext,
-    DocumentContext,
-    ReviewTokenUsage,
-    ReviewMeta,
-    TemplateReview,
-    ReviewRequest,
-    Issue,
-    ReviewResponse,
-    CompanyReviewStatusResponse,
-)
-
 router = APIRouter(prefix="/api/es", tags=["es-review"])
 
 ReviewJSONCaller = Callable[..., Awaitable[Any]]
@@ -775,7 +758,7 @@ async def review_section_with_template(
     progress_queue: "asyncio.Queue | None" = None,
 ) -> ReviewResponse:
     """Review a single ES section with a rewrite-only pipeline."""
-    from app.routers.es_review_orchestrator import (
+    from app.services.es_review.orchestrator import (
         prepare_review_context,
         execute_rewrite_loop,
         execute_recovery_pipeline,
@@ -934,7 +917,6 @@ async def _generate_review_progress(
                 role_name=request.role_context.primary_role if request.role_context else None,
             )
 
-        company_grounding = _get_company_grounding_policy(template_request.template_type)
         assistive_company_signal = _company_grounding_is_assistive(
             template_request.template_type
         ) and _question_has_assistive_company_signal(
@@ -1114,64 +1096,70 @@ async def _generate_review_progress(
 
         review_task = asyncio.create_task(_run_template_review())
 
-        while not review_task.done():
-            try:
-                event_type, event_data = await asyncio.wait_for(
-                    progress_queue.get(), timeout=0.4
-                )
-                if event_type in {
-                    "progress",
-                    "string_chunk",
-                    "field_complete",
-                    "array_item_complete",
-                }:
-                    yield _sse_event(event_type, event_data)
-                    last_stream_activity = time.monotonic()
-            except asyncio.TimeoutError:
-                now = time.monotonic()
-                if (
-                    not review_task.done()
-                    and (now - last_stream_activity) >= SSE_KEEPALIVE_INTERVAL_SECONDS
-                    and (now - last_keepalive) >= SSE_KEEPALIVE_INTERVAL_SECONDS
-                ):
-                    yield _sse_comment()
-                    last_stream_activity = now
-                    last_keepalive = now
-                continue
-
-        while not progress_queue.empty():
-            try:
-                event_type, event_data = progress_queue.get_nowait()
-                if event_type in {
-                    "progress",
-                    "string_chunk",
-                    "field_complete",
-                    "array_item_complete",
-                }:
-                    yield _sse_event(event_type, event_data)
-                    last_stream_activity = time.monotonic()
-            except asyncio.QueueEmpty:
-                break
-
         try:
-            result = await review_task
-        except HTTPException as e:
-            logger.warning(
-                f"[ES添削/SSE] HTTPException {e.status_code}: {e.detail}"
-            )
-            if 400 <= e.status_code < 500:
-                message = _extract_user_facing_message(e.detail)
-            else:
-                message = "AI処理が混み合っています。しばらくしてからお試しください。"
-            yield _sse_event("error", {"message": message})
-            last_stream_activity = time.monotonic()
-            return
+            while not review_task.done():
+                try:
+                    event_type, event_data = await asyncio.wait_for(
+                        progress_queue.get(), timeout=0.4
+                    )
+                    if event_type in {
+                        "progress",
+                        "string_chunk",
+                        "field_complete",
+                        "array_item_complete",
+                    }:
+                        yield _sse_event(event_type, event_data)
+                        last_stream_activity = time.monotonic()
+                except asyncio.TimeoutError:
+                    now = time.monotonic()
+                    if (
+                        not review_task.done()
+                        and (now - last_stream_activity) >= SSE_KEEPALIVE_INTERVAL_SECONDS
+                        and (now - last_keepalive) >= SSE_KEEPALIVE_INTERVAL_SECONDS
+                    ):
+                        yield _sse_comment()
+                        last_stream_activity = now
+                        last_keepalive = now
+                    continue
+
+            while not progress_queue.empty():
+                try:
+                    event_type, event_data = progress_queue.get_nowait()
+                    if event_type in {
+                        "progress",
+                        "string_chunk",
+                        "field_complete",
+                        "array_item_complete",
+                    }:
+                        yield _sse_event(event_type, event_data)
+                        last_stream_activity = time.monotonic()
+                except asyncio.QueueEmpty:
+                    break
+
+            try:
+                result = await review_task
+            except HTTPException as e:
+                logger.warning(
+                    f"[ES添削/SSE] HTTPException {e.status_code}: {e.detail}"
+                )
+                if 400 <= e.status_code < 500:
+                    message = _extract_user_facing_message(e.detail)
+                else:
+                    message = "AI処理が混み合っています。しばらくしてからお試しください。"
+                yield _sse_event("error", {"message": message})
+                last_stream_activity = time.monotonic()
+                return
+        except asyncio.CancelledError:
+            review_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await review_task
+            raise
 
         result_payload = result.model_dump()
         final_rewrite_text = result.rewrites[0] if result.rewrites else ""
         explanation_text: str | None = None
         if final_rewrite_text:
-            from app.routers.es_review_explanation import generate_improvement_explanation
+            from app.services.es_review.explanation import generate_improvement_explanation
 
             try:
                 _queue_progress_event(

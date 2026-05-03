@@ -24,7 +24,7 @@ from app.utils.gakuchika_text import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from app.routers.gakuchika import ConversationStateInput
+    from app.services.gakuchika.models import ConversationStateInput
 
 
 # ---------------------------------------------------------------------------

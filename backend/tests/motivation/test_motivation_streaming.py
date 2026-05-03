@@ -136,6 +136,8 @@ async def test_streaming_http_exception_error_event_includes_error_type(
 async def test_streaming_llm_error_event_uses_stable_question_error_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    raw_provider_detail = "provider stack trace api-key=sk-test-secret"
+
     async def fake_company_context(*args, **kwargs):
         return "", []
 
@@ -159,8 +161,10 @@ async def test_streaming_llm_error_event_uses_stable_question_error_type(
             type="error",
             result=SimpleNamespace(
                 error=SimpleNamespace(
-                    message="AIサービスに接続できませんでした。",
+                    message=raw_provider_detail,
                     error_type="network",
+                    detail=raw_provider_detail,
+                    provider="openai",
                 ),
             ),
         )
@@ -192,5 +196,38 @@ async def test_streaming_llm_error_event_uses_stable_question_error_type(
 
     error_events = [event for event in events if event["type"] == "error"]
     assert error_events
+    assert error_events[0]["message"] == "AIサービスに接続できませんでした。時間をおいてもう一度お試しください。"
     assert error_events[0]["error_type"] == "question_provider_failure"
     assert error_events[0]["upstream_error_type"] == "network"
+    assert raw_provider_detail not in json.dumps(error_events[0], ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_streaming_unexpected_exception_returns_safe_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw_provider_detail = "unexpected stack trace api-key=sk-test-secret"
+
+    async def fake_prepare(*args, **kwargs):
+        raise RuntimeError(raw_provider_detail)
+
+    monkeypatch.setattr("app.routers.motivation_pipeline._prepare_motivation_next_question", fake_prepare)
+
+    request = NextQuestionRequest(
+        company_id="company_test",
+        company_name="株式会社テスト",
+        industry="IT・通信",
+        conversation_history=[],
+        question_count=0,
+        conversation_context={},
+    )
+
+    events: list[dict] = []
+    async for payload in _generate_next_question_progress(request, tenant_key="tenant-test"):
+        events.append(json.loads(payload.removeprefix("data: ").strip()))
+
+    error_events = [event for event in events if event["type"] == "error"]
+    assert error_events
+    assert error_events[0]["message"] == "予期しないエラーが発生しました。時間をおいてもう一度お試しください。"
+    assert error_events[0]["error_type"] == "unexpected_error"
+    assert raw_provider_detail not in json.dumps(error_events[0], ensure_ascii=False)

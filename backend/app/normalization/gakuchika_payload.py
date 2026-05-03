@@ -55,7 +55,6 @@ from app.utils.gakuchika_text import (
     _clean_bool_map,
     _clean_string,
     _clean_string_list,
-    _fallback_build_meta,
     _fallback_deepdive_meta,
 )
 from app.utils.question_loop_detector import (
@@ -64,7 +63,7 @@ from app.utils.question_loop_detector import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover — typing only
-    from app.routers.gakuchika import ConversationStateInput
+    from app.services.gakuchika.models import ConversationStateInput
 
 
 # ---------------------------------------------------------------------------

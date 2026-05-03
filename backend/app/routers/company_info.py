@@ -12,6 +12,7 @@ SPEC Section 9.5 Requirements:
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from typing import Optional
+import sys
 
 from app.utils.firecrawl import FirecrawlScrapeResult  # noqa: F401
 from app.config import settings
@@ -57,6 +58,14 @@ from app.routers.company_info_models import (
     CrawlCorporateEstimateResponse,
     SearchCorporatePagesRequest,
 )
+from app.routers import company_info_models as _company_info_models
+from app.routers import company_info_config as _company_info_config
+from app.routers import company_info_candidate_scoring as _company_info_candidate_scoring
+from app.routers import company_info_url_utils as _company_info_url_utils
+from app.routers import company_info_pdf as _company_info_pdf
+from app.services.company_info import build_rag_source as _rag_service
+from app.services.company_info import extract_deadlines as _deadline_service
+from app.services.company_info import fetch_schedule as _schedule_service
 
 # ===== Re-exports from extracted modules =====
 # These symbols must remain importable from ``company_info`` because tests,
@@ -83,10 +92,10 @@ from app.routers.company_info_candidate_scoring import (
     _search_with_ddgs,  # noqa: F401
     HAS_DDGS,  # noqa: F401
 )
-from app.routers.company_info_schedule import (
+from app.services.company_info.fetch_schedule import (
     _compress_schedule_page_text_for_llm,  # noqa: F401
 )
-from app.routers.company_info_schedule_links import (
+from app.services.company_info.fetch_schedule import (
     _build_recruit_queries,  # noqa: F401
     _build_schedule_source_metadata,  # noqa: F401
     _extract_schedule_follow_links,  # noqa: F401
@@ -114,10 +123,10 @@ from app.routers.company_info_corporate_search import (
 from app.routers.company_info_recruit_search import (
     _search_company_pages_impl,
 )
-from app.routers.company_info_schedule_service import (
+from app.services.company_info.fetch_schedule import (
     fetch_schedule_response as _fetch_schedule_response,
 )
-from app.routers.company_info_rag_service import (
+from app.services.company_info.build_rag_source import (
     _extracted_data_to_chunks,  # noqa: F401
     build_company_rag_impl as _build_company_rag_impl,
     get_rag_context_impl as _get_rag_context_impl,
@@ -128,7 +137,7 @@ from app.routers.company_info_rag_service import (
     delete_rag_by_type_impl as _delete_rag_by_type_impl,
     delete_rag_by_urls_impl as _delete_rag_by_urls_impl,
 )
-from app.routers.company_info_ingest_service import (
+from app.services.company_info.build_rag_source import (
     _looks_like_pdf_payload,  # noqa: F401
     _looks_like_html_payload,  # noqa: F401
     _process_crawl_source,  # noqa: F401
@@ -139,6 +148,25 @@ from app.routers.company_info_ingest_service import (
 )
 
 logger = get_logger(__name__)
+
+_deadline_service.configure_dependencies(
+    models=_company_info_models,
+    config=_company_info_config,
+    candidate_scoring=_company_info_candidate_scoring,
+)
+_schedule_service.configure_dependencies(
+    models=_company_info_models,
+    config=_company_info_config,
+    candidate_scoring=_company_info_candidate_scoring,
+    url_utils=_company_info_url_utils,
+    company_info_module=sys.modules[__name__],
+    pdf_module=_company_info_pdf,
+)
+_rag_service.configure_dependencies(
+    models=_company_info_models,
+    pdf=_company_info_pdf,
+    company_info_module=sys.modules[__name__],
+)
 
 # ===== Hybrid Search Configuration =====
 USE_HYBRID_SEARCH = settings.company_search_hybrid

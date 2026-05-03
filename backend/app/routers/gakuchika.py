@@ -69,7 +69,7 @@ from app.normalization.gakuchika_payload import (
     _normalize_es_build_payload,
     _sanitize_blocked_focuses,
 )
-from app.routers.gakuchika_question_pipeline import (
+from app.services.gakuchika.question_pipeline import (
     _generate_initial_question as _generate_initial_question_pipeline,
     _generate_next_question_progress as _generate_next_question_progress_pipeline,
     _sse_event as _sse_event_pipeline,

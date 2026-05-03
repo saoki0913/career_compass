@@ -41,5 +41,6 @@ pytest-asyncio>=0.23.0
 pytest-xdist>=3.5.0
 filelock>=3.13.0
 # Dev / lint
+import-linter>=2.11
 ruff>=0.14.0
 vulture>=2.11
