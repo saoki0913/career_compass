@@ -3,6 +3,8 @@ import { type AnyPgColumn, pgTable, text, integer, boolean, timestamp, index, un
 import { ES_DOCUMENT_CATEGORIES } from "@/lib/es-document-category";
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
+export type JsonRecord = Record<string, unknown>;
+export type ReminderTiming = Array<{ type: string; hours?: number }>;
 
 // Better Auth required tables
 export const users = pgTable("users", {
@@ -100,8 +102,8 @@ export const userProfiles = pgTable("user_profiles", {
   university: text("university"),
   faculty: text("faculty"), // 学部・学科
   graduationYear: integer("graduation_year"),
-  targetIndustries: text("target_industries"), // JSON string array
-  targetJobTypes: text("target_job_types"), // JSON string array (志望職種)
+  targetIndustries: jsonb("target_industries").$type<string[]>(),
+  targetJobTypes: jsonb("target_job_types").$type<string[]>(),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
 });
@@ -132,7 +134,7 @@ export const companies = pgTable(
     recruitmentUrl: text("recruitment_url"),
     corporateUrl: text("corporate_url"),
     // Multiple corporate info URLs for RAG (9-category contentType) - JSON array
-    corporateInfoUrls: text("corporate_info_urls"),
+    corporateInfoUrls: jsonb("corporate_info_urls").$type<unknown[]>(),
     // Mypage credentials (password is encrypted)
     mypageUrl: text("mypage_url"),
     mypageLoginId: text("mypage_login_id"),
@@ -233,7 +235,7 @@ export const applications = pgTable(
     status: text("status", { enum: ["active", "completed", "withdrawn"] })
       .default("active")
       .notNull(),
-    phase: text("phase"),
+    phase: jsonb("phase").$type<string[]>(),
     sortOrder: integer("sort_order").default(0),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
@@ -300,7 +302,7 @@ export const deadlines = pgTable(
     googleSyncedAt: timestamptz("google_synced_at"),
     googleSyncSuppressedAt: timestamptz("google_sync_suppressed_at"),
     completedAt: timestamptz("completed_at"),
-    autoCompletedTaskIds: text("auto_completed_task_ids"),
+    autoCompletedTaskIds: jsonb("auto_completed_task_ids").$type<string[]>(),
     /** Manual status override: not_started | in_progress | completed. null = auto-compute. "overdue" is derived at runtime only. */
     statusOverride: text("status_override", {
       enum: ["not_started", "in_progress", "completed"],
@@ -314,6 +316,10 @@ export const deadlines = pgTable(
     index("deadlines_job_type_id_idx").on(t.jobTypeId),
     index("deadlines_due_date_idx").on(t.dueDate),
     index("deadlines_confirm_completed_due_idx").on(t.isConfirmed, t.completedAt, t.dueDate),
+    index("deadlines_company_completed_due_idx").on(t.companyId, t.completedAt, t.dueDate),
+    index("deadlines_company_open_due_idx")
+      .on(t.companyId, t.dueDate)
+      .where(sql`${t.completedAt} is null`),
   ]
 );
 
@@ -453,6 +459,7 @@ export const tasks = pgTable(
     index("tasks_company_id_idx").on(t.companyId),
     index("tasks_application_id_idx").on(t.applicationId),
     index("tasks_deadline_id_idx").on(t.deadlineId),
+    index("tasks_deadline_status_idx").on(t.deadlineId, t.status),
     index("tasks_status_idx").on(t.status),
     index("tasks_user_status_due_idx").on(t.userId, t.status, t.dueDate),
     index("tasks_guest_status_due_idx").on(t.guestId, t.status, t.dueDate),
@@ -470,7 +477,7 @@ export const notifications = pgTable(
     type: text("type", { enum: ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary", "calendar_sync_failed"] }).notNull(),
     title: text("title").notNull(),
     message: text("message").notNull(),
-    data: text("data"),
+    data: jsonb("data").$type<JsonRecord>(),
     isRead: boolean("is_read").notNull().default(false),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     expiresAt: timestamptz("expires_at"),
@@ -575,7 +582,7 @@ export const gakuchikaConversations = pgTable(
     messages: jsonb("messages").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
     questionCount: integer("question_count").notNull().default(0),
     status: text("status", { enum: ["in_progress", "completed"] }).default("in_progress"),
-    starScores: text("star_scores"),
+    starScores: jsonb("star_scores").$type<JsonRecord>(),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
@@ -609,7 +616,7 @@ export const aiMessages = pgTable(
       .references(() => aiThreads.id, { onDelete: "cascade" }),
     role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
     content: text("content").notNull(),
-    metadata: text("metadata"),
+    metadata: jsonb("metadata").$type<JsonRecord>(),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (t) => [index("ai_messages_thread_created_at_idx").on(t.threadId, t.createdAt)]
@@ -768,9 +775,9 @@ export const notificationSettings = pgTable("notification_settings", {
   dailySummary: boolean("daily_summary").notNull().default(true),
   /** JST hour for daily summary: 7, 9, 12, or 18 */
   dailySummaryHourJst: integer("daily_summary_hour_jst").notNull().default(9),
-  reminderTiming: text("reminder_timing"),
+  reminderTiming: jsonb("reminder_timing").$type<ReminderTiming>(),
   /** Per-deadline-type reminder tier overrides. JSON: { "es_submission": ["7d","3d","1d","0d"], ... }. null = use defaults. */
-  deadlineReminderOverrides: text("deadline_reminder_overrides"),
+  deadlineReminderOverrides: jsonb("deadline_reminder_overrides").$type<Record<string, string[]>>(),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
 });

@@ -176,6 +176,20 @@
       "when": 1777942800000,
       "tag": "0024_interview_feedback_evidence",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1777657665958,
+      "tag": "0025_db_redesign_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1777658953875,
+      "tag": "0026_db_redesign_jsonb_columns",
+      "breakpoints": true
     }
   ]
 }
