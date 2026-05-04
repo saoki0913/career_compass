@@ -266,10 +266,13 @@ export function AppSidebar() {
                 className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                 aria-label="就活Pass - ホーム"
               >
-                <img src="/icon.png" alt="就活Pass" width={28} height={28} className="h-7 w-7 rounded-lg" />
-                <span className="text-sm font-bold tracking-tight text-sidebar-foreground">
-                  就活Pass
-                </span>
+                <img
+                  src="/marketing/logo/logo_text_clean.png"
+                  alt="就活Pass"
+                  width={112}
+                  height={56}
+                  className="h-10 w-28 object-cover"
+                />
               </Link>
               <button
                 type="button"

@@ -62,28 +62,15 @@ export function LandingHeader() {
           fontFamily: "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
         }}
       >
-        <Link href="/" className="flex items-center gap-3">
+        <Link href="/" className="flex items-center">
           <Image
-            src="/icon.png"
+            src="/marketing/logo/logo_text_clean.png"
             alt="就活Pass"
-            width={44}
-            height={44}
-            className="object-contain"
-            style={{ width: 44, height: 44, borderRadius: 10 }}
+            width={168}
+            height={84}
+            className="h-12 w-40 object-cover sm:w-44"
             priority
           />
-          <span
-            style={{
-              fontSize: 26,
-              fontWeight: 800,
-              color: "#1d2c4d",
-              letterSpacing: "0.01em",
-              lineHeight: 1,
-              whiteSpace: "nowrap",
-            }}
-          >
-            就活<span style={{ fontWeight: 800, marginLeft: 2 }}>Pass</span>
-          </span>
         </Link>
 
         <div className="hidden items-center gap-1 md:flex">

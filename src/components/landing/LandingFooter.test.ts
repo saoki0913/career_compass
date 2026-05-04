@@ -34,8 +34,9 @@ describe("LandingFooter source drift guard", () => {
   it("uses new cityscape and branding assets", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
     expect(source).toContain("footer/cityscape.png");
-    expect(source).toContain("footer/compass-icon-navy.png");
+    expect(source).toContain("/marketing/logo/logo_text_clean.png");
     expect(source).toContain("min-h-[430px]");
+    expect(source).not.toContain("footer/compass-icon-navy.png");
     expect(source).not.toContain("star-sparkle-1.png");
     expect(source).not.toContain("wave-corner.png");
   });

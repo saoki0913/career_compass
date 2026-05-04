@@ -56,19 +56,10 @@ export function LandingFooter() {
           <div>
             <div className="mb-7 flex items-center gap-4">
               <img
-                src={lpSectionAsset("footer/compass-icon-navy.png")}
+                src="/marketing/logo/logo_text_clean.png"
                 alt="就活Pass"
-                style={{ width: "58px", height: "58px" }}
+                className="h-14 w-44 object-cover"
               />
-              <span
-                className="text-[34px] leading-none"
-                style={{
-                  fontWeight: 800,
-                  color: "var(--lp-navy)",
-                }}
-              >
-                就活Pass
-              </span>
             </div>
             <p
               className="text-[15px]"
