@@ -571,10 +571,11 @@ echo '{"session_id":"dry-run","reason":"other"}' \
 
 ### 6.1 project scope MCP 設定
 
-**現行**: Claude Code 用 `.mcp.json`、Cursor 用 `.cursor/mcp.json`、Codex 用 `.codex/config.toml` の 3 系統。project scope の MCP セットは 3 ツールとも playwright（stdio）と notion（http）の 2 サーバーでそろえる。
+**現行**: Claude Code 用 `.mcp.json`、Cursor 用 `.cursor/mcp.json`、Codex 用 `.codex/config.toml` の 3 系統。Claude Code / Cursor は playwright（stdio）と notion（http）を project scope に持つ。Codex は同じエントリを保持するが、起動安定性のため disabled-by-default にする。
 
 - **正本ポリシー**: `.mcp.json` と `.cursor/mcp.json` はそれぞれ独立した設定ファイルとして管理する。片方から他方を自動生成しない
 - **変更時ルール**: MCP サーバーの追加・削除・接続先変更をした PR では、`.mcp.json`, `.cursor/mcp.json`, `.codex/config.toml` の整合と本節の更新を同じ PR で行う
+- **Codex 方針**: Codex は起動時ハング回避を優先し、CLI / skill / plugin で代替できる MCP を常時起動しない。`.codex/config.toml` に project scope の playwright / notion エントリは残すが `enabled = false` を正本にする。
 
 #### Claude Code: `.mcp.json`
 
@@ -601,18 +602,20 @@ echo '{"session_id":"dry-run","reason":"other"}' \
 
 #### Codex: `.codex/config.toml`
 
-Codex 側では `[mcp_servers.playwright]` と `[mcp_servers.notion]` を `config.toml` に持つ。運用の詳細は [`docs/ops/CODEX_HARNESS.md`](./CODEX_HARNESS.md) を参照。
+Codex 側では `[mcp_servers.playwright]` と `[mcp_servers.notion]` を `config.toml` に持つが、どちらも `enabled = false` にする。UI 確認は `npm run test:ui:review -- <route>` / `npx playwright ...` / Browser Use / Playwright skill で必要時に起動し、Notion は同期作業時だけ一時的に有効化する。運用の詳細は [`docs/ops/CODEX_HARNESS.md`](./CODEX_HARNESS.md) を参照。
 
 #### playwright
 
 - **用途**: `ui-designer` / `test-automator` からの interactive な browser 操作。`mcp__playwright__*` ツール群が提供される
-- **承認**: 初回呼び出し時に MCP 承認プロンプトが出る。ユーザ承認後にツールが有効化される
+- **Codex 代替**: 常時 MCP ではなく、UI 確認や E2E のタイミングで `npx playwright test ...`、`npm run test:ui:review -- <route>`、Browser Use / Playwright skill を使う
+- **承認**: Claude Code / Cursor で MCP を使う場合は初回呼び出し時に MCP 承認プロンプトが出る。ユーザ承認後にツールが有効化される
 - **相互参照**: [`docs/testing/UI_PLAYWRIGHT_VERIFICATION.md`](../testing/UI_PLAYWRIGHT_VERIFICATION.md)
 
 #### notion
 
 - **用途**: Notion Prompt Registry と参考 ES Database の取得。prompt 同期 (`npm run prompts:sync`) や参考 ES 取り込みで raw JSON 取得に使う
 - **type**: http（Notion 公式 MCP エンドポイント）
+- **Codex 代替**: 常時 MCP ではなく、Prompt Registry / 参考 ES 同期の作業時だけ一時的に有効化する
 - **認証**: 初回接続時に Notion OAuth フローが走る。個人の Notion アカウントで承認する
 - **相互参照**: [`docs/setup/MCP_SETUP.md`](../setup/MCP_SETUP.md) の「Notion 参考 ES の取り込み」「Notion Prompt Registry の同期」節
 
@@ -636,8 +639,9 @@ Codex 側では `[mcp_servers.playwright]` と `[mcp_servers.notion]` を `confi
 | Vercel MCP | `vercel` CLI + `scripts/release/*` |
 | GitHub MCP | `gh` CLI（`gh pr create` / `gh pr merge` は release scripts 経由） |
 | Stripe MCP | `stripe` CLI + webhook ローカル listen |
+| OpenAI Developer Docs MCP | 必要時に公式 OpenAI docs を Web 検索（`developers.openai.com` / `platform.openai.com` に限定） |
 
-agent system prompt から CLI を直接叩く方が、権限モデルと監査ログが既存の CLI Guardrails で完結するため、現時点では MCP 化しない判断。将来追加するかは使用頻度と代替 CLI の限界で判断する。
+agent system prompt から CLI を直接叩く方が、権限モデルと監査ログが既存の CLI Guardrails で完結するため、現時点では MCP 化しない判断。`gh auth token`、Supabase / Stripe / Notion / OpenAI の OAuth token、provider secrets は config・handoff・ログに出さない。将来追加するかは使用頻度と代替 CLI の限界で判断する。
 
 ### 6.4 MCP を追加・変更する手順
 

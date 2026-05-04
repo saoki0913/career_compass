@@ -8,6 +8,11 @@ const {
   getRemainingFreeFetchesMock,
   validatePublicUrlMock,
   checkPublicSourceComplianceMock,
+  fetchFastApiInternalMock,
+  companyFetchPrecheckMock,
+  companyFetchConfirmMock,
+  saveExtractedDeadlinesMock,
+  dbUpdateMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
@@ -15,6 +20,11 @@ const {
   getRemainingFreeFetchesMock: vi.fn(),
   validatePublicUrlMock: vi.fn(),
   checkPublicSourceComplianceMock: vi.fn(),
+  fetchFastApiInternalMock: vi.fn(),
+  companyFetchPrecheckMock: vi.fn(),
+  companyFetchConfirmMock: vi.fn(),
+  saveExtractedDeadlinesMock: vi.fn(),
+  dbUpdateMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -32,7 +42,7 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     select: dbSelectMock,
-    update: vi.fn(),
+    update: dbUpdateMock,
     insert: vi.fn(),
   },
 }));
@@ -66,6 +76,21 @@ vi.mock("@/lib/security/public-url", () => ({
 
 vi.mock("@/lib/company-info/source-compliance", () => ({
   checkPublicSourceCompliance: checkPublicSourceComplianceMock,
+}));
+
+vi.mock("@/lib/fastapi/client", () => ({
+  fetchFastApiInternal: fetchFastApiInternalMock,
+}));
+
+vi.mock("@/bff/billing/company-fetch-policy", () => ({
+  companyFetchPolicy: {
+    precheck: companyFetchPrecheckMock,
+    confirm: companyFetchConfirmMock,
+  },
+}));
+
+vi.mock("@/lib/company-info/deadline-persistence", () => ({
+  saveExtractedDeadlines: saveExtractedDeadlinesMock,
 }));
 
 function makeProfileQuery(plan: "free" | "standard" | "pro") {
@@ -103,6 +128,11 @@ describe("api/companies/[id]/fetch-info", () => {
     getRemainingFreeFetchesMock.mockReset();
     validatePublicUrlMock.mockReset();
     checkPublicSourceComplianceMock.mockReset();
+    fetchFastApiInternalMock.mockReset();
+    companyFetchPrecheckMock.mockReset();
+    companyFetchConfirmMock.mockReset();
+    saveExtractedDeadlinesMock.mockReset();
+    dbUpdateMock.mockReset();
     vi.restoreAllMocks();
 
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -112,6 +142,15 @@ describe("api/companies/[id]/fetch-info", () => {
       .mockImplementation(() => makeCompanyQuery());
     enforceRateLimitLayersMock.mockResolvedValue(null);
     getRemainingFreeFetchesMock.mockResolvedValue(1);
+    companyFetchPrecheckMock.mockResolvedValue({
+      ok: true,
+      freeQuotaAvailable: false,
+    });
+    dbUpdateMock.mockReturnValue({
+      set: vi.fn(() => ({
+        where: vi.fn().mockResolvedValue(undefined),
+      })),
+    });
     validatePublicUrlMock.mockResolvedValue({
       allowed: true,
       resolvedIps: ["93.184.216.34"],
@@ -201,18 +240,7 @@ describe("api/companies/[id]/fetch-info", () => {
       checkedAt: "2026-03-22T00:00:00.000Z",
       policyVersion: "test",
     });
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(new Response("User-agent: *\nAllow: /\n", { status: 200 }))
-        .mockResolvedValueOnce(new Response("<html><body>No terms link</body></html>", { status: 200 }))
-        .mockResolvedValueOnce(new Response("not found", { status: 404 }))
-        .mockResolvedValueOnce(new Response("not found", { status: 404 }))
-        .mockResolvedValueOnce(new Response("not found", { status: 404 }))
-        .mockResolvedValueOnce(new Response("not found", { status: 404 }))
-        .mockResolvedValueOnce(new Response("backend unavailable", { status: 503 })),
-    );
+    fetchFastApiInternalMock.mockResolvedValueOnce(new Response("backend unavailable", { status: 503 }));
 
     const { POST } = await import("@/app/api/companies/[id]/fetch-info/route");
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-info", {
@@ -230,5 +258,82 @@ describe("api/companies/[id]/fetch-info", () => {
 
     expect(response.status).not.toBe(400);
     expect(data.error?.code).not.toBe("PUBLIC_SOURCE_BLOCKED");
+  });
+
+  it("does not consume credits or free quota when all extracted deadlines are duplicates", async () => {
+    fetchFastApiInternalMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      success: true,
+      source_url: "https://example.com/recruit",
+      extracted_at: "2026-05-04T00:00:00.000Z",
+      data: {
+        deadlines: [
+          {
+            title: "ES提出",
+            dueDate: "2026-06-01",
+            type: "es_submission",
+            sourceUrl: "https://example.com/recruit",
+            confidence: "high",
+          },
+        ],
+        required_documents: [],
+        application_method: null,
+        selection_process: null,
+      },
+    }), { status: 200 }));
+    saveExtractedDeadlinesMock.mockResolvedValueOnce({
+      savedDeadlines: [],
+      skippedDuplicates: ["deadline-1"],
+      savedDeadlineSummaries: [],
+    });
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-info/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-info", {
+      method: "POST",
+      body: JSON.stringify({
+        url: "https://example.com/recruit",
+      }),
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(false);
+    expect(data.resultStatus).toBe("duplicates_only");
+    expect(data.creditsConsumed).toBe(0);
+    expect(data.actualCreditsDeducted).toBe(0);
+    expect(data.freeUsed).toBe(false);
+    expect(companyFetchConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it("does not expose FastAPI raw error text in browser-facing responses", async () => {
+    fetchFastApiInternalMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      detail: {
+        error_type: "provider_error",
+        error: "upstream secret stack trace with token=abc123",
+      },
+    }), { status: 503 }));
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-info/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-info", {
+      method: "POST",
+      body: JSON.stringify({
+        url: "https://example.com/recruit",
+      }),
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(data.error.userMessage).toBe("情報の取得に失敗しました。");
+    expect(JSON.stringify(data)).not.toContain("upstream secret stack trace");
+    expect(JSON.stringify(data)).not.toContain("abc123");
   });
 });

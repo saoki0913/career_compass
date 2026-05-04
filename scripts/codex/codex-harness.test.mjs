@@ -149,6 +149,9 @@ test("codex config aligns with the 13-agent routing and shared MCP set", () => {
   assert.match(source, /^max_depth = 1$/m);
   assert.match(source, /^\[mcp_servers\.playwright\]$/m);
   assert.match(source, /^\[mcp_servers\.notion\]$/m);
+  assert.match(source, /^\[mcp_servers\.playwright\]\nenabled = false$/m);
+  assert.match(source, /^\[mcp_servers\.notion\]\nenabled = false$/m);
+  assert.doesNotMatch(source, /^\[mcp_servers\.(github|supabase|openaiDeveloperDocs)\]$/m);
 
   const routingKeys = [
     "backend/app/prompts/**",

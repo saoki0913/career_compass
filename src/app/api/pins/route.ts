@@ -11,6 +11,10 @@ import { db } from "@/lib/db";
 import { userPins } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getOwnedDocument, hasValidOwnerIdentity } from "@/bff/identity/owner-access";
+import { verifyGakuchikaAccess } from "@/bff/gakuchika/access";
+import { logError } from "@/lib/logger";
 
 const VALID_ENTITY_TYPES = ["document", "gakuchika"] as const;
 type EntityType = typeof VALID_ENTITY_TYPES[number];
@@ -19,14 +23,28 @@ function isValidEntityType(type: string): type is EntityType {
   return VALID_ENTITY_TYPES.includes(type as EntityType);
 }
 
+async function isOwnedPinTarget(
+  entityType: EntityType,
+  entityId: string,
+  identity: { userId: string | null; guestId: string | null },
+): Promise<boolean> {
+  if (entityType === "document") {
+    return Boolean(await getOwnedDocument(entityId, identity));
+  }
+
+  return verifyGakuchikaAccess(entityId, identity.userId, identity.guestId);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    if (!identity || !hasValidOwnerIdentity(identity)) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTHENTICATION_REQUIRED",
+        userMessage: "ログインが必要です。",
+        action: "ログインしてから、もう一度お試しください。",
+      });
     }
 
     const { userId, guestId } = identity;
@@ -34,10 +52,12 @@ export async function GET(request: NextRequest) {
     const entityType = searchParams.get("entityType");
 
     if (!entityType || !isValidEntityType(entityType)) {
-      return NextResponse.json(
-        { error: "Invalid entityType. Must be one of: " + VALID_ENTITY_TYPES.join(", ") },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "INVALID_ENTITY_TYPE",
+        userMessage: "ピン留め対象が正しくありません。",
+        action: "画面を再読み込みして、もう一度お試しください。",
+      });
     }
 
     const conditions = [eq(userPins.entityType, entityType)];
@@ -57,22 +77,26 @@ export async function GET(request: NextRequest) {
       pinnedIds: pins.map((p) => p.entityId),
     });
   } catch (error) {
-    console.error("Error fetching pins:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch pins" },
-      { status: 500 }
-    );
+    logError("pins:get", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "PINS_FETCH_FAILED",
+      userMessage: "ピン留めの取得に失敗しました。",
+      action: "時間を置いて、もう一度お試しください。",
+    });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    if (!identity || !hasValidOwnerIdentity(identity)) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTHENTICATION_REQUIRED",
+        userMessage: "ログインが必要です。",
+        action: "ログインしてから、もう一度お試しください。",
+      });
     }
 
     const { userId, guestId } = identity;
@@ -80,17 +104,30 @@ export async function POST(request: NextRequest) {
     const { entityType, entityId } = body;
 
     if (!entityType || !isValidEntityType(entityType)) {
-      return NextResponse.json(
-        { error: "Invalid entityType" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "INVALID_ENTITY_TYPE",
+        userMessage: "ピン留め対象が正しくありません。",
+        action: "画面を再読み込みして、もう一度お試しください。",
+      });
     }
 
     if (!entityId || typeof entityId !== "string") {
-      return NextResponse.json(
-        { error: "entityId is required" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "ENTITY_ID_REQUIRED",
+        userMessage: "ピン留め対象を確認できませんでした。",
+        action: "画面を再読み込みして、もう一度お試しください。",
+      });
+    }
+
+    if (!(await isOwnedPinTarget(entityType, entityId, identity))) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "PIN_TARGET_NOT_FOUND",
+        userMessage: "ピン留め対象が見つかりません。",
+        action: "一覧を更新して、もう一度お試しください。",
+      });
     }
 
     // Upsert: insert or do nothing if already exists
@@ -107,22 +144,26 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error creating pin:", error);
-    return NextResponse.json(
-      { error: "Failed to create pin" },
-      { status: 500 }
-    );
+    logError("pins:post", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "PIN_CREATE_FAILED",
+      userMessage: "ピン留めに失敗しました。",
+      action: "時間を置いて、もう一度お試しください。",
+    });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
     const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    if (!identity || !hasValidOwnerIdentity(identity)) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTHENTICATION_REQUIRED",
+        userMessage: "ログインが必要です。",
+        action: "ログインしてから、もう一度お試しください。",
+      });
     }
 
     const { userId, guestId } = identity;
@@ -130,17 +171,21 @@ export async function DELETE(request: NextRequest) {
     const { entityType, entityId } = body;
 
     if (!entityType || !isValidEntityType(entityType)) {
-      return NextResponse.json(
-        { error: "Invalid entityType" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "INVALID_ENTITY_TYPE",
+        userMessage: "ピン留め対象が正しくありません。",
+        action: "画面を再読み込みして、もう一度お試しください。",
+      });
     }
 
     if (!entityId || typeof entityId !== "string") {
-      return NextResponse.json(
-        { error: "entityId is required" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "ENTITY_ID_REQUIRED",
+        userMessage: "ピン留め対象を確認できませんでした。",
+        action: "画面を再読み込みして、もう一度お試しください。",
+      });
     }
 
     const conditions = [
@@ -158,10 +203,12 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting pin:", error);
-    return NextResponse.json(
-      { error: "Failed to delete pin" },
-      { status: 500 }
-    );
+    logError("pins:delete", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "PIN_DELETE_FAILED",
+      userMessage: "ピン留めの解除に失敗しました。",
+      action: "時間を置いて、もう一度お試しください。",
+    });
   }
 }

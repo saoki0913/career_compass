@@ -6,9 +6,11 @@ max_threads = 6
 codex_hooks = true
 
 [mcp_servers.notion]
+enabled = false
 url = "https://mcp.notion.com/mcp"
 
 [mcp_servers.playwright]
+enabled = false
 args = [
     "-y",
     "@playwright/mcp",

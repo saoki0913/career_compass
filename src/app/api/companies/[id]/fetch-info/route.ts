@@ -88,10 +88,6 @@ function userFacingScheduleFetchError(detail: unknown): {
   if (!t || typeof t !== "string") {
     return null;
   }
-  const msg =
-    typeof d.error === "string" && d.error.trim()
-      ? d.error
-      : "情報の取得に失敗しました。時間を置いて、もう一度お試しください。";
   if (t === "no_api_key") {
     return {
       userMessage: "AI機能の設定に問題があります。",
@@ -100,8 +96,16 @@ function userFacingScheduleFetchError(detail: unknown): {
       llmErrorType: t,
     };
   }
+  if (t === "no_relevant_content" || t === "no_schedule_found") {
+    return {
+      userMessage: "締切情報を確認できませんでした。",
+      action: "別の公開採用ページURLを指定して、もう一度お試しください。",
+      retryable: false,
+      llmErrorType: t,
+    };
+  }
   return {
-    userMessage: msg,
+    userMessage: "情報の取得に失敗しました。",
     action: "時間を置いて、もう一度お試しください。",
     retryable: true,
     llmErrorType: t,
@@ -469,29 +473,13 @@ export async function POST(
       })
       .where(eq(companies.id, companyId));
 
-    // Billing confirm: consume free quota or 1 credit (success only)
-    await companyFetchPolicy.confirm(
-      billingCtx,
-      {
-        kind: "billable_success",
-        creditsConsumed: useMonthlyScheduleFree ? 0 : 1,
-        freeQuotaUsed: useMonthlyScheduleFree,
-      },
-      null,
-    );
-
-    const creditsConsumed = useMonthlyScheduleFree ? 0 : 1;
-    const actualCreditsDeducted = useMonthlyScheduleFree ? undefined : 1;
-
-    // Get updated free remaining
-    const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
-
     if (duplicatesOnly) {
+      const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
       logAiCreditCostSummary({
         feature: "selection_schedule",
         requestId,
         status: "success",
-        creditsUsed: actualCreditsDeducted ?? 0,
+        creditsUsed: 0,
         telemetry,
       });
       void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
@@ -510,13 +498,30 @@ export async function POST(
         deadlines: savedDeadlineSummaries,
         deadlinesExtractedCount,
         deadlinesSavedCount,
-        creditsConsumed,
-        actualCreditsDeducted,
-        freeUsed: useMonthlyScheduleFree,
+        creditsConsumed: 0,
+        actualCreditsDeducted: 0,
+        freeUsed: false,
         freeRemaining,
         message: "取得した締切はすべて既存データと重複していたため、新規追加はありませんでした。",
       });
     }
+
+    // Billing confirm: consume free quota or 1 credit (success only)
+    await companyFetchPolicy.confirm(
+      billingCtx,
+      {
+        kind: "billable_success",
+        creditsConsumed: useMonthlyScheduleFree ? 0 : 1,
+        freeQuotaUsed: useMonthlyScheduleFree,
+      },
+      null,
+    );
+
+    const creditsConsumed = useMonthlyScheduleFree ? 0 : 1;
+    const actualCreditsDeducted = useMonthlyScheduleFree ? undefined : 1;
+
+    // Get updated free remaining
+    const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
 
     logAiCreditCostSummary({
       feature: "selection_schedule",

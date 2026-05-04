@@ -305,6 +305,20 @@ function shouldAttachCsrfCookie(request: NextRequest): boolean {
   return accept.includes("text/html");
 }
 
+function isStaticAssetPath(pathname: string): boolean {
+  if (pathname.startsWith("/_next")) {
+    return true;
+  }
+  if (pathname.startsWith("/api/")) {
+    return false;
+  }
+  return pathname.includes(".");
+}
+
+function isWebhookPath(pathname: string): boolean {
+  return pathname === "/api/webhooks" || pathname.startsWith("/api/webhooks/");
+}
+
 type CspContext = {
   nonce: string | null;
   csp: string | null;
@@ -364,9 +378,8 @@ export async function proxy(request: NextRequest) {
   // Static assets + webhooks short-circuit: no route-protection, no proxy CSRF.
   // (Webhooks verify request signatures in their own handlers.)
   if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/api/webhooks") ||
-    pathname.includes(".")
+    isWebhookPath(pathname) ||
+    isStaticAssetPath(pathname)
   ) {
     return withCsrfCookie(request, createForwardResponse(request, cspContext), cspContext);
   }

@@ -126,6 +126,42 @@ describe("proxy CSRF short-circuit (D-11)", () => {
     const response = await proxy(request);
     expect(response.status).toBe(200);
   });
+
+  it("does not treat dotted API paths as static assets for CSRF bypass", async () => {
+    const { proxy } = await import("@/proxy");
+    const request = new NextRequest("http://localhost:3000/api/foo.bar", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const response = await proxy(request);
+    const body = (await response.json()) as {
+      error: { code: string };
+    };
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("ORIGIN_REQUIRED");
+  });
+
+  it("does not exempt webhook-like API prefixes from CSRF", async () => {
+    const { proxy } = await import("@/proxy");
+    const request = new NextRequest("http://localhost:3000/api/webhooks.foo", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const response = await proxy(request);
+    const body = (await response.json()) as {
+      error: { code: string };
+    };
+
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("ORIGIN_REQUIRED");
+  });
 });
 
 /**

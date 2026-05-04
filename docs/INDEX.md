@@ -32,6 +32,8 @@
 | マーケティング LP を変更する | [marketing/LP.md](./marketing/LP.md) → [marketing/README.md](./marketing/README.md) → 実装済み [features/](#機能-features) |
 | リリース・本番運用をする | [release/PRODUCTION.md](./release/PRODUCTION.md) → [release/ENV_REFERENCE.md](./release/ENV_REFERENCE.md) → provider 別 release docs → [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) |
 | テスト・commit gate を確認する | [testing/E2E.md](./testing/E2E.md) → [ops/TEST_HARNESS.md](./ops/TEST_HARNESS.md) |
+| デッドコードを削除する | [ops/DEAD_CODE_REMOVAL.md](./ops/DEAD_CODE_REMOVAL.md) → [architecture/REFACTORING_TEST_CONTRACTS.md](./architecture/REFACTORING_TEST_CONTRACTS.md) |
+| 本番リリース前の完成項目を確認する | [plan/pre-production-readiness-items-2026-05-04.md](./plan/pre-production-readiness-items-2026-05-04.md) → [release/PRODUCTION.md](./release/PRODUCTION.md) → [ops/SECURITY.md](./ops/SECURITY.md) |
 
 ---
 
@@ -157,6 +159,7 @@
 | [ops/CURSOR_HARNESS.md](./ops/CURSOR_HARNESS.md) | Cursor rules / MCP / prompt template の詳細リファレンス |
 | [ops/AI_AGENT_PIPELINE.md](./ops/AI_AGENT_PIPELINE.md) | Codex / Claude / Cursor 共通の AI 開発 pipeline |
 | [ops/AI_DEVELOPMENT_PRINCIPLES.md](./ops/AI_DEVELOPMENT_PRINCIPLES.md) | AI 継続開発で負債を増やさないための設計原則 |
+| [ops/DEAD_CODE_REMOVAL.md](./ops/DEAD_CODE_REMOVAL.md) | Web アプリ構成に合わせたデッドコード調査・反証・削除手順 |
 | [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) | CLI の安全な使い方 |
 | [ops/SECURITY.md](./ops/SECURITY.md) | セキュリティの注意事項 |
 | [ops/OBSERVABILITY.md](./ops/OBSERVABILITY.md) | RAG / FastAPI の運用監視メトリクス、アラート、Grafana dashboard の正本 |
