@@ -135,7 +135,7 @@ preflight では、最低限次の 7 点を言語化する。
 - product UI ではトップレベルの汎用 loading surface を置かず、各 route segment の `loading.tsx` で本文と同じ skeleton を返す。`src/app/loading.tsx` で product 遷移を受ける実装は、ページ専用 skeleton と競合しやすいため採用しない。
 - product route の `loading.tsx` は、可能な限りページ見出し・フィルタ帯など**本文**の文脈を保った skeleton を返す。`(product)/layout` はヘッダーを持たないため、**実装に応じて** `loading.tsx` やページ側で `<DashboardHeader />` を含め、遷移中もトップナビの見た目を揃える（通知・クレジットは SWR でキー共有されデデュープされる）。
 - 一覧ページでは `ListPageFilterBar` を loading 中でも極力残し、検索・絞り込みの位置関係を消さない。
-- 企業、ES、ガクチカ、タスク、締切などの一覧ページは `ListPageFilterBar` / `ListPageFilterBarSkeleton` を標準にする。検索、並び替え、追加フィルタ、表示切替、追加/CSV などの action は同じ横スクロール行に載せ、active filter chip はバー下に表示する。
+- 企業、ES、ガクチカ、タスク、締切などの一覧ページは `ListPageFilterBar` / `ListPageFilterBarSkeleton` を標準にする。バーは2行構成を基本にし、1行目へ検索、並び替え、追加フィルタ、表示切替、追加/CSV などの action を同じ横スクロール行で載せる。2行目へ filter tab と active filter chip を同じ横スクロール行で載せ、フィルタ適用時だけ3行目が増えないようにする。
 - product workspace の見出しは、カテゴリ pill、H1、短い説明、右側 summary/action の順に揃える。カレンダーや会話画面のような作業画面は `max-w-[96rem]` を上限にし、通常一覧より広く使ってよい。
 - ページ別 skeleton は `src/components/skeletons/` に配置し、`DashboardSkeleton`、`CompaniesListSkeleton`、`ESListSkeleton` などの naming を維持する。
 - 会話系ページ（志望動機・面接・ガクチカ）の skeleton は `ConversationWorkspaceShellSkeleton` を共有基盤にし、`sidebarSkeleton` prop で機能固有のサイドバーを差し替える。Shell のレイアウトクラス（grid 比率・breakpoint・container 幅）を SSOT としてスケルトンにコピーし、drift を防ぐ。

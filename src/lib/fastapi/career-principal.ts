@@ -16,7 +16,8 @@ import { createHmac } from "crypto";
  * one scope (e.g. company-info RAG) from being replayed against a different
  * scope (e.g. AI streaming concurrency).
  *
- * See `docs/security/principal_spec.md` for the full spec.
+ * See `docs/architecture/BFF_FASTAPI_CONTRACT.md#x-career-principal`
+ * for the contract.
  */
 
 const PRINCIPAL_ISSUER = "next-bff";

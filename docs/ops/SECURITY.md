@@ -53,8 +53,8 @@
 2026-04-14 セキュリティ監査で V-1（RAG テナント越境）と D-10（SSE 同時接続数
 制御）の残論点として残っていた「サービス JWT だけでは actor 認可が表現でき
 ない」問題を、新しい署名ヘッダ `X-Career-Principal` で解決しました。詳細仕
-様は [`docs/security/principal_spec.md`](../security/principal_spec.md) を参
-照。
+様は [`docs/architecture/BFF_FASTAPI_CONTRACT.md`](../architecture/BFF_FASTAPI_CONTRACT.md#x-career-principal)
+を参照。
 
 - 実装（BFF）: [`src/lib/fastapi/career-principal.ts`](../../src/lib/fastapi/career-principal.ts) + [`src/lib/fastapi/client.ts`](../../src/lib/fastapi/client.ts) の `fetchFastApiWithPrincipal()`。
 - 実装（FastAPI）: [`backend/app/security/career_principal.py`](../../backend/app/security/career_principal.py) の `require_career_principal("company" | "ai-stream")`。
@@ -100,7 +100,7 @@
 
 ## 日次トークン消費上限
 
-- 実装: [`src/lib/llm-cost-limit.ts`](../../src/lib/llm-cost-limit.ts) + [`src/app/api/_shared/llm-cost-guard.ts`](../../src/app/api/_shared/llm-cost-guard.ts)
+- 実装: [`src/lib/llm-cost-limit.ts`](../../src/lib/llm-cost-limit.ts) + [`src/bff/identity/llm-cost-guard.ts`](../../src/bff/identity/llm-cost-guard.ts)
 - Upstash Redis でユーザー/ゲスト単位の日次トークンカウンタを管理。JST 0:00 でリセット。
 - プラン別上限: guest 100K / free 500K / standard 2M / pro 5M tokens/day
 - 上限超過時: HTTP 429 + `Retry-After` ヘッダ + `{ error: "daily_token_limit_exceeded" }`。LLM 呼び出し前に拒否。

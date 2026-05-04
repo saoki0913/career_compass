@@ -12,7 +12,7 @@ This header is additive to the existing `Authorization: Bearer <internal-jwt>`
 service authentication — the service JWT says "this request came from the BFF",
 the career principal says "…on behalf of user X with scope Y".
 
-See docs/security/principal_spec.md for the spec.
+See docs/architecture/BFF_FASTAPI_CONTRACT.md#x-career-principal for the contract.
 """
 from __future__ import annotations
 

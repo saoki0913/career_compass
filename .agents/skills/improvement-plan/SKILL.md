@@ -12,7 +12,7 @@ docs/plan/ に記録する改善計画を作成する。
 
 ### Step 1: レビュー確認
 
-1. `docs/review/TRACKER.md` を読み、対象 topic の最新レビューと既存計画を確認する
+1. `docs/INDEX.md` を読み、対象 topic の最新レビューと既存計画を確認する
 2. 最新レビューを読み、findings の全体像を把握する
 3. 既存の計画書がある場合はその状態（未着手/進行中/完了）を確認する
 
@@ -62,8 +62,8 @@ status: 未着手
 
 ### Step 5: TRACKER・EXECUTION_ORDER 更新と検証
 
-1. `docs/review/TRACKER.md` の該当行を更新（行がなければ追加）
-2. `docs/plan/EXECUTION_ORDER.md` の該当 Phase に追記（新 Phase が必要なら末尾に追加）
+1. `docs/INDEX.md` の該当行を更新（行がなければ追加）
+2. `docs/INDEX.md` の該当 Phase に追記（新 Phase が必要なら末尾に追加）
 3. `npm run test:review-tracker` で整合性を確認
 
 ## ルール

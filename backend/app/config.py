@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     # HMAC secret for the `X-Career-Principal` header minted by the Next BFF.
     # Distinct from INTERNAL_API_JWT_SECRET so that service-level trust and
     # actor-level principal propagation can be rotated independently.
-    # See docs/security/principal_spec.md.
+    # See docs/architecture/BFF_FASTAPI_CONTRACT.md#x-career-principal.
     career_principal_hmac_secret: str = Field(
         default="",
         validation_alias=AliasChoices("CAREER_PRINCIPAL_HMAC_SECRET"),

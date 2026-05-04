@@ -121,7 +121,6 @@ career_compass/
 - [仕様書](docs/SPEC.md) - 詳細な機能仕様
 - [開発ガイドと環境変数](docs/setup/DEVELOPMENT_AND_ENV.md) — 開発ルールと環境設定
 - [ドキュメント一覧](docs/INDEX.md) — 全体の地図
-- [進捗状況](docs/PROGRESS.md) - 実装状況の追跡
 
 ## ライセンス
 

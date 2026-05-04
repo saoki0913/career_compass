@@ -12,7 +12,7 @@ docs/review/ に記録する品質レビュー・監査を実施する。
 
 ### Step 1: 現状把握
 
-`docs/review/TRACKER.md` を読み、対象 topic の既存レビュー・計画の有無を確認する。前回レビューがあれば日付と主要指摘を把握する。
+`docs/INDEX.md` を読み、対象 topic の既存レビュー・計画の有無を確認する。前回レビューがあれば日付と主要指摘を把握する。
 
 ### Step 2: ヒアリング（必須）
 
@@ -29,7 +29,7 @@ docs/review/ に記録する品質レビュー・監査を実施する。
 |---------|------------|--------|
 | 機能品質 | feature/ | prompt-engineer, code-reviewer |
 | セキュリティ | security/ | security-auditor |
-| 保守性・設計 | maintainability-architecture/ | architect, code-reviewer |
+| 保守性・設計 | maintainability/ | architect, code-reviewer |
 | ハーネス | harness/ | 直接実施 |
 
 複数領域にまたがる場合は、カテゴリごとに分割してレビューを実施する。
@@ -42,13 +42,13 @@ docs/review/ に記録する品質レビュー・監査を実施する。
 
 docs/review/<category>/ にファイルを作成する。
 
-**命名規約**（`docs/review/README.md` 準拠）:
+**命名規約**（`docs/INDEX.md` 準拠）:
 
 | カテゴリ | パターン |
 |---------|---------|
 | feature | `<機能名>_quality_audit_YYYYMMDD.md` |
 | security | `<領域名>_YYYY-MM-DD.md` |
-| maintainability-architecture | `YYYY-MM-DD-<トピック>.md` |
+| maintainability | `YYYY-MM-DD-<トピック>.md` |
 | harness | `YYYY-MM-DD-<トピック>.md` |
 
 **ファイル冒頭に YAML frontmatter を付与する**:
@@ -57,7 +57,7 @@ docs/review/<category>/ にファイルを作成する。
 ---
 topic: <トピック名（英語ケバブケース、TRACKER の topic 列と一致）>
 review_date: YYYY-MM-DD
-category: <feature|security|maintainability-architecture|harness>
+category: <feature|security|maintainability|harness>
 supersedes: <前回レビューのファイル名（あれば）>
 status: active
 ---
@@ -65,7 +65,7 @@ status: active
 
 ### Step 6: TRACKER 更新と検証
 
-1. `docs/review/TRACKER.md` の該当行を更新（行がなければ追加）
+1. `docs/INDEX.md` の該当行を更新（行がなければ追加）
 2. `npm run test:review-tracker` で整合性を確認
 
 ## ルール

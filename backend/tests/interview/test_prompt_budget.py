@@ -31,7 +31,7 @@ from tests.interview.harness.fixtures import HARNESS_CASES
 #   - GROUNDING_CORE: +seed 活用指示 2 行 (全 builder に影響)
 #   - SCORING_RUBRIC: +軸別 3 点 anchor 7 行 (feedback のみ)
 #   - mixed_panel ペルソナ: +ターン回転指示 1 行 (interviewer=mixed_panel 時のみ)
-# 更新時は plan v4 §1-1 のテーブルと docs/review/TRACKER.md の interview エントリを更新する。
+# 更新時は plan v4 §1-1 のテーブルと docs/INDEX.md の interview エントリを更新する。
 BUDGETS: dict[str, int] = {
     "plan": 1_300,
     "opening": 2_300,

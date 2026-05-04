@@ -1,6 +1,6 @@
 ---
 name: maintainability-review
-description: コードベース全体の保守性・変更容易性・責務分離・可読性・状態主体の妥当性を厳しめに評価し、docs/review/maintainability-architecture/ に厳格レビュー結果を記録する。リファクタ対象の網羅抽出と優先順位付けに使う。product code は一切編集しない。
+description: コードベース全体の保守性・変更容易性・責務分離・可読性・状態主体の妥当性を厳しめに評価し、docs/review/maintainability/ に厳格レビュー結果を記録する。リファクタ対象の網羅抽出と優先順位付けに使う。product code は一切編集しない。
 language: ja
 ---
 
@@ -16,16 +16,16 @@ language: ja
 - **目的**: 将来の保守負債・デグレ・責務崩壊・可読性悪化・認知負荷増大の芽を、実装着手前に洗い出す。
 - **境界**:
   - **禁止**: `backend/app/**`, `src/**`, `e2e/**`, `scripts/**` 等 product code の編集・コード生成・修正コミット。
-  - **許可**: `docs/review/maintainability-architecture/` 配下のレビュー文書作成・追記、`docs/review/TRACKER.md` の更新、旧レビューの frontmatter `status` 更新（モード ③ 時のみ）。
+  - **許可**: `docs/review/maintainability/` 配下のレビュー文書作成・追記、`docs/INDEX.md` の更新、旧レビューの frontmatter `status` 更新（モード ③ 時のみ）。
 - **評価対象スナップショット**: 既定は **working tree**（既存正本のファイル名が `current-working-tree` 命名のため）。ユーザー指定で `diff vs main` / 特定 `HEAD` も可。スキル冒頭でスナップショット種別を文書に明示記録する。
 
 ## ワークフロー
 
 ### Step 1: 前提確認
 
-1. `docs/review/TRACKER.md` の `maintainability` 行を読み、`latest_review` と `latest_plan` を把握。
-2. 現行正本（既定: `docs/review/maintainability-architecture/2026-04-12-strict-maintainability-review-current-working-tree.md`）を読み、未解決指摘を抽出。
-3. `docs/plan/MAINTAINABILITY_IMPROVEMENT_PLAN.md` の `based_on_review` フィールドを確認（モード ③ 時のみ更新が必要なため）。
+1. `docs/INDEX.md` の `maintainability` 行を読み、`latest_review` と `latest_plan` を把握。
+2. 現行正本（既定: `docs/review/maintainability/2026-04-12-strict-maintainability-review-current-working-tree.md`）を読み、未解決指摘を抽出。
+3. `docs/INDEX.md` の `based_on_review` フィールドを確認（モード ③ 時のみ更新が必要なため）。
 4. 現行正本の `review_date` が 90 日超古ければ、Step 2 でモード ③ をデフォルト推奨にする。
 
 ### Step 2: ヒアリング（最大 3 問）
@@ -76,13 +76,13 @@ language: ja
 
 #### モード ② 補遺追加
 
-1. 新規ファイル `docs/review/maintainability-architecture/YYYY-MM-DD-maintainability-review-<scope>-supplement.md` を作成。
+1. 新規ファイル `docs/review/maintainability/YYYY-MM-DD-maintainability-review-<scope>-supplement.md` を作成。
 2. frontmatter:
    ```yaml
    ---
    topic: maintainability
    review_date: YYYY-MM-DD
-   category: maintainability-architecture
+   category: maintainability
    supplements: 2026-04-12-strict-maintainability-review-current-working-tree.md
    status: active
    ---
@@ -92,21 +92,21 @@ language: ja
 
 #### モード ③ supersede + 新規正本
 
-1. 新規ファイル `docs/review/maintainability-architecture/YYYY-MM-DD-maintainability-review-<scope>.md` を作成。
+1. 新規ファイル `docs/review/maintainability/YYYY-MM-DD-maintainability-review-<scope>.md` を作成。
 2. frontmatter:
    ```yaml
    ---
    topic: maintainability
    review_date: YYYY-MM-DD
-   category: maintainability-architecture
+   category: maintainability
    supersedes: 2026-04-12-strict-maintainability-review-current-working-tree.md
    status: active
    ---
    ```
 3. 本文セクション 1〜8 を完全執筆。
 4. 旧正本ファイルの frontmatter `status` を `superseded` に変更（履歴は削除しない）。
-5. `docs/review/TRACKER.md` の `maintainability` 行 `latest_review` を新ファイル名に更新、`notes` に旧ファイル名を残す。
-6. `docs/plan/MAINTAINABILITY_IMPROVEMENT_PLAN.md` の `based_on_review` フィールドを新ファイル名に更新。
+5. `docs/INDEX.md` の `maintainability` 行 `latest_review` を新ファイル名に更新、`notes` に旧ファイル名を残す。
+6. `docs/INDEX.md` の `based_on_review` フィールドを新ファイル名に更新。
 
 ### Step 6: 後始末
 
@@ -235,5 +235,5 @@ language: ja
 
 - 日本語で記述。コード・パス・型名・ライブラリ名は英語のまま。
 - findings は重篤度（重大 / 中程度 / 軽微）で分類。
-- レビュー記録は `docs/review/maintainability-architecture/` に保存。
+- レビュー記録は `docs/review/maintainability/` に保存。
 - ユーザーへの最終報告は、文書パスと「次アクション提案」を簡潔に伝える。
