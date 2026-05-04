@@ -39,6 +39,12 @@ describe("QuickActions", () => {
     expect(source).toContain("border-[1.5px]");
   });
 
+  it("exposes stable selectors for viewport clipping checks", async () => {
+    const source = await readQuickActionsSource();
+    expect(source).toContain('data-testid="dashboard-quick-actions"');
+    expect(source).toContain("data-testid={`dashboard-quick-action-${action.key}`}");
+  });
+
   it("uses lucide icons instead of local svg icon components", async () => {
     const source = await readQuickActionsSource();
     expect(source).toContain("lucide-react");

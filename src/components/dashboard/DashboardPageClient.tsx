@@ -86,8 +86,8 @@ export function DashboardPageClient({
   return (
     <div className="overflow-x-hidden bg-background">
       <main className={cn("mx-auto flex min-h-screen flex-col gap-3 overflow-x-hidden px-4 pb-3 pt-14 transition-[max-width] duration-200 ease-in-out sm:px-6 lg:h-dvh lg:min-h-0 lg:gap-2 lg:overflow-hidden lg:px-5 lg:py-3", isCollapsed ? "max-w-[1440px]" : "max-w-7xl")}>
-        <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-2 lg:flex-nowrap">
-          <div className="flex min-w-0 items-baseline gap-x-2 lg:shrink">
+        <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-2 xl:flex-nowrap">
+          <div className="flex min-w-0 items-baseline gap-x-2 xl:shrink">
             <h1 className="truncate text-lg font-bold tracking-tight">{greeting}、{viewer.displayName}さん</h1>
             {viewer.isGuest && (
               <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">ゲスト</span>
@@ -97,7 +97,7 @@ export function DashboardPageClient({
           <QuickActions
             onInterviewClick={() => setShowInterviewCompanySelect(true)}
             onMotivationClick={() => setShowMotivationCompanySelect(true)}
-            className="-mx-4 w-[calc(100%+2rem)] px-4 sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:ml-auto lg:mr-0 lg:min-w-0 lg:flex-1 lg:justify-end lg:overflow-x-auto lg:px-0 lg:pb-1 xl:overflow-visible xl:pb-0"
+            className="-mx-4 w-[calc(100%+2rem)] px-4 sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:mx-0 lg:basis-full lg:px-0 xl:ml-auto xl:mr-0 xl:min-w-0 xl:basis-auto xl:flex-1 xl:justify-end xl:overflow-visible xl:pb-0"
           />
         </div>
 

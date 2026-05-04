@@ -637,7 +637,7 @@ run_feature_isolated() {
     PLAYWRIGHT_BASE_URL="$base_url" \
     PLAYWRIGHT_SKIP_WEBSERVER=1 \
     PLAYWRIGHT_HTML_OPEN=never \
-    "${target_env_args[@]}" \
+    ${target_env_args[@]+"${target_env_args[@]}"} \
     CI_E2E_SCOPE="$scope" \
     bash scripts/ci/run-ai-live.sh \
       --suite "$suite" \

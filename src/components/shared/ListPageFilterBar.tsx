@@ -10,6 +10,9 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
+const FILTER_BAR_SCROLL_ROW_CLASS =
+  "flex w-full min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80";
+
 export interface FilterTab {
   key: string;
   label: string;
@@ -60,25 +63,26 @@ export function ListPageFilterBar({
 }: ListPageFilterBarProps) {
   const selectedSortLabel =
     sortOptions.find((option) => option.value === sortBy)?.label ?? "並び順";
+  const hasStatusRow = filterTabs.length > 0 || activeFilters.length > 0;
 
   return (
-    <div className="mb-6 min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background/90 p-3 shadow-sm backdrop-blur-xl sm:mb-8 sm:p-4">
-      <div className="min-w-0 space-y-3">
-        <div className="relative w-full min-w-0 sm:max-w-[22rem]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            aria-label={searchPlaceholder}
-            placeholder={searchPlaceholder}
-            value={searchQuery}
-            onChange={(e) => onSearchChange(e.target.value)}
-            className="h-10 w-full rounded-xl border border-border/80 bg-background pl-10 pr-4 text-sm shadow-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
-          />
-        </div>
+    <div className="mb-6 min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background/90 p-3 shadow-sm backdrop-blur-xl sm:mb-8">
+      <div className="min-w-0 space-y-2">
+        <div className={FILTER_BAR_SCROLL_ROW_CLASS}>
+          <div className="relative min-w-[14rem] max-w-[22rem] flex-[1_0_16rem]">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              aria-label={searchPlaceholder}
+              placeholder={searchPlaceholder}
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="h-10 w-full rounded-xl border border-border/80 bg-background pl-10 pr-4 text-sm shadow-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+            />
+          </div>
 
-        <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 overflow-hidden sm:flex-nowrap sm:overflow-x-auto sm:overscroll-x-contain sm:pb-1 sm:[-ms-overflow-style:none] sm:[scrollbar-width:thin] sm:[&::-webkit-scrollbar]:h-1.5 sm:[&::-webkit-scrollbar-thumb]:rounded-full sm:[&::-webkit-scrollbar-thumb]:bg-slate-300/80">
           <Select value={sortBy} onValueChange={onSortChange}>
-            <SelectTrigger className="h-10 min-w-32 flex-1 sm:w-[160px] sm:flex-none sm:shrink-0">
+            <SelectTrigger className="h-10 w-[160px] shrink-0">
               <span className="min-w-0 flex-1 truncate text-left">{selectedSortLabel}</span>
             </SelectTrigger>
             <SelectContent>
@@ -91,12 +95,12 @@ export function ListPageFilterBar({
           </Select>
 
           {extraFilter ? (
-            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:flex-none sm:flex-nowrap [&>*]:min-w-32 [&>*]:flex-1 sm:[&>*]:min-w-0 sm:[&>*]:flex-none sm:[&>*]:shrink-0">
+            <div className="flex shrink-0 items-center gap-2 [&>*]:min-w-0 [&>*]:shrink-0">
               {extraFilter}
             </div>
           ) : null}
 
-          {viewToggle ? <div className="shrink-0 max-sm:w-full">{viewToggle}</div> : null}
+          {viewToggle ? <div className="shrink-0">{viewToggle}</div> : null}
 
           {clearAction ? (
             <Button
@@ -116,8 +120,8 @@ export function ListPageFilterBar({
           ) : null}
         </div>
 
-        {filterTabs.length > 0 ? (
-          <div className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 overflow-hidden sm:flex-nowrap sm:overflow-x-auto sm:overscroll-x-contain sm:pb-1 sm:[-ms-overflow-style:none] sm:[scrollbar-width:thin] sm:[&::-webkit-scrollbar]:h-1.5 sm:[&::-webkit-scrollbar-thumb]:rounded-full sm:[&::-webkit-scrollbar-thumb]:bg-slate-300/80">
+        {hasStatusRow ? (
+          <div className={FILTER_BAR_SCROLL_ROW_CLASS}>
             {filterTabs.map((tab) => {
               const tabCount = tabCounts[tab.key] ?? 0;
               const isActive = activeFilter === tab.key;
@@ -146,21 +150,20 @@ export function ListPageFilterBar({
                 </button>
               );
             })}
+            {filterTabs.length > 0 && activeFilters.length > 0 ? (
+              <span className="h-5 w-px shrink-0 bg-border" aria-hidden="true" />
+            ) : null}
+            {activeFilters.map((label) => (
+              <span
+                key={label}
+                className="shrink-0 rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary"
+              >
+                {label}
+              </span>
+            ))}
           </div>
         ) : null}
       </div>
-      {activeFilters.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {activeFilters.map((label) => (
-            <span
-              key={label}
-              className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary"
-            >
-              {label}
-            </span>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

@@ -53,7 +53,7 @@ export function QuickActions({ onInterviewClick, onMotivationClick, className }:
     <div className={cn(
       "flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:overflow-visible lg:pb-0",
       className,
-    )}>
+    )} data-testid="dashboard-quick-actions">
       {ACTIONS.map((action) => {
         const tone = ACTION_TONES[action.tone];
         const Icon = action.Icon;
@@ -77,6 +77,7 @@ export function QuickActions({ onInterviewClick, onMotivationClick, className }:
               type="button"
               onClick={action.actionType === "interview" ? onInterviewClick : onMotivationClick}
               className={cn(actionClassName, "cursor-pointer")}
+              data-testid={`dashboard-quick-action-${action.key}`}
             >
               {content}
             </button>
@@ -84,7 +85,12 @@ export function QuickActions({ onInterviewClick, onMotivationClick, className }:
         }
 
         return (
-          <Link key={action.key} href={action.href!} className={actionClassName}>
+          <Link
+            key={action.key}
+            href={action.href!}
+            className={actionClassName}
+            data-testid={`dashboard-quick-action-${action.key}`}
+          >
             {content}
           </Link>
         );

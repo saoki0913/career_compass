@@ -25,16 +25,17 @@ describe("DashboardPageClient", () => {
     expect(source).toContain("max-w-[1440px]");
   });
 
-  it("renders one responsive QuickActions rail in the greeting header row", async () => {
+  it("renders one responsive QuickActions rail without clipping at intermediate desktop widths", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./DashboardPageClient.tsx", import.meta.url), "utf8");
     expect((source.match(/<QuickActions/g) ?? [])).toHaveLength(1);
     expect(source).toContain("flex-wrap");
-    expect(source).toContain("lg:flex-nowrap");
-    expect(source).toContain("lg:ml-auto");
-    expect(source).toContain("lg:min-w-0");
-    expect(source).toContain("lg:flex-1");
-    expect(source).toContain("lg:overflow-x-auto");
+    expect(source).toContain("xl:flex-nowrap");
+    expect(source).toContain("lg:basis-full");
+    expect(source).toContain("xl:ml-auto");
+    expect(source).toContain("xl:min-w-0");
+    expect(source).toContain("xl:flex-1");
+    expect(source).toContain("xl:overflow-visible");
     expect(source).toContain("2xl:inline");
     expect(source).toContain("w-[calc(100%+2rem)]");
     expect(source).toContain("weekOffset");

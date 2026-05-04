@@ -19,6 +19,9 @@ const viewports = [
   { height: 844, name: "mobile", width: 390 },
   { height: 1024, name: "tablet", width: 768 },
   { height: 900, name: "laptop", width: 1024 },
+  { height: 900, name: "desktop-1100", width: 1100 },
+  { height: 900, name: "desktop-1152", width: 1152 },
+  { height: 900, name: "desktop-1200", width: 1200 },
   { height: 900, name: "desktop", width: 1440 },
 ] as const;
 
@@ -577,6 +580,31 @@ function pathnameMatchesRoute(actual: string, expected: string) {
   return false;
 }
 
+async function expectDashboardQuickActionsVisible(page: Page) {
+  const quickActions = page.getByTestId("dashboard-quick-actions");
+  await expect(quickActions).toBeVisible();
+
+  const actionBoxes = await quickActions.locator("[data-testid^='dashboard-quick-action-']").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        bottom: rect.bottom,
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+      };
+    })
+  );
+  expect(actionBoxes).toHaveLength(5);
+
+  const viewportWidth = await page.evaluate(() => window.innerWidth);
+  for (const box of actionBoxes) {
+    expect(box.left).toBeGreaterThanOrEqual(-1);
+    expect(box.right).toBeLessThanOrEqual(viewportWidth + 1);
+    expect(box.bottom).toBeGreaterThan(box.top);
+  }
+}
+
 for (const routePath of reviewPaths) {
   for (const viewport of viewports) {
     test(`ui review ${viewport.name} ${routePath}`, async ({ page }) => {
@@ -609,6 +637,10 @@ for (const routePath of reviewPaths) {
         viewport: window.innerWidth,
       }));
       expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 2);
+
+      if (routePath === "/dashboard" && viewport.width >= 1100) {
+        await expectDashboardQuickActionsVisible(page);
+      }
 
       await fs.mkdir(screenshotDir, { recursive: true });
       await page.screenshot({
