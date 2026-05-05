@@ -190,14 +190,14 @@ vercel_provider_keys() {
   temp_file="$(mktemp "/tmp/career-compass-vercel-env-${env_target}.XXXXXX")" || release_die "Could not create temp file for Vercel env pull"
   if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
     if VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-      run_real vercel env pull "$temp_file" --yes --environment=preview --git-branch "$preview_git_branch" --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1; then
+      run_real vercel env pull "$temp_file" --yes --environment preview --git-branch "$preview_git_branch" --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1; then
       pull_status=0
     else
       pull_status=$?
     fi
   else
     if VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-      run_real vercel env pull "$temp_file" --yes --environment="$env_target" --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1; then
+      run_real vercel env pull "$temp_file" --yes --environment "$env_target" --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1; then
       pull_status=0
     else
       pull_status=$?
