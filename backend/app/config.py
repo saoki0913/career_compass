@@ -106,6 +106,22 @@ class Settings(BaseSettings):
         default=["localhost", "127.0.0.1"],
         validation_alias=AliasChoices("BACKEND_TRUSTED_HOSTS"),
     )
+    sentry_dsn: str = Field(
+        default="",
+        validation_alias=AliasChoices("SENTRY_DSN"),
+    )
+    sentry_environment: str = Field(
+        default="",
+        validation_alias=AliasChoices("SENTRY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "ENVIRONMENT"),
+    )
+    sentry_release: str = Field(
+        default="",
+        validation_alias=AliasChoices("SENTRY_RELEASE", "RAILWAY_GIT_COMMIT_SHA"),
+    )
+    sentry_traces_sample_rate: float = Field(
+        default=0.05,
+        validation_alias=AliasChoices("SENTRY_TRACES_SAMPLE_RATE"),
+    )
 
     @field_validator("trusted_hosts", mode="before")
     @classmethod

@@ -1,8 +1,10 @@
 # Observability
 
-最終更新: 2026-05-01
+最終更新: 2026-05-05
 
 この文書は就活Passの運用監視で使う主要メトリクスの正本。RAG は FastAPI 内部 exporter (`127.0.0.1:9464`) で Prometheus 互換メトリクスを公開し、外部公開 `/metrics` endpoint は作らない。
+
+Phase 0 の外部監視と PII scrub 方針は `docs/ops/MONITORING_SETUP.md` を正本にする。Sentry は Replay 完全 OFF、`sendDefaultPii=false`、`beforeSend` recursive scrub を前提に有効化する。
 
 ## RAG Metrics
 

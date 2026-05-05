@@ -1,11 +1,11 @@
-import logging
 import time
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from app.utils.secure_logger import get_logger
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @router.get("/health")
@@ -48,7 +48,8 @@ async def readiness_check():
             logger.warning("Readiness check failed: llm_key_configured", exc_info=True)
 
     if not llm_key_configured:
-        warnings.append("llm_key_configured")
+        warnings.append("provider_credentials_unavailable")
+        logger.warning("Readiness check warning: llm provider credentials unavailable")
 
     elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
     if failed:
@@ -65,6 +66,5 @@ async def readiness_check():
     return {
         "status": "ready",
         "warnings": warnings,
-        "checks": {"llm_key_configured": llm_key_configured},
         "elapsed_ms": elapsed_ms,
     }
