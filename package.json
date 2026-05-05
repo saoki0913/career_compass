@@ -129,5 +129,13 @@
     "trace-core": "^0.7.0",
     "typescript": "^5",
     "vitest": "^4.1.0"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.10"
+    },
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    }
   }
 }
