@@ -184,22 +184,33 @@ vercel_provider_keys() {
   local project_id="$2"
   local team_id="$3"
   local preview_git_branch="${4:-}"
-  local output
+  local temp_file
+  local pull_status
 
+  temp_file="$(mktemp "/tmp/career-compass-vercel-env-${env_target}.XXXXXX")" || release_die "Could not create temp file for Vercel env pull"
   if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
-    output="$(
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env ls preview "$preview_git_branch" --cwd "$repo_root" --scope "$team_id" 2>/dev/null || true
-    )"
+    if VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+      run_real vercel env pull "$temp_file" --yes --environment=preview --git-branch "$preview_git_branch" --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1; then
+      pull_status=0
+    else
+      pull_status=$?
+    fi
   else
-    output="$(
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env ls "$env_target" --cwd "$repo_root" --scope "$team_id" 2>/dev/null || true
-    )"
+    if VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+      run_real vercel env pull "$temp_file" --yes --environment="$env_target" --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1; then
+      pull_status=0
+    else
+      pull_status=$?
+    fi
   fi
 
-  [[ -n "$output" ]] || release_die "Could not list Vercel ${env_target} env keys"
-  print -r -- "$output" | sed -nE 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]].*$/\1/p' | sort -u
+  if [[ "$pull_status" -ne 0 ]]; then
+    rm -f "$temp_file"
+    release_die "Could not pull Vercel ${env_target} env keys"
+  fi
+
+  iter_env_keys "$temp_file" | sort -u
+  rm -f "$temp_file"
 }
 
 check_vercel_key_drift() {

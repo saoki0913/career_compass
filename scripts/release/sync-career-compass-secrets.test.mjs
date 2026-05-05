@@ -71,11 +71,13 @@ test("check fails on provider missing keys without printing secret values", () =
       fakeVercelPath,
       `#!/bin/zsh
 set -euo pipefail
-if [[ "$1" == "env" && "$2" == "ls" ]]; then
-  print -r -- "PUBLIC_SETTING production"
-  print -r -- "CI_E2E_AUTH_SECRET production"
-  print -r -- "CI_E2E_AUTH_ENABLED production"
-  print -r -- "PLAYWRIGHT_BASE_URL production"
+if [[ "$1" == "env" && "$2" == "pull" ]]; then
+  cat > "$3" <<'EOF'
+PUBLIC_SETTING=expected-public
+CI_E2E_AUTH_SECRET=provider-secret
+CI_E2E_AUTH_ENABLED=1
+PLAYWRIGHT_BASE_URL=https://example.test
+EOF
   exit 0
 fi
 exit 1
@@ -130,14 +132,16 @@ test("check accepts Vercel staging overlay keys and only warns on extra keys", (
       fakeVercelPath,
       `#!/bin/zsh
 set -euo pipefail
-if [[ "$1" == "env" && "$2" == "ls" ]]; then
-  print -r -- "PUBLIC_SETTING production"
-  print -r -- "SUPABASE_URL production"
-  print -r -- "SUPABASE_SERVICE_ROLE_KEY production"
-  print -r -- "CI_E2E_AUTH_SECRET production"
-  print -r -- "CI_E2E_AUTH_ENABLED production"
-  print -r -- "PLAYWRIGHT_BASE_URL production"
-  print -r -- "TEMP_PROVIDER_ONLY_KEY production"
+if [[ "$1" == "env" && "$2" == "pull" ]]; then
+  cat > "$3" <<'EOF'
+PUBLIC_SETTING=expected-public
+SUPABASE_URL=https://example.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=provider-secret
+CI_E2E_AUTH_SECRET=provider-secret
+CI_E2E_AUTH_ENABLED=1
+PLAYWRIGHT_BASE_URL=https://example.test
+TEMP_PROVIDER_ONLY_KEY=extra
+EOF
   exit 0
 fi
 exit 1
