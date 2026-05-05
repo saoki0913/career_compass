@@ -309,14 +309,14 @@ vercel_upsert_env_file() {
     sens_flag="$(sensitive_flag_for_key "$key")"
     if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env rm "$key" preview "$preview_git_branch" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 || true
+        run_real vercel env rm "$key" preview "$preview_git_branch" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" preview "$preview_git_branch" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
+        run_real vercel env add "$key" preview "$preview_git_branch" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
     else
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 || true
+        run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
+        run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
     fi
   done < <(iter_env_keys "$file")
 }
@@ -338,14 +338,14 @@ vercel_upsert_selected_keys_from_file() {
     sens_flag="$(sensitive_flag_for_key "$key")"
     if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env rm "$key" preview "$preview_git_branch" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 || true
+        run_real vercel env rm "$key" preview "$preview_git_branch" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" preview "$preview_git_branch" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
+        run_real vercel env add "$key" preview "$preview_git_branch" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
     else
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 || true
+        run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
       VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
+        run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
     fi
   done
 }

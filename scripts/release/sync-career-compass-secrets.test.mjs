@@ -174,6 +174,67 @@ exit 1
   }
 });
 
+test("applies every Vercel key even when CLI reads stdin", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+  const keysLog = path.join(secretDir, "vercel-keys.log");
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-production.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "FIRST_SETTING=first-value",
+        "SECOND_SETTING=second-value",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "env" && "$2" == "add" ]]; then
+  print -r -- "$3" >> "$VERCEL_KEYS_LOG"
+  cat >/dev/null || true
+  exit 0
+fi
+if [[ "$1" == "env" && "$2" == "rm" ]]; then
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--apply", "--target", "vercel-production", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          VERCEL_KEYS_LOG: keysLog,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const keys = readFileSync(keysLog, "utf8").trim().split("\n").sort();
+    assert.equal(keys.length, 4);
+    assert.deepEqual([...new Set(keys)], ["FIRST_SETTING", "SECOND_SETTING"]);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
 test("applies Railway variables via stdin so JSON values keep their quotes", () => {
   const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
   const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
