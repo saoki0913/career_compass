@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import { request as httpsRequest } from "node:https";
 
 export type PublicUrlValidationCode =
   | "INVALID_URL"
@@ -20,12 +21,21 @@ export interface PublicUrlValidationResult {
   url?: URL;
 }
 
+export interface NormalizedPublicUrlResult {
+  ok: boolean;
+  value: string | null;
+  code?: PublicUrlValidationCode;
+  userMessage?: string;
+}
+
 type GuardedFetchOptions = {
   maxRedirects?: number;
 };
 
 const MAX_REDIRECTS = 5;
 const ALLOWED_PORTS = new Set(["", "443"]);
+
+type LookupCallback = (error: NodeJS.ErrnoException | null, address: string, family: number) => void;
 
 function blockedResult(
   code: PublicUrlValidationCode,
@@ -64,6 +74,14 @@ function isBlockedIpv4(ip: string): boolean {
 
 function isBlockedIpv6(ip: string): boolean {
   const normalized = normalizeIpv6(ip);
+  const ipv4MappedMatch = normalized.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (ipv4MappedMatch) {
+    return isBlockedIpv4(ipv4MappedMatch[1]);
+  }
+  if (normalized.startsWith("::ffff:")) {
+    return true;
+  }
+
   return (
     normalized === "::" ||
     normalized === "::1" ||
@@ -100,10 +118,109 @@ async function resolveHostIps(hostname: string): Promise<string[]> {
   return records.map((record) => record.address);
 }
 
+function headersInitToRecord(headersInit: HeadersInit | undefined): Record<string, string> {
+  const headers = new Headers(headersInit);
+  return Object.fromEntries(headers.entries());
+}
+
+function bodyInitToBuffer(body: BodyInit | null | undefined): Buffer | string | undefined {
+  if (body === null || body === undefined) {
+    return undefined;
+  }
+  if (typeof body === "string" || Buffer.isBuffer(body)) {
+    return body;
+  }
+  if (body instanceof URLSearchParams) {
+    return body.toString();
+  }
+  if (body instanceof ArrayBuffer) {
+    return Buffer.from(body);
+  }
+  if (ArrayBuffer.isView(body)) {
+    return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  }
+  throw new Error("Unsupported guarded fetch body");
+}
+
+function nodeHeadersToFetchHeaders(headers: Record<string, string | string[] | undefined>): Headers {
+  const result = new Headers();
+  for (const [name, value] of Object.entries(headers)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        result.append(name, entry);
+      }
+      continue;
+    }
+    if (value !== undefined) {
+      result.set(name, value);
+    }
+  }
+  return result;
+}
+
+async function fetchWithPinnedIp(url: URL, resolvedIps: string[], init?: RequestInit): Promise<Response> {
+  const body = bodyInitToBuffer(init?.body);
+  const baseHeaders = headersInitToRecord(init?.headers);
+  const path = `${url.pathname || "/"}${url.search}`;
+  const method = init?.method ?? (body === undefined ? "GET" : "POST");
+  const abortSignal = init?.signal ?? null;
+  let lastError: unknown;
+
+  for (const address of resolvedIps) {
+    try {
+      return await new Promise<Response>((resolve, reject) => {
+        const request = httpsRequest({
+          protocol: "https:",
+          hostname: url.hostname,
+          port: url.port ? Number(url.port) : 443,
+          path,
+          method,
+          headers: baseHeaders,
+          servername: url.hostname,
+          lookup: (_hostname: string, _options: unknown, callback: LookupCallback) => {
+            callback(null, address, isIP(address));
+          },
+        }, (response) => {
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk: Buffer | string) => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          });
+          response.on("end", () => {
+            resolve(new Response(Buffer.concat(chunks), {
+              status: response.statusCode ?? 0,
+              statusText: response.statusMessage,
+              headers: nodeHeadersToFetchHeaders(response.headers),
+            }));
+          });
+        });
+
+        request.on("error", reject);
+        if (abortSignal) {
+          if (abortSignal.aborted) {
+            request.destroy(new Error("Request aborted"));
+            return;
+          }
+          abortSignal.addEventListener("abort", () => {
+            request.destroy(new Error("Request aborted"));
+          }, { once: true });
+        }
+        if (body !== undefined) {
+          request.write(body);
+        }
+        request.end();
+      });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Pinned fetch failed");
+}
+
 export async function validatePublicUrl(input: string): Promise<PublicUrlValidationResult> {
   let url: URL;
   try {
-    url = new URL(input);
+    url = new URL(input.trim());
   } catch {
     return blockedResult("INVALID_URL", "無効なURLです。");
   }
@@ -143,6 +260,41 @@ export async function validatePublicUrl(input: string): Promise<PublicUrlValidat
   };
 }
 
+export async function normalizePublicHttpsUrl(input: unknown): Promise<NormalizedPublicUrlResult> {
+  if (input === null || input === undefined || input === "") {
+    return { ok: true, value: null };
+  }
+  if (typeof input !== "string") {
+    return {
+      ok: false,
+      value: null,
+      code: "INVALID_URL",
+      userMessage: "URLの形式を確認してください。",
+    };
+  }
+
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return { ok: true, value: null };
+  }
+
+  const validation = await validatePublicUrl(trimmed);
+  if (!validation.allowed || !validation.url) {
+    return {
+      ok: false,
+      value: null,
+      code: validation.code,
+      userMessage: validation.userMessage || "公開された HTTPS のURLを指定してください。",
+    };
+  }
+
+  validation.url.hash = "";
+  return {
+    ok: true,
+    value: validation.url.toString(),
+  };
+}
+
 export async function guardedFetch(
   input: string,
   init?: RequestInit,
@@ -157,10 +309,7 @@ export async function guardedFetch(
       throw new Error(validation.userMessage || "URL validation failed");
     }
 
-    const response = await fetch(validation.url.toString(), {
-      ...init,
-      redirect: "manual",
-    });
+    const response = await fetchWithPinnedIp(validation.url, validation.resolvedIps, init);
 
     if (response.status < 300 || response.status >= 400) {
       return response;

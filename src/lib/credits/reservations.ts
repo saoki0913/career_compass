@@ -63,43 +63,49 @@ export async function reserveCredits(
 ): Promise<{ success: boolean; reservationId: string; newBalance: number; error?: string }> {
   const now = new Date();
 
-  const updated = await db
-    .update(credits)
-    .set({
-      balance: sql`${credits.balance} - ${amount}`,
-      updatedAt: now,
-    })
-    .where(and(eq(credits.userId, userId), sql`${credits.balance} >= ${amount}`))
-    .returning({ newBalance: credits.balance });
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(credits)
+      .set({
+        balance: sql`${credits.balance} - ${amount}`,
+        updatedAt: now,
+      })
+      .where(and(eq(credits.userId, userId), sql`${credits.balance} >= ${amount}`))
+      .returning({ newBalance: credits.balance });
 
-  if (updated.length === 0) {
-    const userCredits = await getCreditRow(userId);
-    if (!userCredits) {
-      return { success: false, reservationId: "", newBalance: 0, error: "Credits not initialized" };
+    if (updated.length === 0) {
+      const [userCredits] = await tx
+        .select()
+        .from(credits)
+        .where(eq(credits.userId, userId))
+        .limit(1);
+      if (!userCredits) {
+        return { success: false, reservationId: "", newBalance: 0, error: "Credits not initialized" };
+      }
+      return {
+        success: false,
+        reservationId: "",
+        newBalance: userCredits.balance,
+        error: `Insufficient credits. Need ${amount}, have ${userCredits.balance}`,
+      };
     }
-    return {
-      success: false,
-      reservationId: "",
-      newBalance: userCredits.balance,
-      error: `Insufficient credits. Need ${amount}, have ${userCredits.balance}`,
-    };
-  }
 
-  const newBalance = updated[0].newBalance;
-  const reservationId = crypto.randomUUID();
+    const newBalance = updated[0].newBalance;
+    const reservationId = crypto.randomUUID();
 
-  await db.insert(creditTransactions).values({
-    id: reservationId,
-    userId,
-    amount: -amount,
-    type,
-    referenceId: referenceId || null,
-    description: description ? `[Reserved] ${description}` : "[Reserved]",
-    balanceAfter: newBalance,
-    createdAt: now,
+    await tx.insert(creditTransactions).values({
+      id: reservationId,
+      userId,
+      amount: -amount,
+      type,
+      referenceId: referenceId || null,
+      description: description ? `[Reserved] ${description}` : "[Reserved]",
+      balanceAfter: newBalance,
+      createdAt: now,
+    });
+
+    return { success: true, reservationId, newBalance };
   });
-
-  return { success: true, reservationId, newBalance };
 }
 
 export async function confirmReservation(reservationId: string): Promise<void> {

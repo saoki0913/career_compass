@@ -8,7 +8,7 @@ which emits a sanitized SSE ``error`` event.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -17,6 +17,7 @@ from app.security.career_principal import (
     CareerPrincipal,
     require_career_principal,
 )
+from app.security.sse_concurrency import SseConcurrencyExceeded, SseLease
 from app.prompts.interview_prompts import PROMPT_VERSION as INTERVIEW_PROMPT_VERSION
 from app.routers._interview.contracts import (
     INTERVIEW_DRILL_SCORE_SCHEMA,
@@ -114,6 +115,29 @@ def _sanitize_base_request(payload: InterviewBaseRequest) -> None:
     payload.selected_role = sanitize_prompt_input(payload.selected_role or "未設定", max_length=200)
 
 
+async def _leased_stream_response(
+    generator: AsyncGenerator[str, None],
+    principal: CareerPrincipal,
+):
+    actor_id = f"{principal.actor_kind}:{principal.actor_id}"
+    try:
+        lease = await SseLease.acquire(actor_id=actor_id, plan=principal.plan)
+    except SseConcurrencyExceeded as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="同時に実行できるストリーム数の上限に達しました。",
+            headers={"Retry-After": str(exc.rejection.retry_after_seconds)},
+        )
+
+    async def leased_generator():
+        async with lease:
+            async for chunk in generator:
+                await lease.heartbeat_if_due()
+                yield chunk
+
+    return _stream_response(leased_generator())
+
+
 # ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
@@ -131,7 +155,7 @@ async def start_interview(
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
-    return _stream_response(_generate_start_progress(payload))
+    return await _leased_stream_response(_generate_start_progress(payload), principal)
 
 
 @router.post("/turn")
@@ -147,7 +171,7 @@ async def next_interview_turn(
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
-    return _stream_response(_generate_turn_progress(payload))
+    return await _leased_stream_response(_generate_turn_progress(payload), principal)
 
 
 @router.post("/continue")
@@ -163,7 +187,7 @@ async def continue_interview(
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
-    return _stream_response(_generate_continue_progress(payload))
+    return await _leased_stream_response(_generate_continue_progress(payload), principal)
 
 
 @router.post("/feedback")
@@ -179,7 +203,7 @@ async def interview_feedback(
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
-    return _stream_response(_generate_feedback_progress(payload))
+    return await _leased_stream_response(_generate_feedback_progress(payload), principal)
 
 
 # ---------------------------------------------------------------------------
@@ -392,6 +416,7 @@ __all__ = [
     "_sanitize_optional_text",
     "_sanitize_messages",
     "_sanitize_base_request",
+    "_leased_stream_response",
     "start_interview",
     "next_interview_turn",
     "continue_interview",

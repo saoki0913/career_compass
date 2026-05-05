@@ -34,6 +34,7 @@ skip_all_playwright="${AI_LIVE_SKIP_ALL_PLAYWRIGHT:-0}"
 web_port=""
 base_url=""
 fastapi_health_url="${AI_LIVE_LOCAL_FASTAPI_HEALTH_URL:-http://localhost:8000/health/ready}"
+fastapi_base_url="${AI_LIVE_LOCAL_FASTAPI_BASE_URL:-${fastapi_health_url%/health/ready}}"
 expected_features_csv="company_info_search,selection_schedule,rag_ingest,gakuchika,motivation,interview,es_review"
 feature_workspace_root="${output_dir%/}/_feature_runs"
 next_log_path="${output_dir%/}/next-dev.log"
@@ -291,7 +292,11 @@ trap cleanup EXIT INT TERM
 start_next() {
   log "starting Next.js dev server -> ${next_log_path}"
   env \
+    CI_E2E_AUTH_ENABLED=1 \
     CI_E2E_AUTH_SECRET="$ci_e2e_auth_secret" \
+    LOCAL_AI_LIVE_PREFLIGHT_ENABLED=1 \
+    FASTAPI_URL="$fastapi_base_url" \
+    BACKEND_URL="$fastapi_base_url" \
     NEXT_PUBLIC_APP_URL="$base_url" \
     BETTER_AUTH_URL="$base_url" \
     PORT="$web_port" \

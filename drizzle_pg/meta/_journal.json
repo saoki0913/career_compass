@@ -190,6 +190,20 @@
       "when": 1777658953875,
       "tag": "0026_db_redesign_jsonb_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1777946400000,
+      "tag": "0027_stripe_event_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1778025600000,
+      "tag": "0028_owner_integrity_constraints",
+      "breakpoints": true
     }
   ]
 }

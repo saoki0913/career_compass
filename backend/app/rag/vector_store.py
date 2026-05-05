@@ -13,6 +13,7 @@ Supports:
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 from pathlib import Path
+from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime
 from urllib.parse import urlparse
@@ -34,6 +35,7 @@ from app.utils.cache import get_rag_cache, build_cache_key
 from app.utils.text_chunker import get_chunk_settings
 from app.rag.ids import collection_name_for_backend, make_source_document_id, make_source_hash
 from app.rag.document_summarizer import MetadataDocumentSummarizer
+from app.rag.security import assess_rag_injection_risk, is_rag_chunk_quarantined, sanitize_rag_context
 
 logger = get_logger(__name__)
 
@@ -65,6 +67,15 @@ CONTENT_TYPE_JA = {
     "full_text": "フルテキスト",
 }
 
+RAG_SOURCE_KINDS = {"corporate_public", "private_user_material"}
+PUBLIC_LEGACY_RAG_SOURCE_KINDS = {"crawl", "schedule", "upload"}
+
+
+@dataclass(frozen=True)
+class RagDeletionVerification:
+    complete: bool
+    residuals: dict[str, int]
+
 
 def _make_ingest_session_id() -> str:
     return uuid4().hex
@@ -72,6 +83,60 @@ def _make_ingest_session_id() -> str:
 
 def _make_source_hash(source_url: str) -> str:
     return make_source_hash(source_url)
+
+
+def validate_rag_source_metadata(
+    *,
+    source_kind: str,
+    tenant_key: str,
+    company_id: str,
+    source_id: str,
+    consent_reference: str | None = None,
+) -> dict[str, str]:
+    raw_kind = (source_kind or "corporate_public").strip()
+    normalized_kind = (
+        "corporate_public" if raw_kind in PUBLIC_LEGACY_RAG_SOURCE_KINDS else raw_kind
+    )
+    if normalized_kind not in RAG_SOURCE_KINDS:
+        raise ValueError("invalid RAG source_kind")
+    if not tenant_key:
+        raise ValueError("tenant_key is required for RAG source metadata")
+    if not company_id:
+        raise ValueError("company_id is required for RAG source metadata")
+    if not source_id:
+        raise ValueError("source_id is required for RAG source metadata")
+    consent = (consent_reference or "").strip()
+    if normalized_kind == "private_user_material" and not consent:
+        raise ValueError("private user material requires explicit consent")
+    return {
+        "source_kind": normalized_kind,
+        "tenant_key": tenant_key,
+        "company_id": company_id,
+        "source_id": source_id,
+        "consent_reference": consent,
+    }
+
+
+def verify_rag_deletion_complete(
+    *,
+    chroma_remaining: int,
+    bm25_remaining: int,
+    redis_remaining: int,
+    supabase_object_remaining: int,
+    ingest_job_remaining: int,
+) -> RagDeletionVerification:
+    residuals = {
+        name: int(value)
+        for name, value in {
+            "chroma": chroma_remaining,
+            "bm25": bm25_remaining,
+            "redis": redis_remaining,
+            "supabase_object": supabase_object_remaining,
+            "ingest_job": ingest_job_remaining,
+        }.items()
+        if int(value) > 0
+    }
+    return RagDeletionVerification(complete=not residuals, residuals=residuals)
 
 
 def _make_source_document_id(
@@ -510,8 +575,13 @@ async def get_company_context_for_review(
     total_length = 0
 
     for ctx in contexts:
-        text = ctx["text"]
-        chunk_type = ctx["metadata"].get("chunk_type", "general")
+        metadata = ctx["metadata"]
+        if is_rag_chunk_quarantined(metadata):
+            continue
+        text = sanitize_rag_context(str(ctx["text"]))
+        if not text:
+            continue
+        chunk_type = metadata.get("chunk_type", "general")
 
         # Add type label
         type_labels = {
@@ -613,6 +683,9 @@ async def store_full_text_content(
     content_channel: Optional[str] = None,
     backend: Optional[EmbeddingBackend] = None,
     raw_format: str = "text",
+    source_kind: str = "corporate_public",
+    source_id: str | None = None,
+    consent_reference: str | None = None,
 ) -> dict:
     """
     Store full text content from a web page in vector database.
@@ -655,6 +728,13 @@ async def store_full_text_content(
         if backend is None:
             logger.error("No embedding backend available for store_full_text_content")
             return _fail
+        source_metadata = validate_rag_source_metadata(
+            source_kind=source_kind,
+            tenant_key=tenant_key,
+            company_id=company_id,
+            source_id=source_id or _make_source_hash(source_url),
+            consent_reference=consent_reference,
+        )
         effective_type = content_type or content_channel or "corporate_site"
         chunk_size, chunk_overlap = get_chunk_settings(effective_type)
 
@@ -688,6 +768,7 @@ async def store_full_text_content(
             chunk["metadata"]["source_url"] = source_url
             chunk["metadata"]["content_type"] = content_type
             chunk["metadata"]["fetched_at"] = now
+            chunk["metadata"].update(source_metadata)
 
         # Classify chunks (rule + LLM fallback)
         classified = await classify_chunks(
@@ -697,6 +778,10 @@ async def store_full_text_content(
         secondary_content_types: set[str] = set()
         for chunk in classified:
             meta = chunk.get("metadata") or {}
+            risk = assess_rag_injection_risk(str(chunk.get("text") or ""))
+            meta["injection_risk_level"] = risk.level
+            meta["injection_risk_reasons"] = ",".join(risk.reasons[:5])
+            meta["quarantine"] = risk.quarantine
             ct = meta.get("content_type") or content_type or "corporate_site"
             meta["content_type"] = ct
             for secondary in meta.get("secondary_content_types") or []:
@@ -777,7 +862,7 @@ async def _store_content_by_source_url(
         summarizer = MetadataDocumentSummarizer()
 
         for idx, chunk in enumerate(content_chunks):
-            text = chunk.get("text", "")
+            text = sanitize_rag_context(str(chunk.get("text", "")))
             if not text or len(text.strip()) < 10:
                 continue
 
@@ -1015,6 +1100,8 @@ async def search_company_context_by_type(
                     for idx, doc in enumerate(results["documents"][0]):
                         meta = results["metadatas"][0][idx] if results["metadatas"] else {}
                         if not _matches_type_filter(meta):
+                            continue
+                        if is_rag_chunk_quarantined(meta):
                             continue
                         embedding = None
                         if include_embeddings and results.get("embeddings"):
@@ -1741,6 +1828,8 @@ async def get_context_for_source_urls_with_sources(
     seen_urls: set[str] = set()
     for chunk in selected_chunks:
         metadata = chunk.get("metadata") or {}
+        if is_rag_chunk_quarantined(metadata):
+            continue
         source_url = str(metadata.get("source_url") or "")
         if not source_url or source_url in seen_urls:
             continue
@@ -1770,10 +1859,14 @@ async def get_context_for_source_urls_with_sources(
     total_length = 0
     for chunk in selected_chunks:
         metadata = chunk.get("metadata") or {}
+        if is_rag_chunk_quarantined(metadata):
+            continue
         source_url = str(metadata.get("source_url") or "")
         normalized_type = normalize_content_type(str(metadata.get("content_type") or "corporate_site"))
         heading = _clean_direct_context_text(str(metadata.get("heading_path") or metadata.get("heading") or ""))
-        text = str(chunk.get("text") or "")
+        text = sanitize_rag_context(str(chunk.get("text") or ""))
+        if not text:
+            continue
         source_id = ""
         for source in sources:
             if source["source_url"] == source_url:

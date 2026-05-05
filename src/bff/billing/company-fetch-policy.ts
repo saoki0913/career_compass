@@ -3,17 +3,21 @@
  *
  * Semantics (preserved exactly from the previous inline implementation):
  * - Guests cannot use this feature — they are rejected upstream (401) before this policy is invoked.
- * - Logged-in users: monthly free quota is checked first. If quota remains, it is consumed
- *   post-success via incrementMonthlyScheduleFreeUse(). If quota is exhausted, 1 credit is
- *   required; credits are consumed post-success via consumeCredits().
- * - No reserve/confirm split — credits and free quota are consumed after the backend call
- *   succeeds and deadlines are persisted. This preserves the "consume on success only" rule.
+ * - Logged-in users: monthly free quota is reserved first. If quota is exhausted, 1 credit is
+ *   reserved. Reservations are confirmed only after deadlines are persisted and canceled on
+ *   failures, preserving the "consume on success only" rule without TOCTOU overuse.
  * - precheck() does NOT set errorResponse — the route retains createApiErrorResponse() so the
  *   402 error shape (with code/userMessage/action/requestId) is preserved for the client.
  */
 
-import { getRemainingFreeFetches, hasEnoughCredits, consumeCredits } from "@/lib/credits";
-import { incrementMonthlyScheduleFreeUse } from "@/lib/company-info/usage";
+import {
+  cancelReservation,
+  confirmReservation,
+  getRemainingFreeFetches,
+  hasEnoughCredits,
+  reserveCredits,
+} from "@/lib/credits";
+import { cancelMonthlyScheduleFreeUse, reserveMonthlyScheduleFreeUse } from "@/lib/company-info/usage";
 import type {
   BillingOutcome,
   BillingPolicy,
@@ -29,6 +33,8 @@ export interface CompanyFetchBillingContext {
   companyName: string;
   plan: "free" | "standard" | "pro";
 }
+
+const FREE_SCHEDULE_RESERVATION_ID = "schedule-free-quota";
 
 export const companyFetchPolicy: BillingPolicy<CompanyFetchBillingContext> = {
   async precheck(ctx): Promise<BillingPrecheckResult> {
@@ -47,31 +53,57 @@ export const companyFetchPolicy: BillingPolicy<CompanyFetchBillingContext> = {
     return { ok: true, freeQuotaAvailable: false };
   },
 
+  async reserve(
+    ctx: CompanyFetchBillingContext,
+  ) {
+    const freeReserved = await reserveMonthlyScheduleFreeUse(ctx.userId, ctx.plan);
+    if (freeReserved) {
+      return { reservationId: FREE_SCHEDULE_RESERVATION_ID };
+    }
+
+    const reservation = await reserveCredits(
+      ctx.userId,
+      1,
+      "company_fetch",
+      ctx.companyId,
+      `選考スケジュール取得: ${ctx.companyName}`,
+    );
+    if (!reservation.success) {
+      return { reservationId: null };
+    }
+
+    return { reservationId: reservation.reservationId };
+  },
+
   async confirm(
     ctx: CompanyFetchBillingContext,
     outcome: BillingOutcome,
+    reservationId: string | null,
   ): Promise<void> {
     if (outcome.kind !== "billable_success") {
       return;
     }
 
-    if (outcome.freeQuotaUsed) {
-      await incrementMonthlyScheduleFreeUse(ctx.userId);
-    } else {
-      const result = await consumeCredits(
-        ctx.userId,
-        1,
-        "company_fetch",
-        ctx.companyId,
-        `選考スケジュール取得: ${ctx.companyName}`,
-      );
-      if (!result.success) {
-        throw new Error("Insufficient credits for company info usage");
-      }
+    if (!reservationId) {
+      throw new Error("Missing company fetch billing reservation");
+    }
+
+    if (reservationId !== FREE_SCHEDULE_RESERVATION_ID) {
+      await confirmReservation(reservationId);
     }
   },
 
-  async cancel(): Promise<void> {
-    // No reservation exists for company-fetch; cancel is a no-op.
+  async cancel(
+    ctx: CompanyFetchBillingContext,
+    reservationId: string | null,
+  ): Promise<void> {
+    if (!reservationId) {
+      return;
+    }
+    if (reservationId === FREE_SCHEDULE_RESERVATION_ID) {
+      await cancelMonthlyScheduleFreeUse(ctx.userId);
+      return;
+    }
+    await cancelReservation(reservationId);
   },
 };

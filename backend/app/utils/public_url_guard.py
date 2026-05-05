@@ -19,6 +19,8 @@ MAX_REDIRECTS = 5
 
 def _is_blocked_ip(address: str) -> bool:
     ip = ipaddress.ip_address(address)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
     return (
         ip.is_private
         or ip.is_loopback

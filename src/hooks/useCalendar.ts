@@ -350,9 +350,11 @@ export function useGoogleCalendar() {
     setIsLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ action: "events", start, end });
-      const response = await fetch(`/api/calendar/google?${params.toString()}`, {
+      const response = await fetch("/api/calendar/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        body: JSON.stringify({ start, end }),
       });
 
       if (!response.ok) {

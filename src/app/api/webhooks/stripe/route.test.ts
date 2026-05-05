@@ -18,6 +18,8 @@ const {
   updatePlanAllocationMock: vi.fn(),
 }));
 
+const futurePeriodEnd = () => Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers({ "stripe-signature": "sig_test" })),
 }));
@@ -109,7 +111,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
           items: {
             data: [
               {
-                current_period_end: 1777561200,
+                current_period_end: futurePeriodEnd(),
                 price: { id: "price_std_month" },
               },
             ],
@@ -140,7 +142,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
           items: {
             data: [
               {
-                current_period_end: 1777561200,
+                current_period_end: futurePeriodEnd(),
                 price: { id: "price_std_month" },
               },
             ],
@@ -174,7 +176,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
           items: {
             data: [
               {
-                current_period_end: 1777561200,
+                current_period_end: futurePeriodEnd(),
                 price: { id: "price_std_month" },
               },
             ],
@@ -208,7 +210,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
           items: {
             data: [
               {
-                current_period_end: 1777561200,
+                current_period_end: futurePeriodEnd(),
                 price: { id: "price_unknown" },
               },
             ],
@@ -224,9 +226,9 @@ describe("api/webhooks/stripe subscription.updated", () => {
     }));
 
     expect(response.status).toBe(500);
-    expect(dbDeleteWhereMock).toHaveBeenCalledTimes(1);
-    expect(dbSelectLimitMock).not.toHaveBeenCalled();
-    expect(dbUpdateWhereMock).not.toHaveBeenCalled();
+    expect(dbDeleteWhereMock).not.toHaveBeenCalled();
+    expect(dbSelectLimitMock).toHaveBeenCalledTimes(1);
+    expect(dbUpdateWhereMock).toHaveBeenCalledTimes(1);
     expect(updatePlanAllocationMock).not.toHaveBeenCalled();
   });
 
@@ -242,7 +244,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
           items: {
             data: [
               {
-                current_period_end: 1777561200,
+                current_period_end: futurePeriodEnd(),
                 price: { id: "price_pro_month" },
               },
             ],
@@ -259,7 +261,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
     }));
 
     expect(response.status).toBe(500);
-    expect(dbDeleteWhereMock).toHaveBeenCalledTimes(1);
+    expect(dbDeleteWhereMock).not.toHaveBeenCalled();
   });
 });
 
@@ -303,7 +305,7 @@ describe("api/webhooks/stripe checkout.session.completed", () => {
       items: {
         data: [
           {
-            current_period_end: 1777561200,
+            current_period_end: futurePeriodEnd(),
             price: { id: "price_std_month" },
           },
         ],
@@ -346,7 +348,7 @@ describe("api/webhooks/stripe checkout.session.completed", () => {
       items: {
         data: [
           {
-            current_period_end: 1777561200,
+            current_period_end: futurePeriodEnd(),
             price: { id: "price_unknown" },
           },
         ],
@@ -362,8 +364,161 @@ describe("api/webhooks/stripe checkout.session.completed", () => {
     );
 
     expect(response.status).toBe(500);
-    expect(dbDeleteWhereMock).toHaveBeenCalledTimes(1);
+    expect(dbDeleteWhereMock).not.toHaveBeenCalled();
     expect(dbSelectLimitMock).not.toHaveBeenCalled();
     expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("api/webhooks/stripe entitlement downgrade and restore", () => {
+  beforeEach(() => {
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_test");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "price_std_month");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_ANNUAL", "price_std_year");
+    vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_month");
+    vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
+    constructEventMock.mockReset();
+    subscriptionsRetrieveMock.mockReset();
+    dbInsertValuesMock.mockReset();
+    dbDeleteWhereMock.mockReset();
+    dbSelectLimitMock.mockReset();
+    dbUpdateWhereMock.mockReset();
+    updatePlanAllocationMock.mockReset();
+
+    dbInsertValuesMock.mockResolvedValue(undefined);
+    dbDeleteWhereMock.mockResolvedValue(undefined);
+    dbUpdateWhereMock.mockResolvedValue(undefined);
+    dbSelectLimitMock.mockResolvedValue([
+      {
+        userId: "user-1",
+        stripePriceId: "price_std_month",
+      },
+    ]);
+  });
+
+  it("downgrades to free when invoice.payment_failed is received", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_payment_failed",
+      type: "invoice.payment_failed",
+      created: Math.floor(Date.now() / 1000),
+      data: {
+        object: {
+          parent: {
+            subscription_details: {
+              subscription: "sub_failed",
+            },
+          },
+        },
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "free");
+  });
+
+  it("downgrades to free when customer.subscription.deleted is received", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_subscription_deleted",
+      type: "customer.subscription.deleted",
+      created: Math.floor(Date.now() / 1000),
+      data: {
+        object: {
+          id: "sub_deleted",
+        },
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "free");
+  });
+
+  it("restores paid entitlement after invoice.payment_succeeded only for active known-price subscription", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_payment_succeeded",
+      type: "invoice.payment_succeeded",
+      created: Math.floor(Date.now() / 1000),
+      data: {
+        object: {
+          parent: {
+            subscription_details: {
+              subscription: "sub_recovered",
+            },
+          },
+        },
+      },
+    });
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_recovered",
+      status: "active",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: futurePeriodEnd(),
+            price: { id: "price_std_month" },
+          },
+        ],
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "standard");
+  });
+
+  it("keeps free entitlement after invoice.payment_succeeded for expired active subscription", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_payment_succeeded_expired",
+      type: "invoice.payment_succeeded",
+      created: Math.floor(Date.now() / 1000),
+      data: {
+        object: {
+          parent: {
+            subscription_details: {
+              subscription: "sub_expired",
+            },
+          },
+        },
+      },
+    });
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_expired",
+      status: "active",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: Math.floor(Date.now() / 1000) - 60,
+            price: { id: "price_std_month" },
+          },
+        ],
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "free");
   });
 });

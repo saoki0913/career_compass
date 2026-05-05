@@ -16,6 +16,7 @@ vi.mock("@/bff/identity/request-identity", () => ({
 }));
 
 vi.mock("@/bff/identity/owner-access", () => ({
+  buildOwnedRowCondition: vi.fn(() => ({ owner: "condition" })),
   getOwnedApplicationRecord: getOwnedApplicationRecordMock,
 }));
 

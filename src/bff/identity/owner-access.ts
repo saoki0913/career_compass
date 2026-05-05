@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql, type SQL, type SQLWrapper } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "@/lib/db";
 import { applications, companies, deadlines, documents, jobTypes } from "@/lib/db/schema";
@@ -13,8 +13,55 @@ interface OwnerRecord {
   guestId: string | null;
 }
 
+type OwnedTableColumns = {
+  userId: SQLWrapper;
+  guestId: SQLWrapper;
+};
+
 export function hasValidOwnerIdentity(identity: OwnerIdentity): boolean {
   return Boolean(identity.userId) !== Boolean(identity.guestId);
+}
+
+export function buildOwnerCondition(
+  table: OwnedTableColumns,
+  identity: OwnerIdentity,
+): SQL | null {
+  if (!hasValidOwnerIdentity(identity)) {
+    return null;
+  }
+
+  return identity.userId
+    ? eq(table.userId, identity.userId)
+    : eq(table.guestId, identity.guestId!);
+}
+
+export function buildOwnedRowCondition<T extends OwnedTableColumns>(
+  idCondition: SQL,
+  table: T,
+  identity: OwnerIdentity,
+): SQL | null {
+  const ownerCondition = buildOwnerCondition(table, identity);
+  return ownerCondition ? and(idCondition, ownerCondition) ?? null : null;
+}
+
+export function buildOwnedDeadlineCondition(deadlineId: string, identity: OwnerIdentity): SQL | null {
+  if (!hasValidOwnerIdentity(identity)) {
+    return null;
+  }
+
+  const ownerPredicate = identity.userId
+    ? sql`"deadline_owner"."user_id" = ${identity.userId}`
+    : sql`"deadline_owner"."guest_id" = ${identity.guestId}`;
+
+  return and(
+    eq(deadlines.id, deadlineId),
+    sql`exists (
+      select 1
+      from "companies" as "deadline_owner"
+      where "deadline_owner"."id" = ${deadlines.companyId}
+        and ${ownerPredicate}
+    )`,
+  ) ?? null;
 }
 
 export function isOwnedByIdentity(record: OwnerRecord | null | undefined, identity: OwnerIdentity) {
@@ -30,7 +77,8 @@ export function isOwnedByIdentity(record: OwnerRecord | null | undefined, identi
 }
 
 export async function hasOwnedCompany(companyId: string, identity: OwnerIdentity): Promise<boolean> {
-  if (!hasValidOwnerIdentity(identity)) {
+  const ownerCondition = buildOwnerCondition(companies, identity);
+  if (!ownerCondition) {
     return false;
   }
 
@@ -40,7 +88,7 @@ export async function hasOwnedCompany(companyId: string, identity: OwnerIdentity
     .where(
       and(
         eq(companies.id, companyId),
-        identity.userId ? eq(companies.userId, identity.userId) : eq(companies.guestId, identity.guestId!)
+        ownerCondition
       )
     )
     .limit(1);
@@ -52,7 +100,8 @@ export async function getOwnedCompany(
   companyId: string,
   identity: OwnerIdentity
 ): Promise<{ id: string; name: string; infoFetchedAt: Date | null; corporateInfoFetchedAt: Date | null } | null> {
-  if (!hasValidOwnerIdentity(identity)) {
+  const ownerCondition = buildOwnerCondition(companies, identity);
+  if (!ownerCondition) {
     return null;
   }
 
@@ -67,7 +116,7 @@ export async function getOwnedCompany(
     .where(
       and(
         eq(companies.id, companyId),
-        identity.userId ? eq(companies.userId, identity.userId) : eq(companies.guestId, identity.guestId!)
+        ownerCondition
       )
     )
     .limit(1);
@@ -80,7 +129,8 @@ export async function getOwnedCompanyRecord(
   companyId: string,
   identity: OwnerIdentity,
 ): Promise<typeof companies.$inferSelect | null> {
-  if (!hasValidOwnerIdentity(identity)) {
+  const ownerCondition = buildOwnerCondition(companies, identity);
+  if (!ownerCondition) {
     return null;
   }
 
@@ -90,7 +140,7 @@ export async function getOwnedCompanyRecord(
     .where(
       and(
         eq(companies.id, companyId),
-        identity.userId ? eq(companies.userId, identity.userId) : eq(companies.guestId, identity.guestId!),
+        ownerCondition,
       ),
     )
     .limit(1);
@@ -102,34 +152,31 @@ export async function getOwnedDocument(
   documentId: string,
   identity: OwnerIdentity,
 ): Promise<typeof documents.$inferSelect | null> {
-  if (!hasValidOwnerIdentity(identity)) {
+  const condition = buildOwnedRowCondition(eq(documents.id, documentId), documents, identity);
+  if (!condition) {
     return null;
   }
 
-  const [doc] = await db.select().from(documents).where(eq(documents.id, documentId)).limit(1);
-  if (!doc || !isOwnedByIdentity(doc, identity)) {
-    return null;
-  }
-  return doc;
+  const [doc] = await db.select().from(documents).where(condition).limit(1);
+  return doc ?? null;
 }
 
 export async function getOwnedApplicationRecord(
   applicationId: string,
   identity: OwnerIdentity,
 ): Promise<typeof applications.$inferSelect | null> {
-  if (!hasValidOwnerIdentity(identity)) {
+  const condition = buildOwnedRowCondition(eq(applications.id, applicationId), applications, identity);
+  if (!condition) {
     return null;
   }
 
-  const [app] = await db.select().from(applications).where(eq(applications.id, applicationId)).limit(1);
-  if (!app || !isOwnedByIdentity(app, identity)) {
-    return null;
-  }
-  return app;
+  const [app] = await db.select().from(applications).where(condition).limit(1);
+  return app ?? null;
 }
 
 export async function hasOwnedApplication(applicationId: string, identity: OwnerIdentity): Promise<boolean> {
-  if (!hasValidOwnerIdentity(identity)) {
+  const ownerCondition = buildOwnerCondition(applications, identity);
+  if (!ownerCondition) {
     return false;
   }
 
@@ -139,9 +186,7 @@ export async function hasOwnedApplication(applicationId: string, identity: Owner
     .where(
       and(
         eq(applications.id, applicationId),
-        identity.userId
-          ? eq(applications.userId, identity.userId)
-          : eq(applications.guestId, identity.guestId!)
+        ownerCondition
       )
     )
     .limit(1);
@@ -153,7 +198,8 @@ export async function getOwnedApplication(
   applicationId: string,
   identity: OwnerIdentity
 ): Promise<{ id: string; name: string } | null> {
-  if (!hasValidOwnerIdentity(identity)) {
+  const ownerCondition = buildOwnerCondition(applications, identity);
+  if (!ownerCondition) {
     return null;
   }
 
@@ -166,9 +212,7 @@ export async function getOwnedApplication(
     .where(
       and(
         eq(applications.id, applicationId),
-        identity.userId
-          ? eq(applications.userId, identity.userId)
-          : eq(applications.guestId, identity.guestId!)
+        ownerCondition
       )
     )
     .limit(1);
@@ -199,7 +243,8 @@ export async function hasOwnedJobType(jobTypeId: string, identity: OwnerIdentity
 }
 
 export async function hasOwnedDeadline(deadlineId: string, identity: OwnerIdentity): Promise<boolean> {
-  if (!hasValidOwnerIdentity(identity)) {
+  const condition = buildOwnedDeadlineCondition(deadlineId, identity);
+  if (!condition) {
     return false;
   }
 
@@ -208,14 +253,7 @@ export async function hasOwnedDeadline(deadlineId: string, identity: OwnerIdenti
     .select({ id: deadlines.id })
     .from(deadlines)
     .innerJoin(deadlineCompany, eq(deadlines.companyId, deadlineCompany.id))
-    .where(
-      and(
-        eq(deadlines.id, deadlineId),
-        identity.userId
-          ? eq(deadlineCompany.userId, identity.userId)
-          : eq(deadlineCompany.guestId, identity.guestId!)
-      )
-    )
+    .where(condition)
     .limit(1);
 
   return Boolean(deadline);

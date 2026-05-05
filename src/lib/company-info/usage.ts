@@ -112,19 +112,63 @@ async function getOrCreateMonthlyUsage(userId: string, monthKey: string) {
     monthKey,
     createdAt: now,
     updatedAt: now,
+  }).onConflictDoNothing({
+    target: [companyInfoMonthlyUsage.userId, companyInfoMonthlyUsage.monthKey],
   });
 
-  const [created] = await db
+  const [createdOrExisting] = await db
     .select()
     .from(companyInfoMonthlyUsage)
-    .where(eq(companyInfoMonthlyUsage.id, id))
+    .where(
+      and(
+        eq(companyInfoMonthlyUsage.userId, userId),
+        eq(companyInfoMonthlyUsage.monthKey, monthKey),
+      ),
+    )
     .limit(1);
 
-  if (!created) {
+  if (!createdOrExisting) {
     throw new Error("Failed to initialize company info monthly usage");
   }
 
-  return created;
+  return createdOrExisting;
+}
+
+function shouldFailClosedOnMissingMonthlyUsageSchema(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production" ||
+    process.env.VERCEL_ENV === "preview" ||
+    process.env.RAILWAY_ENVIRONMENT_NAME === "production" ||
+    process.env.RAILWAY_ENVIRONMENT_NAME === "staging"
+  );
+}
+
+function handleMissingMonthlyUsageSchemaFallback<T>(error: unknown, fallback: () => T): T {
+  if (!isMissingMonthlyUsageSchemaError(error)) {
+    throw error;
+  }
+  if (shouldFailClosedOnMissingMonthlyUsageSchema()) {
+    throw error;
+  }
+  return fallback();
+}
+
+function readFreeUnitLockRow(rows: Iterable<Record<string, unknown>>): {
+  previousFreeUnits: number;
+  nextFreeUnits: number;
+} | null {
+  const [row] = Array.from(rows);
+  if (!row) return null;
+  const previous = Number(row.previous_free_units);
+  const next = Number(row.next_free_units);
+  if (!Number.isFinite(previous) || !Number.isFinite(next)) {
+    throw new Error("Invalid company info usage lock result");
+  }
+  return {
+    previousFreeUnits: previous,
+    nextFreeUnits: next,
+  };
 }
 
 /**
@@ -155,10 +199,7 @@ export async function getRemainingCompanyRagFreeUnitsSafe(
   try {
     return await getRemainingCompanyRagHtmlFreeUnits(userId, plan);
   } catch (error) {
-    if (isMissingMonthlyUsageSchemaError(error)) {
-      return getMonthlyRagHtmlFreeUnits(plan);
-    }
-    throw error;
+    return handleMissingMonthlyUsageSchemaFallback(error, () => getMonthlyRagHtmlFreeUnits(plan));
   }
 }
 
@@ -169,10 +210,7 @@ export async function getRemainingCompanyRagHtmlFreeUnitsSafe(
   try {
     return await getRemainingCompanyRagHtmlFreeUnits(userId, plan);
   } catch (error) {
-    if (isMissingMonthlyUsageSchemaError(error)) {
-      return getMonthlyRagHtmlFreeUnits(plan);
-    }
-    throw error;
+    return handleMissingMonthlyUsageSchemaFallback(error, () => getMonthlyRagHtmlFreeUnits(plan));
   }
 }
 
@@ -183,10 +221,7 @@ export async function getRemainingCompanyRagPdfFreeUnitsSafe(
   try {
     return await getRemainingCompanyRagPdfFreeUnits(userId, plan);
   } catch (error) {
-    if (isMissingMonthlyUsageSchemaError(error)) {
-      return getMonthlyRagPdfFreeUnits(plan);
-    }
-    throw error;
+    return handleMissingMonthlyUsageSchemaFallback(error, () => getMonthlyRagPdfFreeUnits(plan));
   }
 }
 
@@ -209,32 +244,57 @@ export async function getRemainingMonthlyScheduleFreeFetchesSafe(
   try {
     return await getRemainingMonthlyScheduleFreeFetches(userId, plan);
   } catch (error) {
-    if (isMissingMonthlyUsageSchemaError(error)) {
-      return getMonthlyScheduleFetchFreeLimit(plan);
-    }
-    throw error;
+    return handleMissingMonthlyUsageSchemaFallback(error, () => getMonthlyScheduleFetchFreeLimit(plan));
   }
 }
 
-/** 選考スケジュール取得成功時のみ呼ぶ（月次無料枠 1 回消費） */
-export async function incrementMonthlyScheduleFreeUse(userId: string): Promise<void> {
+/** 選考スケジュール取得開始時に月次無料枠 1 回分を予約する */
+export async function reserveMonthlyScheduleFreeUse(userId: string, plan: PaidPlan): Promise<boolean> {
+  const limit = getMonthlyScheduleFetchFreeLimit(plan);
+  if (limit <= 0) return false;
+
+  try {
+    const monthKey = getCurrentJstMonthKey();
+    const usage = await getOrCreateMonthlyUsage(userId, monthKey);
+    const updated = await db
+      .update(companyInfoMonthlyUsage)
+      .set({
+        scheduleFetchFreeUses: sql`${companyInfoMonthlyUsage.scheduleFetchFreeUses} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(companyInfoMonthlyUsage.id, usage.id),
+        sql`${companyInfoMonthlyUsage.scheduleFetchFreeUses} < ${limit}`,
+      ))
+      .returning({ id: companyInfoMonthlyUsage.id });
+    return updated.length > 0;
+  } catch (error) {
+    return handleMissingMonthlyUsageSchemaFallback(error, () => false);
+  }
+}
+
+/** 予約した月次無料枠を失敗時に戻す */
+export async function cancelMonthlyScheduleFreeUse(userId: string): Promise<void> {
   try {
     const monthKey = getCurrentJstMonthKey();
     const usage = await getOrCreateMonthlyUsage(userId, monthKey);
     await db
       .update(companyInfoMonthlyUsage)
       .set({
-        scheduleFetchFreeUses: sql`${companyInfoMonthlyUsage.scheduleFetchFreeUses} + 1`,
+        scheduleFetchFreeUses: sql`greatest(${companyInfoMonthlyUsage.scheduleFetchFreeUses} - 1, 0)`,
         updatedAt: new Date(),
       })
       .where(eq(companyInfoMonthlyUsage.id, usage.id));
   } catch (error) {
-    if (isMissingMonthlyUsageSchemaError(error)) {
-      console.warn("Skipping monthly schedule free usage increment because monthly usage schema is not fully migrated.", error);
-      return;
+    if (!isMissingMonthlyUsageSchemaError(error) || shouldFailClosedOnMissingMonthlyUsageSchema()) {
+      throw error;
     }
-    throw error;
   }
+}
+
+/** @deprecated Use reserveMonthlyScheduleFreeUse at start and cancel on failure. */
+export async function incrementMonthlyScheduleFreeUse(userId: string): Promise<void> {
+  await reserveMonthlyScheduleFreeUse(userId, "free");
 }
 
 export type CompanyRagUsageKind = "url" | "pdf";
@@ -273,16 +333,63 @@ export async function applyCompanyRagUsage(params: {
 
   try {
     const monthKey = getCurrentJstMonthKey();
-    const usage = await getOrCreateMonthlyUsage(params.userId, monthKey);
-    const usedFreeUnits = params.kind === "pdf" ? usage.ragPdfFreeUnits ?? 0 : usage.ragHtmlFreeUnits ?? 0;
     const monthlyFreePages =
       params.kind === "pdf" ? getMonthlyRagPdfFreeUnits(params.plan) : getMonthlyRagHtmlFreeUnits(params.plan);
-    const freePagesRemaining = Math.max(0, monthlyFreePages - usedFreeUnits);
-    const freeUnitsApplied = Math.min(freePagesRemaining, pagesTotal);
-    const overflowUnits = pagesTotal - freeUnitsApplied;
+    const usage = await getOrCreateMonthlyUsage(params.userId, monthKey);
+    const lockedRows = params.kind === "pdf" ? await db.execute(sql`
+      with locked as (
+        select id,
+               rag_pdf_free_units
+        from company_info_monthly_usage
+        where id = ${usage.id}
+        for update
+      ),
+      updated as (
+        update company_info_monthly_usage as usage
+        set
+          rag_ingest_units = usage.rag_ingest_units + least(greatest(${monthlyFreePages} - locked.rag_pdf_free_units, 0), ${pagesTotal}),
+          rag_pdf_free_units = usage.rag_pdf_free_units + least(greatest(${monthlyFreePages} - locked.rag_pdf_free_units, 0), ${pagesTotal}),
+          rag_overflow_units = 0,
+          updated_at = now()
+        from locked
+        where usage.id = locked.id
+        returning
+          locked.rag_pdf_free_units as previous_free_units,
+          usage.rag_pdf_free_units as next_free_units
+      )
+      select previous_free_units, next_free_units from updated
+    `) : await db.execute(sql`
+      with locked as (
+        select id,
+               rag_html_free_units
+        from company_info_monthly_usage
+        where id = ${usage.id}
+        for update
+      ),
+      updated as (
+        update company_info_monthly_usage as usage
+        set
+          rag_ingest_units = usage.rag_ingest_units + least(greatest(${monthlyFreePages} - locked.rag_html_free_units, 0), ${pagesTotal}),
+          rag_html_free_units = usage.rag_html_free_units + least(greatest(${monthlyFreePages} - locked.rag_html_free_units, 0), ${pagesTotal}),
+          rag_overflow_units = 0,
+          updated_at = now()
+        from locked
+        where usage.id = locked.id
+        returning
+          locked.rag_html_free_units as previous_free_units,
+          usage.rag_html_free_units as next_free_units
+      )
+      select previous_free_units, next_free_units from updated
+    `);
+    const lockedRow = readFreeUnitLockRow(lockedRows);
+    if (!lockedRow) {
+      throw new Error("Failed to lock company info monthly usage");
+    }
 
-    const creditsNeeded = params.kind === "url" ? overflowUnits : calculatePdfIngestCredits(overflowUnits);
-    const creditsDisplayed = creditsNeeded;
+    const freeUnitsApplied = Math.max(0, lockedRow.nextFreeUnits - lockedRow.previousFreeUnits);
+    const freePagesRemaining = Math.max(0, monthlyFreePages - lockedRow.previousFreeUnits);
+    const overflowUnits = pagesTotal - freeUnitsApplied;
+    const creditsDisplayed = params.kind === "url" ? overflowUnits : calculatePdfIngestCredits(overflowUnits);
     let creditsActuallyDeducted = 0;
 
     if (creditsDisplayed > 0) {
@@ -294,25 +401,25 @@ export async function applyCompanyRagUsage(params: {
         params.description ?? "企業RAG取込",
       );
       if (!consumption.success) {
+        const rollbackFreeUnits = params.kind === "url"
+          ? {
+              ragIngestUnits: sql`greatest(${companyInfoMonthlyUsage.ragIngestUnits} - ${freeUnitsApplied}, 0)`,
+              ragHtmlFreeUnits: sql`greatest(${companyInfoMonthlyUsage.ragHtmlFreeUnits} - ${freeUnitsApplied}, 0)`,
+              updatedAt: new Date(),
+            }
+          : {
+              ragIngestUnits: sql`greatest(${companyInfoMonthlyUsage.ragIngestUnits} - ${freeUnitsApplied}, 0)`,
+              ragPdfFreeUnits: sql`greatest(${companyInfoMonthlyUsage.ragPdfFreeUnits} - ${freeUnitsApplied}, 0)`,
+              updatedAt: new Date(),
+            };
+        await db
+          .update(companyInfoMonthlyUsage)
+          .set(rollbackFreeUnits)
+          .where(eq(companyInfoMonthlyUsage.id, usage.id));
         throw new Error("Insufficient credits for company RAG usage");
       }
       creditsActuallyDeducted = creditsDisplayed;
     }
-
-    const now = new Date();
-
-    await db
-      .update(companyInfoMonthlyUsage)
-      .set({
-        ragIngestUnits: usage.ragIngestUnits + freeUnitsApplied,
-        ragHtmlFreeUnits:
-          params.kind === "url" ? (usage.ragHtmlFreeUnits ?? 0) + freeUnitsApplied : usage.ragHtmlFreeUnits ?? 0,
-        ragPdfFreeUnits:
-          params.kind === "pdf" ? (usage.ragPdfFreeUnits ?? 0) + freeUnitsApplied : usage.ragPdfFreeUnits ?? 0,
-        ragOverflowUnits: 0,
-        updatedAt: now,
-      })
-      .where(eq(companyInfoMonthlyUsage.id, usage.id));
 
     return {
       freeUnitsApplied,
@@ -322,7 +429,7 @@ export async function applyCompanyRagUsage(params: {
       remainingFreeUnits: Math.max(0, freePagesRemaining - freeUnitsApplied),
     };
   } catch (error) {
-    if (isMissingMonthlyUsageSchemaError(error)) {
+    return handleMissingMonthlyUsageSchemaFallback(error, () => {
       const monthlyFreePages =
         params.kind === "pdf" ? getMonthlyRagPdfFreeUnits(params.plan) : getMonthlyRagHtmlFreeUnits(params.plan);
       const freeUnitsApplied = Math.min(monthlyFreePages, pagesTotal);
@@ -335,7 +442,6 @@ export async function applyCompanyRagUsage(params: {
         creditsActuallyDeducted: 0,
         remainingFreeUnits: Math.max(0, monthlyFreePages - pagesTotal),
       };
-    }
-    throw error;
+    });
   }
 }

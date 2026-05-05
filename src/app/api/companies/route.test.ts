@@ -104,4 +104,56 @@ describe("api/companies", () => {
     expect(data.company.name).toBe("テスト会社");
     expect(data.company.userId).toBe("user-1");
   });
+
+  it("does not expose normal credential fields in create responses", async () => {
+    const { POST } = await import("@/app/api/companies/route");
+    const request = new NextRequest("http://localhost:3000/api/companies", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "認証情報あり",
+        mypageLoginId: "student@example.com",
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    dbSelectMock
+      .mockReturnValueOnce(makeSelectLimitResult([{ userId: "user-1", plan: "free" }]))
+      .mockReturnValueOnce(makeSelectWhereResult([]));
+    dbInsertMock.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
+
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.company.hasCredentials).toBe(true);
+    expect(data.company.mypageLoginId).toBeUndefined();
+    expect(data.company.mypagePassword).toBeUndefined();
+  });
+
+  it("rejects unsafe company URLs before insert", async () => {
+    const { POST } = await import("@/app/api/companies/route");
+    const request = new NextRequest("http://localhost:3000/api/companies", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "危険URL",
+        recruitmentUrl: "http://example.com/recruit",
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    dbSelectMock.mockReturnValueOnce(makeSelectLimitResult([{ userId: "user-1", plan: "free" }]));
+
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("COMPANY_RECRUITMENT_URL_INVALID");
+    expect(dbInsertMock).not.toHaveBeenCalled();
+  });
 });

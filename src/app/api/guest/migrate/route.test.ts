@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+const csrfHeaders = {
+  cookie: "csrf_token=test-csrf-token",
+  "x-csrf-token": "test-csrf-token",
+};
+
 const {
   getSessionMock,
   migrateGuestToUserMock,
+  readGuestDeviceTokenMock,
+  clearGuestDeviceTokenCookieMock,
   checkRateLimitMock,
   createRateLimitKeyMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   migrateGuestToUserMock: vi.fn(),
+  readGuestDeviceTokenMock: vi.fn(),
+  clearGuestDeviceTokenCookieMock: vi.fn(),
   checkRateLimitMock: vi.fn(),
   createRateLimitKeyMock: vi.fn(),
 }));
@@ -30,8 +39,8 @@ vi.mock("@/lib/auth/guest", () => ({
 }));
 
 vi.mock("@/lib/auth/guest-cookie", () => ({
-  clearGuestDeviceTokenCookie: vi.fn(),
-  readGuestDeviceToken: vi.fn(() => "550e8400-e29b-41d4-a716-446655440000"),
+  clearGuestDeviceTokenCookie: clearGuestDeviceTokenCookieMock,
+  readGuestDeviceToken: readGuestDeviceTokenMock,
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -46,6 +55,8 @@ describe("api/guest/migrate", () => {
   beforeEach(() => {
     getSessionMock.mockReset();
     migrateGuestToUserMock.mockReset();
+    readGuestDeviceTokenMock.mockReset();
+    clearGuestDeviceTokenCookieMock.mockReset();
     checkRateLimitMock.mockReset();
     createRateLimitKeyMock.mockReset();
 
@@ -54,6 +65,7 @@ describe("api/guest/migrate", () => {
       guestId: "guest-1",
       userId: "user-1",
     });
+    readGuestDeviceTokenMock.mockReturnValue("550e8400-e29b-41d4-a716-446655440000");
     createRateLimitKeyMock.mockReturnValue("guestMigrate:user-1");
     checkRateLimitMock.mockResolvedValue({ allowed: true, remaining: 2, resetIn: 0 });
   });
@@ -63,7 +75,7 @@ describe("api/guest/migrate", () => {
     const request = new NextRequest("http://localhost:3000/api/guest/migrate", {
       method: "POST",
       body: JSON.stringify({ deviceToken: "550e8400-e29b-41d4-a716-446655440000" }),
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...csrfHeaders },
     });
 
     await POST(request);
@@ -73,6 +85,26 @@ describe("api/guest/migrate", () => {
       "guestMigrate:user-1",
       expect.objectContaining({ maxTokens: 3 }),
     );
+  });
+
+  it("does not expose owner identifiers after a successful migration", async () => {
+    const { POST } = await import("@/app/api/guest/migrate/route");
+    const request = new NextRequest("http://localhost:3000/api/guest/migrate", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...csrfHeaders },
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      success: true,
+      migrated: true,
+      message: "Guest data migrated successfully",
+    });
+    expect(payload.guestId).toBeUndefined();
+    expect(payload.userId).toBeUndefined();
   });
 
   it("returns a structured 429 response when rate limited", async () => {
@@ -85,6 +117,7 @@ describe("api/guest/migrate", () => {
       headers: {
         "content-type": "application/json",
         "x-request-id": "req-guest-migrate",
+        ...csrfHeaders,
       },
     });
 
@@ -97,5 +130,63 @@ describe("api/guest/migrate", () => {
     expect(payload.error.code).toBe("RATE_LIMITED");
     expect(payload.error.userMessage).toBe("しばらく待ってから再試行してください。");
     expect(payload.error.action).toContain("42");
+  });
+
+  it("returns no-op success without rate limiting when there is no guest cookie", async () => {
+    readGuestDeviceTokenMock.mockReturnValueOnce(null);
+
+    const { POST } = await import("@/app/api/guest/migrate/route");
+    const request = new NextRequest("http://localhost:3000/api/guest/migrate", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...csrfHeaders },
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      success: true,
+      migrated: false,
+      reason: "guest_session_not_found",
+    });
+    expect(checkRateLimitMock).not.toHaveBeenCalled();
+    expect(migrateGuestToUserMock).not.toHaveBeenCalled();
+  });
+
+  it("returns no-op success and clears the guest cookie when migration is already done", async () => {
+    migrateGuestToUserMock.mockResolvedValueOnce(null);
+
+    const { POST } = await import("@/app/api/guest/migrate/route");
+    const request = new NextRequest("http://localhost:3000/api/guest/migrate", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...csrfHeaders },
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toEqual({
+      success: true,
+      migrated: false,
+      reason: "guest_session_not_found_or_already_migrated",
+    });
+    expect(clearGuestDeviceTokenCookieMock).toHaveBeenCalledWith(response);
+  });
+
+  it("rejects missing CSRF before migrating guest data", async () => {
+    const { POST } = await import("@/app/api/guest/migrate/route");
+    const request = new NextRequest("http://localhost:3000/api/guest/migrate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.error.code).toBe("CSRF_TOKEN_MISSING");
+    expect(migrateGuestToUserMock).not.toHaveBeenCalled();
   });
 });

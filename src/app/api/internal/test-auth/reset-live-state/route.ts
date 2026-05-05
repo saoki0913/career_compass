@@ -12,8 +12,14 @@ import {
 export async function POST(request: NextRequest) {
   const authSecret = process.env.CI_E2E_AUTH_SECRET?.trim();
   const betterAuthSecret = process.env.BETTER_AUTH_SECRET?.trim();
+  const appUrl = request.nextUrl.origin;
 
-  if (!isCiE2EAuthEnabled() || !authSecret || !betterAuthSecret) {
+  if (!isCiE2EAuthEnabled(appUrl) || !authSecret || !betterAuthSecret) {
+    console.info(JSON.stringify({
+      context: "ci-test-reset-live-state",
+      outcome: "disabled",
+      host: request.nextUrl.hostname,
+    }));
     return createApiErrorResponse(request, {
       status: 404,
       code: "CI_TEST_AUTH_DISABLED",
@@ -23,6 +29,11 @@ export async function POST(request: NextRequest) {
   }
 
   if (!hasMatchingSecret(authSecret, parseBearerSecret(request.headers.get("authorization")))) {
+    console.info(JSON.stringify({
+      context: "ci-test-reset-live-state",
+      outcome: "unauthorized",
+      host: request.nextUrl.hostname,
+    }));
     return createApiErrorResponse(request, {
       status: 401,
       code: "CI_TEST_AUTH_UNAUTHORIZED",
@@ -34,6 +45,12 @@ export async function POST(request: NextRequest) {
   try {
     const ensuredUser = await ensureCiE2ETestUser(request.headers.get(CI_E2E_SCOPE_HEADER));
     const result = await resetCiE2ELiveState(ensuredUser.userId);
+    console.info(JSON.stringify({
+      context: "ci-test-reset-live-state",
+      outcome: "success",
+      host: request.nextUrl.hostname,
+      scope: request.headers.get(CI_E2E_SCOPE_HEADER) ? "provided" : "default",
+    }));
 
     return NextResponse.json({
       success: true,

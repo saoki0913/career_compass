@@ -243,6 +243,8 @@ export const applications = pgTable(
   (t) => [
     check("applications_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("applications_company_id_idx").on(t.companyId),
+    index("applications_company_user_owner_idx").on(t.companyId, t.userId),
+    index("applications_company_guest_owner_idx").on(t.companyId, t.guestId),
   ]
 );
 
@@ -314,6 +316,8 @@ export const deadlines = pgTable(
     index("deadlines_company_id_idx").on(t.companyId),
     index("deadlines_application_id_idx").on(t.applicationId),
     index("deadlines_job_type_id_idx").on(t.jobTypeId),
+    index("deadlines_company_application_idx").on(t.companyId, t.applicationId),
+    index("deadlines_application_job_type_idx").on(t.applicationId, t.jobTypeId),
     index("deadlines_due_date_idx").on(t.dueDate),
     index("deadlines_confirm_completed_due_idx").on(t.isConfirmed, t.completedAt, t.dueDate),
     index("deadlines_company_completed_due_idx").on(t.companyId, t.completedAt, t.dueDate),
@@ -459,6 +463,12 @@ export const tasks = pgTable(
     index("tasks_company_id_idx").on(t.companyId),
     index("tasks_application_id_idx").on(t.applicationId),
     index("tasks_deadline_id_idx").on(t.deadlineId),
+    index("tasks_company_user_owner_idx").on(t.companyId, t.userId),
+    index("tasks_company_guest_owner_idx").on(t.companyId, t.guestId),
+    index("tasks_application_user_owner_idx").on(t.applicationId, t.userId),
+    index("tasks_application_guest_owner_idx").on(t.applicationId, t.guestId),
+    index("tasks_deadline_user_owner_idx").on(t.deadlineId, t.userId),
+    index("tasks_deadline_guest_owner_idx").on(t.deadlineId, t.guestId),
     index("tasks_deadline_status_idx").on(t.deadlineId, t.status),
     index("tasks_status_idx").on(t.status),
     index("tasks_user_status_due_idx").on(t.userId, t.status, t.dueDate),
@@ -524,6 +534,12 @@ export const documents = pgTable(
     index("documents_company_id_idx").on(t.companyId),
     index("documents_application_id_idx").on(t.applicationId),
     index("documents_job_type_id_idx").on(t.jobTypeId),
+    index("documents_company_user_owner_idx").on(t.companyId, t.userId),
+    index("documents_company_guest_owner_idx").on(t.companyId, t.guestId),
+    index("documents_application_user_owner_idx").on(t.applicationId, t.userId),
+    index("documents_application_guest_owner_idx").on(t.applicationId, t.guestId),
+    index("documents_job_type_user_owner_idx").on(t.jobTypeId, t.userId),
+    index("documents_job_type_guest_owner_idx").on(t.jobTypeId, t.guestId),
     index("documents_status_idx").on(t.status),
     index("documents_user_updated_at_active_idx")
       .on(t.userId, t.updatedAt.desc())
@@ -758,6 +774,8 @@ export const submissionItems = pgTable(
     index("submission_items_user_id_idx").on(t.userId),
     index("submission_items_guest_id_idx").on(t.guestId),
     index("submission_items_application_id_idx").on(t.applicationId),
+    index("submission_items_application_user_owner_idx").on(t.applicationId, t.userId),
+    index("submission_items_application_guest_owner_idx").on(t.applicationId, t.guestId),
   ]
 );
 
@@ -811,6 +829,8 @@ export const motivationConversations = pgTable(
   (t) => [
     check("motivation_conversations_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("motivation_conversations_company_id_idx").on(t.companyId),
+    index("motivation_conversations_company_user_owner_idx").on(t.companyId, t.userId),
+    index("motivation_conversations_company_guest_owner_idx").on(t.companyId, t.guestId),
     uniqueIndex("motivation_conversations_company_user_ux").on(t.companyId, t.userId),
     uniqueIndex("motivation_conversations_company_guest_ux").on(t.companyId, t.guestId),
   ]
@@ -857,6 +877,8 @@ export const interviewConversations = pgTable(
   (t) => [
     check("interview_conversations_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("interview_conversations_company_idx").on(t.companyId),
+    index("interview_conversations_company_user_owner_idx").on(t.companyId, t.userId),
+    index("interview_conversations_company_guest_owner_idx").on(t.companyId, t.guestId),
     uniqueIndex("interview_conversations_company_user_ux").on(t.companyId, t.userId),
     uniqueIndex("interview_conversations_company_guest_ux").on(t.companyId, t.guestId),
   ]
@@ -902,6 +924,8 @@ export const interviewFeedbackHistories = pgTable(
   (t) => [
     check("interview_feedback_histories_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("interview_feedback_histories_company_idx").on(t.companyId, t.createdAt),
+    index("interview_feedback_histories_company_user_owner_idx").on(t.companyId, t.userId),
+    index("interview_feedback_histories_company_guest_owner_idx").on(t.companyId, t.guestId),
     index("interview_feedback_histories_conversation_idx").on(t.conversationId, t.createdAt),
   ]
 );
@@ -942,6 +966,8 @@ export const interviewTurnEvents = pgTable(
     check("interview_turn_events_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("interview_turn_events_conversation_idx").on(t.conversationId, t.createdAt),
     index("interview_turn_events_company_idx").on(t.companyId, t.createdAt),
+    index("interview_turn_events_company_user_owner_idx").on(t.companyId, t.userId),
+    index("interview_turn_events_company_guest_owner_idx").on(t.companyId, t.guestId),
     index("interview_turn_events_turn_id_idx").on(t.turnId),
   ]
 );
@@ -994,6 +1020,8 @@ export const interviewDrillAttempts = pgTable(
     check("interview_drill_attempts_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("interview_drill_attempts_conversation_idx").on(t.conversationId, t.createdAt),
     index("interview_drill_attempts_company_idx").on(t.companyId, t.createdAt),
+    index("interview_drill_attempts_company_user_owner_idx").on(t.companyId, t.userId),
+    index("interview_drill_attempts_company_guest_owner_idx").on(t.companyId, t.guestId),
   ],
 );
 
@@ -1001,8 +1029,16 @@ export const interviewDrillAttempts = pgTable(
 export const processedStripeEvents = pgTable("processed_stripe_events", {
   eventId: text("event_id").primaryKey(),
   eventType: text("event_type").notNull(),
-  processedAt: timestamptz("processed_at").notNull().defaultNow(),
-});
+  status: text("status", { enum: ["processing", "succeeded", "failed"] }).notNull().default("processing"),
+  startedAt: timestamptz("started_at").notNull().defaultNow(),
+  processedAt: timestamptz("processed_at"),
+  lastError: text("last_error"),
+  attemptCount: integer("attempt_count").notNull().default(1),
+  stripeCreated: timestamptz("stripe_created"),
+}, (t) => [
+  check("processed_stripe_events_status_check", sql`${t.status} in ('processing', 'succeeded', 'failed')`),
+  index("processed_stripe_events_status_started_idx").on(t.status, t.startedAt),
+]);
 
 // User pins table - generic favorites for any entity
 export const userPins = pgTable(

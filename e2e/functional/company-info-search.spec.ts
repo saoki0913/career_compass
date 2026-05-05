@@ -179,7 +179,7 @@ test.describe("Selection schedule search-pages (authenticated)", () => {
     const company = await createOwnedCompany(page, {
       name: `NTTデータ_${runId}`,
       industry: "IT・通信",
-      recruitmentUrl: "https://recruit.nttdata.com/",
+      recruitmentUrl: "https://www.nttdata.com/global/ja/recruit/",
     });
 
     try {
@@ -188,7 +188,7 @@ test.describe("Selection schedule search-pages (authenticated)", () => {
         "POST",
         `/api/companies/${company.id}/fetch-info`,
         {
-          url: "https://recruit.nttdata.com/",
+          url: "https://www.nttdata.com/global/ja/recruit/",
           selectionType: "main_selection",
         },
       );
@@ -239,7 +239,7 @@ test.describe("Selection schedule search-pages (authenticated)", () => {
     const company = await createOwnedCompany(page, {
       name: `エラー構造テスト_${runId}`,
       industry: "IT・通信",
-      recruitmentUrl: "https://recruit.nttdata.com/",
+      recruitmentUrl: "https://www.nttdata.com/global/ja/recruit/",
     });
 
     try {
@@ -248,7 +248,7 @@ test.describe("Selection schedule search-pages (authenticated)", () => {
         "POST",
         `/api/companies/${company.id}/fetch-info`,
         {
-          url: "https://recruit.nttdata.com/",
+          url: "https://www.nttdata.com/global/ja/recruit/",
           selectionType: "main_selection",
         },
       );

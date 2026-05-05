@@ -10,7 +10,9 @@ const {
   checkPublicSourceComplianceMock,
   fetchFastApiInternalMock,
   companyFetchPrecheckMock,
+  companyFetchReserveMock,
   companyFetchConfirmMock,
+  companyFetchCancelMock,
   saveExtractedDeadlinesMock,
   dbUpdateMock,
 } = vi.hoisted(() => ({
@@ -22,7 +24,9 @@ const {
   checkPublicSourceComplianceMock: vi.fn(),
   fetchFastApiInternalMock: vi.fn(),
   companyFetchPrecheckMock: vi.fn(),
+  companyFetchReserveMock: vi.fn(),
   companyFetchConfirmMock: vi.fn(),
+  companyFetchCancelMock: vi.fn(),
   saveExtractedDeadlinesMock: vi.fn(),
   dbUpdateMock: vi.fn(),
 }));
@@ -85,7 +89,9 @@ vi.mock("@/lib/fastapi/client", () => ({
 vi.mock("@/bff/billing/company-fetch-policy", () => ({
   companyFetchPolicy: {
     precheck: companyFetchPrecheckMock,
+    reserve: companyFetchReserveMock,
     confirm: companyFetchConfirmMock,
+    cancel: companyFetchCancelMock,
   },
 }));
 
@@ -130,7 +136,9 @@ describe("api/companies/[id]/fetch-info", () => {
     checkPublicSourceComplianceMock.mockReset();
     fetchFastApiInternalMock.mockReset();
     companyFetchPrecheckMock.mockReset();
+    companyFetchReserveMock.mockReset();
     companyFetchConfirmMock.mockReset();
+    companyFetchCancelMock.mockReset();
     saveExtractedDeadlinesMock.mockReset();
     dbUpdateMock.mockReset();
     vi.restoreAllMocks();
@@ -146,6 +154,7 @@ describe("api/companies/[id]/fetch-info", () => {
       ok: true,
       freeQuotaAvailable: false,
     });
+    companyFetchReserveMock.mockResolvedValue({ reservationId: "reservation-1" });
     dbUpdateMock.mockReturnValue({
       set: vi.fn(() => ({
         where: vi.fn().mockResolvedValue(undefined),
@@ -307,6 +316,11 @@ describe("api/companies/[id]/fetch-info", () => {
     expect(data.actualCreditsDeducted).toBe(0);
     expect(data.freeUsed).toBe(false);
     expect(companyFetchConfirmMock).not.toHaveBeenCalled();
+    expect(companyFetchCancelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user-1" }),
+      "reservation-1",
+      "duplicates_only",
+    );
   });
 
   it("does not expose FastAPI raw error text in browser-facing responses", async () => {

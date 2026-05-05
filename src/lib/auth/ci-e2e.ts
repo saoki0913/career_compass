@@ -1,8 +1,10 @@
 import { getAppUrl } from "@/lib/app-url";
 
 const PRODUCTION_HOSTS = new Set(["www.shupass.jp", "shupass.jp"]);
+const DEFAULT_ALLOWED_TEST_AUTH_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "stg.shupass.jp"]);
 const DEFAULT_COOKIE_NAME = "better-auth.session_token";
 const SECURE_COOKIE_NAME = "__Secure-better-auth.session_token";
+const MIN_TEST_AUTH_SECRET_LENGTH = 16;
 
 function parseAppUrl(appUrl: string) {
   try {
@@ -14,6 +16,23 @@ function parseAppUrl(appUrl: string) {
 
 export function isProductionAppUrl(appUrl = getAppUrl()) {
   return PRODUCTION_HOSTS.has(parseAppUrl(appUrl).hostname);
+}
+
+function getAllowedTestAuthHosts() {
+  const configuredHosts = (process.env.CI_E2E_AUTH_ALLOWED_HOSTS || "")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set([...DEFAULT_ALLOWED_TEST_AUTH_HOSTS, ...configuredHosts]);
+}
+
+export function isCiE2EAuthHostAllowed(appUrl = getAppUrl()) {
+  const hostname = parseAppUrl(appUrl).hostname.toLowerCase();
+  return getAllowedTestAuthHosts().has(hostname);
+}
+
+export function hasValidCiE2EAuthSecret(secret = process.env.CI_E2E_AUTH_SECRET) {
+  return (secret?.trim().length ?? 0) >= MIN_TEST_AUTH_SECRET_LENGTH;
 }
 
 export function isSecureBetterAuthCookie(appUrl = getAppUrl()) {
@@ -43,6 +62,9 @@ export function isCiE2EAuthEnabled(appUrl = getAppUrl()) {
     return false;
   }
 
-  const authSecret = process.env.CI_E2E_AUTH_SECRET?.trim();
-  return Boolean(authSecret) && process.env.CI_E2E_AUTH_ENABLED !== "0";
+  if (!isCiE2EAuthHostAllowed(appUrl)) {
+    return false;
+  }
+
+  return process.env.CI_E2E_AUTH_ENABLED === "1" && hasValidCiE2EAuthSecret();
 }

@@ -64,7 +64,6 @@ interface Company {
   recruitmentUrl: string | null;
   corporateUrl: string | null;
   mypageUrl: string | null;
-  mypageLoginId: string | null;
   hasCredentials: boolean;
   notes: string | null;
   status: CompanyStatus;
@@ -748,7 +747,7 @@ export default function CompanyDetailPageClient({
               </div>
             </div>
             {/* マイページ情報（コンパクト表示） */}
-            {(company.mypageUrl || company.mypageLoginId || company.hasCredentials) && (
+            {(company.mypageUrl || company.hasCredentials) && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 {company.mypageUrl && (
                   <a
@@ -760,11 +759,6 @@ export default function CompanyDetailPageClient({
                     <ExternalLinkIcon />
                     マイページ
                   </a>
-                )}
-                {company.mypageLoginId && (
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                    ログイン情報を保存済み
-                  </span>
                 )}
                 {company.hasCredentials && (
                   <PasswordDisplay companyId={company.id} />

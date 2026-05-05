@@ -33,7 +33,8 @@ from app.security.career_principal import (
 )
 from app.security.upload_limits import (
     MAX_PDF_UPLOAD_BYTES,
-    enforce_pdf_upload_size,
+    read_pdf_upload_bytes,
+    validate_pdf_upload_metadata,
 )
 from app.routers.company_info_models import (
     FetchRequest,
@@ -325,14 +326,8 @@ async def estimate_corporate_pdf_upload(
 ):
     _assert_principal_owns_company(principal, company_id)
     filename = file.filename or "document.pdf"
-    mime_type = (file.content_type or "").lower()
-    if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="PDFファイルを指定してください。")
-
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="PDFファイルが空です。")
-    enforce_pdf_upload_size(pdf_bytes)
+    validate_pdf_upload_metadata(filename, file.content_type)
+    pdf_bytes = await read_pdf_upload_bytes(file, request)
 
     return await _estimate_pdf_upload_impl(
         company_id=company_id,
@@ -355,20 +350,23 @@ async def upload_corporate_pdf(
     content_type: Optional[str] = Form(None),
     content_channel: Optional[str] = Form(None),
     billing_plan: str = Form("free"),
+    source_kind: str = Form("corporate_public"),
+    private_material_consent: bool = Form(False),
+    consent_reference: Optional[str] = Form(None),
     file: UploadFile = File(...),
     principal: CareerPrincipal = Depends(require_career_principal("company")),
 ):
     """Extract text from an uploaded PDF and store it in company RAG."""
     _assert_principal_owns_company(principal, company_id)
     filename = file.filename or "document.pdf"
-    mime_type = (file.content_type or "").lower()
-    if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="PDFファイルを指定してください。")
-
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="PDFファイルが空です。")
-    enforce_pdf_upload_size(pdf_bytes)
+    validate_pdf_upload_metadata(filename, file.content_type)
+    source_kind_value = source_kind if isinstance(source_kind, str) else "corporate_public"
+    consent_reference_value = consent_reference if isinstance(consent_reference, str) else None
+    if source_kind_value == "private_user_material" and (
+        not bool(private_material_consent) or not (consent_reference_value or "").strip()
+    ):
+        raise HTTPException(status_code=400, detail="私的資料の取り込みには明示的な同意が必要です。")
+    pdf_bytes = await read_pdf_upload_bytes(file, request)
 
     return await _upload_pdf_impl(
         company_id=company_id,
@@ -380,6 +378,8 @@ async def upload_corporate_pdf(
         pdf_bytes=pdf_bytes,
         filename=filename,
         tenant_key=require_tenant_key(principal),
+        source_kind=source_kind_value,
+        consent_reference=consent_reference_value,
     )
 
 

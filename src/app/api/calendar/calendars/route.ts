@@ -11,6 +11,8 @@ import { headers } from "next/headers";
 import { listCalendars, createCalendar, GoogleCalendarScopeError } from "@/lib/calendar/google";
 import { getValidGoogleCalendarAccessToken } from "@/lib/calendar/connection";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { createCalendarCsrfErrorResponse } from "@/app/api/calendar/_shared/csrf";
+import { getCsrfFailureReason } from "@/lib/csrf";
 
 export async function GET(request: NextRequest) {
   try {
@@ -73,6 +75,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const csrfFailure = getCsrfFailureReason(request);
+  if (csrfFailure) {
+    return createCalendarCsrfErrorResponse(request, csrfFailure);
+  }
+
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -122,7 +129,6 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Error creating calendar:", error);
     if (error instanceof GoogleCalendarScopeError) {
       return createApiErrorResponse(request, {
         status: 403,

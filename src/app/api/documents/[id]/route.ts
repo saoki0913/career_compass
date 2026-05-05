@@ -14,6 +14,7 @@ import { createApiErrorResponse } from "@/bff/api/error-response";
 import { createServerTimingRecorder } from "@/bff/api/server-timing";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import {
+  buildOwnedRowCondition,
   getOwnedApplication,
   getOwnedCompany,
   getOwnedDocument,
@@ -291,8 +292,19 @@ export async function PUT(
     const updated = await db
       .update(documents)
       .set(updateData)
-      .where(eq(documents.id, documentId))
+      .where(buildOwnedRowCondition(eq(documents.id, documentId), documents, identity)!)
       .returning();
+
+    if (!updated[0]) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DOCUMENT_UPDATE_NOT_FOUND",
+        userMessage: "更新対象のドキュメントが見つかりませんでした。",
+        action: "一覧に戻って、対象のドキュメントを選び直してください。",
+        developerMessage: "Document not found during update",
+        logContext: "document-update-not-found",
+      });
+    }
 
     return NextResponse.json({
       document: await buildDocumentResponse(updated[0], identity),
@@ -344,14 +356,26 @@ export async function DELETE(
     }
 
     // Soft delete - move to trash
-    await db
+    const deleted = await db
       .update(documents)
       .set({
         status: "deleted",
         deletedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(documents.id, documentId));
+      .where(buildOwnedRowCondition(eq(documents.id, documentId), documents, identity)!)
+      .returning({ id: documents.id });
+
+    if (!deleted[0]) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DOCUMENT_DELETE_NOT_FOUND",
+        userMessage: "削除対象のドキュメントが見つかりませんでした。",
+        action: "一覧に戻って、対象のドキュメントを選び直してください。",
+        developerMessage: "Document not found during delete",
+        logContext: "document-delete-not-found",
+      });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

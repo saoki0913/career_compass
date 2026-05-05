@@ -46,6 +46,7 @@ from app.rag.telemetry import (
     rag_rerank_invocations,
     record_stage_duration,
 )
+from app.rag.security import is_rag_chunk_quarantined, sanitize_rag_context
 
 logger = get_logger(__name__)
 
@@ -1264,6 +1265,11 @@ def get_context_for_review_hybrid(
     for result in results:
         text = result.get("text", "")
         metadata = result.get("metadata", {})
+        if is_rag_chunk_quarantined(metadata):
+            continue
+        text = sanitize_rag_context(str(text))
+        if not text:
+            continue
 
         chunk_type = metadata.get("chunk_type", "general")
         content_type = metadata.get("content_type", "structured")
@@ -1338,6 +1344,11 @@ def get_context_and_sources_for_review_hybrid(
     for result in results:
         text = result.get("text", "")
         metadata = result.get("metadata", {})
+        if is_rag_chunk_quarantined(metadata):
+            continue
+        text = sanitize_rag_context(str(text))
+        if not text:
+            continue
 
         chunk_type = metadata.get("chunk_type", "general")
         content_type = metadata.get("content_type", "structured")

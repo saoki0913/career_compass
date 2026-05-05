@@ -19,6 +19,8 @@ import {
 } from "@/lib/calendar/connection";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { cancelPendingCalendarSyncJobsForUser, getCalendarSyncSummary } from "@/lib/calendar/sync";
+import { createCalendarCsrfErrorResponse } from "@/app/api/calendar/_shared/csrf";
+import { getCsrfFailureReason } from "@/lib/csrf";
 
 const calendarSettingsSchema = z.object({
   provider: z.enum(["google", "app"]).optional(),
@@ -39,7 +41,7 @@ function buildSettingsPayload(settings: typeof calendarSettings.$inferSelect, sy
       : [];
 
   return {
-    ...settings,
+    provider: settings.provider,
     targetCalendarId,
     freebusyCalendarIds,
     preferredTimeSlots: settings.preferredTimeSlots
@@ -50,14 +52,14 @@ function buildSettingsPayload(settings: typeof calendarSettings.$inferSelect, sy
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const session = await auth.api.getSession({
       headers: await headers(),
     });
 
     if (!session?.user?.id) {
-      return createApiErrorResponse(undefined, {
+      return createApiErrorResponse(request, {
         status: 401,
         code: "CALENDAR_SETTINGS_AUTH_REQUIRED",
         userMessage: "ログイン状態を確認して、もう一度お試しください。",
@@ -81,7 +83,7 @@ export async function GET() {
       settings: buildSettingsPayload(settings, syncSummary),
     });
   } catch (error) {
-    return createApiErrorResponse(undefined, {
+    return createApiErrorResponse(request, {
       status: 500,
       code: "CALENDAR_SETTINGS_FETCH_FAILED",
       userMessage: "カレンダー設定を読み込めませんでした。",
@@ -95,6 +97,11 @@ export async function GET() {
 }
 
 export async function PUT(request: NextRequest) {
+  const csrfFailure = getCsrfFailureReason(request);
+  if (csrfFailure) {
+    return createCalendarCsrfErrorResponse(request, csrfFailure);
+  }
+
   try {
     const session = await auth.api.getSession({
       headers: await headers(),

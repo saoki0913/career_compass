@@ -91,6 +91,30 @@ def _emit_output_leakage_event(
     )
 
 
+def _output_leakage_error(
+    *,
+    feature: str,
+    model: str,
+    provider: str,
+    raw_text: str,
+) -> Any | None:
+    result = llm_prompt_safety.detect_output_leakage(raw_text)
+    if not result.is_leaked:
+        return None
+    _emit_output_leakage_event(
+        feature=feature,
+        model=model,
+        provider=provider,
+        raw_text=raw_text,
+    )
+    return _create_error(
+        "refusal",
+        provider,
+        feature,
+        "LLM output leakage blocked: patterns=" + ",".join(result.matched_patterns),
+    )
+
+
 def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, Any] | None:
     summary = llm_usage_cost._request_llm_cost_summary_var.get()
     llm_usage_cost._request_llm_cost_summary_var.set(None)
@@ -531,12 +555,14 @@ async def call_llm_with_error(
                     f"unescaped_quotes={content.count(chr(34)) - content.count(chr(92) + chr(34))}, "
                     f"truncation_suspected={_detect_truncation(content)}",
                 )
-            _emit_output_leakage_event(
+            leakage_error = _output_leakage_error(
                 feature=feature,
                 model=target.actual_model or "",
                 provider="anthropic",
                 raw_text=raw_response or "",
             )
+            if leakage_error is not None:
+                return LLMResult(success=False, error=leakage_error)
             result = _parse_json_response(raw_response or "")
         elif target.provider == "google":
             raw_response, payload = await _call_google_generate_content(
@@ -551,6 +577,14 @@ async def call_llm_with_error(
                 feature=feature,
             )
             usage_summary = _extract_gemini_usage_summary(payload)
+            leakage_error = _output_leakage_error(
+                feature=feature,
+                model=target.actual_model or "",
+                provider="google",
+                raw_text=raw_response or "",
+            )
+            if leakage_error is not None:
+                return LLMResult(success=False, error=leakage_error)
             result = _parse_json_response(raw_response)
         elif effective_use_responses_api:
             result, usage_summary = await _call_openai_responses(
@@ -786,12 +820,14 @@ async def call_llm_text_with_error(
                 target.actual_model,
                 feature=feature,
             )
-            _emit_output_leakage_event(
+            leakage_error = _output_leakage_error(
                 feature=feature,
                 model=target.actual_model or "",
                 provider="anthropic",
                 raw_text=raw_response,
             )
+            if leakage_error is not None:
+                return LLMResult(success=False, error=leakage_error)
         elif target.provider == "google":
             raw_response, payload = await _call_google_generate_content(
                 system_prompt=_augment_system_prompt_for_provider_text(
@@ -808,6 +844,14 @@ async def call_llm_text_with_error(
                 feature=feature,
             )
             usage_summary = _extract_gemini_usage_summary(payload)
+            leakage_error = _output_leakage_error(
+                feature=feature,
+                model=target.actual_model or "",
+                provider="google",
+                raw_text=raw_response,
+            )
+            if leakage_error is not None:
+                return LLMResult(success=False, error=leakage_error)
         elif target.provider == "openai" and feature == "es_review":
             raw_response, usage_summary = await _call_openai_compatible_raw_text(
                 provider="openai",
@@ -844,6 +888,15 @@ async def call_llm_text_with_error(
                 model=target.actual_model,
                 feature=feature,
             )
+
+        leakage_error = _output_leakage_error(
+            feature=feature,
+            model=target.actual_model or "",
+            provider=target.provider,
+            raw_text=raw_response,
+        )
+        if leakage_error is not None:
+            return LLMResult(success=False, error=leakage_error)
 
         log_llm_cost_event(
             feature=feature,

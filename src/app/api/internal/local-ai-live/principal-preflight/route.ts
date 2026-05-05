@@ -8,6 +8,10 @@ function isLocalOnlyRequest(request: NextRequest) {
   return LOCAL_HOSTS.has(request.nextUrl.hostname);
 }
 
+function isLocalPreflightEnabled() {
+  return process.env.LOCAL_AI_LIVE_PREFLIGHT_ENABLED === "1";
+}
+
 async function parseUpstreamResponse(response: Response) {
   const rawText = await response.text();
   if (!rawText) {
@@ -49,12 +53,12 @@ async function runPrincipalProbe(scope: "ai-stream" | "company") {
 }
 
 export async function GET(request: NextRequest) {
-  if (!isLocalOnlyRequest(request)) {
+  if (!isLocalPreflightEnabled() || !isLocalOnlyRequest(request)) {
     return createApiErrorResponse(request, {
       status: 404,
       code: "LOCAL_AI_LIVE_ONLY",
       userMessage: "このエンドポイントは localhost 開発環境専用です。",
-      action: "localhost から実行してください。",
+      action: "localhost から有効化された環境で実行してください。",
     });
   }
 

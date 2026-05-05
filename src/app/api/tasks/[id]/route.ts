@@ -9,9 +9,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tasks } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { buildOwnedRowCondition, buildOwnerCondition } from "@/bff/identity/owner-access";
 import { unblockSuccessor, reblockSuccessors } from "@/lib/server/task-dependency";
 
 async function verifyTaskAccess(
@@ -19,24 +20,22 @@ async function verifyTaskAccess(
   userId: string | null,
   guestId: string | null
 ): Promise<{ valid: boolean; task?: typeof tasks.$inferSelect }> {
+  const ownerCondition = buildOwnerCondition(tasks, { userId, guestId });
+  if (!ownerCondition) {
+    return { valid: false };
+  }
+
   const [task] = await db
     .select()
     .from(tasks)
-    .where(eq(tasks.id, taskId))
+    .where(and(eq(tasks.id, taskId), ownerCondition))
     .limit(1);
 
   if (!task) {
     return { valid: false };
   }
 
-  if (userId && task.userId === userId) {
-    return { valid: true, task };
-  }
-  if (guestId && task.guestId === guestId) {
-    return { valid: true, task };
-  }
-
-  return { valid: false };
+  return { valid: true, task };
 }
 
 export async function GET(
@@ -168,11 +167,34 @@ export async function PUT(
     }
 
     const wasCompleted = access.task?.status === "done";
+    const updateCondition = buildOwnedRowCondition(eq(tasks.id, taskId), tasks, identity);
+    if (!updateCondition) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "TASK_UPDATE_NOT_FOUND",
+        userMessage: "更新対象のタスクが見つかりませんでした。",
+        action: "一覧に戻って、対象のタスクを選び直してください。",
+        developerMessage: "Task not found",
+        logContext: "task-update-not-found",
+      });
+    }
+
     const updated = await db
       .update(tasks)
       .set(updateData)
-      .where(eq(tasks.id, taskId))
+      .where(updateCondition)
       .returning();
+
+    if (!updated[0]) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "TASK_UPDATE_NOT_FOUND",
+        userMessage: "更新対象のタスクが見つかりませんでした。",
+        action: "一覧に戻って、対象のタスクを選び直してください。",
+        developerMessage: "Task not found during update",
+        logContext: "task-update-not-found",
+      });
+    }
 
     // Handle dependency chain updates
     if (status === "done" && !wasCompleted) {
@@ -228,7 +250,21 @@ export async function DELETE(
       });
     }
 
-    await db.delete(tasks).where(eq(tasks.id, taskId));
+    const deleted = await db
+      .delete(tasks)
+      .where(buildOwnedRowCondition(eq(tasks.id, taskId), tasks, identity)!)
+      .returning({ id: tasks.id });
+
+    if (!deleted[0]) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "TASK_DELETE_NOT_FOUND",
+        userMessage: "削除対象のタスクが見つかりませんでした。",
+        action: "一覧に戻って、対象のタスクを選び直してください。",
+        developerMessage: "Task not found during delete",
+        logContext: "task-delete-not-found",
+      });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

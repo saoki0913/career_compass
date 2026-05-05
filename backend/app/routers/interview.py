@@ -65,6 +65,7 @@ from app.routers._interview.contracts import (
 )
 from app.routers._interview.endpoints import (
     _coerce_retry_scores,
+    _leased_stream_response,
     _sanitize_base_request,
     _sanitize_drill_score,
     _sanitize_drill_start,

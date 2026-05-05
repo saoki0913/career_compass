@@ -526,6 +526,8 @@ async def upload_corporate_pdf_impl(
     pdf_bytes: bytes,
     filename: str,
     tenant_key: str,
+    source_kind: str = "corporate_public",
+    consent_reference: str | None = None,
 ) -> UploadCorporatePdfResponse:
     # Late-bound imports: tests monkeypatch these on the company_info module
     _ci = _require_company_info_module()
@@ -572,7 +574,7 @@ async def upload_corporate_pdf_impl(
         filename=filename,
         billing_plan=plan,
         content_type=content_type,
-        source_kind="upload",
+        source_kind=source_kind,
         feature="company_info",
     )
 
@@ -641,6 +643,9 @@ async def upload_corporate_pdf_impl(
         backend=backend,
         raw_format="text",
         tenant_key=tenant_key,
+        source_kind=source_kind,
+        source_id=source_url,
+        consent_reference=consent_reference,
     )
 
     if not result["success"]:

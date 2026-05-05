@@ -41,6 +41,7 @@ import {
 } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
+import { logError } from "@/lib/logger";
 
 // FastAPI backend URL
 interface CrawlResult {
@@ -128,10 +129,14 @@ export async function POST(
     // Authenticate user (guests not allowed)
     const authUser = await getAuthenticatedUser();
     if (!authUser) {
-      return NextResponse.json(
-        { error: "この機能を利用するにはログインが必要です" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "CORPORATE_FETCH_AUTH_REQUIRED",
+        userMessage: "この機能を利用するにはログインが必要です。",
+        action: "ログインしてから、もう一度お試しください。",
+        developerMessage: "Authentication required",
+        logContext: "corporate-fetch-auth",
+      });
     }
 
     const { userId, plan } = authUser;
@@ -150,7 +155,14 @@ export async function POST(
     // Verify company access
     const access = await verifyCompanyAccess(companyId, userId);
     if (!access.valid || !access.company) {
-      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "CORPORATE_FETCH_COMPANY_NOT_FOUND",
+        userMessage: "企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found",
+        logContext: "corporate-fetch-company-not-found",
+      });
     }
 
     const company = access.company;
@@ -182,24 +194,28 @@ export async function POST(
 
     const remaining = Math.max(0, pageLimit - existingUrlSet.size);
     if (remaining <= 0) {
-      return NextResponse.json(
-        {
-          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ソースまで保存できます（上限に達しています）`,
+      return createApiErrorResponse(request, {
+        status: 402,
+        code: "CORPORATE_SOURCE_LIMIT_REACHED",
+        userMessage: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ソースまで保存できます（上限に達しています）。`,
+        action: "不要な登録済みソースを削除するか、プランを確認してください。",
+        extra: {
           limit: pageLimit,
           remaining,
         },
-        { status: 402 }
-      );
+      });
     }
     if (uniqueRequestedUrls.length > remaining) {
-      return NextResponse.json(
-        {
-          error: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ソースまで保存できます（残り${remaining}ソース）`,
+      return createApiErrorResponse(request, {
+        status: 402,
+        code: "CORPORATE_SOURCE_LIMIT_EXCEEDED",
+        userMessage: `プラン制限: ${plan}プランでは1社あたり最大${pageLimit}ソースまで保存できます（残り${remaining}ソース）。`,
+        action: "取得するURL数を減らして、もう一度お試しください。",
+        extra: {
           limit: pageLimit,
           remaining,
         },
-        { status: 402 }
-      );
+      });
     }
 
     // Call FastAPI backend to crawl pages
@@ -226,7 +242,7 @@ export async function POST(
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "");
-        console.error("[企業情報取得] backend crawl failed", {
+        logError("corporate-fetch-backend-crawl-failed", new Error(errorText || "Backend request failed"), {
           companyId,
           contentType: contentTypeResolved,
           contentChannel: contentChannelResolved,
@@ -248,7 +264,6 @@ export async function POST(
           retryable: true,
         });
       }
-      console.error("Backend crawl error:", error);
       return createApiErrorResponse(request, {
         status: 503,
         code: "CORPORATE_FETCH_FAILED",
@@ -263,7 +278,7 @@ export async function POST(
       const backendError =
         crawlResult.errors.find((message) => typeof message === "string" && message.trim().length > 0) ||
         "企業情報の取得に失敗しました。";
-      console.error("[企業情報取得] backend crawl reported failure", {
+      logError("corporate-fetch-backend-reported-failure", new Error(backendError), {
         companyId,
         contentType: contentTypeResolved,
         contentChannel: contentChannelResolved,
@@ -415,17 +430,22 @@ export async function POST(
       pageRoutingSummaries,
     });
   } catch (error) {
-    console.error("Error fetching corporate info:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CORPORATE_FETCH_INTERNAL_ERROR",
+      userMessage: "企業情報の取得中にエラーが発生しました。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "corporate-fetch",
+    });
   }
 }
 
 // GET: Get current corporate info status
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -434,14 +454,19 @@ export async function GET(
     // Authenticate user
     const authUser = await getAuthenticatedUser();
     if (!authUser) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "CORPORATE_STATUS_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "corporate-status-auth",
+      });
     }
 
     const rateLimited = await enforceRateLimitLayers(
-      _request,
+      request,
       [...STATUS_POLL_RATE_LAYERS],
       authUser.userId,
       null,
@@ -454,7 +479,14 @@ export async function GET(
     // Verify company access
     const access = await verifyCompanyAccess(companyId, authUser.userId);
     if (!access.valid || !access.company) {
-      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "CORPORATE_STATUS_COMPANY_NOT_FOUND",
+        userMessage: "企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found",
+        logContext: "corporate-status-company-not-found",
+      });
     }
 
     const company = access.company;
@@ -613,10 +645,15 @@ export async function GET(
       pageLimit: getCompanyRagSourceLimit(authUser.plan),
     });
   } catch (error) {
-    console.error("Error getting corporate info status:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CORPORATE_STATUS_FAILED",
+      userMessage: "企業情報の取得状況を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Failed to get corporate info status",
+      logContext: "corporate-status",
+    });
   }
 }

@@ -11,11 +11,12 @@ import { companies, userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { encrypt } from "@/lib/crypto";
 import { CompanyStatus, VALID_STATUSES } from "@/lib/constants/status";
-import { stripCompanyCredentials } from "@/lib/db/sanitize";
+import { stripCompanyCredentials, stripCompanyCredentialsList } from "@/lib/db/sanitize";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { createServerTimingRecorder } from "@/bff/api/server-timing";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { getCompaniesPageData } from "@/lib/server/app-loaders";
+import { normalizeCompanyUrlField } from "@/app/api/companies/_shared/url-validation";
 
 // Plan limits for companies
 const COMPANY_LIMITS = {
@@ -77,7 +78,10 @@ export async function GET(request: NextRequest) {
     const data = await timing.measure("db", () =>
       getCompaniesPageData({ userId: identity.userId, guestId: identity.guestId })
     );
-    return timing.apply(NextResponse.json(data));
+    return timing.apply(NextResponse.json({
+      ...data,
+      companies: stripCompanyCredentialsList(data.companies),
+    }));
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,
@@ -135,6 +139,13 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const normalizedRecruitmentUrl = await normalizeCompanyUrlField(request, "recruitmentUrl", recruitmentUrl);
+    if (normalizedRecruitmentUrl.response) return normalizedRecruitmentUrl.response;
+    const normalizedCorporateUrl = await normalizeCompanyUrlField(request, "corporateUrl", corporateUrl);
+    if (normalizedCorporateUrl.response) return normalizedCorporateUrl.response;
+    const normalizedMypageUrl = await normalizeCompanyUrlField(request, "mypageUrl", mypageUrl);
+    if (normalizedMypageUrl.response) return normalizedMypageUrl.response;
+
     // Build where clause based on identity
     const whereClause = identity.type === "user"
       ? eq(companies.userId, identity.userId!)
@@ -160,32 +171,38 @@ export async function POST(request: NextRequest) {
     });
 
     if (duplicate) {
-      return NextResponse.json(
-        {
-          error: "同じ名前の企業が既に登録されています",
-          code: "COMPANY_DUPLICATE",
+      return createApiErrorResponse(request, {
+        status: 409,
+        code: "COMPANY_DUPLICATE",
+        userMessage: "同じ名前の企業が既に登録されています。",
+        action: "登録済みの企業を確認してください。",
+        developerMessage: "Duplicate company name",
+        logContext: "company-create-duplicate",
+        extra: {
           existingCompany: { id: duplicate.id, name: duplicate.name },
         },
-        { status: 409 }
-      );
+      });
     }
 
     // Check company limit
     const limit = COMPANY_LIMITS[identity.plan];
     if (existingCompanies.length >= limit) {
-      return NextResponse.json(
-        {
-          error: identity.type === "guest"
+      return createApiErrorResponse(request, {
+        status: 403,
+        code: "COMPANY_LIMIT_REACHED",
+        userMessage: identity.type === "guest"
             ? "ゲストユーザーは最大3社まで登録できます。ログインすると制限が解除されます。"
             : identity.plan === "free"
             ? "無料プランは最大5社まで登録できます。プランをアップグレードして無制限に登録しましょう。"
-            : "Company limit reached",
-          code: "COMPANY_LIMIT_REACHED",
+            : "企業の登録上限に達しました。",
+        action: "登録済み企業を整理するか、プランを確認してください。",
+        developerMessage: "Company limit reached",
+        logContext: "company-create-limit",
+        extra: {
           limit,
           currentCount: existingCompanies.length,
         },
-        { status: 403 }
-      );
+      });
     }
 
     // Create company
@@ -196,9 +213,9 @@ export async function POST(request: NextRequest) {
       guestId: identity.type === "guest" ? identity.guestId : null,
       name: name.trim(),
       industry: industry?.trim() || null,
-      recruitmentUrl: recruitmentUrl?.trim() || null,
-      corporateUrl: corporateUrl?.trim() || null,
-      mypageUrl: mypageUrl?.trim() || null,
+      recruitmentUrl: normalizedRecruitmentUrl.value,
+      corporateUrl: normalizedCorporateUrl.value,
+      mypageUrl: normalizedMypageUrl.value,
       mypageLoginId: mypageLoginId?.trim() || null,
       mypagePassword: mypagePassword?.trim() ? encrypt(mypagePassword.trim()) : null,
       notes: notes?.trim() || null,

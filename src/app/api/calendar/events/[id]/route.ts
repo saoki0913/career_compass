@@ -15,11 +15,18 @@ import {
   type ImmediateSyncResult,
 } from "@/lib/calendar/sync";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { createCalendarCsrfErrorResponse } from "@/app/api/calendar/_shared/csrf";
+import { getCsrfFailureReason } from "@/lib/csrf";
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const csrfFailure = getCsrfFailureReason(request);
+  if (csrfFailure) {
+    return createCalendarCsrfErrorResponse(request, csrfFailure);
+  }
+
   try {
     const { id: eventId } = await params;
 

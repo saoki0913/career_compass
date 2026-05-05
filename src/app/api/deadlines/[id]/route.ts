@@ -11,8 +11,9 @@ import { createApiErrorResponse } from "@/bff/api/error-response";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { createServerTimingRecorder } from "@/bff/api/server-timing";
 import { db } from "@/lib/db";
-import { deadlines, companies, tasks } from "@/lib/db/schema";
+import { deadlines, tasks } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { buildOwnedDeadlineCondition, buildOwnerCondition } from "@/bff/identity/owner-access";
 import {
   syncDeadlineDeleteImmediately,
   syncDeadlineImmediately,
@@ -65,29 +66,16 @@ async function verifyDeadlineOwnership(
   deadlineId: string,
   identity: { userId: string | null; guestId: string | null },
 ) {
+  const deadlineCondition = buildOwnedDeadlineCondition(deadlineId, identity);
+  if (!deadlineCondition) return null;
+
   const [deadline] = await db
     .select()
     .from(deadlines)
-    .where(eq(deadlines.id, deadlineId))
+    .where(deadlineCondition)
     .limit(1);
 
-  if (!deadline) return null;
-
-  const ownerCondition = identity.userId
-    ? eq(companies.userId, identity.userId)
-    : identity.guestId
-      ? eq(companies.guestId, identity.guestId)
-      : null;
-
-  if (!ownerCondition) return null;
-
-  const [company] = await db
-    .select({ id: companies.id })
-    .from(companies)
-    .where(and(eq(companies.id, deadline.companyId), ownerCondition))
-    .limit(1);
-
-  return company ? deadline : null;
+  return deadline ?? null;
 }
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
@@ -241,9 +229,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     // Handle submission-linked task completion
     let autoCompletedTaskIds: string[] = [];
+    const taskOwnerCondition = buildOwnerCondition(tasks, identity);
 
     // If marking as completed (completedAt is being set)
-    if (completedAt && !currentDeadline.completedAt) {
+    if (completedAt && !currentDeadline.completedAt && taskOwnerCondition) {
       const openTasks = await db
         .select()
         .from(tasks)
@@ -251,6 +240,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
           and(
             eq(tasks.deadlineId, deadlineId),
             eq(tasks.status, "open"),
+            taskOwnerCondition,
           ),
         );
 
@@ -259,7 +249,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         await db
           .update(tasks)
           .set({ status: "done", completedAt: now, updatedAt: now })
-          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "open")));
+          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "open"), taskOwnerCondition));
 
         autoCompletedTaskIds = taskIds;
       }
@@ -268,11 +258,11 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     else if (completedAt === null && currentDeadline.completedAt) {
       const storedTaskIds = parseStringArrayCompat(currentDeadline.autoCompletedTaskIds);
 
-      if (storedTaskIds.length > 0) {
+      if (storedTaskIds.length > 0 && taskOwnerCondition) {
         await db
           .update(tasks)
           .set({ status: "open", completedAt: null, updatedAt: now })
-          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "done")));
+          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "done"), taskOwnerCondition));
       }
     }
 
@@ -312,10 +302,18 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const updated = await db
       .update(deadlines)
       .set(updateData)
-      .where(eq(deadlines.id, deadlineId))
+      .where(buildOwnedDeadlineCondition(deadlineId, identity)!)
       .returning();
 
     const d = updated[0];
+    if (!d) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DEADLINE_NOT_FOUND",
+        userMessage: "締切が見つかりませんでした。",
+        logContext: "deadline-put-not-found",
+      });
+    }
 
     let calendarSync: ImmediateSyncResult | undefined;
     if (identity.userId) {
@@ -392,7 +390,19 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       calendarSync = await syncDeadlineDeleteImmediately(identity.userId, deadlineId);
     }
 
-    await db.delete(deadlines).where(eq(deadlines.id, deadlineId));
+    const deleted = await db
+      .delete(deadlines)
+      .where(buildOwnedDeadlineCondition(deadlineId, identity)!)
+      .returning({ id: deadlines.id });
+
+    if (!deleted[0]) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DEADLINE_NOT_FOUND",
+        userMessage: "締切が見つかりませんでした。",
+        logContext: "deadline-delete-not-found",
+      });
+    }
 
     return timing.apply(
       NextResponse.json({ success: true, message: "Deadline deleted", calendarSync }),

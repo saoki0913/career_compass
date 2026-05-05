@@ -9,7 +9,18 @@ vi.mock("@/lib/fastapi/client", () => ({
 
 describe("GET /api/internal/local-ai-live/principal-preflight", () => {
   beforeEach(() => {
+    vi.resetModules();
     fetchFastApiWithPrincipal.mockReset();
+    process.env.LOCAL_AI_LIVE_PREFLIGHT_ENABLED = "1";
+  });
+
+  it("returns 404 on localhost unless explicitly enabled", async () => {
+    delete process.env.LOCAL_AI_LIVE_PREFLIGHT_ENABLED;
+    const { GET } = await import("./route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/internal/local-ai-live/principal-preflight"));
+
+    expect(response.status).toBe(404);
+    expect(fetchFastApiWithPrincipal).not.toHaveBeenCalled();
   });
 
   it("returns 404 outside localhost", async () => {

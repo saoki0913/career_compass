@@ -132,30 +132,29 @@ export async function ensureCiE2ETestUserWithTx(
 ): Promise<CiE2ETestUser> {
   const { email, name, plan } = resolveTestUserConfig(scopeInput);
   const now = new Date();
+  const candidateUserId = randomUUID();
 
-  const [existingUser] = await tx.select().from(users).where(eq(users.email, email)).limit(1);
-  const userId = existingUser?.id ?? randomUUID();
-
-  if (existingUser) {
-    await tx
-      .update(users)
-      .set({
-        name,
-        emailVerified: true,
-        updatedAt: now,
-      })
-      .where(eq(users.id, existingUser.id));
-  } else {
-    await tx.insert(users).values({
-      id: userId,
+  const [upsertedUser] = await tx
+    .insert(users)
+    .values({
+      id: candidateUserId,
       email,
       name,
       emailVerified: true,
       image: null,
       createdAt: now,
       updatedAt: now,
-    });
-  }
+    })
+    .onConflictDoUpdate({
+      target: users.email,
+      set: {
+        name,
+        emailVerified: true,
+        updatedAt: now,
+      },
+    })
+    .returning({ id: users.id });
+  const userId = upsertedUser.id;
 
   const [existingProfile] = await tx
     .select()
