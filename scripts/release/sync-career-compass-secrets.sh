@@ -219,8 +219,13 @@ check_vercel_key_drift() {
   local env_target="$3"
   local project_id="$4"
   local team_id="$5"
-  local preview_git_branch="${6:-}"
-  shift 6 || true
+  local preview_git_branch=""
+
+  shift 5
+  if [[ "$env_target" == "preview" ]]; then
+    preview_git_branch="${1:-}"
+    shift || true
+  fi
   report_key_drift "$label" "$(bundle_keys_for_file "$file" "$@")" "$(vercel_provider_keys "$env_target" "$project_id" "$team_id" "$preview_git_branch")"
 }
 

@@ -234,6 +234,60 @@ exit 1
   }
 });
 
+test("checks Vercel production without preview branch argument", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-production.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "PUBLIC_SETTING=expected-public",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "env" && "$2" == "pull" ]]; then
+  cat > "$3" <<'EOF'
+PUBLIC_SETTING=expected-public
+EOF
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--check", "--target", "vercel-production", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Checked Vercel production provider key drift/);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
 test("applies Railway variables via stdin so JSON values keep their quotes", () => {
   const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
   const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
