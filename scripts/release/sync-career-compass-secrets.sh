@@ -150,7 +150,7 @@ bundle_keys_for_file() {
   shift || true
   local key
 
-  while IFS= read -r key; do
+  while IFS= read -r key || [[ -n "$key" ]]; do
     [[ -n "$key" ]] || continue
     is_meta_key "$key" && continue
     print -r -- "$key"
@@ -285,7 +285,7 @@ validate_env_file() {
 
   require_file "$file"
   load_env_file "$file"
-  while IFS= read -r key; do
+  while IFS= read -r key || [[ -n "$key" ]]; do
     [[ -n "$key" ]] || continue
     is_meta_key "$key" && continue
     value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
@@ -302,7 +302,7 @@ vercel_upsert_env_file() {
   local key value sens_flag
 
   validate_env_file "$file"
-  while IFS= read -r key; do
+  while IFS= read -r key || [[ -n "$key" ]]; do
     [[ -n "$key" ]] || continue
     is_meta_key "$key" && continue
     value="$(get_env_value "$file" "$key")"
@@ -363,7 +363,7 @@ railway_apply_env_file() {
   (
     cd "$temp_dir"
     run_real railway link --project "$project" --service "$service" --environment "$environment" --json >/dev/null
-    while IFS= read -r key; do
+    while IFS= read -r key || [[ -n "$key" ]]; do
       [[ -n "$key" ]] || continue
       is_meta_key "$key" && continue
       value="$(get_env_value "$file" "$key")"
@@ -378,7 +378,7 @@ apply_supabase_bundle() {
   local key value
 
   validate_env_file "$file"
-  while IFS= read -r key; do
+  while IFS= read -r key || [[ -n "$key" ]]; do
     [[ -n "$key" ]] || continue
     [[ "$key" == SUPABASE_ACCESS_TOKEN || "$key" == SUPABASE_ORG_ID ]] && continue
     value="$(get_env_value "$file" "$key")"
@@ -498,7 +498,7 @@ if should_run_target "github" && [[ -f "${secret_dir}/github-actions.env" ]]; th
     release_log "Applying GitHub Actions env"
     gh_bin="$(find_real_binary gh)"
     [[ -n "$gh_bin" ]] || release_die "Missing command: gh"
-    while IFS= read -r key; do
+    while IFS= read -r key || [[ -n "$key" ]]; do
       [[ -n "$key" ]] || continue
       is_meta_key "$key" && continue
       value="$(get_env_value "$github_file" "$key")"

@@ -187,7 +187,6 @@ test("applies every Vercel key even when CLI reads stdin", () => {
         "VERCEL_TEAM_ID=team_test123",
         "FIRST_SETTING=first-value",
         "SECOND_SETTING=second-value",
-        "",
       ].join("\n"),
       "utf8",
     );
