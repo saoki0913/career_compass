@@ -42,6 +42,35 @@ require_real_binary() {
   [[ -n "$real_bin" ]] || release_die "Missing command: ${target}"
 }
 
+redact_command_args() {
+  local -a redacted
+  local arg
+  local redact_next=0
+
+  for arg in "$@"; do
+    if (( redact_next )); then
+      redacted+=("[REDACTED]")
+      redact_next=0
+      continue
+    fi
+
+    case "$arg" in
+      --auth-token|--client-secret|--password|--secret|--token|--value)
+        redacted+=("$arg")
+        redact_next=1
+        ;;
+      --auth-token=*|--client-secret=*|--password=*|--secret=*|--token=*|--value=*)
+        redacted+=("${arg%%=*}=[REDACTED]")
+        ;;
+      *)
+        redacted+=("$arg")
+        ;;
+    esac
+  done
+
+  print -r -- "${(j: :)redacted}"
+}
+
 run_real() {
   local target="$1"
   shift
@@ -49,7 +78,7 @@ run_real() {
 
   real_bin="$(find_real_binary "$target")"
   [[ -n "$real_bin" ]] || release_die "Missing command: ${target}"
-  release_log "exec: ${target} $*"
+  release_log "exec: ${target} $(redact_command_args "$@")"
   "$real_bin" "$@"
 }
 
