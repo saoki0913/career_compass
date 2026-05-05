@@ -1,4 +1,4 @@
-.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression test-e2e-regression test-e2e-functional test-e2e-functional-es test-e2e-functional-gakuchika test-e2e-functional-motivation test-e2e-functional-interview test-e2e-functional-company-info-search test-e2e-functional-rag-ingest test-e2e-functional-selection-schedule test-e2e-functional-calendar test-e2e-functional-tasks-deadlines test-e2e-functional-notifications test-e2e-functional-company-crud test-e2e-functional-profile-settings test-e2e-functional-billing test-e2e-functional-search-query test-e2e-functional-local test-e2e-functional-local-company-info-search test-e2e-functional-local-selection-schedule test-e2e-functional-local-rag-ingest test-e2e-functional-local-gakuchika test-e2e-functional-local-motivation test-e2e-functional-local-interview test-e2e-functional-local-es test-e2e-functional-local-calendar test-e2e-functional-local-tasks-deadlines test-e2e-functional-local-notifications test-e2e-functional-local-company-crud test-e2e-functional-local-profile-settings test-e2e-functional-local-billing test-e2e-functional-local-search-query test-quality-all test-static security-scan ai-live-local db-push db-generate db-studio clean \
+.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression test-e2e-regression test-e2e-functional test-e2e-functional-es test-e2e-functional-gakuchika test-e2e-functional-motivation test-e2e-functional-interview test-e2e-functional-company-info-search test-e2e-functional-rag-ingest test-e2e-functional-selection-schedule test-e2e-functional-calendar test-e2e-functional-tasks-deadlines test-e2e-functional-notifications test-e2e-functional-company-crud test-e2e-functional-profile-settings test-e2e-functional-billing test-e2e-functional-search-query test-e2e-functional-local test-e2e-functional-local-company-info-search test-e2e-functional-local-selection-schedule test-e2e-functional-local-rag-ingest test-e2e-functional-local-gakuchika test-e2e-functional-local-motivation test-e2e-functional-local-interview test-e2e-functional-local-es test-e2e-functional-local-calendar test-e2e-functional-local-tasks-deadlines test-e2e-functional-local-notifications test-e2e-functional-local-company-crud test-e2e-functional-local-profile-settings test-e2e-functional-local-billing test-e2e-functional-local-search-query test-quality-all test-static test-coverage backend-test-coverage security-scan ai-live-local db-push db-generate db-studio clean \
 	up down restart backend-test backend-test-search backend-lint backend-format logs check deps reset-db seed \
 	backend-deadcode frontend-deadcode deadcode \
 	db-migrate db-status db-check db-drop db-introspect db-fresh backend-install \
@@ -387,6 +387,14 @@ LIVE_ES_REVIEW_CASE_FILTER ?=
 ## 全バックエンドテストを実行
 backend-test:
 	cd backend && python -m pytest tests/ -v
+
+## フロントエンド coverage レポートを生成
+test-coverage:
+	npm run test:coverage
+
+## バックエンド coverage レポートを生成
+backend-test-coverage:
+	cd backend && python -m pytest tests/ -m "not integration and not golden_eval and not llm_judge and not calibration" --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=json:coverage.json -q
 
 ## Live検索レポートテスト（デフォルト: hybrid のみ, ネットワーク必須）
 ## 50社 × 1モード × 11検索種 = 550検索、所要時間目安: ~2-3分 (10 req/s)

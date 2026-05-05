@@ -24,6 +24,26 @@ const SAFE_DELETE_TARGETS = new Set([
   ".svelte-kit",
 ]);
 
+const FAST_PATH_EXTENSIONS = new Set([".md", ".txt", ".json", ".yml", ".yaml", ".css", ".svg"]);
+
+const INFRA_PATH_PREFIXES = [
+  ".claude/hooks/",
+  ".codex/hooks/",
+  ".github/workflows/",
+  "scripts/harness/",
+  "scripts/codex/",
+];
+
+const HOTSPOT_FILES = new Set([
+  "backend/app/routers/company_info.py",
+  "backend/app/routers/es_review.py",
+  "backend/app/utils/llm.py",
+  "src/components/companies/CorporateInfoSection.tsx",
+  "src/components/es/ReviewPanel.tsx",
+  "src/hooks/useESReview.ts",
+  "src/lib/server/app-loaders.ts",
+]);
+
 function splitSegments(command) {
   const segments = [];
   let current = "";
@@ -530,8 +550,100 @@ function serializable(actions) {
   };
 }
 
+function normalizeChangeFile(file) {
+  return normalizePathToken(String(file || "").trim()).replace(/^\/+/, "");
+}
+
+function pathMatches(file, target) {
+  return file === target || file.endsWith(`/${target}`);
+}
+
+function isInfraPath(file) {
+  return INFRA_PATH_PREFIXES.some((prefix) => file.startsWith(prefix) || file.includes(`/${prefix}`));
+}
+
+function isFastPathFile(file) {
+  if (!file || isInfraPath(file)) return false;
+  return FAST_PATH_EXTENSIONS.has(path.extname(file).toLowerCase());
+}
+
+function classifyChangePath(files, { totalLines = 0 } = {}) {
+  const normalizedFiles = files.map(normalizeChangeFile).filter(Boolean);
+  const hasInfraPath = normalizedFiles.some(isInfraPath);
+  const hasHotspot = normalizedFiles.some((file) => [...HOTSPOT_FILES].some((hotspot) => pathMatches(file, hotspot)));
+  const fileCount = normalizedFiles.length;
+  const lineCount = Number.isFinite(Number(totalLines)) ? Number(totalLines) : 0;
+
+  if (fileCount === 0) {
+    return {
+      changePath: "STANDARD_PATH",
+      reason: "no_files",
+      fileCount,
+      totalLines: lineCount,
+      files: normalizedFiles,
+    };
+  }
+
+  if (hasInfraPath) {
+    return {
+      changePath: "INFRA_PATH",
+      reason: "infra_path",
+      fileCount,
+      totalLines: lineCount,
+      files: normalizedFiles,
+    };
+  }
+
+  if (fileCount >= 10 || lineCount >= 500 || hasHotspot) {
+    return {
+      changePath: "EXTENDED_PATH",
+      reason: hasHotspot ? "hotspot" : fileCount >= 10 ? "file_count" : "line_count",
+      fileCount,
+      totalLines: lineCount,
+      files: normalizedFiles,
+    };
+  }
+
+  if (normalizedFiles.every(isFastPathFile)) {
+    return {
+      changePath: "FAST_PATH",
+      reason: "docs_or_static_metadata",
+      fileCount,
+      totalLines: lineCount,
+      files: normalizedFiles,
+    };
+  }
+
+  return {
+    changePath: "STANDARD_PATH",
+    reason: "default",
+    fileCount,
+    totalLines: lineCount,
+    files: normalizedFiles,
+  };
+}
+
+function cliArgValue(args, name, fallback = "") {
+  const index = args.indexOf(name);
+  if (index === -1 || index + 1 >= args.length) return fallback;
+  return args[index + 1];
+}
+
 const command = process.argv[2] || "";
 const predicate = process.argv[3] || "";
+
+if (command === "classify-change-path") {
+  const args = process.argv.slice(3);
+  const totalLines = Number(cliArgValue(args, "--lines", "0"));
+  const files = args.filter((arg, index) => {
+    if (arg === "--lines") return false;
+    if (args[index - 1] === "--lines") return false;
+    return !arg.startsWith("--");
+  });
+  process.stdout.write(`${JSON.stringify(classifyChangePath(files, { totalLines }), null, 2)}\n`);
+  process.exit(0);
+}
+
 const actions = classifyCommand(command);
 
 if (predicate) {

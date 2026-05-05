@@ -1,7 +1,32 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRequest, apiRequestAsAuthenticatedUser } from "../../../e2e/fixtures/auth";
 
+const originalEnv = {
+  hasCiE2EAuthSecret: "CI_E2E_AUTH_SECRET" in process.env,
+  ciE2EAuthSecret: process.env.CI_E2E_AUTH_SECRET ?? "",
+  hasPlaywrightBaseUrl: "PLAYWRIGHT_BASE_URL" in process.env,
+  playwrightBaseUrl: process.env.PLAYWRIGHT_BASE_URL ?? "",
+};
+
 describe("e2e auth fixtures", () => {
+  beforeEach(() => {
+    delete process.env.CI_E2E_AUTH_SECRET;
+    process.env.PLAYWRIGHT_BASE_URL = "http://localhost:3000";
+  });
+
+  afterEach(() => {
+    if (!originalEnv.hasCiE2EAuthSecret) {
+      delete process.env.CI_E2E_AUTH_SECRET;
+    } else {
+      process.env.CI_E2E_AUTH_SECRET = originalEnv.ciE2EAuthSecret;
+    }
+    if (!originalEnv.hasPlaywrightBaseUrl) {
+      delete process.env.PLAYWRIGHT_BASE_URL;
+    } else {
+      process.env.PLAYWRIGHT_BASE_URL = originalEnv.playwrightBaseUrl;
+    }
+  });
+
   it("uses the browser context request client for authenticated API requests", async () => {
     const contextFetch = vi.fn().mockResolvedValue({ ok: () => true });
     const pageFetch = vi.fn().mockResolvedValue({ ok: () => true });

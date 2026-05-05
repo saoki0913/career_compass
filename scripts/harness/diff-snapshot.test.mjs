@@ -167,3 +167,64 @@ test("checkpoint category parser preserves comma-separated feature lists", () =>
     cleanup(dir);
   }
 });
+
+test("batch-verify reports valid and invalid checkpoints together", () => {
+  const dir = createRepo();
+  try {
+    fs.writeFileSync(path.join(dir, "tracked.txt"), "tracked\n", "utf8");
+    run("git", ["add", "tracked.txt"], dir);
+
+    const validPath = path.join(dir, "valid.json");
+    const validOutput = run("node", [scriptPath, "checkpoint", "--project", dir], repoRoot);
+    fs.writeFileSync(validPath, validOutput, "utf8");
+
+    const invalidPath = path.join(dir, "invalid.json");
+    const invalidCheckpoint = JSON.parse(validOutput);
+    invalidCheckpoint.stagedDiffHash = "invalid";
+    fs.writeFileSync(invalidPath, `${JSON.stringify(invalidCheckpoint)}\n`, "utf8");
+
+    const result = spawnSync("node", [
+      scriptPath,
+      "batch-verify",
+      "--project",
+      dir,
+      "--file",
+      validPath,
+      "--file",
+      invalidPath,
+    ], { cwd: repoRoot, encoding: "utf8" });
+    const body = JSON.parse(result.stdout);
+
+    assert.equal(result.status, 2);
+    assert.equal(body.ok, false);
+    assert.equal(body.total, 2);
+    assert.equal(body.valid, 1);
+    assert.equal(body.invalid, 1);
+    assert.equal(body.results[1].reason, "staged_diff_changed");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("batch-verify fails closed when no checkpoint files are found", () => {
+  const dir = createRepo();
+  try {
+    const missingSession = path.join(dir, "missing-session");
+    const result = spawnSync("node", [
+      scriptPath,
+      "batch-verify",
+      "--project",
+      dir,
+      "--session",
+      missingSession,
+    ], { cwd: repoRoot, encoding: "utf8" });
+    const body = JSON.parse(result.stdout);
+
+    assert.equal(result.status, 2);
+    assert.equal(body.ok, false);
+    assert.equal(body.reason, "no_checkpoints");
+    assert.equal(body.total, 0);
+  } finally {
+    cleanup(dir);
+  }
+});

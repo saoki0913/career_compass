@@ -48,7 +48,7 @@
 | Track | Category | Scope | 工数 |
 |-------|----------|-------|------|
 | A | #17 監視 Phase 0 | **Done (repo)**: PII scrub allowlist, TS/Python shared sanitizer, Sentry privacy-first init, `/health/ready` 公開情報削減, UptimeRobot/Sentry 手順化。**External**: UptimeRobot monitors は dashboard 登録待ち。 | 完了 |
-| B | #15 テスト P0 infra | @vitest/coverage-v8, pytest-cov 導入, cascading block 修正 | 3-5d |
+| B | #15 テスト P0 infra | **Done (repo)**: Vitest / pytest-cov coverage 基盤、coverage Make targets、BFF 課金境界テスト、Gate Shadow/Advisory utilities。**Deferred**: blocking gate への接続は release 後に shadow data を見て判断。 | 完了 |
 | C | #14 法務 docs-first | AI copyright 条項ドラフト, 特商法表示ドラフト, cookie consent 方針決定（外部確認開始）| 2-3d |
 
 **理由**: UptimeRobot は PII 送信なしで即導入可。PII scrub allowlist を先に定義することで Sentry を安全に導入できる。法務は外部確認に待ち時間が発生するため docs-first で先行開始。
@@ -62,6 +62,15 @@
 - `/health/ready` は provider key configured boolean を返さない。
 - `docs/ops/MONITORING_SETUP.md` と `docs/release/EXTERNAL_SERVICES.md` に UptimeRobot / Sentry 設定手順を追加した。
 - SSL expiry monitor、cron heartbeat / Sentry Crons、Loki / Grafana、`/health/deep`、Drizzle slow query logger は Phase 1+ へ延期する。
+
+**#15 P0 実装メモ (2026-05-05)**:
+- `docs/plan/test-quality-gate-tasks.json` で状態管理を開始し、`scripts/plan/update-test-quality-task-status.mjs` で `Todo / Doing / Blocked / Review / Done` を更新する。
+- `@vitest/coverage-v8` と `pytest-cov` を導入し、`make test-coverage` / `make backend-test-coverage` で HTML + JSON coverage を生成できる。
+- `backend/pytest.ini` は `pythonpath = . ..` とし、`app.*` / `backend.app.*` の既存 import 混在に対応した。
+- `backend-test-coverage` は決定的テストを対象にし、`integration / golden_eval / llm_judge / calibration` は除外する。外部接続を伴う品質評価は P1+ の Quality gate で扱う。
+- BFF 課金境界テストを追加し、ES Review reserve/confirm/cancel、Motivation 成功時のみ消費、Company Fetch free quota/credit reservation、LLM daily token guard をカバーした。
+- Gate P0 は `command-classifier.mjs classify-change-path` と `diff-snapshot.mjs batch-verify` を Shadow/Advisory utility として追加した。`pre-tool-dispatcher.sh` / `test-category-gate.sh` / `bandaid-guard.sh` の blocking 条件は変更していない。
+- 検証: `make test-coverage` pass (290 files / 1297 tests), `make backend-test-coverage` pass (1477 passed / 42 deselected), focused BFF Vitest pass, harness node tests pass。
 
 ---
 

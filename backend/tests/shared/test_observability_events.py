@@ -18,7 +18,8 @@ EXPECTED_RAG_METRICS = {
 
 
 def test_observability_doc_lists_rag_metric_contract() -> None:
-    doc = Path("docs/ops/OBSERVABILITY.md").read_text(encoding="utf-8")
+    repo_root = Path(__file__).resolve().parents[3]
+    doc = (repo_root / "docs/ops/OBSERVABILITY.md").read_text(encoding="utf-8")
 
     assert "外部公開 `/metrics` endpoint は作らない" in doc
     for metric_name, labels in EXPECTED_RAG_METRICS.items():

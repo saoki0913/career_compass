@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import process from "node:process";
 import { buildE2EFunctionalSnapshot } from "../ci/e2e-functional-snapshot.mjs";
 
@@ -21,6 +21,16 @@ function runGit(project, args) {
 
 function hasFlag(name) {
   return process.argv.includes(name);
+}
+
+function argValues(name) {
+  const values = [];
+  for (let index = 0; index < process.argv.length; index += 1) {
+    if (process.argv[index] === name && index + 1 < process.argv.length) {
+      values.push(process.argv[index + 1]);
+    }
+  }
+  return values;
 }
 
 function stagedSnapshot(project, { includeDirtyState = false } = {}) {
@@ -186,6 +196,90 @@ if (command === "verify") {
 
   print({ ok: true, ...snapshot });
   process.exit(0);
+}
+
+function verifyCheckpointFile(file) {
+  if (!file || !existsSync(file)) {
+    return { file, ok: false, reason: "checkpoint_file_not_found" };
+  }
+
+  let checkpoint;
+  try {
+    checkpoint = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return { file, ok: false, reason: "invalid_json" };
+  }
+
+  const snapshot = stagedSnapshot(project, { includeDirtyState: Boolean(checkpoint.dirtyState) });
+  if (checkpoint.headSha !== snapshot.headSha || checkpoint.stagedDiffHash !== snapshot.stagedDiffHash) {
+    return {
+      file,
+      ok: false,
+      reason: "staged_diff_changed",
+      expected: {
+        headSha: checkpoint.headSha,
+        stagedDiffHash: checkpoint.stagedDiffHash,
+      },
+      actual: {
+        headSha: snapshot.headSha,
+        stagedDiffHash: snapshot.stagedDiffHash,
+      },
+    };
+  }
+  if (checkpoint.dirtyState) {
+    const dirtyMismatch =
+      Boolean(checkpoint.dirtyState.hasUnstaged) !== snapshot.dirtyState.hasUnstaged ||
+      Boolean(checkpoint.dirtyState.hasUntracked) !== snapshot.dirtyState.hasUntracked ||
+      String(checkpoint.dirtyState.dirtyHash || "") !== snapshot.dirtyState.dirtyHash;
+    if (dirtyMismatch) {
+      return { file, ok: false, reason: "dirty_tree_state_changed" };
+    }
+  }
+
+  return { file, ok: true };
+}
+
+function checkpointFilesFromSession(sessionPath) {
+  if (!sessionPath || !existsSync(sessionPath)) return [];
+  const stat = statSync(sessionPath);
+  if (stat.isFile()) return [sessionPath];
+  return readdirSync(sessionPath)
+    .map((entry) => `${sessionPath}/${entry}`)
+    .filter((entry) => {
+      try {
+        return statSync(entry).isFile();
+      } catch {
+        return false;
+      }
+    });
+}
+
+if (command === "batch-verify") {
+  const files = [
+    ...argValues("--file"),
+    ...checkpointFilesFromSession(argValue("--session", "")),
+  ];
+  const uniqueFiles = [...new Set(files)];
+  if (uniqueFiles.length === 0) {
+    print({
+      ok: false,
+      total: 0,
+      valid: 0,
+      invalid: 0,
+      reason: "no_checkpoints",
+    });
+    process.exit(2);
+  }
+  const results = uniqueFiles.map(verifyCheckpointFile);
+  const invalid = results.filter((result) => !result.ok);
+  print({
+    ok: invalid.length === 0,
+    total: results.length,
+    valid: results.length - invalid.length,
+    invalid: invalid.length,
+    results,
+  });
+  process.exit(invalid.length === 0 ? 0 : 2);
 }
 
 process.stderr.write(`diff-snapshot: unknown command ${command}\n`);

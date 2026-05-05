@@ -12,6 +12,11 @@
 
 # testing
 /coverage
+/.coverage
+/coverage.json
+/backend/.coverage
+/backend/htmlcov/
+/backend/coverage.json
 /playwright-report/
 /test-results/
 /.ui-preflight/

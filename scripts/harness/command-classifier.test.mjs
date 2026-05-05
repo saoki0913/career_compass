@@ -10,6 +10,16 @@ function classify(command) {
   return JSON.parse(execFileSync("node", [scriptPath, command], { cwd: repoRoot, encoding: "utf8" }));
 }
 
+function classifyChangePath(files, lines = 0) {
+  return JSON.parse(execFileSync("node", [
+    scriptPath,
+    "classify-change-path",
+    "--lines",
+    String(lines),
+    ...files,
+  ], { cwd: repoRoot, encoding: "utf8" }));
+}
+
 test("detects quoted and nested sensitive file reads", () => {
   assert.equal(classify('cat ".env.local"').readsSensitivePath, true);
   assert.equal(classify("bash -lc 'cat .env.local'").readsSensitivePath, true);
@@ -110,4 +120,30 @@ test("detects E2E and quality commands through wrappers and env prefixes", () =>
   assert.deepEqual(mixed.testCategories, ["e2e-functional", "quality"]);
   assert.deepEqual(mixed.testCategoryFeatures["e2e-functional"], ["motivation"]);
   assert.deepEqual(mixed.testCategoryFeatures.quality, ["gakuchika"]);
+});
+
+test("classifies docs and metadata changes as fast path without weakening infra paths", () => {
+  const fast = classifyChangePath(["docs/plan/test-quality-gate-plan.md", "docs/plan/tasks.json"], 12);
+  assert.equal(fast.changePath, "FAST_PATH");
+  assert.equal(fast.reason, "docs_or_static_metadata");
+
+  const infra = classifyChangePath([".claude/hooks/pre-tool-dispatcher.sh", "docs/plan/tasks.json"], 5);
+  assert.equal(infra.changePath, "INFRA_PATH");
+  assert.equal(infra.reason, "infra_path");
+});
+
+test("classifies large or hotspot changes as extended path", () => {
+  assert.equal(classifyChangePath(["src/hooks/useESReview.ts"], 10).changePath, "EXTENDED_PATH");
+  assert.equal(
+    classifyChangePath([path.join(repoRoot, "src/components/companies/CorporateInfoSection.tsx")], 10).changePath,
+    "EXTENDED_PATH",
+  );
+  assert.equal(classifyChangePath(Array.from({ length: 10 }, (_, index) => `src/file-${index}.ts`), 10).changePath, "EXTENDED_PATH");
+  assert.equal(classifyChangePath(["src/lib/example.ts"], 500).changePath, "EXTENDED_PATH");
+});
+
+test("classifies ordinary code changes as standard path", () => {
+  const result = classifyChangePath(["src/bff/billing/es-review-stream-policy.test.ts"], 60);
+  assert.equal(result.changePath, "STANDARD_PATH");
+  assert.equal(result.reason, "default");
 });

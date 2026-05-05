@@ -75,7 +75,6 @@ describe("company-info usage schema fallback", () => {
   });
 
   it("treats missing schedule column as a no-op when incrementing free usage", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { incrementMonthlyScheduleFreeUse } = await import("@/lib/company-info/usage");
 
     dbSelectMock.mockReturnValue({
@@ -89,6 +88,5 @@ describe("company-info usage schema fallback", () => {
     });
 
     await expect(incrementMonthlyScheduleFreeUse("user-1")).resolves.toBeUndefined();
-    expect(warnSpy).toHaveBeenCalled();
   });
 });

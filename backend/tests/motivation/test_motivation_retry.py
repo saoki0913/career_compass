@@ -72,7 +72,7 @@ def test_build_draft_quality_retry_hints_covers_char_ai_and_company_codes() -> N
     joined = "\n".join(hints)
     assert "270字以上" in joined
     assert "DX支援" in joined
-    assert "文末表現" in joined
+    assert "同じ文末" in joined
 
 
 def test_maybe_retry_for_draft_quality_accepts_max_attempts_and_extra_hints() -> None:

@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "plan": "test-quality-gate-plan",
+  "scope": "#15 P0 infra",
+  "statusValues": [
+    "Todo",
+    "Doing",
+    "Blocked",
+    "Review",
+    "Done"
+  ],
+  "lastUpdated": "2026-05-05",
+  "tasks": [
+    {
+      "id": "F1",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Infra",
+      "task": "@vitest/coverage-v8 導入 + vitest.config.ts に coverage 設定追加",
+      "evidence": "make test-coverage pass: 290 files / 1297 tests, v8 text/json/html coverage generated",
+      "acceptanceCriteria": "npx vitest run --coverage が JSON + HTML レポートを生成する。初期閾値はベースライン計測後に設定する",
+      "updatedAt": "2026-05-05",
+      "notes": "coverage基盤を導入済み"
+    },
+    {
+      "id": "B1",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Infra",
+      "task": "pytest-cov 導入 + backend/pytest.ini に coverage 設定追加",
+      "evidence": "make backend-test-coverage pass: 1477 passed, 42 deselected, coverage HTML/JSON generated",
+      "acceptanceCriteria": "cd backend && python -m pytest --cov=app がカバレッジレポートを出力する",
+      "updatedAt": "2026-05-05",
+      "notes": "pytest-cov設定を導入済み"
+    },
+    {
+      "id": "V1",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Infra",
+      "task": "make test-coverage / make backend-test-coverage ターゲット追加",
+      "evidence": "Makefile exposes test-coverage and backend-test-coverage targets",
+      "acceptanceCriteria": "両ターゲットが HTML レポートを coverage/ / backend/htmlcov/ に生成する",
+      "updatedAt": "2026-05-05",
+      "notes": "Makefileターゲットを追加済み"
+    },
+    {
+      "id": "F2-1",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Frontend",
+      "task": "BFF es-review-stream-policy.ts テスト作成",
+      "evidence": "npx vitest run src/bff/billing/ src/bff/identity/llm-cost-guard.test.ts pass",
+      "acceptanceCriteria": "credit reservation の confirm/cancel、guest/user 境界、不足時 402 をカバーする",
+      "updatedAt": "2026-05-05",
+      "notes": "ES Review課金境界を検証済み"
+    },
+    {
+      "id": "F2-2",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Frontend",
+      "task": "BFF motivation-stream-policy.ts テスト作成",
+      "evidence": "npx vitest run src/bff/billing/ src/bff/identity/llm-cost-guard.test.ts pass",
+      "acceptanceCriteria": "成功時のみ consumeCredits し、非 billable / failure では消費しないことをカバーする",
+      "updatedAt": "2026-05-05",
+      "notes": "Motivation課金境界を検証済み"
+    },
+    {
+      "id": "F2-3",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Frontend",
+      "task": "BFF company-fetch-policy.ts テスト作成",
+      "evidence": "npx vitest run src/bff/billing/ src/bff/identity/llm-cost-guard.test.ts pass",
+      "acceptanceCriteria": "free quota reservation と credit reservation の precheck/reserve/confirm/cancel をカバーする",
+      "updatedAt": "2026-05-05",
+      "notes": "Company Fetch課金境界を検証済み"
+    },
+    {
+      "id": "F2-4",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Frontend",
+      "task": "BFF llm-cost-guard.ts テスト作成",
+      "evidence": "npx vitest run src/bff/billing/ src/bff/identity/llm-cost-guard.test.ts pass",
+      "acceptanceCriteria": "ガード発動、パススルー、guest/user plan、Retry-After header をカバーする",
+      "updatedAt": "2026-05-05",
+      "notes": "LLM daily token guardを検証済み"
+    },
+    {
+      "id": "G1",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Gate",
+      "task": "変更パス分類ロジックを Shadow/Advisory utility として追加",
+      "evidence": "node --test scripts/harness/command-classifier.test.mjs scripts/harness/diff-snapshot.test.mjs pass",
+      "acceptanceCriteria": "classify-change-path CLI が FAST_PATH / INFRA_PATH / STANDARD_PATH / EXTENDED_PATH を返し、既存 blocking gate は変更しない",
+      "updatedAt": "2026-05-05",
+      "notes": "Shadow/Advisory分類utilityを追加済み"
+    },
+    {
+      "id": "G3",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Gate",
+      "task": "diff-snapshot.mjs に batch-verify を Shadow/Advisory utility として追加",
+      "evidence": "node --test scripts/harness/command-classifier.test.mjs scripts/harness/diff-snapshot.test.mjs pass",
+      "acceptanceCriteria": "batch-verify が複数 checkpoint を一括検証し、無効化リストを JSON で報告する",
+      "updatedAt": "2026-05-05",
+      "notes": "checkpoint batch verification utilityを追加済み"
+    }
+  ]
+}

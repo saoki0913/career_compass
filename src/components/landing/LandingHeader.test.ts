@@ -20,8 +20,9 @@ describe("LandingHeader — design-system guard", () => {
     expect(SRC).not.toMatch(/['"]Inter['"]/);
   });
 
-  it("uses reference brand color #1d2c4d", () => {
-    expect(SRC).toContain("#1d2c4d");
+  it("uses shared CTA color token instead of hard-coded button colors", () => {
+    expect(SRC).toContain("var(--lp-cta)");
+    expect(SRC).not.toContain("bg-[#1d2c4d]");
   });
 
   it("uses var(--lp-cta) for CTA buttons", () => {
@@ -29,6 +30,7 @@ describe("LandingHeader — design-system guard", () => {
   });
 
   it("logo is at least 40px", () => {
-    expect(SRC).toMatch(/width[=:]\s*(?:4[0-9]|5[0-6])/);
+    expect(SRC).toMatch(/height[=:]\s*(?:4[0-9]|5[0-6]|[6-9][0-9])/);
+    expect(SRC).toMatch(/className="[^"]*h-12/);
   });
 });

@@ -40,6 +40,7 @@ unidic-lite>=1.0.8
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
 pytest-xdist>=3.5.0
+pytest-cov>=5.0.0
 filelock>=3.13.0
 # Dev / lint
 import-linter>=2.11
