@@ -49,7 +49,7 @@
 |-------|----------|-------|------|
 | A | #17 監視 Phase 0 | **Done (repo)**: PII scrub allowlist, TS/Python shared sanitizer, Sentry privacy-first init, `/health/ready` 公開情報削減, UptimeRobot/Sentry 手順化。**External**: UptimeRobot monitors は dashboard 登録待ち。 | 完了 |
 | B | #15 テスト P0 infra | **Done (repo)**: Vitest / pytest-cov coverage 基盤、coverage Make targets、BFF 課金境界テスト、Gate Shadow/Advisory utilities。**Deferred**: blocking gate への接続は release 後に shadow data を見て判断。 | 完了 |
-| C | #14 法務 docs-first | **Done (repo)**: AI copyright / AI免責 / 返金例外文言を `/terms` と Stripe 表示に反映、課金 P0 の transaction / past_due gate / refund-dispute webhook / billing hold / アプリ内通知を実装済み。**External**: AI著作権・返金例外条項の外部確認、Stripe Dashboard webhook/Terms URL 確認待ち。Cookie consent は P1 へ継続。 | 完了 |
+| C | #14 法務 docs-first | **Done (repo)**: AI copyright / AI免責 / 返金例外文言を `/terms` と Stripe 表示に反映、課金 P0 の transaction / past_due gate / refund-dispute webhook / billing hold / アプリ内通知を実装済み。**External**: AI著作権・返金例外条項の外部確認待ち。**Ops Done**: Stripe live webhook endpoint / Billing Portal Terms URL 設定済み。Cookie consent は P1 へ継続。 | 完了 |
 
 **理由**: UptimeRobot は PII 送信なしで即導入可。PII scrub allowlist を先に定義することで Sentry を安全に導入できる。法務は外部確認に待ち時間が発生するため docs-first で先行開始。
 
@@ -78,6 +78,7 @@
 - Stripe Checkout 表示と `managed-config.json` の返金・解約短文を `/terms#billing` と整合させた。
 - 課金 P0 として `consumeCredits` transaction 化、plan allocation 差分更新、past_due/dispute hold の credit-layer gate、`charge.refunded` / `charge.dispute.created` / `charge.dispute.closed` webhook、billing status アプリ内通知を追加した。
 - `charge.refunded` は全額返金のみ Free 降格、部分返金は自動降格せず通知のみ。`charge.dispute.created` は新規 AI credit 消費を停止し、`closed/won` で解除、lost 系は Free 降格する。
+- 2026-05-07: Stripe live webhook endpoint `we_1TU7jPBxfIrGtqi5E6HvjaV9` を `https://www.shupass.jp/api/webhooks/stripe` に作成し、`checkout.session.completed` / `customer.subscription.updated` / `customer.subscription.deleted` / `invoice.payment_succeeded` / `invoice.payment_failed` / `charge.refunded` / `charge.dispute.created` / `charge.dispute.closed` を有効化した。Billing Portal configuration `bpc_1TU7jkBxfIrGtqi5sTCEbndg` を作成し、Terms URL を `https://www.shupass.jp/terms` に設定した。
 
 ---
 
