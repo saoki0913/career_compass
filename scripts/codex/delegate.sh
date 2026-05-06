@@ -143,38 +143,44 @@ if [ "$MODE" = "imagegen" ]; then
   sleep 1
 fi
 
+CODEX_EXEC_COMMON_ARGS=(
+  -m "$MODEL"
+  -c model_reasoning_effort="$MODEL_REASONING_EFFORT"
+  -c experimental_use_rmcp_client=false
+  # Keep delegated workers isolated from user-scope MCP servers. Parent
+  # sessions should fetch docs and pass them through --context-file.
+  --ignore-user-config
+  --ephemeral
+)
+
 case "$MODE" in
   plan_review)
     "$TIMEOUT_BIN" "$TIMEOUT_SEC" codex exec \
       --sandbox read-only \
-      -m "$MODEL" \
-      -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
+      "${CODEX_EXEC_COMMON_ARGS[@]}" \
       -o "$RESULT_DIR/result.md" \
-      --ephemeral \
       -C "$PROJECT_DIR" \
       "$PROMPT" 2>"$RESULT_DIR/stderr.tmp" || EXIT_CODE=$?
     ;;
   implementation)
     "$TIMEOUT_BIN" "$TIMEOUT_SEC" codex exec \
       --sandbox workspace-write \
-      -m "$MODEL" \
-      -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
+      "${CODEX_EXEC_COMMON_ARGS[@]}" \
       -o "$RESULT_DIR/result.md" \
-      --ephemeral \
       -C "$PROJECT_DIR" \
       "$PROMPT" 2>"$RESULT_DIR/stderr.tmp" || EXIT_CODE=$?
     ;;
   post_review)
     # codex exec review: --uncommitted と PROMPT は排他。
     # レビュー指針は .codex/skills/code-reviewer/SKILL.md が自動参照される。
+    # NOTE: codex exec review は -C を受け付けないため subshell で cd する。
+    # RESULT_DIR は絶対パスなので -o / stderr redirect は影響なし。
+    (cd "$PROJECT_DIR" && \
     "$TIMEOUT_BIN" "$TIMEOUT_SEC" codex exec review \
       --uncommitted \
-      -m "$MODEL" \
-      -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
+      "${CODEX_EXEC_COMMON_ARGS[@]}" \
       -o "$RESULT_DIR/result.md" \
-      --ephemeral \
-      -C "$PROJECT_DIR" \
-      2>"$RESULT_DIR/stderr.tmp" || EXIT_CODE=$?
+      2>"$RESULT_DIR/stderr.tmp") || EXIT_CODE=$?
     ;;
   imagegen)
     # Use a lightweight workspace to avoid project harness overhead (agents,
@@ -188,11 +194,8 @@ case "$MODE" in
     fi
     "$TIMEOUT_BIN" "$TIMEOUT_SEC" codex exec \
       --sandbox workspace-write \
-      -m "$MODEL" \
-      -c model_reasoning_effort="$MODEL_REASONING_EFFORT" \
-      -c experimental_use_rmcp_client=false \
+      "${CODEX_EXEC_COMMON_ARGS[@]}" \
       -o "$RESULT_DIR/result.md" \
-      --ephemeral \
       -C "$IMAGEGEN_WORKSPACE" \
       "$PROMPT" < /dev/null 2>"$RESULT_DIR/stderr.tmp" || EXIT_CODE=$?
     # Copy any images Codex placed in the lightweight workspace
