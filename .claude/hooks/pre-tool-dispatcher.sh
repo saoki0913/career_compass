@@ -45,6 +45,10 @@ case "$TOOL" in
     if guard_command_is_test_category "$CMD"; then
       run_hook "test-category-gate.sh"
     fi
+
+    if printf '%s' "$CMD" | grep -qE 'delegate\.sh[[:space:]]+(plan_review|post_review)'; then
+      run_hook "codex-delegate-gate.sh"
+    fi
     ;;
 
   Read|mcp__filesystem__*)

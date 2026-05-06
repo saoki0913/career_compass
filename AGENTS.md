@@ -279,11 +279,13 @@ ExitPlanMode は常に許可される（`exit-plan-codex-gate.sh` が `plan-exit
 実装開始時の最初の Edit|Write を `impl-start-codex-gate.sh` がブロックし、委譲判断を強制する。
 
 1. Plan 作成・確定後、ExitPlanMode を呼ぶ（ブロックされない）
-2. Codex plan review は任意（推奨）:
-   - 実行する場合: プラン内容を `/tmp/codex-ctx-$(date +%s).md` に書き出し（`umask 077`、機密情報を含めない）、`bash scripts/codex/delegate.sh plan_review --context-file <path>` を実行する
+2. Codex plan review は任意（推奨）。実行前に **AskUserQuestion でユーザー確認が必須**（`codex-delegate-gate.sh` が機械的に enforce）:
+   - AskUserQuestion でプラン概要を提示し「実行する / スキップ」を確認
+   - 承認時: `echo "approved" > ~/.claude/sessions/career_compass/codex-plan-review-approved-$SESSION_ID`
+   - 実行: プラン内容を `/tmp/codex-ctx-$(date +%s).md` に書き出し（`umask 077`、機密情報を含めない）、`bash scripts/codex/delegate.sh plan_review --context-file <path>` を実行する
    - `meta.json` の `status` で成否を判定し、`result.md` の findings をメモに反映する
    - **TIMEOUT / CODEX_ERROR / PARSE_FAILURE** → 失敗を注記し、Claude 単独判断で続行
-   - スキップする場合: 省略可
+   - スキップ承認時: plan review を省略し次のステップへ進む
 3. 最初の Edit|Write 実行時に `impl-start-codex-gate.sh` がブロック
 4. AskUserQuestion で「この実装を Codex に委譲しますか？」と確認する。以下の情報を提示:
    a. **委譲スコープ**: 変更対象ファイル一覧と推定変更行数
@@ -311,7 +313,7 @@ commit を作成する直前に、以下の閾値チェックを行う:
    - 変更ファイル数 >= 10
    - 変更行数（追加+削除）>= 500
    - hotspot ファイルの変更を含む（正本: `.claude/hooks/lib/skill-recommender.sh` の `HOTSPOT_FILES` 配列）
-3. 該当時: `bash scripts/codex/delegate.sh post_review` を実行（Bash timeout: Policy 参照）
+3. 該当時: **AskUserQuestion でユーザー確認後**、`bash scripts/codex/delegate.sh post_review` を実行（`codex-delegate-gate.sh` が機械的に enforce）。確認時には変更統計（ファイル数・行数・hotspot）を提示する。承認時: `echo "approved" > ~/.claude/sessions/career_compass/codex-post-review-approved-$SESSION_ID`（Bash timeout: Policy 参照）
 4. 最新の handoff ディレクトリを特定する: `ls -td .codex/state/handoffs/post_review-*/ .claude/state/codex-handoffs/post_review-*/ 2>/dev/null | head -1`
 5. `meta.json` と `review.json` を Read する。`meta.json.status` は Codex 実行成否 (`SUCCESS` / `TIMEOUT` / `CODEX_ERROR` / `PARSE_FAILURE`)、`review.json.reviewStatus` はレビュー判定 (`APPROVE` / `REQUEST_CHANGES` / `NEEDS_DISCUSSION`) として扱う
 6. Status 判定:
