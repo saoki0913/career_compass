@@ -72,7 +72,7 @@ export interface ReviewResult {
     recommended_grounding_level?: "none" | "light" | "standard" | "deep";
     effective_grounding_level?: "none" | "light" | "standard" | "deep";
     company_evidence_count?: number;
-    evidence_coverage_level?: "none" | "weak" | "partial" | "strong";
+    evidence_coverage_level?: "not_applicable" | "none" | "weak" | "partial" | "strong";
     weak_evidence_notice?: boolean;
     injection_risk?: string | null;
     user_context_sources?: string[];
