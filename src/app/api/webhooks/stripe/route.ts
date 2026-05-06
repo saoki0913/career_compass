@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/db";
-import { subscriptions, userProfiles, processedStripeEvents } from "@/lib/db/schema";
+import { notifications, subscriptions, userProfiles, processedStripeEvents } from "@/lib/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import type Stripe from "stripe";
 import { getPlanFromPriceId, type PlanType } from "@/lib/stripe/config";
@@ -53,6 +53,50 @@ function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   return (invoice.parent?.subscription_details?.subscription as string | null)
     ?? (invoice as { subscription?: string | null }).subscription
     ?? null;
+}
+
+function stripeObjectId(value: string | { id?: string } | null | undefined): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  return typeof value.id === "string" ? value.id : null;
+}
+
+async function getInvoiceFromCharge(charge: Stripe.Charge): Promise<Stripe.Invoice | null> {
+  const invoiceId = stripeObjectId((charge as { invoice?: string | Stripe.Invoice | null }).invoice);
+  if (!invoiceId) {
+    return null;
+  }
+  return stripe.invoices.retrieve(invoiceId) as Promise<Stripe.Invoice>;
+}
+
+async function getSubscriptionIdFromCharge(charge: Stripe.Charge): Promise<string | null> {
+  const invoice = await getInvoiceFromCharge(charge);
+  return invoice ? getInvoiceSubscriptionId(invoice) : null;
+}
+
+function isFullyRefundedCharge(charge: Stripe.Charge): boolean {
+  return Boolean(charge.refunded) || charge.amount_refunded >= charge.amount;
+}
+
+async function notifyBillingStatus(
+  userId: string,
+  title: string,
+  message: string,
+  data?: Record<string, unknown>,
+): Promise<void> {
+  const now = new Date();
+  await db.insert(notifications).values({
+    id: crypto.randomUUID(),
+    userId,
+    guestId: null,
+    type: "billing_status",
+    title,
+    message,
+    data: data ?? null,
+    isRead: false,
+    createdAt: now,
+    expiresAt: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000),
+  });
 }
 
 async function claimStripeEvent(event: Stripe.Event): Promise<"claimed" | "duplicate"> {
@@ -181,6 +225,194 @@ async function downgradeSubscriptionToFree(subscriptionId: string, status: strin
     .where(eq(userProfiles.userId, existingSub.userId));
 
   await updatePlanAllocation(existingSub.userId, "free");
+}
+
+async function applyBillingHoldForDispute(dispute: Stripe.Dispute): Promise<void> {
+  const chargeId = stripeObjectId(dispute.charge as string | Stripe.Charge | null | undefined);
+  if (!chargeId) {
+    return;
+  }
+
+  const charge = await stripe.charges.retrieve(chargeId) as Stripe.Charge;
+  const subscriptionId = await getSubscriptionIdFromCharge(charge);
+  if (!subscriptionId) {
+    return;
+  }
+
+  const [existingSub] = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.stripeSubscriptionId, subscriptionId))
+    .limit(1);
+
+  await db
+    .update(subscriptions)
+    .set({
+      billingHoldStatus: "dispute",
+      billingHoldReason: "支払いに関する確認中のため、AI機能のクレジット利用を一時停止しています。",
+      billingHoldStripeDisputeId: dispute.id,
+      billingHoldStartedAt: new Date(),
+      billingHoldEndedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(subscriptions.stripeSubscriptionId, subscriptionId));
+
+  if (existingSub?.userId) {
+    await notifyBillingStatus(
+      existingSub.userId,
+      "お支払い状況を確認しています",
+      "支払いに関する確認が発生したため、AI機能のクレジット利用を一時停止しています。確認が完了すると再開されます。",
+      { kind: "dispute_created" },
+    );
+  }
+}
+
+async function clearBillingHoldForDispute(dispute: Stripe.Dispute): Promise<void> {
+  const chargeId = stripeObjectId(dispute.charge as string | Stripe.Charge | null | undefined);
+  if (!chargeId) {
+    return;
+  }
+
+  const charge = await stripe.charges.retrieve(chargeId) as Stripe.Charge;
+  const subscriptionId = await getSubscriptionIdFromCharge(charge);
+  if (!subscriptionId) {
+    return;
+  }
+
+  const [existingSub] = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.stripeSubscriptionId, subscriptionId))
+    .limit(1);
+
+  if (dispute.status === "won") {
+    if (!existingSub?.userId || existingSub.billingHoldStripeDisputeId !== dispute.id) {
+      return;
+    }
+
+    await db
+      .update(subscriptions)
+      .set({
+        billingHoldStatus: "none",
+        billingHoldReason: null,
+        billingHoldEndedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(subscriptions.stripeSubscriptionId, subscriptionId),
+        eq(subscriptions.billingHoldStripeDisputeId, dispute.id),
+      ));
+
+    await notifyBillingStatus(
+      existingSub.userId,
+      "お支払い状況の確認が完了しました",
+      "支払いに関する確認が完了しました。AI機能のクレジット利用を再開できます。",
+      { kind: "dispute_won" },
+    );
+    return;
+  }
+
+  if (!existingSub?.userId || existingSub.billingHoldStripeDisputeId !== dispute.id) {
+    return;
+  }
+
+  if (dispute.status !== "lost") {
+    await db
+      .update(subscriptions)
+      .set({
+        billingHoldStatus: "none",
+        billingHoldReason: null,
+        billingHoldEndedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(subscriptions.stripeSubscriptionId, subscriptionId),
+        eq(subscriptions.billingHoldStripeDisputeId, dispute.id),
+      ));
+
+    await notifyBillingStatus(
+      existingSub.userId,
+      "お支払い状況の確認が完了しました",
+      "支払いに関する確認が完了しました。現在のプランは継続されます。",
+      { kind: "dispute_closed_no_plan_change", status: dispute.status },
+    );
+    return;
+  }
+
+  await downgradeSubscriptionToFree(subscriptionId, "dispute_lost");
+  await db
+    .update(subscriptions)
+    .set({
+      billingHoldStatus: "none",
+      billingHoldReason: null,
+      billingHoldEndedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(subscriptions.stripeSubscriptionId, subscriptionId),
+      eq(subscriptions.billingHoldStripeDisputeId, dispute.id),
+    ));
+
+  await notifyBillingStatus(
+    existingSub.userId,
+    "お支払い確認の結果を反映しました",
+    "支払いに関する確認結果に基づき、プランをFreeに変更しました。",
+    { kind: "dispute_lost" },
+  );
+}
+
+async function handleRefundedCharge(charge: Stripe.Charge): Promise<void> {
+  const invoice = await getInvoiceFromCharge(charge);
+  if (!invoice) {
+    return;
+  }
+
+  const subscriptionId = getInvoiceSubscriptionId(invoice);
+  if (!subscriptionId) {
+    return;
+  }
+
+  const [existingSub] = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.stripeSubscriptionId, subscriptionId))
+    .limit(1);
+
+  if (!existingSub?.userId) {
+    return;
+  }
+
+  if (!isFullyRefundedCharge(charge)) {
+    await notifyBillingStatus(
+      existingSub.userId,
+      "返金を受け付けました",
+      "一部返金を確認しました。現在のプランは継続されます。",
+      { kind: "partial_refund" },
+    );
+    return;
+  }
+
+  const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId) as Stripe.Subscription;
+  const latestInvoiceId = stripeObjectId(
+    (stripeSubscription as { latest_invoice?: string | Stripe.Invoice | null }).latest_invoice,
+  );
+  if (latestInvoiceId !== invoice.id) {
+    await notifyBillingStatus(
+      existingSub.userId,
+      "返金を受け付けました",
+      "過去の請求に対する返金を確認しました。現在のプランは継続されます。",
+      { kind: "full_refund_no_plan_change" },
+    );
+    return;
+  }
+
+  await downgradeSubscriptionToFree(subscriptionId, "refunded");
+  await notifyBillingStatus(
+    existingSub.userId,
+    "返金を反映しました",
+    "返金処理に伴い、プランをFreeに変更しました。",
+    { kind: "full_refund" },
+  );
 }
 
 async function restoreSubscriptionIfEntitled(subscriptionId: string, eventType: string): Promise<void> {
@@ -442,6 +674,21 @@ export async function POST(req: Request) {
         if (subscriptionId) {
           await restoreSubscriptionIfEntitled(subscriptionId, event.type);
         }
+        break;
+      }
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        await handleRefundedCharge(charge);
+        break;
+      }
+      case "charge.dispute.created": {
+        const dispute = event.data.object as Stripe.Dispute;
+        await applyBillingHoldForDispute(dispute);
+        break;
+      }
+      case "charge.dispute.closed": {
+        const dispute = event.data.object as Stripe.Dispute;
+        await clearBillingHoldForDispute(dispute);
         break;
       }
     }

@@ -14,6 +14,8 @@ export {
   INTERVIEW_START_CREDIT_COST,
   INTERVIEW_TURN_CREDIT_COST,
   PLAN_CREDITS,
+  BillingGateUnavailableError,
+  isBillingGateUnavailableError,
   type PlanType,
   type TransactionType,
 } from "./shared";

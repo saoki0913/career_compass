@@ -49,7 +49,7 @@
 |-------|----------|-------|------|
 | A | #17 監視 Phase 0 | **Done (repo)**: PII scrub allowlist, TS/Python shared sanitizer, Sentry privacy-first init, `/health/ready` 公開情報削減, UptimeRobot/Sentry 手順化。**External**: UptimeRobot monitors は dashboard 登録待ち。 | 完了 |
 | B | #15 テスト P0 infra | **Done (repo)**: Vitest / pytest-cov coverage 基盤、coverage Make targets、BFF 課金境界テスト、Gate Shadow/Advisory utilities。**Deferred**: blocking gate への接続は release 後に shadow data を見て判断。 | 完了 |
-| C | #14 法務 docs-first | AI copyright 条項ドラフト, 特商法表示ドラフト, cookie consent 方針決定（外部確認開始）| 2-3d |
+| C | #14 法務 docs-first | **Done (repo)**: AI copyright / AI免責 / 返金例外文言を `/terms` と Stripe 表示に反映、課金 P0 の transaction / past_due gate / refund-dispute webhook / billing hold / アプリ内通知を実装済み。**External**: AI著作権・返金例外条項の外部確認、Stripe Dashboard webhook/Terms URL 確認待ち。Cookie consent は P1 へ継続。 | 完了 |
 
 **理由**: UptimeRobot は PII 送信なしで即導入可。PII scrub allowlist を先に定義することで Sentry を安全に導入できる。法務は外部確認に待ち時間が発生するため docs-first で先行開始。
 
@@ -71,6 +71,13 @@
 - BFF 課金境界テストを追加し、ES Review reserve/confirm/cancel、Motivation 成功時のみ消費、Company Fetch free quota/credit reservation、LLM daily token guard をカバーした。
 - Gate P0 は `command-classifier.mjs classify-change-path` と `diff-snapshot.mjs batch-verify` を Shadow/Advisory utility として追加した。`pre-tool-dispatcher.sh` / `test-category-gate.sh` / `bandaid-guard.sh` の blocking 条件は変更していない。
 - 検証: `make test-coverage` pass (290 files / 1297 tests), `make backend-test-coverage` pass (1477 passed / 42 deselected), focused BFF Vitest pass, harness node tests pass。
+
+**#14 Phase 0 実装メモ (2026-05-06)**:
+- `docs/plan/legal-commercial-support-tasks.json` で状態管理を開始し、`scripts/plan/update-legal-commercial-task-status.mjs` で `Todo / Doing / Blocked / Review / Done` を更新する。
+- `/terms` に AI生成物の権利と責任、AI機能の免責、返金例外・損害賠償制限を追加した。AIプロバイダの学習不使用は断定せず、管理API利用・契約設定の範囲に限定した。
+- Stripe Checkout 表示と `managed-config.json` の返金・解約短文を `/terms#billing` と整合させた。
+- 課金 P0 として `consumeCredits` transaction 化、plan allocation 差分更新、past_due/dispute hold の credit-layer gate、`charge.refunded` / `charge.dispute.created` / `charge.dispute.closed` webhook、billing status アプリ内通知を追加した。
+- `charge.refunded` は全額返金のみ Free 降格、部分返金は自動降格せず通知のみ。`charge.dispute.created` は新規 AI credit 消費を停止し、`closed/won` で解除、lost 系は Free 降格する。
 
 ---
 

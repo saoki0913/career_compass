@@ -342,12 +342,21 @@ export const subscriptions = pgTable(
     status: text("status"),
     currentPeriodEnd: timestamptz("current_period_end"),
     cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    billingHoldStatus: text("billing_hold_status", { enum: ["none", "dispute"] }).notNull().default("none"),
+    billingHoldReason: text("billing_hold_reason"),
+    billingHoldStripeDisputeId: text("billing_hold_stripe_dispute_id"),
+    billingHoldStartedAt: timestamptz("billing_hold_started_at"),
+    billingHoldEndedAt: timestamptz("billing_hold_ended_at"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
   (t) => [
     // Frequently queried from Stripe webhooks.
     uniqueIndex("subscriptions_stripe_subscription_id_ux").on(t.stripeSubscriptionId),
+    index("subscriptions_billing_hold_active_idx")
+      .on(t.userId)
+      .where(sql`${t.billingHoldStatus} <> 'none'`),
+    check("subscriptions_billing_hold_status_check", sql`${t.billingHoldStatus} in ('none', 'dispute')`),
   ]
 );
 
@@ -484,7 +493,7 @@ export const notifications = pgTable(
     id: text("id").primaryKey(),
     userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
     guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
-    type: text("type", { enum: ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary", "calendar_sync_failed"] }).notNull(),
+    type: text("type", { enum: ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary", "calendar_sync_failed", "billing_status"] }).notNull(),
     title: text("title").notNull(),
     message: text("message").notNull(),
     data: jsonb("data").$type<JsonRecord>(),

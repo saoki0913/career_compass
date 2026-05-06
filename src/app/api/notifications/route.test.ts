@@ -5,10 +5,12 @@ const {
   authGetSessionMock,
   getGuestUserMock,
   dbSelectMock,
+  dbInsertValuesMock,
 } = vi.hoisted(() => ({
   authGetSessionMock: vi.fn(),
   getGuestUserMock: vi.fn(),
   dbSelectMock: vi.fn(),
+  dbInsertValuesMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -30,6 +32,9 @@ vi.mock("@/lib/auth/guest", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     select: dbSelectMock,
+    insert: vi.fn(() => ({
+      values: dbInsertValuesMock,
+    })),
   },
 }));
 
@@ -53,6 +58,7 @@ describe("api/notifications GET", () => {
     authGetSessionMock.mockReset();
     getGuestUserMock.mockReset();
     dbSelectMock.mockReset();
+    dbInsertValuesMock.mockReset();
 
     authGetSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     getGuestUserMock.mockResolvedValue(null);
@@ -89,5 +95,24 @@ describe("api/notifications GET", () => {
     expect(response.status).toBe(200);
     expect(data.notifications).toHaveLength(1);
     expect(data.unreadCount).toBe(3);
+  });
+
+  it("rejects client-created billing status notifications", async () => {
+    const { POST } = await import("@/app/api/notifications/route");
+    const request = new NextRequest("http://localhost:3000/api/notifications", {
+      method: "POST",
+      body: JSON.stringify({
+        type: "billing_status",
+        title: "お支払い",
+        message: "message",
+      }),
+    });
+
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error).toBe("無効な通知タイプです");
+    expect(dbInsertValuesMock).not.toHaveBeenCalled();
   });
 });
