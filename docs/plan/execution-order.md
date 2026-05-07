@@ -97,6 +97,10 @@
 - Week 2 (Backend): SSRF/redirect validation, SSE concurrency lease, PDF size cap, URL scheme validation → #7 LLM/RAG の前提
 - Week 3 (Billing): payment_failed → free plan downgrade, company fetch concurrent race, RAG monthly usage atomic → #4 Billing の前提
 
+**完了実績:**
+- 2026-05-07: **Track A #1 Security 全 20 タスク完了**（3 sub-phase: Auth Week 1, Backend Week 2, Billing Week 3）
+- 2026-05-07: **Track B #8 P0 全 5 Critical bugs 解消** — T-01 JST基準違反一掃 (5箇所)、T-02 KeyError crash修正、T-03 タスク生成冪等性保証、T-04 タスク巻き戻しバグ修正、T-05 HTML テーブル構造保持
+
 **Gate**: 全 15 セキュリティタスク完了（sub-phase ごとに検証）、#8 の 5 Critical bugs 解消、Sentry でエラー捕捉確認、監視 Phase 1+2 完了。
 
 ---

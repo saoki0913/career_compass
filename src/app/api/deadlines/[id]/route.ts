@@ -12,7 +12,7 @@ import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { createServerTimingRecorder } from "@/bff/api/server-timing";
 import { db } from "@/lib/db";
 import { deadlines, tasks } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { buildOwnedDeadlineCondition, buildOwnerCondition } from "@/bff/identity/owner-access";
 import {
   syncDeadlineDeleteImmediately,
@@ -262,7 +262,14 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         await db
           .update(tasks)
           .set({ status: "open", completedAt: null, updatedAt: now })
-          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "done"), taskOwnerCondition));
+          .where(
+            and(
+              eq(tasks.deadlineId, deadlineId),
+              inArray(tasks.id, storedTaskIds),
+              eq(tasks.status, "done"),
+              taskOwnerCondition,
+            ),
+          );
       }
     }
 

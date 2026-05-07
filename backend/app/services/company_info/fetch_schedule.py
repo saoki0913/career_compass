@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from types import ModuleType
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -17,6 +16,7 @@ from app.services.company_info.extract_deadlines import (
     _schedule_candidate_requires_ocr,
 )
 from app.utils.http_fetch import extract_text_from_html
+from app.utils.jst import now_jst
 from app.utils.llm import (
     consume_request_llm_cost_summary,
     log_selection_schedule_request_llm_cost,
@@ -729,7 +729,7 @@ async def fetch_schedule_response(request: FetchRequest, feature: str) -> Select
                     if isinstance(source_metadata["used_graduation_year"], int)
                     else None
                 ),
-                extracted_at=datetime.utcnow().isoformat(),
+                extracted_at=now_jst().isoformat(),
                 error="ページの内容を取得できませんでした。JavaScriptで描画されるページの可能性があります。別のURLをお試しください。",
                 deadlines_found=False,
                 other_items_found=False,
@@ -784,7 +784,7 @@ async def fetch_schedule_response(request: FetchRequest, feature: str) -> Select
                 if isinstance(source_metadata["used_graduation_year"], int)
                 else None
             ),
-            extracted_at=datetime.utcnow().isoformat(),
+            extracted_at=now_jst().isoformat(),
             error=error_message,
             deadlines_found=deadlines_found,
             other_items_found=other_items_found,
@@ -817,7 +817,7 @@ async def fetch_schedule_response(request: FetchRequest, feature: str) -> Select
                 if isinstance(source_metadata["used_graduation_year"], int)
                 else None
             ),
-            extracted_at=datetime.utcnow().isoformat(),
+            extracted_at=now_jst().isoformat(),
             error=f"情報の抽出に失敗しました: {str(e)}",
             deadlines_found=False,
             other_items_found=False,

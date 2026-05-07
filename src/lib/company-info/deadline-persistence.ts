@@ -7,6 +7,7 @@
 
 import { db } from "@/lib/db";
 import { deadlines } from "@/lib/db/schema";
+import { getJstDateKey } from "@/lib/datetime/jst";
 import { eq, and } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
@@ -65,11 +66,7 @@ export function normalizeTitle(title: string): string {
  * Check if two dates are the same calendar day.
  */
 export function isSameDay(date1: Date, date2: Date): boolean {
-  return (
-    date1.getFullYear() === date2.getFullYear() &&
-    date1.getMonth() === date2.getMonth() &&
-    date1.getDate() === date2.getDate()
-  );
+  return getJstDateKey(date1) === getJstDateKey(date2);
 }
 
 /**

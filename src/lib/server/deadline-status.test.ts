@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { computeDeadlineStatus } from "./deadline-status";
 
 const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 const PAST = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
 describe("computeDeadlineStatus", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("returns the statusOverride value when set, ignoring all other fields", () => {
     const result = computeDeadlineStatus({
       statusOverride: "completed",
@@ -80,5 +84,37 @@ describe("computeDeadlineStatus", () => {
       totalTasks: 3,
     });
     expect(result).toBe("completed");
+  });
+
+  it("returns overdue when dueDate's JST day has passed", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T15:01:00.000Z"));
+    const dueDate = new Date("2026-06-15T00:00:00+09:00");
+
+    const result = computeDeadlineStatus({
+      statusOverride: null,
+      completedAt: null,
+      dueDate,
+      completedTasks: 0,
+      totalTasks: 5,
+    });
+
+    expect(result).toBe("overdue");
+  });
+
+  it("returns not_started when dueDate's JST day has not passed", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-15T14:59:00.000Z"));
+    const dueDate = new Date("2026-06-15T00:00:00+09:00");
+
+    const result = computeDeadlineStatus({
+      statusOverride: null,
+      completedAt: null,
+      dueDate,
+      completedTasks: 0,
+      totalTasks: 5,
+    });
+
+    expect(result).toBe("not_started");
   });
 });

@@ -263,6 +263,24 @@ async def fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
     )
 
 
+def _convert_tables_to_text(soup: BeautifulSoup) -> None:
+    """Convert <table> elements to pipe-delimited text preserving column relationships."""
+    for table in soup.find_all("table"):
+        rows: list[str] = []
+        for tr in table.find_all("tr"):
+            cells: list[str] = []
+            for cell in tr.find_all(["th", "td"]):
+                cell_text = cell.get_text(separator=" ").strip()
+                cell_text = cell_text.replace("|", "｜")
+                cells.append(cell_text)
+            if cells:
+                rows.append("| " + " | ".join(cells) + " |")
+        if rows:
+            table.replace_with(soup.new_string("\n".join(rows) + "\n"))
+        else:
+            table.decompose()
+
+
 def extract_text_from_html(html: bytes, max_text_chars: int | None = None) -> str:
     """Extract readable text from HTML."""
     soup = BeautifulSoup(html, "html.parser")
@@ -270,10 +288,16 @@ def extract_text_from_html(html: bytes, max_text_chars: int | None = None) -> st
     for script in soup(["script", "style", "noscript", "iframe"]):
         script.decompose()
 
+    _convert_tables_to_text(soup)
+
     text = soup.get_text(separator="\n")
 
-    lines = (line.strip() for line in text.splitlines())
-    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+    chunks: list[str] = []
+    for line in (line.strip() for line in text.splitlines()):
+        if line.startswith("| ") and line.endswith(" |"):
+            chunks.append(line)
+            continue
+        chunks.extend(phrase.strip() for phrase in line.split("  "))
     text = "\n".join(chunk for chunk in chunks if chunk)
 
     limit = 15000 if max_text_chars is None else max(1, int(max_text_chars))

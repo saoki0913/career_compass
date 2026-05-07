@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from fastapi import HTTPException
 
 from app.prompts.company_info_prompts import (
@@ -30,6 +28,7 @@ from app.routers.company_info_schedule_extraction import (
     _parse_extracted_schedule_info,
 )
 from app.utils.firecrawl import FirecrawlScrapeResult, scrape_url_with_schema
+from app.utils.jst import now_jst
 from app.utils.llm import call_llm_with_error
 from app.utils.secure_logger import get_logger
 
@@ -46,10 +45,16 @@ async def extract_info_with_llm(text: str, url: str) -> ExtractedInfo:
 
     Uses OpenAI via shared LLM utility (feature="company_info").
     """
-    current_year = datetime.now().year
+    jst_now = now_jst()
+    current_year = jst_now.year
+    next_year = current_year + 1
 
     system_prompt_template = EXTRACTION_SYSTEM_PROMPT
-    system_prompt = system_prompt_template.format(current_year=current_year, url=url)
+    system_prompt = system_prompt_template.format(
+        current_year=current_year,
+        next_year=next_year,
+        url=url,
+    )
 
     user_message_template = EXTRACTION_USER_MESSAGE
     user_message = user_message_template.format(text=text)

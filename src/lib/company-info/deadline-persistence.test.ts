@@ -204,3 +204,23 @@ describe("findPotentialDuplicatesBatch", () => {
     expect(dbSelectMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("isSameDay", () => {
+  it("returns false for dates on different JST days crossing midnight", async () => {
+    const { isSameDay } = await import("./deadline-persistence");
+
+    expect(isSameDay(
+      new Date("2026-06-15T14:30:00.000Z"),
+      new Date("2026-06-15T15:30:00.000Z"),
+    )).toBe(false);
+  });
+
+  it("returns true for dates on the same JST day", async () => {
+    const { isSameDay } = await import("./deadline-persistence");
+
+    expect(isSameDay(
+      new Date("2026-06-14T15:00:00.000Z"),
+      new Date("2026-06-15T14:59:00.000Z"),
+    )).toBe(true);
+  });
+});
