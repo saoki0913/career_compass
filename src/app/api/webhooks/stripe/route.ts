@@ -623,7 +623,6 @@ export async function POST(req: Request) {
         const priceId = subscriptionItem.price.id;
         const newPlan = requirePlanFromPriceId(priceId, event.type);
 
-        // Batch: update subscription record + user profile
         await db
           .update(subscriptions)
           .set({
@@ -644,10 +643,8 @@ export async function POST(req: Request) {
             })
             .where(eq(userProfiles.userId, existingSub.userId));
 
-          if (existingSub.stripePriceId !== priceId) {
-            await updatePlanAllocation(existingSub.userId, newPlan);
-            console.info(`[Stripe Webhook] subscription.updated: plan=${newPlan}`);
-          }
+          await updatePlanAllocation(existingSub.userId, newPlan);
+          console.info(`[Stripe Webhook] subscription.updated: plan=${newPlan}`);
         }
         break;
       }

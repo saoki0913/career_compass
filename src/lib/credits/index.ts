@@ -27,6 +27,7 @@ export {
   initializeCredits,
   shouldGrantMonthlyCredits,
   updatePlanAllocation,
+  updatePlanAllocationIfCurrent,
 } from "./monthly-reset";
 export { getCreditsInfo, getRemainingFreeFetches, hasEnoughCredits } from "./balance";
 export { cancelReservation, confirmReservation, consumeCredits, reserveCredits } from "./reservations";

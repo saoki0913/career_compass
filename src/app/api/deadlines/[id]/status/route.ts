@@ -10,7 +10,13 @@ import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { createServerTimingRecorder } from "@/bff/api/server-timing";
 import { db } from "@/lib/db";
 import { deadlines, companies, tasks } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
+import { buildOwnerCondition } from "@/bff/identity/owner-access";
+import {
+  completeDeadlineStatusTransition,
+  planDeadlineStatusTransition,
+  type DeadlinePersistedStatus,
+} from "@/lib/server/deadline-status";
 
 const VALID_STATUSES = ["not_started", "in_progress", "completed"] as const;
 
@@ -82,25 +88,52 @@ export async function PUT(
     }
 
     const now = new Date();
-    const updateData: Record<string, unknown> = {
-      statusOverride: status,
-      updatedAt: now,
-    };
+    const statusTransition = planDeadlineStatusTransition({
+      current: {
+        completedAt: deadline.completedAt,
+        statusOverride: deadline.statusOverride,
+        autoCompletedTaskIds: deadline.autoCompletedTaskIds,
+      },
+      transitionedAt: now,
+      requestedStatusOverride: status as DeadlinePersistedStatus | null,
+    });
 
-    // If setting to "completed", also set completedAt and auto-complete tasks
-    if (status === "completed" && !deadline.completedAt) {
-      updateData.completedAt = now;
+    let autoCompletedTaskIds: string[] = [];
+    const taskOwnerCondition = buildOwnerCondition(tasks, identity);
 
+    if (statusTransition.taskAction.type === "complete-open-tasks" && taskOwnerCondition) {
+      const openTasks = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "open"), taskOwnerCondition));
+
+      if (openTasks.length > 0) {
+        autoCompletedTaskIds = openTasks.map((task) => task.id);
+        await db
+          .update(tasks)
+          .set({ status: "done", completedAt: now, updatedAt: now })
+          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "open"), taskOwnerCondition));
+      }
+    }
+
+    if (statusTransition.taskAction.type === "reopen-auto-completed-tasks" && taskOwnerCondition) {
       await db
         .update(tasks)
-        .set({ status: "done", completedAt: now, updatedAt: now })
-        .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "open")));
+        .set({ status: "open", completedAt: null, updatedAt: now })
+        .where(
+          and(
+            eq(tasks.deadlineId, deadlineId),
+            inArray(tasks.id, statusTransition.taskAction.taskIds),
+            eq(tasks.status, "done"),
+            taskOwnerCondition,
+          ),
+        );
     }
 
-    // If clearing completed status, also clear completedAt
-    if (status !== "completed" && deadline.completedAt && deadline.statusOverride === "completed") {
-      updateData.completedAt = null;
-    }
+    const updateData: Record<string, unknown> = {
+      updatedAt: now,
+      ...completeDeadlineStatusTransition(statusTransition, { autoCompletedTaskIds }),
+    };
 
     await db
       .update(deadlines)

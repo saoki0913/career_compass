@@ -1,13 +1,11 @@
 import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { interviewInlinePolicy } from "@/bff/billing/interview-inline-policy";
 import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import {
-  cancelReservation,
-  confirmReservation,
   INTERVIEW_CONTINUE_CREDIT_COST,
-  reserveCredits,
 } from "@/lib/credits";
 import {
   normalizeInterviewTurnMeta,
@@ -94,14 +92,18 @@ export async function POST(
     });
   }
 
-  const reservation = await reserveCredits(
-    identity.userId!,
-    INTERVIEW_CONTINUE_CREDIT_COST,
-    "interview",
+  const billingContext = {
+    userId: identity.userId,
     companyId,
-    `面接対策続き: ${context.company.name}`,
+    companyName: context.company.name,
+    transactionType: "interview" as const,
+    descriptionPrefix: "面接対策続き",
+  };
+  const reservation = await interviewInlinePolicy.reserve!(
+    billingContext,
+    INTERVIEW_CONTINUE_CREDIT_COST,
   );
-  if (!reservation.success) {
+  if (!reservation.reservationId) {
     return createApiErrorResponse(request, {
       status: 402,
       code: "INTERVIEW_INSUFFICIENT_CREDITS",
@@ -207,7 +209,11 @@ export async function POST(
           },
         });
 
-        await confirmReservation(reservationId);
+        await interviewInlinePolicy.confirm(
+          billingContext,
+          { kind: "billable_success", creditsConsumed: INTERVIEW_CONTINUE_CREDIT_COST, freeQuotaUsed: false },
+          reservationId,
+        );
 
         return {
           messages,
@@ -236,15 +242,15 @@ export async function POST(
           feedbackHistories: context.feedbackHistories,
         };
       } catch (error) {
-        await cancelReservation(reservationId);
+        await interviewInlinePolicy.cancel(billingContext, reservationId, "complete_persistence_failed");
         throw error;
       }
     },
     onAbort: async () => {
-      await cancelReservation(reservationId);
+      await interviewInlinePolicy.cancel(billingContext, reservationId, "upstream_abort");
     },
     onError: async () => {
-      await cancelReservation(reservationId);
+      await interviewInlinePolicy.cancel(billingContext, reservationId, "upstream_error");
     },
   });
 }

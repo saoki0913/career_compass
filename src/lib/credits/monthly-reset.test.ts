@@ -60,6 +60,23 @@ describe("updatePlanAllocation", () => {
     }));
   });
 
+  it("skips allocation updates when the current monthly allocation already matches the plan", async () => {
+    dbSelectLimitMock.mockResolvedValueOnce([
+      {
+        userId: "user-1",
+        balance: 750,
+        monthlyAllocation: 750,
+      },
+    ]);
+
+    const { updatePlanAllocation } = await import("@/lib/credits/monthly-reset");
+    await updatePlanAllocation("user-1", "pro");
+
+    expect(dbTransactionMock).not.toHaveBeenCalled();
+    expect(txExecuteMock).not.toHaveBeenCalled();
+    expect(txInsertValuesMock).not.toHaveBeenCalled();
+  });
+
   it("clamps downgrade deltas at zero and records the actual delta", async () => {
     dbSelectLimitMock.mockResolvedValueOnce([
       {

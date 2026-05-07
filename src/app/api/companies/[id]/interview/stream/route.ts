@@ -1,13 +1,11 @@
 import { NextRequest } from "next/server";
 
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { interviewInlinePolicy } from "@/bff/billing/interview-inline-policy";
 import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import {
-  cancelReservation,
-  confirmReservation,
   INTERVIEW_TURN_CREDIT_COST,
-  reserveCredits,
 } from "@/lib/credits";
 
 import { buildInterviewContext } from "..";
@@ -105,14 +103,18 @@ export async function POST(
     });
   }
 
-  const reservation = await reserveCredits(
-    identity.userId!,
-    INTERVIEW_TURN_CREDIT_COST,
-    "interview",
+  const billingContext = {
+    userId: identity.userId,
     companyId,
-    `面接対策回答: ${context.company.name}`,
+    companyName: context.company.name,
+    transactionType: "interview" as const,
+    descriptionPrefix: "面接対策回答",
+  };
+  const reservation = await interviewInlinePolicy.reserve!(
+    billingContext,
+    INTERVIEW_TURN_CREDIT_COST,
   );
-  if (!reservation.success) {
+  if (!reservation.reservationId) {
     return createApiErrorResponse(request, {
       status: 402,
       code: "INTERVIEW_INSUFFICIENT_CREDITS",
@@ -131,7 +133,7 @@ export async function POST(
       answer,
     });
   } catch (error) {
-    await cancelReservation(reservationId);
+    await interviewInlinePolicy.cancel(billingContext, reservationId, "payload_persistence_failed");
     const persistenceError = normalizeInterviewPersistenceError(error, {
       companyId,
       operation: "interview:stream",
@@ -157,18 +159,23 @@ export async function POST(
           identity,
           answer,
           nextMessages: streamPayload.nextMessages,
-          onPersisted: () => confirmReservation(reservationId),
+          onPersisted: () =>
+            interviewInlinePolicy.confirm(
+              billingContext,
+              { kind: "billable_success", creditsConsumed: INTERVIEW_TURN_CREDIT_COST, freeQuotaUsed: false },
+              reservationId,
+            ),
         });
       } catch (error) {
-        await cancelReservation(reservationId);
+        await interviewInlinePolicy.cancel(billingContext, reservationId, "complete_persistence_failed");
         throw error;
       }
     },
     onAbort: async () => {
-      await cancelReservation(reservationId);
+      await interviewInlinePolicy.cancel(billingContext, reservationId, "upstream_abort");
     },
     onError: async () => {
-      await cancelReservation(reservationId);
+      await interviewInlinePolicy.cancel(billingContext, reservationId, "upstream_error");
     },
   });
 }

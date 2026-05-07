@@ -12,7 +12,6 @@ SPEC Section 9.5 Requirements:
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from typing import Optional
-import sys
 
 from app.utils.firecrawl import FirecrawlScrapeResult  # noqa: F401
 from app.config import settings
@@ -160,13 +159,32 @@ _schedule_service.configure_dependencies(
     config=_company_info_config,
     candidate_scoring=_company_info_candidate_scoring,
     url_utils=_company_info_url_utils,
-    company_info_module=sys.modules[__name__],
+    runtime=_schedule_service.ScheduleRuntimeDependencies(
+        fetch_page_content=lambda *args, **kwargs: fetch_page_content(*args, **kwargs),
+        extract_schedule_with_firecrawl=lambda *args, **kwargs: _extract_schedule_with_firecrawl(
+            *args, **kwargs
+        ),
+        extract_schedule_text_from_bytes=lambda *args, **kwargs: _extract_schedule_text_from_bytes(
+            *args, **kwargs
+        ),
+        extract_schedule_with_llm=lambda *args, **kwargs: extract_schedule_with_llm(
+            *args, **kwargs
+        ),
+    ),
     pdf_module=_company_info_pdf,
 )
 _rag_service.configure_dependencies(
     models=_company_info_models,
     pdf=_company_info_pdf,
-    company_info_module=sys.modules[__name__],
+    runtime=_rag_service.RagRuntimeDependencies(
+        resolve_embedding_backend=lambda *args, **kwargs: resolve_embedding_backend(
+            *args, **kwargs
+        ),
+        store_full_text_content=lambda *args, **kwargs: store_full_text_content(
+            *args, **kwargs
+        ),
+        fetch_page_content=lambda *args, **kwargs: fetch_page_content(*args, **kwargs),
+    ),
 )
 
 # ===== Hybrid Search Configuration =====

@@ -117,7 +117,7 @@ role-sensitive / intern-sensitive な設問では、次の順を優先する。
 │       +                                          │
 │  Sparse (BM25)                                   │
 │       ↓                                          │
-│  重み付け融合 (semantic 60% + keyword 40%)※デフォルト│
+│  重み付け融合 (検索戦略に応じた可変重み)             │
 │       ↓                                          │
 │  [LLM Rerank]（品質スコア < 0.7 の場合のみ）       │
 └──────────────────────────────────────────────────┘
@@ -143,7 +143,7 @@ role-sensitive / intern-sensitive な設問では、次の順を優先する。
 | Sparse検索 | BM25（MeCab） | tokenizer=UniDic, min_token=2文字 | `bm25_store.py` |
 | RRF | 順位ベース融合 | k=30+(num_queries×10) | `hybrid_search.py::adaptive_rrf_k()` |
 | MMR | 多様性確保 | λ=0.5 | `hybrid_search.py` |
-| ハイブリッド融合 | スコア正規化 | semantic=0.6, keyword=0.4 | `hybrid_search.py` |
+| ハイブリッド融合 | スコア正規化 | 検索戦略ごとに可変（下表参照） | `hybrid_search.py` |
 | リランク | CrossEncoder | model=mmarco-mMiniLMv2-L12-H384-v1, max_candidates=20 | `reranker.py::CrossEncoderReranker` |
 
 ### 2. リランク実行判定
@@ -168,6 +168,21 @@ role-sensitive / intern-sensitive な設問では、次の順を優先する。
 | **business** | 事業、戦略、売上、成長、市場、中期経営 | midterm_plan (1.5x), ir_materials (1.4x) |
 
 実装: `hybrid_search.py::CONTENT_TYPE_BOOSTS, select_boost_profile()`
+
+### 3.1 ハイブリッド融合の重みプロファイル
+
+デフォルトは `settings.rag_semantic_weight` / `settings.rag_keyword_weight`（初期値 0.6 / 0.4）だが、検索戦略ごとに異なるプロファイルを適用する。
+
+| 検索戦略 | semantic | keyword | 特徴 |
+|---------|----------|---------|------|
+| es_review（デフォルト） | 0.62 | 0.38 | 意味的類似を重視 |
+| culture | 0.70 | 0.30 | 社風・文化はセマンティックが有効 |
+| business_strategy | 0.72 | 0.28 | 事業戦略は文脈理解が重要 |
+| deadline | 0.42 | 0.58 | 日付・期限はキーワードが有効 |
+| recruit | 0.48 | 0.52 | 採用固有語彙はキーワードが有効 |
+| 設定値フォールバック | `rag_semantic_weight` | `rag_keyword_weight` | 環境変数で上書き可 |
+
+実装: `hybrid_search.py::_resolve_weights()`
 
 ### 4. Embeddingプロバイダー
 
@@ -324,10 +339,13 @@ ES添削プロンプトに注入される形式：
 
 | ファイル | 役割 |
 |---------|------|
-| `backend/app/rag/vector_store.py` | ChromaDB操作、RAG保存・検索、Contextual Retrieval shadow dual-write |
+| `backend/app/rag/vector_store.py` | ChromaDB操作、RAG保存・検索、Contextual Retrieval shadow dual-write。既存 import 互換の facade も維持 |
+| `backend/app/rag/retrieval.py` | `vector_store.py` から分離した enhanced / hybrid retrieval orchestration |
+| `backend/app/rag/vector_store_deletion.py` | URL re-ingest / delete 時の vector record 削除補助 |
 | `backend/app/rag/hybrid_search.py` | ハイブリッド検索、RRF、クエリ拡張、HyDE、リランキング |
 | `backend/app/rag/reference_es.py` | 参考 ES embedding collection の保存・検索 |
 | `backend/app/rag/chunking.py` | Contextual chunking |
+| `backend/app/rag/security.py` | RAG injection risk 検出（sanitize / quarantine）|
 | `backend/app/rag/telemetry.py` | RAG metrics 定義 |
 | `backend/app/rag/metrics_exporter.py` | 内部 Prometheus exporter |
 | `backend/app/utils/bm25_store.py` | BM25インデックス管理 |
@@ -337,4 +355,9 @@ ES添削プロンプトに注入される形式：
 | `backend/app/utils/reranker.py` | CrossEncoderリランキング |
 | `backend/app/utils/llm.py` | LLM呼び出しユーティリティ |
 | `backend/app/routers/company_info.py` | RAG関連APIエンドポイント |
+| `backend/app/security/career_principal.py` | tenant_key HMAC 導出（`compute_tenant_key`）|
 | `backend/app/routers/es_review.py` | ES添削でのRAG活用 |
+
+### Maintainability Boundary
+
+`backend/app/rag/vector_store.py` の public API は既存 caller 互換のため維持するが、hybrid / enhanced retrieval の制御は `backend/app/rag/retrieval.py` に置く。Chroma collection 名、metadata schema、embedding text、BM25 path は変更していないため、この分離だけでは reindex 不要。新しい ranking-only 変更は `hybrid_search.py` 側で扱い、`vector_store.py` には追加しない。

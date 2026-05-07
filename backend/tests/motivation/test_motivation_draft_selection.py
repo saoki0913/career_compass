@@ -178,7 +178,6 @@ class TestMaybeRetryForAiSmellFailureModes:
 
     @pytest.fixture(autouse=True)
     def _stub_ai_smell_helpers(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Tier 2 を必ず返してリトライ経路を踏ませる
         monkeypatch.setattr(
             "app.routers.motivation_retry._detect_ai_smell_patterns",
             lambda draft, origin: [],
@@ -194,7 +193,7 @@ class TestMaybeRetryForAiSmellFailureModes:
         )
         monkeypatch.setattr(
             "app.routers.motivation_retry._is_within_char_limits",
-            lambda draft, lo, hi: (True, []),
+            lambda draft, lo, hi: (True, "ok"),
         )
         monkeypatch.setattr(
             "app.routers.motivation_retry._build_ai_smell_retry_hints",

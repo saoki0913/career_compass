@@ -98,6 +98,14 @@ export async function grantMonthlyCredits(userId: string) {
 }
 
 export async function updatePlanAllocation(userId: string, newPlan: PlanType) {
+  return updatePlanAllocationIfCurrent(userId, newPlan, null);
+}
+
+export async function updatePlanAllocationIfCurrent(
+  userId: string,
+  newPlan: PlanType,
+  expectedCurrentAllocation: number | null,
+) {
   const allocation = PLAN_CREDITS[newPlan];
   const now = new Date();
   const userCredits = await getCreditRow(userId);
@@ -107,6 +115,11 @@ export async function updatePlanAllocation(userId: string, newPlan: PlanType) {
     if (initialized) {
       return;
     }
+  } else if (
+    expectedCurrentAllocation === null
+    && userCredits.monthlyAllocation === allocation
+  ) {
+    return;
   }
 
   await db.transaction(async (tx) => {
@@ -126,6 +139,10 @@ export async function updatePlanAllocation(userId: string, newPlan: PlanType) {
           updated_at = ${now}
         from locked
         where credits.user_id = ${userId}
+          and (
+            ${expectedCurrentAllocation}::integer is null
+            or locked.monthly_allocation = ${expectedCurrentAllocation}
+          )
         returning locked.balance as previous_balance, credits.balance as balance
       )
       select previous_balance, balance from updated
@@ -133,6 +150,9 @@ export async function updatePlanAllocation(userId: string, newPlan: PlanType) {
 
     const [updatedCredits] = Array.from(updatedRows as Iterable<Record<string, unknown>>);
     if (!updatedCredits) {
+      if (expectedCurrentAllocation !== null) {
+        return;
+      }
       throw new Error(`Cannot update plan allocation without credits row: ${userId}`);
     }
     const previousBalance = Number(updatedCredits.previous_balance);

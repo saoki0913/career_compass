@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import time
 from types import ModuleType
 from typing import Any, Optional
@@ -40,7 +41,7 @@ CrawlCorporateRequest: Any = None
 CrawlCorporateResponse: Any = None
 EstimateCorporatePdfResponse: Any = None
 UploadCorporatePdfResponse: Any = None
-_company_info_module: ModuleType | None = None
+_rag_runtime: RagRuntimeDependencies | None = None
 _build_pdf_estimate_response: Any = None
 _extract_text_from_pdf_with_page_routing: Any = None
 _is_garbled_text: Any = None
@@ -48,11 +49,18 @@ _normalize_rag_pdf_billing_plan: Any = None
 _pdf_ingest_telemetry_line: Any = None
 
 
+@dataclass(frozen=True)
+class RagRuntimeDependencies:
+    resolve_embedding_backend: Any
+    store_full_text_content: Any
+    fetch_page_content: Any
+
+
 def configure_dependencies(
     *,
     models: ModuleType,
     pdf: ModuleType,
-    company_info_module: ModuleType | None = None,
+    runtime: RagRuntimeDependencies | None = None,
 ) -> None:
     """Inject router-owned dependencies without importing router modules here."""
 
@@ -60,7 +68,7 @@ def configure_dependencies(
     global DetailedRagStatusResponse, GapAnalysisRequest, GapAnalysisResponse
     global RagContextRequest, RagContextResponse, RagStatusResponse
     global CrawlCorporateEstimateResponse, CrawlCorporateRequest, CrawlCorporateResponse
-    global EstimateCorporatePdfResponse, UploadCorporatePdfResponse, _company_info_module
+    global EstimateCorporatePdfResponse, UploadCorporatePdfResponse, _rag_runtime
     global _build_pdf_estimate_response, _extract_text_from_pdf_with_page_routing
     global _is_garbled_text, _normalize_rag_pdf_billing_plan, _pdf_ingest_telemetry_line
 
@@ -79,7 +87,7 @@ def configure_dependencies(
     CrawlCorporateResponse = models.CrawlCorporateResponse
     EstimateCorporatePdfResponse = models.EstimateCorporatePdfResponse
     UploadCorporatePdfResponse = models.UploadCorporatePdfResponse
-    _company_info_module = company_info_module
+    _rag_runtime = runtime
     _build_pdf_estimate_response = pdf._build_pdf_estimate_response
     _extract_text_from_pdf_with_page_routing = pdf._extract_text_from_pdf_with_page_routing
     _is_garbled_text = pdf._is_garbled_text
@@ -87,10 +95,10 @@ def configure_dependencies(
     _pdf_ingest_telemetry_line = pdf._pdf_ingest_telemetry_line
 
 
-def _require_company_info_module() -> ModuleType:
-    if _company_info_module is None:
+def _require_rag_runtime() -> RagRuntimeDependencies:
+    if _rag_runtime is None:
         raise RuntimeError("company_info service dependencies are not configured")
-    return _company_info_module
+    return _rag_runtime
 
 
 def _extracted_data_to_chunks(extracted_data: dict, source_url: str) -> list[dict]:
@@ -529,11 +537,9 @@ async def upload_corporate_pdf_impl(
     source_kind: str = "corporate_public",
     consent_reference: str | None = None,
 ) -> UploadCorporatePdfResponse:
-    # Late-bound imports: tests monkeypatch these on the company_info module
-    _ci = _require_company_info_module()
-
-    resolve_embedding_backend = _ci.resolve_embedding_backend
-    store_full_text_content = _ci.store_full_text_content
+    runtime = _require_rag_runtime()
+    resolve_embedding_backend = runtime.resolve_embedding_backend
+    store_full_text_content = runtime.store_full_text_content
 
     t0 = time.monotonic()
 
@@ -736,12 +742,10 @@ async def _process_crawl_source(
     store_result: bool,
     tenant_key: str,
 ) -> dict[str, object]:
-    # Late-bound: tests monkeypatch fetch_page_content / store_full_text_content on company_info
-    _ci = _require_company_info_module()
+    runtime = _require_rag_runtime()
+    store_full_text_content = runtime.store_full_text_content
 
-    store_full_text_content = _ci.store_full_text_content
-
-    payload = await _ci.fetch_page_content(url)
+    payload = await runtime.fetch_page_content(url)
 
     if _looks_like_pdf_payload(url, payload):
         routing = await _extract_text_from_pdf_with_page_routing(
@@ -935,9 +939,8 @@ async def crawl_corporate_pages_impl(
     *,
     tenant_key: str,
 ) -> CrawlCorporateResponse:
-    _ci = _require_company_info_module()
-
-    resolve_embedding_backend = _ci.resolve_embedding_backend
+    runtime = _require_rag_runtime()
+    resolve_embedding_backend = runtime.resolve_embedding_backend
 
     request = payload
     billing_plan = _normalize_rag_pdf_billing_plan(request.billing_plan)

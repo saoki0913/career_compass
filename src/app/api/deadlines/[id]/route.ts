@@ -20,7 +20,10 @@ import {
   type ImmediateSyncResult,
 } from "@/lib/calendar/sync";
 import { generateTasksForDeadline } from "@/lib/server/task-generation";
-import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
+import {
+  completeDeadlineStatusTransition,
+  planDeadlineStatusTransition,
+} from "@/lib/server/deadline-status";
 
 type DeadlineType =
   | "es_submission"
@@ -226,13 +229,24 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     const now = new Date();
+    const statusTransition = planDeadlineStatusTransition({
+      current: {
+        completedAt: currentDeadline.completedAt,
+        statusOverride: currentDeadline.statusOverride,
+        autoCompletedTaskIds: currentDeadline.autoCompletedTaskIds,
+      },
+      transitionedAt: now,
+      requestedCompletedAt: completedAt,
+    });
 
     // Handle submission-linked task completion
     let autoCompletedTaskIds: string[] = [];
     const taskOwnerCondition = buildOwnerCondition(tasks, identity);
 
-    // If marking as completed (completedAt is being set)
-    if (completedAt && !currentDeadline.completedAt && taskOwnerCondition) {
+    if (
+      statusTransition.taskAction.type === "complete-open-tasks" &&
+      taskOwnerCondition
+    ) {
       const openTasks = await db
         .select()
         .from(tasks)
@@ -253,19 +267,15 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
         autoCompletedTaskIds = taskIds;
       }
-    }
-    // If unmarking as completed (completedAt is being unset)
-    else if (completedAt === null && currentDeadline.completedAt) {
-      const storedTaskIds = parseStringArrayCompat(currentDeadline.autoCompletedTaskIds);
-
-      if (storedTaskIds.length > 0 && taskOwnerCondition) {
+    } else if (statusTransition.taskAction.type === "reopen-auto-completed-tasks") {
+      if (taskOwnerCondition) {
         await db
           .update(tasks)
           .set({ status: "open", completedAt: null, updatedAt: now })
           .where(
             and(
               eq(tasks.deadlineId, deadlineId),
-              inArray(tasks.id, storedTaskIds),
+              inArray(tasks.id, statusTransition.taskAction.taskIds),
               eq(tasks.status, "done"),
               taskOwnerCondition,
             ),
@@ -297,14 +307,10 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       });
     }
 
-    if (completedAt !== undefined) {
-      updateData.completedAt = completedAt;
-      if (completedAt) {
-        updateData.autoCompletedTaskIds = autoCompletedTaskIds;
-      } else {
-        updateData.autoCompletedTaskIds = null;
-      }
-    }
+    Object.assign(
+      updateData,
+      completeDeadlineStatusTransition(statusTransition, { autoCompletedTaskIds }),
+    );
 
     const updated = await db
       .update(deadlines)

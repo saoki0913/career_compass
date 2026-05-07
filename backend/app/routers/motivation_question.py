@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import sys
-
 from app.services.motivation.question import *  # noqa: F401,F403
 from app.services.motivation import question as _service_module
+from app.services.motivation.router_shim import install_router_shim
 
 
-sys.modules[__name__] = _service_module
+install_router_shim(globals(), __name__, _service_module)

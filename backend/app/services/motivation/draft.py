@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from importlib import import_module
 from typing import Any, AsyncGenerator, Optional
 
 from fastapi import HTTPException
@@ -30,10 +29,13 @@ from app.services.motivation.retry import (
     _build_multipass_refinement_hints,
     _check_conclusion_first,
     _extract_company_anchor_keywords,
-    _maybe_retry_for_ai_smell,
     _maybe_retry_for_draft_quality,
     _collect_draft_quality_failure_codes as _retry_collect_draft_quality_failure_codes,
     _select_motivation_draft,
+)
+from app.services.es_review.grounding import (
+    _assess_company_evidence_coverage,
+    _build_company_evidence_cards,
 )
 from app.utils.es_draft_text import normalize_es_draft_single_paragraph
 from app.utils.llm import call_llm_with_error, consume_request_llm_cost_summary
@@ -41,10 +43,6 @@ from app.utils.llm_prompt_safety import sanitize_prompt_input
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
-
-_es_review_grounding = import_module("app.routers.es_review_grounding")
-_assess_company_evidence_coverage = _es_review_grounding._assess_company_evidence_coverage
-_build_company_evidence_cards = _es_review_grounding._build_company_evidence_cards
 
 
 def _sse_event(event_type: str, data: dict) -> str:
@@ -586,7 +584,6 @@ __all__ = [
     "_extract_company_anchor_keywords",
     "generate_draft_from_profile_impl",
     "generate_draft_impl",
-    "_maybe_retry_for_ai_smell",
     "_resolve_motivation_draft_grounding",
     "_resolve_motivation_grounding_mode",
     "_select_motivation_draft",

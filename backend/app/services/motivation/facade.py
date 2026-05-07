@@ -124,13 +124,13 @@ from app.services.motivation.draft import (
     _build_user_origin_from_conversation,  # noqa: F401
     _check_conclusion_first,  # noqa: F401
     _extract_company_anchor_keywords,  # noqa: F401
-    _maybe_retry_for_ai_smell,  # noqa: F401
     _resolve_motivation_draft_grounding,
     _resolve_motivation_grounding_mode,  # noqa: F401
     _select_motivation_draft,  # noqa: F401
 )
 from app.services.motivation.retry import (
     _collect_draft_quality_failure_codes as _retry_collect_draft_quality_failure_codes,
+    _maybe_retry_for_ai_smell,  # noqa: F401
     _maybe_retry_for_draft_quality,
 )
 

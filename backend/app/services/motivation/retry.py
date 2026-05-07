@@ -3,22 +3,21 @@
 from __future__ import annotations
 
 import time
-from importlib import import_module
 from typing import Any, Awaitable, Callable, Optional
 
 from app.config import settings
+from app.services.es_review.retry import _build_ai_smell_retry_hints
+from app.services.es_review.validation import (
+    _compute_ai_smell_score,
+    _detect_ai_smell_patterns,
+    _is_within_char_limits,
+)
+from app.services.es_review.validation_profile import LENIENT_PROFILE
 from app.utils.es_draft_text import normalize_es_draft_single_paragraph
 from app.utils.llm import call_llm_with_error
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
-
-_es_review_retry = import_module("app.routers.es_review_retry")
-_es_review_validation = import_module("app.routers.es_review_validation")
-_build_ai_smell_retry_hints = _es_review_retry._build_ai_smell_retry_hints
-_compute_ai_smell_score = _es_review_validation._compute_ai_smell_score
-_detect_ai_smell_patterns = _es_review_validation._detect_ai_smell_patterns
-_is_within_char_limits = _es_review_validation._is_within_char_limits
 
 QUESTION_FOCUSED_RETRY_CODES = frozenset(
     {
@@ -293,7 +292,12 @@ def _collect_draft_quality_failure_codes(
     anchor_keywords: list[str] | None = None,
 ) -> tuple[list[str], dict[str, Any], bool]:
     """Collect draft-quality failure codes with deterministic validation rules."""
-    warnings = _detect_ai_smell_patterns(draft_text, user_origin_text)
+    warnings = _detect_ai_smell_patterns(
+        draft_text,
+        user_origin_text,
+        template_type=template_type,
+        char_max=char_max,
+    )
     smell_score = _compute_ai_smell_score(
         warnings,
         template_type=template_type,
@@ -375,6 +379,7 @@ async def _maybe_retry_for_draft_quality(
             "quality_retry_count": 0,
             "initial_within_limits": current_within,
             "retry_within_limits": None,
+            "best_effort_adopted": False,
         }
         return current_draft, current_smell_score, [], telemetry
 
@@ -386,6 +391,7 @@ async def _maybe_retry_for_draft_quality(
         "quality_retry_count": 0,
         "initial_within_limits": current_within,
         "retry_within_limits": None,
+        "best_effort_adopted": False,
     }
 
     for attempt in range(max_attempts - 1):
@@ -422,9 +428,17 @@ async def _maybe_retry_for_draft_quality(
             telemetry["quality_retry_adopted"] = True
             telemetry["quality_retry_failure_codes"] = []
             telemetry["quality_retry_count"] = attempts_made
+            telemetry["best_effort_adopted"] = False
             return current_draft, current_smell_score, [], telemetry
 
     telemetry["quality_retry_count"] = attempts_made
+    block_codes = LENIENT_PROFILE.degraded_block_codes
+    if current_failure_codes and not (set(current_failure_codes) & block_codes):
+        telemetry["best_effort_adopted"] = True
+        telemetry["quality_retry_failure_codes"] = []
+        return current_draft, current_smell_score, [], telemetry
+
+    telemetry["best_effort_adopted"] = False
     return current_draft, current_smell_score, current_failure_codes, telemetry
 
 

@@ -31,11 +31,14 @@ from app.utils.embeddings import (
 )
 from app.utils.content_types import CONTENT_TYPES, content_type_label, normalize_content_type
 from app.utils.content_classifier import classify_chunks
-from app.utils.cache import get_rag_cache, build_cache_key
+from app.utils.cache import get_rag_cache
 from app.utils.text_chunker import get_chunk_settings
 from app.rag.ids import collection_name_for_backend, make_source_document_id, make_source_hash
 from app.rag.document_summarizer import MetadataDocumentSummarizer
 from app.rag.security import assess_rag_injection_risk, is_rag_chunk_quarantined, sanitize_rag_context
+from app.rag.vector_store_deletion import (
+    extract_ids_to_delete_for_source as _extract_ids_to_delete_for_source,
+)
 
 logger = get_logger(__name__)
 
@@ -155,30 +158,6 @@ def _make_source_document_id(
         chunk_index,
         ingest_session_id,
     )
-
-
-def _extract_ids_to_delete_for_source(
-    results: dict,
-    current_ingest_session_id: Optional[str] = None,
-) -> list[str]:
-    ids = results.get("ids") or []
-    metadatas = results.get("metadatas") or []
-    deletable_ids: list[str] = []
-
-    for doc_id, metadata in zip(ids, metadatas):
-        ingest_session_id = (
-            metadata.get("ingest_session_id")
-            if isinstance(metadata, dict)
-            else None
-        )
-        if current_ingest_session_id and ingest_session_id == current_ingest_session_id:
-            continue
-        deletable_ids.append(doc_id)
-
-    if len(ids) > len(metadatas):
-        deletable_ids.extend(ids[len(metadatas):])
-
-    return deletable_ids
 
 
 def _delete_source_records_for_backends(
@@ -1370,84 +1349,11 @@ def schedule_bm25_update(company_id: str, tenant_key: str) -> None:
 
 
 def update_bm25_index(company_id: str, tenant_key: str) -> bool:
-    """
-    Update BM25 index from ChromaDB data.
+    """Compatibility wrapper for the BM25 refresh service."""
 
-    This rebuilds the BM25 index for a company using all documents
-    stored in ChromaDB.
+    from app.rag.bm25_refresh import update_bm25_index as _impl
 
-    Args:
-        company_id: Company identifier
-        tenant_key: Tenant key for data isolation
-
-    Returns:
-        True if successful
-    """
-    try:
-        from app.utils.bm25_store import (
-            get_or_create_index,
-            clear_index_cache,
-            BM25Index,
-        )
-    except Exception as e:
-        logger.warning("bm25s not configured, skipping BM25 update: %s", e)
-        return False
-
-    try:
-        read_backends = get_configured_backends()
-        documents: list[dict] = []
-
-        where = _company_where(company_id, tenant_key)
-
-        for backend in read_backends:
-            for name in _collection_names_for_backend(backend):
-                collection = _get_collection(name)
-                results = collection.get(
-                    where=where,
-                    include=[
-                        "documents",
-                        "metadatas",
-                    ],  # "ids" is always returned by ChromaDB
-                )
-
-                docs = results.get("documents") or []
-                metas = results.get("metadatas") or []
-                ids = results.get("ids") or []
-
-                for doc, meta, doc_id in zip(docs, metas, ids):
-                    if not doc:
-                        continue
-                    metadata = meta or {}
-                    documents.append({"id": doc_id, "text": doc, "metadata": metadata})
-
-        if not documents:
-            BM25Index.delete(company_id, tenant_key=tenant_key)
-            clear_index_cache(company_id, tenant_key=tenant_key)
-            logger.debug("BM25 index deleted for company_id: %s...", company_id[:8])
-            return False
-
-        # Deduplicate
-        deduped: dict[tuple, dict] = {}
-        for doc in documents:
-            key = _context_dedupe_key(
-                {"text": doc.get("text"), "metadata": doc.get("metadata")}
-            )
-            if key not in deduped:
-                deduped[key] = doc
-
-        index = get_or_create_index(company_id, tenant_key=tenant_key)
-        index.clear()
-        index.add_documents(list(deduped.values()))
-        index.save()
-        clear_index_cache(company_id, tenant_key=tenant_key)
-        logger.info(
-            "BM25 index updated for company_id: %s... (%d docs)", company_id[:8], len(deduped)
-        )
-        return True
-
-    except Exception as e:
-        logger.error("update_bm25_index error: %s", e, exc_info=True)
-        return False
+    return _impl(company_id, tenant_key)
 
 
 async def hybrid_search_company_context(
@@ -1461,30 +1367,16 @@ async def hybrid_search_company_context(
     *,
     tenant_key: str,
 ) -> list[dict]:
-    """
-    Perform hybrid search combining semantic and keyword search.
+    """Compatibility wrapper for hybrid retrieval orchestration."""
+    from app.rag.retrieval import hybrid_search_company_context as _impl
 
-    Args:
-        company_id: Company to search within
-        query: Search query (e.g., ES content)
-        n_results: Maximum number of results
-        content_types: Filter by content types
-        semantic_weight: Weight for semantic search (default 0.6)
-        keyword_weight: Weight for keyword search (default 0.4)
-
-    Returns:
-        List of context dicts with text, metadata, and scores
-    """
-    from app.rag.hybrid_search import hybrid_search
-
-    return await hybrid_search(
+    return await _impl(
         company_id=company_id,
         query=query,
         n_results=n_results,
         content_types=content_types,
         semantic_weight=semantic_weight,
         keyword_weight=keyword_weight,
-        use_rrf=True,  # Use RRF for combining
         backends=backends,
         tenant_key=tenant_key,
     )
@@ -1506,56 +1398,21 @@ async def hybrid_search_company_context_enhanced(
     *,
     tenant_key: str,
 ) -> list[dict]:
-    """
-    Enhanced dense search with query expansion, HyDE, MMR, and cross-encoder reranking.
-    """
-    from app.rag.hybrid_search import (
-        dense_hybrid_search,
-        infer_retrieval_profile,
-        select_boost_profile,
-    )
+    """Compatibility wrapper for enhanced hybrid retrieval orchestration."""
+    from app.rag.retrieval import hybrid_search_company_context_enhanced as _impl
 
-    profile = infer_retrieval_profile(query, base_fetch_k=settings.rag_fetch_k)
-    if profile_overrides:
-        profile.update(profile_overrides)
-    semantic_weight = float(profile.get("semantic_weight", settings.rag_semantic_weight))
-    keyword_weight = float(profile.get("keyword_weight", settings.rag_keyword_weight))
-    fetch_k = int(profile.get("fetch_k", settings.rag_fetch_k))
-    max_queries = min(
-        settings.rag_max_queries,
-        int(profile.get("max_queries", settings.rag_max_queries)),
-    )
-    max_total_queries = min(
-        settings.rag_max_total_queries,
-        int(profile.get("max_total_queries", settings.rag_max_total_queries)),
-    )
-    rerank_threshold = float(
-        profile.get("rerank_threshold", settings.rag_rerank_threshold)
-    )
-    mmr_lambda = float(profile.get("mmr_lambda", settings.rag_mmr_lambda))
-    use_hyde = settings.rag_use_hyde and bool(profile.get("use_hyde", True))
-    effective_bm25 = settings.rag_keyword_weight > 0 if use_bm25 is None else use_bm25
-
-    return await dense_hybrid_search(
+    return await _impl(
         company_id=company_id,
         query=query,
         n_results=n_results,
         content_types=content_types,
         backends=backends,
         expand_queries=expand_queries,
-        use_hyde=use_hyde,
         rerank=rerank,
-        use_mmr=settings.rag_use_mmr,
-        semantic_weight=semantic_weight,
-        keyword_weight=keyword_weight,
-        rerank_threshold=rerank_threshold,
-        fetch_k=fetch_k,
-        max_queries=max_queries,
-        max_total_queries=max_total_queries,
-        mmr_lambda=mmr_lambda,
-        content_type_boosts=content_type_boosts or select_boost_profile(query),
+        use_bm25=use_bm25,
+        profile_overrides=profile_overrides,
+        content_type_boosts=content_type_boosts,
         priority_source_urls=priority_source_urls,
-        use_bm25=effective_bm25,
         short_circuit=short_circuit,
         tenant_key=tenant_key,
     )
@@ -1569,86 +1426,16 @@ async def get_enhanced_context_for_review(
     *,
     tenant_key: str,
 ) -> str:
-    """
-    Get enhanced context for ES review using hybrid search.
+    """Compatibility wrapper for enhanced review-context retrieval."""
+    from app.rag.retrieval import get_enhanced_context_for_review as _impl
 
-    This provides richer context by:
-    1. Using dense-only search with query expansion and HyDE
-    2. Applying MMR for diversity and cross-encoder reranking
-    3. Including both structured data and full text content
-    4. Organizing context by content type
-
-    Args:
-        company_id: Company identifier
-        es_content: ES content to find relevant context for
-        max_context_length: Maximum context length
-
-    Returns:
-        Formatted context string for LLM prompt
-    """
-    from app.rag.hybrid_search import get_context_for_review_hybrid
-
-    if max_context_length is None:
-        max_context_length = get_dynamic_context_length(es_content)
-
-    cache = get_rag_cache()
-    cache_key = build_cache_key(
-        "enhanced_context",
-        company_id,
-        tenant_key,
-        es_content,
-        str(max_context_length),
-        _search_options_signature(search_options),
-    )
-    if cache:
-        cached = await cache.get_context(company_id, cache_key, tenant_key=tenant_key)
-        if isinstance(cached, dict) and isinstance(cached.get("context"), str):
-            return cached["context"]
-
-    # Get enhanced dense search results (multi-query + HyDE + rerank)
-    results = await hybrid_search_company_context_enhanced(
+    return await _impl(
         company_id=company_id,
-        query=es_content,
-        n_results=15,  # Get more for better coverage
-        content_types=None,  # Include all types
-        expand_queries=(search_options or {}).get(
-            "expand_queries", settings.rag_use_query_expansion
-        ),
-        rerank=(search_options or {}).get("rerank", settings.rag_use_rerank),
-        use_bm25=(search_options or {}).get("use_bm25"),
-        profile_overrides=(search_options or {}).get("profile_overrides"),
-        content_type_boosts=(search_options or {}).get("content_type_boosts"),
-        priority_source_urls=(search_options or {}).get("priority_source_urls"),
-        short_circuit=(search_options or {}).get("short_circuit", True),
+        es_content=es_content,
+        max_context_length=max_context_length,
+        search_options=search_options,
         tenant_key=tenant_key,
     )
-
-    if not results:
-        # Fallback to original function
-        context = await get_company_context_for_review(
-            company_id=company_id,
-            es_content=es_content,
-            max_context_length=max_context_length,
-            tenant_key=tenant_key,
-        )
-        if cache:
-            await cache.set_context(
-                company_id,
-                cache_key,
-                {"context": context},
-                tenant_key=tenant_key,
-            )
-        return context
-
-    context = get_context_for_review_hybrid(results, max_context_length)
-    if cache:
-        await cache.set_context(
-            company_id,
-            cache_key,
-            {"context": context},
-            tenant_key=tenant_key,
-        )
-    return context
 
 
 async def get_enhanced_context_for_review_with_sources(
@@ -1659,94 +1446,16 @@ async def get_enhanced_context_for_review_with_sources(
     *,
     tenant_key: str,
 ) -> tuple[str, list[dict]]:
-    """
-    Get enhanced context for ES review using dense search, with source tracking.
+    """Compatibility wrapper for enhanced review-context retrieval with sources."""
+    from app.rag.retrieval import get_enhanced_context_for_review_with_sources as _impl
 
-    This provides richer context by:
-    1. Using dense-only search with query expansion and HyDE
-    2. Applying MMR for diversity and cross-encoder reranking
-    3. Including both structured data and full text content
-    4. Organizing context by content type
-    5. Returning source URLs for attribution
-
-    Args:
-        company_id: Company identifier
-        es_content: ES content to find relevant context for
-        max_context_length: Maximum context length
-
-    Returns:
-        Tuple of:
-        - context_text: Formatted context string for LLM prompt
-        - sources: List of source dicts with source_id, source_url, content_type, excerpt
-    """
-    from app.rag.hybrid_search import get_context_and_sources_for_review_hybrid
-
-    if max_context_length is None:
-        max_context_length = get_dynamic_context_length(es_content)
-
-    cache = get_rag_cache()
-    cache_key = build_cache_key(
-        "enhanced_context_sources",
-        company_id,
-        tenant_key,
-        es_content,
-        str(max_context_length),
-        _search_options_signature(search_options),
-    )
-    if cache:
-        cached = await cache.get_context(company_id, cache_key, tenant_key=tenant_key)
-        if (
-            isinstance(cached, dict)
-            and isinstance(cached.get("context"), str)
-            and isinstance(cached.get("sources"), list)
-        ):
-            return cached["context"], cached["sources"]
-
-    # Get enhanced dense search results (multi-query + HyDE + rerank)
-    results = await hybrid_search_company_context_enhanced(
+    return await _impl(
         company_id=company_id,
-        query=es_content,
-        n_results=15,  # Get more for better coverage
-        content_types=None,  # Include all types
-        expand_queries=(search_options or {}).get(
-            "expand_queries", settings.rag_use_query_expansion
-        ),
-        rerank=(search_options or {}).get("rerank", settings.rag_use_rerank),
-        use_bm25=(search_options or {}).get("use_bm25"),
-        profile_overrides=(search_options or {}).get("profile_overrides"),
-        content_type_boosts=(search_options or {}).get("content_type_boosts"),
-        short_circuit=(search_options or {}).get("short_circuit", True),
+        es_content=es_content,
+        max_context_length=max_context_length,
+        search_options=search_options,
         tenant_key=tenant_key,
     )
-
-    if not results:
-        # Fallback: return empty sources
-        context = await get_company_context_for_review(
-            company_id=company_id,
-            es_content=es_content,
-            max_context_length=max_context_length,
-            tenant_key=tenant_key,
-        )
-        if cache:
-            await cache.set_context(
-                company_id,
-                cache_key,
-                {"context": context, "sources": []},
-                tenant_key=tenant_key,
-            )
-        return context, []
-
-    context, sources = get_context_and_sources_for_review_hybrid(
-        results, max_context_length
-    )
-    if cache:
-        await cache.set_context(
-            company_id,
-            cache_key,
-            {"context": context, "sources": sources},
-            tenant_key=tenant_key,
-        )
-    return context, sources
 
 
 def _clean_direct_context_text(text: str) -> str:
