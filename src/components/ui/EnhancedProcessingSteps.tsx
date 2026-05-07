@@ -344,5 +344,3 @@ export const ES_REVIEW_STEPS: ProcessingStep[] = [
     duration: 2000,
   },
 ];
-
-export default EnhancedProcessingSteps;

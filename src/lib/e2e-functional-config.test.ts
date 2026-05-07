@@ -74,20 +74,17 @@ describe("E2E functional config", () => {
     expect(makefile).toMatch(/^test-e2e-functional-selection-schedule:/m);
   });
 
-  it("extends develop CI and run-main-e2e for blocking E2E coverage", () => {
-    const workflow = read(".github/workflows/develop-ci.yml");
-    const script = read("scripts/ci/run-main-e2e.sh");
+  it("exposes first-class quality, static, and security test categories", () => {
+    const pkg = JSON.parse(read("package.json")) as {
+      scripts: Record<string, string>;
+    };
+    const makefile = read("Makefile");
 
-    expect(workflow).toMatch(/^  staging-health:/m);
-    expect(workflow).toMatch(/^  e2e-regression:/m);
-    expect(workflow).toMatch(/^  e2e-functional-scope:/m);
-    expect(workflow).toMatch(/^  e2e-functional:/m);
-    expect(workflow).toMatch(/scripts\/ci\/run-main-e2e\.sh all/);
-    expect(workflow).toMatch(/tools\/resolve-e2e-functional-scope\.mjs --github-output/);
-    expect(workflow).toMatch(/scripts\/ci\/run-e2e-functional\.sh/);
-    expect(script).toMatch(/all\)/);
-    expect(script).toMatch(/guest-major\.spec\.ts/);
-    expect(script).toMatch(/auth-boundary\.spec\.ts/);
-    expect(script).toMatch(/regression-bugs\.spec\.ts/);
+    expect(pkg.scripts["test:quality:all"]).toContain("AI_LIVE_TEST_CATEGORY=quality");
+    expect(pkg.scripts["test:static"]).toContain("npx tsc --noEmit");
+    expect(pkg.scripts["test:security:light"]).toContain("run-lightweight-scan.sh");
+    expect(makefile).toMatch(/^test-quality-all:/m);
+    expect(makefile).toMatch(/^test-static:/m);
+    expect(makefile).toMatch(/^security-scan:/m);
   });
 });

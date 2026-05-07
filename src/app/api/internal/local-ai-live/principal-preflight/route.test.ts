@@ -9,7 +9,18 @@ vi.mock("@/lib/fastapi/client", () => ({
 
 describe("GET /api/internal/local-ai-live/principal-preflight", () => {
   beforeEach(() => {
+    vi.resetModules();
     fetchFastApiWithPrincipal.mockReset();
+    process.env.LOCAL_AI_LIVE_PREFLIGHT_ENABLED = "1";
+  });
+
+  it("returns 404 on localhost unless explicitly enabled", async () => {
+    delete process.env.LOCAL_AI_LIVE_PREFLIGHT_ENABLED;
+    const { GET } = await import("./route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/internal/local-ai-live/principal-preflight"));
+
+    expect(response.status).toBe(404);
+    expect(fetchFastApiWithPrincipal).not.toHaveBeenCalled();
   });
 
   it("returns 404 outside localhost", async () => {
@@ -40,5 +51,28 @@ describe("GET /api/internal/local-ai-live/principal-preflight", () => {
     expect(fetchFastApiWithPrincipal).toHaveBeenCalledTimes(2);
     expect(fetchFastApiWithPrincipal.mock.calls[0][0]).toContain("/ai-stream");
     expect(fetchFastApiWithPrincipal.mock.calls[1][0]).toContain("/company");
+  });
+
+  it("mentions tenant key when company-scope preflight fails", async () => {
+    fetchFastApiWithPrincipal
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, scope: "ai-stream" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: { error_type: "tenant_key_not_configured" } }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    const { GET } = await import("./route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/internal/local-ai-live/principal-preflight"));
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.action).toContain("TENANT_KEY_SECRET");
   });
 });

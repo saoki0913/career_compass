@@ -84,13 +84,23 @@ export interface CalendarMutationResult<T> {
 export function useCalendarEvents(options: {
   start?: string;
   end?: string;
+  enabled?: boolean;
 } = {}) {
+  const enabled = options.enabled ?? true;
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [deadlines, setDeadlines] = useState<DeadlineEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
 
   const fetchEvents = useCallback(async () => {
+    if (!enabled) {
+      setEvents([]);
+      setDeadlines([]);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       setIsLoading(true);
       const params = new URLSearchParams();
@@ -139,11 +149,19 @@ export function useCalendarEvents(options: {
     } finally {
       setIsLoading(false);
     }
-  }, [options.start, options.end]);
+  }, [enabled, options.start, options.end]);
 
   useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
+    if (enabled) {
+      fetchEvents();
+      return;
+    }
+
+    setEvents([]);
+    setDeadlines([]);
+    setError(null);
+    setIsLoading(false);
+  }, [enabled, fetchEvents]);
 
   const createEvent = async (data: {
     type: CalendarEvent["type"];
@@ -332,9 +350,11 @@ export function useGoogleCalendar() {
     setIsLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ action: "events", start, end });
-      const response = await fetch(`/api/calendar/google?${params.toString()}`, {
+      const response = await fetch("/api/calendar/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        body: JSON.stringify({ start, end }),
       });
 
       if (!response.ok) {

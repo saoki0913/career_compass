@@ -54,5 +54,3 @@ export function ThinkingIndicator({
     </div>
   );
 }
-
-export default ThinkingIndicator;

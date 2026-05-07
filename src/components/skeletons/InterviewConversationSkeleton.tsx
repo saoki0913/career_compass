@@ -1,121 +1,118 @@
 import {
   Skeleton,
   SkeletonButton,
-  SkeletonCircle,
   SkeletonPill,
   SkeletonText,
 } from "@/components/ui/skeleton";
 
+import {
+  ConversationWorkspaceShellSkeleton,
+  SidebarCardSkeleton,
+} from "./ConversationWorkspaceShellSkeleton";
+
+/**
+ * Interview conversation page skeleton (`/companies/[id]/interview`).
+ *
+ * Delegates structural layout to `ConversationWorkspaceShellSkeleton` and
+ * provides Interview-specific sidebar cards: progress, settings, materials,
+ * and feedback.
+ */
 export function InterviewConversationSkeleton({
   accent = "面接の流れを整えています",
 }: {
   accent?: string;
 }) {
   return (
-    <div className="mx-auto flex h-full w-full max-w-7xl flex-1 flex-col px-4 py-6 sm:px-6 lg:px-8">
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-2">
-            <SkeletonPill className="h-4 w-28" />
-            <Skeleton className="h-9 w-52 rounded-xl" />
-          </div>
-          <div className="flex gap-2">
-            <SkeletonButton className="h-10 w-24" />
-            <SkeletonButton className="h-10 w-24" />
-          </div>
-        </div>
-
-        <div className="rounded-[28px] border border-border/70 bg-background/90 px-3 py-2 shadow-sm">
-          <div className="grid grid-cols-1 items-center gap-3 xl:grid-cols-[minmax(0,1fr)_auto]">
-            <span className="text-sm text-muted-foreground">{accent}</span>
-            <SkeletonButton className="h-11 w-full rounded-2xl xl:min-w-[260px] xl:w-auto" />
+    <ConversationWorkspaceShellSkeleton
+      accent={accent}
+      actionBarSkeleton={
+        <div className="w-full rounded-xl border border-border/50 bg-card px-4 py-3">
+          <Skeleton className="h-4 w-56 rounded-lg" shimmerDelayMs={45} />
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="flex gap-2">
+              <SkeletonPill className="h-8 w-20" shimmerDelayMs={60} />
+              <SkeletonPill className="h-8 w-24" shimmerDelayMs={75} />
+            </div>
+            <SkeletonButton
+              className="h-10 w-32 rounded-xl"
+              shimmerDelayMs={90}
+            />
           </div>
         </div>
-      </div>
+      }
+      mobileStatusSkeleton={
+        <div className="flex flex-wrap items-center gap-2">
+          <SkeletonPill className="h-5 w-16" shimmerDelayMs={0} />
+          <SkeletonPill className="h-5 w-20" shimmerDelayMs={15} />
+        </div>
+      }
+      sidebarSkeleton={
+        <>
+          {/* Card 1: Progress */}
+          <SidebarCardSkeleton headerWidth="w-16" shimmerBase={0}>
+            <div className="space-y-3">
+              <SkeletonButton
+                className="h-9 w-full rounded-lg"
+                shimmerDelayMs={15}
+              />
+              <SkeletonText
+                lines={3}
+                widths={["100%", "80%", "60%"]}
+                staggerShimmerMs={20}
+              />
+            </div>
+          </SidebarCardSkeleton>
 
-      <div className="mt-4 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.75fr)]">
-        <div className="flex min-w-0 flex-col overflow-hidden rounded-[28px] border border-border/70 bg-card shadow-sm">
-          <div className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-4">
-            <div className="space-y-2">
-              <Skeleton className="h-5 w-32 rounded-lg" />
-              <SkeletonText lines={1} widths={["40%"]} />
+          {/* Card 2: Settings */}
+          <SidebarCardSkeleton headerWidth="w-14" shimmerBase={60}>
+            <div className="space-y-2.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton
+                  key={i}
+                  className="h-3.5 w-3/4 rounded-md"
+                  shimmerDelayMs={75 + i * 15}
+                />
+              ))}
             </div>
-            <div className="space-y-2 text-right">
-              <SkeletonPill className="h-5 w-16" />
-              <SkeletonText lines={1} widths={["72px"]} />
-            </div>
-          </div>
+          </SidebarCardSkeleton>
 
-          <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
-            <div className="flex justify-start">
-              <div className="w-[78%] rounded-[24px] border border-border/60 bg-background/70 p-4">
-                <SkeletonText lines={3} widths={["84%", "100%", "58%"]} />
-              </div>
-            </div>
-            <div className="flex justify-end">
-              <div className="w-[62%] rounded-[24px] border border-border/60 bg-background/70 p-4">
-                <SkeletonText lines={2} widths={["100%", "62%"]} />
-              </div>
-            </div>
-            <div className="flex justify-start">
-              <div className="w-[72%] rounded-[24px] border border-border/60 bg-background/70 p-4">
-                <SkeletonText lines={2} widths={["92%", "66%"]} />
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t border-border/60 p-4">
-            <div className="rounded-[24px] border border-border/60 bg-background/70 p-4">
-              <div className="flex items-center gap-3 border-b border-border/70 pb-3">
-                <SkeletonCircle className="h-9 w-9" />
-                <div className="flex-1">
-                  <SkeletonText lines={1} widths={["28%"]} />
+          {/* Card 3: Materials */}
+          <SidebarCardSkeleton headerWidth="w-12" shimmerBase={120}>
+            <div className="space-y-2.5">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <Skeleton
+                    className="h-4 w-4 shrink-0 rounded"
+                    shimmerDelayMs={135 + i * 20}
+                  />
+                  <Skeleton
+                    className="h-3.5 w-3/5 rounded-md"
+                    shimmerDelayMs={150 + i * 20}
+                  />
                 </div>
-              </div>
-              <Skeleton className="mt-4 h-28 rounded-[20px]" />
+              ))}
             </div>
-          </div>
-        </div>
+          </SidebarCardSkeleton>
 
-        <div className="space-y-4 lg:flex lg:min-h-0 lg:flex-col lg:space-y-0">
-          <div className="space-y-4 lg:flex-1 lg:overflow-y-auto">
-            <div className="rounded-[28px] border border-border/70 bg-card p-5 shadow-sm">
-              <div className="flex items-center justify-between gap-3">
-                <Skeleton className="h-5 w-28 rounded-lg" />
-                <SkeletonPill className="h-5 w-16" />
-              </div>
-              <div className="mt-4 space-y-3">
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <div
-                    key={index}
-                    className="rounded-xl border border-border/60 bg-background/70 px-4 py-3"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <SkeletonText lines={1} widths={["42%"]} />
-                      <SkeletonPill className="h-5 w-12" />
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {/* Card 4: Feedback */}
+          <SidebarCardSkeleton headerWidth="w-20" shimmerBase={180}>
+            <div className="space-y-2.5">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <Skeleton
+                    className="h-4 w-4 shrink-0 rounded"
+                    shimmerDelayMs={195 + i * 20}
+                  />
+                  <Skeleton
+                    className="h-3.5 w-2/3 rounded-md"
+                    shimmerDelayMs={210 + i * 20}
+                  />
+                </div>
+              ))}
             </div>
-
-            <div className="rounded-[28px] border border-border/70 bg-card p-5 shadow-sm">
-              <Skeleton className="h-5 w-24 rounded-lg" />
-              <div className="mt-4 space-y-3">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <div
-                    key={index}
-                    className="rounded-xl border border-border/60 bg-background/70 p-4"
-                  >
-                    <SkeletonText lines={1} widths={["34%"]} />
-                    <SkeletonText className="mt-3" lines={2} widths={["100%", "76%"]} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
+          </SidebarCardSkeleton>
+        </>
+      }
+    />
   );
 }

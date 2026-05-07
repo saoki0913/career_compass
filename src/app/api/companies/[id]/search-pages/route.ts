@@ -6,7 +6,9 @@ import { readGuestDeviceToken } from "@/lib/auth/guest-cookie";
 import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
 import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { logError } from "@/lib/logger";
 
 interface SearchCandidate {
   url: string;
@@ -60,7 +62,15 @@ export async function POST(
     const { id } = await params;
     const identity = await getRequestIdentity(request);
     if (!identity) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "COMPANY_SEARCH_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "company-search-auth",
+      });
     }
     let company;
     let graduationYear: number | null = null;
@@ -89,7 +99,14 @@ export async function POST(
     }
 
     if (!company) {
-      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_SEARCH_NOT_FOUND",
+        userMessage: "企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found",
+        logContext: "company-search-not-found",
+      });
     }
 
     const rateLimited = await enforceRateLimitLayers(
@@ -148,9 +165,9 @@ export async function POST(
           yearSource,
         } satisfies SearchPagesResponse);
       }
-    } catch {
+    } catch (error) {
       // FastAPI not available, use mock
-      console.log("FastAPI not available, using mock search results");
+      logError("company-search-fastapi-fallback", error);
     }
 
     // Mock response: generate plausible recruitment page candidates (10 results)
@@ -207,7 +224,15 @@ export async function POST(
       yearSource,
     } satisfies SearchPagesResponse);
   } catch (error) {
-    console.error("Error searching pages:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANY_SEARCH_FAILED",
+      userMessage: "採用ページ候補を検索できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Failed to search company pages",
+      logContext: "company-search-pages",
+    });
   }
 }

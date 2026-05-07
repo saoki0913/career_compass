@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.routers.gakuchika import (
@@ -15,11 +17,15 @@ from app.routers.gakuchika import (
     _normalize_deepdive_payload,
     _normalize_es_build_payload,
 )
-from app.utils.llm import LLMResult, call_llm_streaming_fields
+from app.services.gakuchika.question_pipeline import (
+    _generate_next_question_progress as _generate_next_question_progress_service,
+)
+from app.utils.llm_providers import LLMResult
+from app.utils.llm_streaming import call_llm_streaming_fields
 
 
-def test_is_deepdive_request_true_for_draft_ready_without_draft_text() -> None:
-    """Resume「もう少し整える」で draft_text が無くても深掘り分岐に入ること。"""
+def test_is_deepdive_request_false_for_draft_ready_without_draft_text() -> None:
+    """Resume「もう少し整える」でも draft_text が無い間は ES 構築分岐に戻ること。"""
     req = NextQuestionRequest(
         gakuchika_title="テーマ",
         gakuchika_content="内容",
@@ -34,7 +40,7 @@ def test_is_deepdive_request_true_for_draft_ready_without_draft_text() -> None:
             draft_text=None,
         ),
     )
-    assert _is_deepdive_request(req) is True
+    assert _is_deepdive_request(req) is False
 
 
 def test_is_deepdive_request_false_for_es_building() -> None:
@@ -490,6 +496,43 @@ async def test_generate_initial_question_llm_failure_falls_back(
     assert state["focus_key"] in {"context", "task", "action"}
     assert isinstance(state["remaining_questions_estimate"], int)
     assert state["remaining_questions_estimate"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_next_question_stream_unexpected_exception_returns_safe_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret_detail = "provider stack trace api-key=sk-test-raw-detail"
+
+    async def broken_stream(*args, **kwargs):
+        raise RuntimeError(secret_detail)
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(
+        "app.services.gakuchika.question_pipeline.call_llm_streaming_fields",
+        broken_stream,
+    )
+
+    req = NextQuestionRequest(
+        gakuchika_title="学園祭",
+        gakuchika_content="実行委員として受付を担当した。",
+        conversation_history=[
+            {"role": "assistant", "content": "どのような経験でしたか。"},
+            {"role": "user", "content": "受付の混雑を減らすために導線を見直しました。"},
+        ],
+        question_count=1,
+    )
+
+    chunks = [chunk async for chunk in _generate_next_question_progress_service(req)]
+    error_events = [
+        json.loads(chunk.removeprefix("data: ").strip())
+        for chunk in chunks
+        if '"type": "error"' in chunk
+    ]
+
+    assert len(error_events) == 1
+    assert error_events[0]["message"] == "予期しないエラーが発生しました。時間をおいてもう一度お試しください。"
+    assert secret_detail not in json.dumps(error_events[0], ensure_ascii=False)
 
 
 @pytest.mark.asyncio

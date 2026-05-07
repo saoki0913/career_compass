@@ -55,7 +55,6 @@ from app.utils.gakuchika_text import (
     _clean_bool_map,
     _clean_string,
     _clean_string_list,
-    _fallback_build_meta,
     _fallback_deepdive_meta,
 )
 from app.utils.question_loop_detector import (
@@ -64,7 +63,7 @@ from app.utils.question_loop_detector import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover — typing only
-    from app.routers.gakuchika import ConversationStateInput
+    from app.services.gakuchika.models import ConversationStateInput
 
 
 # ---------------------------------------------------------------------------
@@ -382,6 +381,8 @@ def _default_state(stage: str = "es_building", **kwargs: Any) -> dict[str, Any]:
         "ready_for_draft": kwargs.get("ready_for_draft", False),
         "draft_readiness_reason": kwargs.get("draft_readiness_reason", ""),
         "draft_text": kwargs.get("draft_text"),
+        "draft_document_id": kwargs.get("draft_document_id"),
+        "summary_stale": bool(kwargs.get("summary_stale", False)),
         "strength_tags": kwargs.get("strength_tags", []),
         "issue_tags": kwargs.get("issue_tags", []),
         "deepdive_recommendation_tags": kwargs.get("deepdive_recommendation_tags", []),
@@ -400,6 +401,7 @@ def _default_state(stage: str = "es_building", **kwargs: Any) -> dict[str, Any]:
         "last_question_signature": kwargs.get("last_question_signature"),
         "extended_deep_dive_round": int(kwargs.get("extended_deep_dive_round", 0) or 0),
         "coach_progress_message": kwargs.get("coach_progress_message"),
+        "paused_question": kwargs.get("paused_question"),
         "remaining_questions_estimate": max(
             0, int(kwargs.get("remaining_questions_estimate", 0) or 0)
         ),
@@ -522,7 +524,7 @@ def _normalize_es_build_payload(
         aligned = _detect_es_focus_from_missing(missing_elements, blocked=set(effective_blocked_focuses))
         if focus_key != aligned and aligned not in effective_blocked_focuses:
             focus_key = aligned
-    meta = _build_focus_meta(focus_key)
+    meta = _build_focus_meta(focus_key, conversation_text)
     question = _clean_string(data.get("question"))
     answer_hint = _clean_string(data.get("answer_hint")) or meta["answer_hint"]
     progress_label = _clean_string(data.get("progress_label")) or meta["progress_label"]
@@ -597,7 +599,7 @@ def _normalize_es_build_payload(
                 if aligned not in effective_blocked_focuses:
                     next_focus = aligned
             focus_key = next_focus
-            meta = _build_focus_meta(focus_key)
+            meta = _build_focus_meta(focus_key, conversation_text)
             question = meta["question"]
             answer_hint = meta["answer_hint"]
             progress_label = meta["progress_label"]
@@ -644,6 +646,8 @@ def _normalize_es_build_payload(
             ready_for_draft=True,
             draft_readiness_reason=readiness_reason or "ES本文に必要な材料が揃っています。",
             draft_text=fallback_state.draft_text if fallback_state else None,
+            draft_document_id=fallback_state.draft_document_id if fallback_state else None,
+            summary_stale=fallback_state.summary_stale if fallback_state else False,
             strength_tags=fallback_state.strength_tags if fallback_state else [],
             issue_tags=fallback_state.issue_tags if fallback_state else [],
             deepdive_recommendation_tags=fallback_state.deepdive_recommendation_tags if fallback_state else [],
@@ -658,6 +662,7 @@ def _normalize_es_build_payload(
             last_question_signature=last_question_signature,
             extended_deep_dive_round=_ext_dr,
             coach_progress_message=coach_message,
+            paused_question=question or (fallback_state.paused_question if fallback_state else None),
             remaining_questions_estimate=remaining_estimate,
         )
         return "", state, "draft_ready"
@@ -698,6 +703,8 @@ def _normalize_es_build_payload(
         ready_for_draft=False,
         draft_readiness_reason=readiness_reason or _build_readiness_reason(quality_checks, causal_gaps, missing_elements),
         draft_text=fallback_state.draft_text if fallback_state else None,
+        draft_document_id=fallback_state.draft_document_id if fallback_state else None,
+        summary_stale=fallback_state.summary_stale if fallback_state else False,
         strength_tags=fallback_state.strength_tags if fallback_state else [],
         issue_tags=fallback_state.issue_tags if fallback_state else [],
         deepdive_recommendation_tags=fallback_state.deepdive_recommendation_tags if fallback_state else [],
@@ -712,6 +719,7 @@ def _normalize_es_build_payload(
         last_question_signature=last_question_signature,
         extended_deep_dive_round=_ext_dr,
         coach_progress_message=coach_message,
+        paused_question=None,
         remaining_questions_estimate=remaining_estimate,
     )
     return question, state, source
@@ -738,7 +746,7 @@ def _normalize_deepdive_payload(
     focus_key = _clean_string(data.get("focus_key")) or "challenge"
     if focus_key not in DEEPDIVE_FOCUSES:
         focus_key = "challenge"
-    meta = _fallback_deepdive_meta(focus_key)
+    meta = _fallback_deepdive_meta(focus_key, conversation_text)
     question = _clean_string(data.get("question"))
     answer_hint = _clean_string(data.get("answer_hint")) or meta["answer_hint"]
     progress_label = _clean_string(data.get("progress_label")) or meta["progress_label"]
@@ -750,7 +758,8 @@ def _normalize_deepdive_payload(
     )
     explicit_interview_ready = deepdive_stage == "interview_ready"
     raw_complete = explicit_interview_ready or bool(completion and completion["complete"])
-    deepdive_complete = raw_complete and question_count >= MIN_USER_ANSWERS_FOR_INTERVIEW_READY
+    draft_available = bool(draft_text or (fallback_state and fallback_state.draft_text))
+    deepdive_complete = raw_complete and draft_available and question_count >= MIN_USER_ANSWERS_FOR_INTERVIEW_READY
     completion_reasons = (
         [] if deepdive_complete and explicit_interview_ready else list(completion["completion_reasons"]) if completion else []
     )
@@ -763,7 +772,7 @@ def _normalize_deepdive_payload(
             )
             if not qeval["quality_ok"]:
                 if qeval["recommended_action"] in ("use_fallback", "block_focus"):
-                    meta = _fallback_deepdive_meta(focus_key)
+                    meta = _fallback_deepdive_meta(focus_key, conversation_text)
                     question = meta["question"]
                     answer_hint = meta["answer_hint"]
                     progress_label = meta["progress_label"]
@@ -788,7 +797,7 @@ def _normalize_deepdive_payload(
                 (candidate for candidate in candidates if candidate not in loop_blocked_focuses),
                 focus_key,
             )
-            meta = _fallback_deepdive_meta(focus_key)
+            meta = _fallback_deepdive_meta(focus_key, conversation_text)
             question = meta["question"]
             answer_hint = meta["answer_hint"]
             progress_label = meta["progress_label"]
@@ -804,7 +813,7 @@ def _normalize_deepdive_payload(
         )
         if redirect_focus and redirect_focus != focus_key:
             focus_key = redirect_focus
-            meta = _fallback_deepdive_meta(focus_key)
+            meta = _fallback_deepdive_meta(focus_key, conversation_text)
             question = meta["question"]
             answer_hint = meta["answer_hint"]
             progress_label = meta["progress_label"]
@@ -843,6 +852,8 @@ def _normalize_deepdive_payload(
             ready_for_draft=True,
             draft_readiness_reason=fallback_state.draft_readiness_reason if fallback_state else "",
             draft_text=fallback_state.draft_text if fallback_state else None,
+            draft_document_id=fallback_state.draft_document_id if fallback_state else None,
+            summary_stale=fallback_state.summary_stale if fallback_state else False,
             strength_tags=fallback_state.strength_tags if fallback_state else [],
             issue_tags=fallback_state.issue_tags if fallback_state else [],
             deepdive_recommendation_tags=fallback_state.deepdive_recommendation_tags if fallback_state else [],
@@ -861,6 +872,7 @@ def _normalize_deepdive_payload(
             last_question_signature=last_question_signature,
             extended_deep_dive_round=_ext_dr,
             coach_progress_message=coach_message,
+            paused_question=question or (fallback_state.paused_question if fallback_state else None),
             remaining_questions_estimate=0,
         )
         return "", state, "interview_ready"
@@ -892,6 +904,8 @@ def _normalize_deepdive_payload(
         ready_for_draft=True,
         draft_readiness_reason=fallback_state.draft_readiness_reason if fallback_state else "",
         draft_text=fallback_state.draft_text if fallback_state else None,
+        draft_document_id=fallback_state.draft_document_id if fallback_state else None,
+        summary_stale=fallback_state.summary_stale if fallback_state else False,
         strength_tags=fallback_state.strength_tags if fallback_state else [],
         issue_tags=fallback_state.issue_tags if fallback_state else [],
         deepdive_recommendation_tags=fallback_state.deepdive_recommendation_tags if fallback_state else [],
@@ -910,6 +924,7 @@ def _normalize_deepdive_payload(
         last_question_signature=last_question_signature,
         extended_deep_dive_round=_ext_dr,
         coach_progress_message=coach_message,
+        paused_question=None,
         remaining_questions_estimate=0,
     )
     return question, state, source

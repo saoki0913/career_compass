@@ -15,12 +15,12 @@ const SUPPORT_EMAIL = "support@shupass.jp";
 const SUPPORT_URL = "/contact";
 const REFUND_POLICY_URL = "/terms#billing";
 
-const BUSINESS_NAME = "Harbor Works";
-const REPRESENTATIVE_NAME =
-  "請求があった場合、遅滞なく開示いたします。開示をご希望の方は support@shupass.jp までご連絡ください。";
-const BUSINESS_ADDRESS = "〒160-0023 東京都新宿区西新宿3丁目3番13号西新宿水間ビル2F";
-const PHONE_NUMBER =
-  "請求があった場合、遅滞なく開示いたします。開示をご希望の方は support@shupass.jp までご連絡ください。";
+const BUSINESS_NAME = "青木 駿介";
+const REPRESENTATIVE_NAME = "青木 駿介";
+const DISCLOSURE_REQUEST_NOTICE =
+  "請求があった場合、購入申込み前に遅滞なく電子メールにて開示いたします。開示をご希望の方は support@shupass.jp までご連絡ください。";
+const BUSINESS_ADDRESS = DISCLOSURE_REQUEST_NOTICE;
+const PHONE_NUMBER = DISCLOSURE_REQUEST_NOTICE;
 
 const monthlyPlans = getMarketingPricingPlans("monthly");
 const annualPlans = getMarketingPricingPlans("annual");

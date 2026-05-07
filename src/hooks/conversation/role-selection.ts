@@ -3,6 +3,7 @@ type RoleOptionLike = {
   source:
     | "industry_default"
     | "company_override"
+    | "company_doc"
     | "application_job_type"
     | "document_job_type";
 };

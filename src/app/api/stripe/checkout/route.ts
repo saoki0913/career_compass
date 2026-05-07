@@ -14,11 +14,22 @@ import { subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getPriceId, type PlanType, type BillingPeriod } from "@/lib/stripe/config";
 import { getAppUrl } from "@/lib/app-url";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { logError } from "@/lib/logger";
+import { getCsrfFailureReason } from "@/lib/csrf";
 
 export async function POST(req: NextRequest) {
   try {
+    const csrfFailure = getCsrfFailureReason(req);
+    if (csrfFailure) {
+      return createApiErrorResponse(req, {
+        status: 403,
+        code: "CSRF_VALIDATION_FAILED",
+        userMessage: "安全確認に失敗しました。ページを再読み込みして、もう一度お試しください。",
+        developerMessage: `CSRF validation failed: ${csrfFailure}`,
+      });
+    }
+
     const appUrl = getAppUrl();
     const session = await auth.api.getSession({
       headers: await headers(),
@@ -130,11 +141,11 @@ export async function POST(req: NextRequest) {
       custom_text: {
         submit: {
           message:
-            "本サービスは自動更新のサブスクリプションです。解約はアプリ内の設定画面または Stripe カスタマーポータルからいつでも可能で、次回更新日までは引き続きご利用いただけます。デジタルサービスの性質上、法令上必要な場合を除き返金はいたしません。詳細は特定商取引法に基づく表記 (https://www.shupass.jp/legal) をご確認ください。",
+            "本サービスは月額または年額の自動更新サブスクリプションです。お申込み時に即時決済され、以後は更新日に自動請求されます。解約はアプリ内の設定画面または Stripe カスタマーポータルからいつでも可能で、次回更新日までは引き続きご利用いただけます。デジタルサービスの性質上、法令上必要な場合を除き返金はいたしません。ただし、二重課金・誤課金・当社の責めに帰すべき提供不能が確認された場合は、利用規約に従って返金等の対応を行います。詳細は特定商取引法に基づく表記 (https://www.shupass.jp/legal) をご確認ください。",
         },
         terms_of_service_acceptance: {
           message:
-            "お申込みにより[利用規約](https://www.shupass.jp/terms)および[特定商取引法に基づく表記](https://www.shupass.jp/legal)に同意したものとみなされます。",
+            "チェックを入れて申込むことで、[利用規約](https://www.shupass.jp/terms)および[特定商取引法に基づく表記](https://www.shupass.jp/legal)に同意します。",
         },
       },
       // 利用規約への同意チェックボックスを必須化

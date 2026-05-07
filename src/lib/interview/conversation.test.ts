@@ -24,6 +24,9 @@ describe("interview conversation helpers", () => {
           next_preparation: ["他社比較の整理"],
           premise_consistency: 72,
           satisfaction_score: 4,
+          score_evidence_by_axis: { logic: ["順序立てて説明"] },
+          score_rationale_by_axis: { logic: "構成は明確です。" },
+          confidence_by_axis: { logic: "medium" },
         }),
       ),
     ).toEqual({
@@ -40,6 +43,9 @@ describe("interview conversation helpers", () => {
       next_preparation: ["他社比較の整理"],
       premise_consistency: 72,
       satisfaction_score: 4,
+      score_evidence_by_axis: { logic: ["順序立てて説明"] },
+      score_rationale_by_axis: { logic: "構成は明確です。" },
+      confidence_by_axis: { logic: "medium" },
     });
   });
 

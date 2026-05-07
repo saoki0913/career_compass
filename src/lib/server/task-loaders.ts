@@ -2,8 +2,8 @@ import { alias } from "drizzle-orm/pg-core";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { applications, companies, deadlines, tasks } from "@/lib/db/schema";
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
-import { isOwnedByIdentity } from "@/app/api/_shared/owner-access";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
+import { isOwnedByIdentity } from "@/bff/identity/owner-access";
 
 type TaskStatusFilter = "open" | "done" | "all";
 

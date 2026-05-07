@@ -1,7 +1,7 @@
 import type { PaidPlan } from "@/lib/company-info/pricing";
 import { getRemainingMonthlyScheduleFreeFetchesSafe } from "@/lib/company-info/usage";
 
-import { getUserPlan, type PlanType } from "./shared";
+import { getCreditConsumptionBlock, getUserPlan, type PlanType } from "./shared";
 import {
   getNextResetDate,
   grantMonthlyCredits,
@@ -60,6 +60,10 @@ export async function getRemainingFreeFetches(userId: string | null, _guestId: s
 }
 
 export async function hasEnoughCredits(userId: string, amount: number): Promise<boolean> {
+  const billingBlock = await getCreditConsumptionBlock(userId);
+  if (billingBlock) {
+    return false;
+  }
   const info = await getCreditsInfo(userId);
   return info.balance >= amount;
 }

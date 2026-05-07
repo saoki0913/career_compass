@@ -17,11 +17,12 @@ const {
   dbDeleteMock: vi.fn(),
 }));
 
-vi.mock("@/app/api/_shared/request-identity", () => ({
+vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
-vi.mock("@/app/api/_shared/owner-access", () => ({
+vi.mock("@/bff/identity/owner-access", () => ({
+  buildOwnedRowCondition: vi.fn(() => ({ owner: "condition" })),
   hasOwnedCompany: hasOwnedCompanyMock,
 }));
 
@@ -55,17 +56,30 @@ function makeDeadlinesQuery(result: unknown[]) {
   };
 }
 
-function makeUpdateChain() {
+function makeUpdateChain(result: unknown[] = [
+  {
+    id: "c1",
+    userId: "user-1",
+    guestId: null,
+    name: "Acme",
+    mypagePassword: null,
+    mypageLoginId: null,
+  },
+]) {
   return {
     set: vi.fn().mockReturnValue({
-      where: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue(result),
+      }),
     }),
   };
 }
 
 function makeDeleteChain() {
   return {
-    where: vi.fn().mockResolvedValue(undefined),
+    where: vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue([{ id: "c1" }]),
+    }),
   };
 }
 
@@ -159,17 +173,16 @@ describe("api/companies/[id]", () => {
     const { PUT } = await import("@/app/api/companies/[id]/route");
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     hasOwnedCompanyMock.mockResolvedValue(true);
-    dbUpdateMock.mockReturnValue(makeUpdateChain());
-
-    const updatedRow = {
-      id: "c1",
-      userId: "user-1",
-      guestId: null,
-      name: "Acme",
-      mypagePassword: null,
-      mypageLoginId: null,
-    };
-    dbSelectMock.mockReturnValue(makeCompanyQuery([updatedRow]));
+    dbUpdateMock.mockReturnValue(makeUpdateChain([
+      {
+        id: "c1",
+        userId: "user-1",
+        guestId: null,
+        name: "Acme",
+        mypagePassword: "encrypted",
+        mypageLoginId: "student@example.com",
+      },
+    ]));
 
     const req = new NextRequest("http://localhost:3000/api/companies/c1", {
       method: "PUT",
@@ -181,6 +194,27 @@ describe("api/companies/[id]", () => {
 
     expect(res.status).toBe(200);
     expect(data.company?.name).toBe("Acme");
+    expect(data.company?.hasCredentials).toBe(true);
+    expect(data.company?.mypageLoginId).toBeUndefined();
+    expect(data.company?.mypagePassword).toBeUndefined();
+  });
+
+  it("PUT rejects unsafe company URLs before update", async () => {
+    const { PUT } = await import("@/app/api/companies/[id]/route");
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    hasOwnedCompanyMock.mockResolvedValue(true);
+
+    const req = new NextRequest("http://localhost:3000/api/companies/c1", {
+      method: "PUT",
+      body: JSON.stringify({ mypageUrl: "https://user:pass@example.com/login" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PUT(req, { params: Promise.resolve({ id: "c1" }) });
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error.code).toBe("COMPANY_MYPAGE_URL_INVALID");
+    expect(dbUpdateMock).not.toHaveBeenCalled();
   });
 
   it("DELETE returns 401 without identity", async () => {

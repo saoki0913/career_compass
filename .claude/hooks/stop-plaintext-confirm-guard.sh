@@ -35,8 +35,23 @@ if [ -z "$LAST_TEXT" ]; then
 fi
 
 # --- パターン判定 ---
-TOPIC_RE='(コミット|commit|push|プッシュ|E2E|e2e|テスト実行|ステージング|staging|デプロイ|deploy|リリース|release)'
-CONFIRM_RE='(しますか[？?]|ますか[？?]|してもいい|進めますか|どうしますか|指示があれば|未完了|お知らせください|ご確認|よろしいですか|実行します。)'
+# --- Topic words: gated actions that require AskUserQuestion ---
+TOPIC_RE='(コミット|commit|push|プッシュ|E2E|e2e|テスト実行'
+TOPIC_RE+='|ステージング|staging|デプロイ|deploy|リリース|release'
+TOPIC_RE+='|マージ|merge|PR|pull.request|本番|production'
+TOPIC_RE+='|削除|delete|リセット|reset|rebase|修正確認|実装確認)'
+
+# --- Confirm/deferral phrases ---
+CONFIRM_RE='(しますか|ますか|してもいい|進めますか|どうしますか'
+CONFIRM_RE+='|指示があれば|未完了|お知らせください|ご確認ください'
+CONFIRM_RE+='|よろしいですか|よろしいでしょうか|実行します。'
+CONFIRM_RE+='|いかがでしょうか|いかがしましょう|しましょうか'
+CONFIRM_RE+='|でいいですか|大丈夫ですか|いいでしょうか'
+CONFIRM_RE+='|ご指示ください|お教えください|教えてください'
+CONFIRM_RE+='|どうしましょう|お待ちしています'
+CONFIRM_RE+='|必要であれば|必要に応じて'
+CONFIRM_RE+='|進めてもらえますか|お願いします|お伝えください|問題なければ'
+CONFIRM_RE+='|[Ss]hould I |[Ss]hall I |[Ww]ould you like|[Dd]o you want|[Ll]et me know)'
 
 if ! printf '%s' "$LAST_TEXT" | grep -qE "$TOPIC_RE"; then
   exit 0

@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
@@ -12,6 +11,8 @@ import {
   CompanyStatus,
   getStatusConfig,
 } from "@/lib/constants/status";
+import { StatusDropdown } from "@/components/companies/StatusDropdown";
+import { notifySuccess } from "@/lib/notifications";
 import {
   useCompanyDeadlines,
   Deadline,
@@ -31,7 +32,7 @@ import { DeadlineModal } from "@/components/deadlines/DeadlineModal";
 import { ApplicationModal } from "@/components/applications/ApplicationModal";
 import { FetchInfoButton } from "@/components/companies/FetchInfoButton";
 import { DeadlineApprovalModal } from "@/components/companies/DeadlineApprovalModal";
-import { CorporateInfoSection } from "@/components/companies/CorporateInfoSection";
+import { CorporateInfoSection } from "@/features/company-info";
 import { CompanyEditModal, UpdateCompanyData } from "@/components/companies/CompanyEditModal";
 import { OperationLockProvider } from "@/hooks/useOperationLock";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
@@ -63,7 +64,6 @@ interface Company {
   recruitmentUrl: string | null;
   corporateUrl: string | null;
   mypageUrl: string | null;
-  mypageLoginId: string | null;
   hasCredentials: boolean;
   notes: string | null;
   status: CompanyStatus;
@@ -370,6 +370,53 @@ export default function CompanyDetailPageClient({
     setCompany(result.company);
   };
 
+  // Inline status change with optimistic update
+  const handleStatusChange = async (newStatus: CompanyStatus) => {
+    if (!company) return;
+    const previousStatus = company.status;
+    // Optimistic update
+    setCompany((prev) => (prev ? { ...prev, status: newStatus } : prev));
+    try {
+      const response = await fetch(`/api/companies/${companyId}`, {
+        method: "PUT",
+        headers: buildHeaders(),
+        credentials: "include",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!response.ok) {
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANY_STATUS_UPDATE_FAILED",
+            userMessage: "ステータスを更新できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "CompanyDetailPageClient.handleStatusChange"
+        );
+      }
+      const result = await response.json();
+      setCompany(result.company);
+      const config = getStatusConfig(newStatus);
+      notifySuccess({ title: `ステータスを「${config.label}」に変更しました` });
+    } catch (err) {
+      // Rollback on failure
+      setCompany((prev) =>
+        prev ? { ...prev, status: previousStatus } : prev
+      );
+      reportUserFacingError(
+        err,
+        {
+          code: "COMPANY_STATUS_UPDATE_FAILED",
+          userMessage: "ステータスを更新できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "CompanyDetailPageClient.handleStatusChange"
+      );
+    }
+  };
+
   const handleDelete = async () => {
     setIsDeleting(true);
     setError(null);
@@ -567,7 +614,6 @@ export default function CompanyDetailPageClient({
   if (error && !company) {
     return (
       <div className="min-h-screen bg-background">
-        <DashboardHeader />
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <Card className="border-red-200 bg-red-50/50 max-w-xl mx-auto">
             <CardContent className="py-6 text-center">
@@ -584,14 +630,10 @@ export default function CompanyDetailPageClient({
 
   if (!company) return null;
 
-  const statusConfigData = getStatusConfig(company.status);
-
   return (
     <OperationLockProvider>
     <NavigationGuard />
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         {/* Back button */}
         <Link
@@ -628,15 +670,10 @@ export default function CompanyDetailPageClient({
               )}
             </div>
             <div className="flex items-center gap-2 mt-1.5">
-              <span
-                className={cn(
-                  "px-2.5 py-1 rounded-full text-xs font-medium",
-                  statusConfigData.bgColor,
-                  statusConfigData.color
-                )}
-              >
-                {statusConfigData.label}
-              </span>
+              <StatusDropdown
+                currentStatus={company.status}
+                onStatusChange={handleStatusChange}
+              />
               {company.industry && (
                 <>
                   <span className="text-sm text-muted-foreground">•</span>
@@ -710,7 +747,7 @@ export default function CompanyDetailPageClient({
               </div>
             </div>
             {/* マイページ情報（コンパクト表示） */}
-            {(company.mypageUrl || company.mypageLoginId || company.hasCredentials) && (
+            {(company.mypageUrl || company.hasCredentials) && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 {company.mypageUrl && (
                   <a
@@ -722,11 +759,6 @@ export default function CompanyDetailPageClient({
                     <ExternalLinkIcon />
                     マイページ
                   </a>
-                )}
-                {company.mypageLoginId && (
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                    ログイン情報を保存済み
-                  </span>
                 )}
                 {company.hasCredentials && (
                   <PasswordDisplay companyId={company.id} />

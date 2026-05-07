@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 const {
   dbUpdateMock,
   dbInsertMock,
+  dbTransactionMock,
   reserveCreditsMock,
   confirmReservationMock,
   cancelReservationMock,
@@ -18,9 +19,11 @@ const {
   getOwnedMotivationCompanyDataMock,
   resolveMotivationInputsMock,
   resolveMotivationRoleSelectionSourceMock,
+  buildMotivationUserEvidenceCardsMock,
 } = vi.hoisted(() => ({
   dbUpdateMock: vi.fn(),
   dbInsertMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
   confirmReservationMock: vi.fn(),
   cancelReservationMock: vi.fn(),
@@ -35,12 +38,14 @@ const {
   getOwnedMotivationCompanyDataMock: vi.fn(),
   resolveMotivationInputsMock: vi.fn(),
   resolveMotivationRoleSelectionSourceMock: vi.fn(),
+  buildMotivationUserEvidenceCardsMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db", () => ({
   db: {
     update: dbUpdateMock,
     insert: dbInsertMock,
+    transaction: dbTransactionMock,
   },
 }));
 
@@ -54,11 +59,11 @@ vi.mock("@/lib/credits", () => ({
   cancelReservation: cancelReservationMock,
 }));
 
-vi.mock("@/app/api/_shared/request-identity", () => ({
+vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
-vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+vi.mock("@/bff/identity/llm-cost-guard", () => ({
   guardDailyTokenLimit: vi.fn().mockResolvedValue(null),
 }));
 
@@ -83,6 +88,10 @@ vi.mock("@/lib/motivation/conversation", () => ({
   safeParseConversationContext: safeParseConversationContextMock,
 }));
 
+vi.mock("@/lib/motivation/conversation-payload", () => ({
+  buildMotivationUserEvidenceCards: buildMotivationUserEvidenceCardsMock,
+}));
+
 vi.mock("@/lib/rate-limit-spike", () => ({
   enforceRateLimitLayers: enforceRateLimitLayersMock,
   DRAFT_RATE_LAYERS: [],
@@ -90,6 +99,11 @@ vi.mock("@/lib/rate-limit-spike", () => ({
 
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
+  fetchFastApiWithPrincipal: fetchFastApiInternalMock,
+}));
+
+vi.mock("@/lib/server/loader-helpers", () => ({
+  getViewerPlan: vi.fn().mockResolvedValue("standard"),
 }));
 
 vi.mock("@/lib/ai/user-context", () => ({
@@ -109,6 +123,7 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
   beforeEach(() => {
     dbUpdateMock.mockReset();
     dbInsertMock.mockReset();
+    dbTransactionMock.mockReset();
     reserveCreditsMock.mockReset();
     confirmReservationMock.mockReset();
     cancelReservationMock.mockReset();
@@ -123,6 +138,7 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
     getOwnedMotivationCompanyDataMock.mockReset();
     resolveMotivationInputsMock.mockReset();
     resolveMotivationRoleSelectionSourceMock.mockReset();
+    buildMotivationUserEvidenceCardsMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     dbUpdateMock.mockReturnValue({
@@ -134,6 +150,10 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
       values: vi.fn().mockResolvedValue(undefined),
       onConflictDoNothing: vi.fn().mockResolvedValue(undefined),
     });
+    dbTransactionMock.mockImplementation(async (callback) => callback({
+      update: dbUpdateMock,
+      insert: dbInsertMock,
+    }));
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
     enforceRateLimitLayersMock.mockResolvedValue(null);
     getOwnedMotivationCompanyDataMock.mockResolvedValue({
@@ -153,7 +173,15 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
       target_job_types: ["企画職"],
       target_industries: ["IT"],
     });
-    fetchGakuchikaContextMock.mockResolvedValue([]);
+    fetchGakuchikaContextMock.mockResolvedValue([
+      {
+        title: "学園祭運営",
+        source_status: "structured_summary",
+        strengths: [{ title: "課題整理力" }],
+        action_text: "申請フローを整理しました。",
+        result_text: "確認漏れを減らしました。",
+      },
+    ]);
     fetchMotivationApplicationJobCandidatesMock.mockResolvedValue(["企画職"]);
     resolveMotivationInputsMock.mockReturnValue({
       requiresIndustrySelection: false,
@@ -162,30 +190,30 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
       companyRoleCandidates: ["企画職"],
     });
     resolveMotivationRoleSelectionSourceMock.mockReturnValue("profile");
+    buildMotivationUserEvidenceCardsMock.mockReturnValue([
+      {
+        sourceId: "U1",
+        title: "登録済みの強み",
+        contentType: "user_context",
+        excerpt: "課題整理力",
+        sourceUrl: "",
+        relevanceLabel: "プロフィール/ガクチカ",
+      },
+    ]);
   });
 
-  it("returns a temporary draft without creating an ES document", async () => {
-    fetchFastApiInternalMock
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            draft: "会話なしの下書きです。",
-            char_count: 120,
-            key_points: ["企業理解"],
-            company_keywords: ["DX支援"],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      )
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            question: "この志望動機でさらに補強したい観点はどこですか？",
-            evidence_cards: [],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      );
+  it("creates an ES document and persists draftDocumentId for direct draft", async () => {
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          draft: "会話なしの下書きです。",
+          char_count: 120,
+          key_points: ["企業理解"],
+          company_keywords: ["DX支援"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
     const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft-direct/route");
     const response = await POST(
@@ -200,7 +228,73 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.documentId).toBeNull();
+    expect(payload.documentId).toEqual(expect.any(String));
+    expect(payload.draftDocumentId).toBe(payload.documentId);
+    expect(payload.nextQuestion).toBeNull();
+    expect(payload.userEvidenceCards).toHaveLength(1);
+    expect(buildMotivationUserEvidenceCardsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        draftSource: "profile_only",
+        userAnchorStrengths: ["課題整理力"],
+        userAnchorEpisodes: expect.arrayContaining(["学園祭運営"]),
+        profileAnchorIndustries: ["IT"],
+        profileAnchorJobTypes: ["企画職"],
+      }),
+    );
+    expect(fetchFastApiInternalMock).toHaveBeenCalledTimes(1);
+    expect(dbInsertMock).toHaveBeenCalled();
+    expect(dbTransactionMock).toHaveBeenCalled();
+    expect(dbInsertMock.mock.results[0]?.value.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: payload.documentId,
+        userId: "user-1",
+        guestId: undefined,
+        companyId: "company-1",
+        type: "es",
+        status: "draft",
+        content: expect.stringContaining("会話なしの下書きです。"),
+      }),
+    );
+    expect(dbUpdateMock.mock.results.at(-1)?.value.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generatedDraft: "会話なしの下書きです。",
+        conversationContext: expect.objectContaining({
+          draftDocumentId: payload.documentId,
+          postDraftAwaitingResume: true,
+        }),
+      }),
+    );
+  });
+
+  it("returns persisted direct draft and releases reservation when credit confirmation fails after document creation", async () => {
+    confirmReservationMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          draft: "会話なしの下書きです。",
+          char_count: 120,
+          key_points: ["企業理解"],
+          company_keywords: ["DX支援"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft-direct/route");
+    const response = await POST(
+      new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft-direct", {
+        method: "POST",
+        body: JSON.stringify({ charLimit: 400, selectedRole: "企画職" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ companyId: "company-1" }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.documentId).toEqual(expect.any(String));
+    expect(dbTransactionMock).toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 
   it("returns 409 before consuming credits when profile-only material is too thin", async () => {

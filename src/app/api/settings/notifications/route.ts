@@ -12,8 +12,45 @@ import { notificationSettings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { DAILY_SUMMARY_HOURS_JST, isDailySummaryHourJst } from "@/lib/datetime/jst";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { logError } from "@/lib/logger";
+import { parseJsonCompat, parseJsonRecordCompat } from "@/lib/db/jsonb-compat";
+import type { ReminderTier } from "@/lib/notifications/deadline-importance";
+
+const DEFAULT_REMINDER_TIMING = [{ type: "day_before" }, { type: "hour_before", hours: 3 }];
+const VALID_REMINDER_TIERS = new Set<ReminderTier>(["7d", "3d", "1d", "0d"]);
+
+function isReminderTiming(value: unknown): value is Array<{ type: string; hours?: number }> {
+  return Array.isArray(value) && value.every(
+    (item) =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as { type?: unknown }).type === "string" &&
+      (
+        (item as { hours?: unknown }).hours === undefined ||
+        (
+          typeof (item as { hours?: unknown }).hours === "number" &&
+          Number.isFinite((item as { hours: number }).hours)
+        )
+      ),
+  );
+}
+
+function isDeadlineReminderOverrides(value: unknown): value is Record<string, ReminderTier[]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  return Object.values(value).every(
+    (tiers) =>
+      Array.isArray(tiers) &&
+      tiers.every((tier): tier is ReminderTier => typeof tier === "string" && VALID_REMINDER_TIERS.has(tier as ReminderTier)),
+  );
+}
+
+function parseReminderTiming(value: unknown): Array<{ type: string; hours?: number }> {
+  const parsed = parseJsonCompat(value);
+  return isReminderTiming(parsed) ? parsed : DEFAULT_REMINDER_TIMING;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -51,10 +88,7 @@ export async function GET(request: NextRequest) {
           companyFetch: true,
           esReview: true,
           dailySummary: true,
-          reminderTiming: JSON.stringify([
-            { type: "day_before" },
-            { type: "hour_before", hours: 3 },
-          ]),
+          reminderTiming: DEFAULT_REMINDER_TIMING,
           dailySummaryHourJst: 9,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -64,11 +98,6 @@ export async function GET(request: NextRequest) {
       settings = newSettings[0];
     }
 
-    let deadlineReminderOverrides = null;
-    if (settings.deadlineReminderOverrides) {
-      try { deadlineReminderOverrides = JSON.parse(settings.deadlineReminderOverrides); } catch { /* ignore */ }
-    }
-
     return NextResponse.json({
       settings: {
         deadlineReminder: settings.deadlineReminder,
@@ -76,11 +105,9 @@ export async function GET(request: NextRequest) {
         companyFetch: settings.companyFetch,
         esReview: settings.esReview,
         dailySummary: settings.dailySummary,
-        reminderTiming: settings.reminderTiming
-          ? JSON.parse(settings.reminderTiming)
-          : [{ type: "day_before" }, { type: "hour_before", hours: 3 }],
+        reminderTiming: parseReminderTiming(settings.reminderTiming),
         dailySummaryHourJst: settings.dailySummaryHourJst ?? 9,
-        deadlineReminderOverrides,
+        deadlineReminderOverrides: parseJsonRecordCompat(settings.deadlineReminderOverrides),
       },
     });
   } catch (error) {
@@ -164,7 +191,7 @@ export async function PUT(request: NextRequest) {
       settingsData.dailySummaryHourJst = h;
     }
     if (reminderTiming !== undefined) {
-      if (!Array.isArray(reminderTiming)) {
+      if (!isReminderTiming(reminderTiming)) {
         return createApiErrorResponse(request, {
           status: 400,
           code: "SETTINGS_NOTIFICATIONS_INVALID_REMINDER_TIMING",
@@ -172,14 +199,21 @@ export async function PUT(request: NextRequest) {
           developerMessage: "Reminder timing payload is invalid",
         });
       }
-      settingsData.reminderTiming = JSON.stringify(reminderTiming);
+      settingsData.reminderTiming = reminderTiming;
     }
     if (deadlineReminderOverrides !== undefined) {
       // null clears overrides (use defaults), object sets per-type tiers
       if (deadlineReminderOverrides === null) {
         settingsData.deadlineReminderOverrides = null;
-      } else if (typeof deadlineReminderOverrides === "object") {
-        settingsData.deadlineReminderOverrides = JSON.stringify(deadlineReminderOverrides);
+      } else if (isDeadlineReminderOverrides(deadlineReminderOverrides)) {
+        settingsData.deadlineReminderOverrides = deadlineReminderOverrides;
+      } else {
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "SETTINGS_NOTIFICATIONS_INVALID_REMINDER_OVERRIDES",
+          userMessage: "通知設定の内容を確認してください。",
+          developerMessage: "Deadline reminder overrides payload is invalid",
+        });
       }
     }
 
@@ -197,12 +231,7 @@ export async function PUT(request: NextRequest) {
         companyFetch: Boolean(companyFetch ?? true),
         esReview: Boolean(esReview ?? true),
         dailySummary: Boolean(dailySummary ?? true),
-        reminderTiming: reminderTiming
-          ? JSON.stringify(reminderTiming)
-          : JSON.stringify([
-              { type: "day_before" },
-              { type: "hour_before", hours: 3 },
-            ]),
+        reminderTiming: reminderTiming || DEFAULT_REMINDER_TIMING,
         dailySummaryHourJst:
           dailySummaryHourJst !== undefined && isDailySummaryHourJst(Number(dailySummaryHourJst))
             ? Number(dailySummaryHourJst)
@@ -219,11 +248,6 @@ export async function PUT(request: NextRequest) {
       .where(eq(notificationSettings.userId, userId))
       .limit(1);
 
-    let updatedOverrides = null;
-    if (updated?.deadlineReminderOverrides) {
-      try { updatedOverrides = JSON.parse(updated.deadlineReminderOverrides); } catch { /* ignore */ }
-    }
-
     return NextResponse.json({
       settings: {
         deadlineReminder: updated?.deadlineReminder,
@@ -231,11 +255,9 @@ export async function PUT(request: NextRequest) {
         companyFetch: updated?.companyFetch,
         esReview: updated?.esReview,
         dailySummary: updated?.dailySummary,
-        reminderTiming: updated?.reminderTiming
-          ? JSON.parse(updated.reminderTiming)
-          : [{ type: "day_before" }, { type: "hour_before", hours: 3 }],
+        reminderTiming: parseReminderTiming(updated?.reminderTiming),
         dailySummaryHourJst: updated?.dailySummaryHourJst ?? 9,
-        deadlineReminderOverrides: updatedOverrides,
+        deadlineReminderOverrides: parseJsonRecordCompat(updated?.deadlineReminderOverrides),
       },
     });
   } catch (error) {

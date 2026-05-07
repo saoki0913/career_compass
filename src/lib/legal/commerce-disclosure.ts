@@ -2,8 +2,10 @@ const DEFAULT_SALES_URL = "https://www.shupass.jp";
 const DEFAULT_SUPPORT_EMAIL = "support@shupass.jp";
 const DEFAULT_SUPPORT_URL = "/contact";
 const DEFAULT_REFUND_POLICY_URL = "/terms#billing";
+const DEFAULT_BUSINESS_NAME = "青木 駿介";
+const DEFAULT_REPRESENTATIVE_NAME = "青木 駿介";
 const DEFAULT_DISCLOSURE_NOTICE =
-  "販売事業者、運営責任者、所在地、電話番号は、請求があった場合に遅滞なく開示いたします。開示をご希望の方は下記メールアドレスまでご連絡ください。";
+  "請求があった場合、購入申込み前に遅滞なく電子メールにて開示いたします。開示をご希望の方は下記メールアドレスまでご連絡ください。";
 
 function env(key: string): string | undefined {
   return process.env[key]?.trim() || undefined;
@@ -34,25 +36,21 @@ export function getLegalDisclosureNotice(): string {
 }
 
 export function getLegalHeadOfOperations(): string {
-  return env("LEGAL_HEAD_OF_OPERATIONS") ?? getLegalDisclosureNotice();
+  return env("LEGAL_HEAD_OF_OPERATIONS") ?? getLegalRepresentativeName();
 }
 
 export function getLegalBusinessName(): string {
-  return env("LEGAL_BUSINESS_NAME")
-    || "未設定（※Stripe審査のためには環境変数 LEGAL_BUSINESS_NAME の設定が必要です）";
+  return env("LEGAL_BUSINESS_NAME") ?? DEFAULT_BUSINESS_NAME;
 }
 
 export function getLegalRepresentativeName(): string {
-  return env("LEGAL_REPRESENTATIVE_NAME")
-    || "未設定（※環境変数 LEGAL_REPRESENTATIVE_NAME の設定が必要です）";
+  return env("LEGAL_REPRESENTATIVE_NAME") ?? DEFAULT_REPRESENTATIVE_NAME;
 }
 
 export function getLegalBusinessAddress(): string {
-  return env("LEGAL_BUSINESS_ADDRESS")
-    || "未設定（※環境変数 LEGAL_BUSINESS_ADDRESS の設定が必要です）";
+  return env("LEGAL_BUSINESS_ADDRESS") ?? getLegalDisclosureNotice();
 }
 
 export function getLegalPhoneNumber(): string {
-  return env("LEGAL_PHONE_NUMBER")
-    || "未設定（※環境変数 LEGAL_PHONE_NUMBER の設定が必要です）";
+  return env("LEGAL_PHONE_NUMBER") ?? getLegalDisclosureNotice();
 }

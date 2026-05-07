@@ -6,6 +6,7 @@ import {
 } from "@/lib/db/schema";
 import { desc, eq } from "drizzle-orm";
 import { isInterviewReady, safeParseConversationState } from "@/app/api/gakuchika";
+import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
 
 export interface ProfileContext {
   university: string | null;
@@ -44,15 +45,8 @@ interface DocumentBlock {
   content?: string;
 }
 
-export function safeParseProfileArray(json: string | null): string[] {
-  if (!json) return [];
-  try {
-    const parsed = JSON.parse(json);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is string => typeof item === "string");
-  } catch {
-    return [];
-  }
+export function safeParseProfileArray(value: unknown): string[] {
+  return parseStringArrayCompat(value);
 }
 
 function safeParseStringArray(value: unknown): string[] {

@@ -3,6 +3,8 @@ import { type AnyPgColumn, pgTable, text, integer, boolean, timestamp, index, un
 import { ES_DOCUMENT_CATEGORIES } from "@/lib/es-document-category";
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
+export type JsonRecord = Record<string, unknown>;
+export type ReminderTiming = Array<{ type: string; hours?: number }>;
 
 // Better Auth required tables
 export const users = pgTable("users", {
@@ -100,8 +102,8 @@ export const userProfiles = pgTable("user_profiles", {
   university: text("university"),
   faculty: text("faculty"), // 学部・学科
   graduationYear: integer("graduation_year"),
-  targetIndustries: text("target_industries"), // JSON string array
-  targetJobTypes: text("target_job_types"), // JSON string array (志望職種)
+  targetIndustries: jsonb("target_industries").$type<string[]>(),
+  targetJobTypes: jsonb("target_job_types").$type<string[]>(),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
 });
@@ -132,7 +134,7 @@ export const companies = pgTable(
     recruitmentUrl: text("recruitment_url"),
     corporateUrl: text("corporate_url"),
     // Multiple corporate info URLs for RAG (9-category contentType) - JSON array
-    corporateInfoUrls: text("corporate_info_urls"),
+    corporateInfoUrls: jsonb("corporate_info_urls").$type<unknown[]>(),
     // Mypage credentials (password is encrypted)
     mypageUrl: text("mypage_url"),
     mypageLoginId: text("mypage_login_id"),
@@ -233,7 +235,7 @@ export const applications = pgTable(
     status: text("status", { enum: ["active", "completed", "withdrawn"] })
       .default("active")
       .notNull(),
-    phase: text("phase"),
+    phase: jsonb("phase").$type<string[]>(),
     sortOrder: integer("sort_order").default(0),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
@@ -241,6 +243,8 @@ export const applications = pgTable(
   (t) => [
     check("applications_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("applications_company_id_idx").on(t.companyId),
+    index("applications_company_user_owner_idx").on(t.companyId, t.userId),
+    index("applications_company_guest_owner_idx").on(t.companyId, t.guestId),
   ]
 );
 
@@ -300,7 +304,7 @@ export const deadlines = pgTable(
     googleSyncedAt: timestamptz("google_synced_at"),
     googleSyncSuppressedAt: timestamptz("google_sync_suppressed_at"),
     completedAt: timestamptz("completed_at"),
-    autoCompletedTaskIds: text("auto_completed_task_ids"),
+    autoCompletedTaskIds: jsonb("auto_completed_task_ids").$type<string[]>(),
     /** Manual status override: not_started | in_progress | completed. null = auto-compute. "overdue" is derived at runtime only. */
     statusOverride: text("status_override", {
       enum: ["not_started", "in_progress", "completed"],
@@ -312,8 +316,14 @@ export const deadlines = pgTable(
     index("deadlines_company_id_idx").on(t.companyId),
     index("deadlines_application_id_idx").on(t.applicationId),
     index("deadlines_job_type_id_idx").on(t.jobTypeId),
+    index("deadlines_company_application_idx").on(t.companyId, t.applicationId),
+    index("deadlines_application_job_type_idx").on(t.applicationId, t.jobTypeId),
     index("deadlines_due_date_idx").on(t.dueDate),
     index("deadlines_confirm_completed_due_idx").on(t.isConfirmed, t.completedAt, t.dueDate),
+    index("deadlines_company_completed_due_idx").on(t.companyId, t.completedAt, t.dueDate),
+    index("deadlines_company_open_due_idx")
+      .on(t.companyId, t.dueDate)
+      .where(sql`${t.completedAt} is null`),
   ]
 );
 
@@ -332,12 +342,21 @@ export const subscriptions = pgTable(
     status: text("status"),
     currentPeriodEnd: timestamptz("current_period_end"),
     cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    billingHoldStatus: text("billing_hold_status", { enum: ["none", "dispute"] }).notNull().default("none"),
+    billingHoldReason: text("billing_hold_reason"),
+    billingHoldStripeDisputeId: text("billing_hold_stripe_dispute_id"),
+    billingHoldStartedAt: timestamptz("billing_hold_started_at"),
+    billingHoldEndedAt: timestamptz("billing_hold_ended_at"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
   (t) => [
     // Frequently queried from Stripe webhooks.
     uniqueIndex("subscriptions_stripe_subscription_id_ux").on(t.stripeSubscriptionId),
+    index("subscriptions_billing_hold_active_idx")
+      .on(t.userId)
+      .where(sql`${t.billingHoldStatus} <> 'none'`),
+    check("subscriptions_billing_hold_status_check", sql`${t.billingHoldStatus} in ('none', 'dispute')`),
   ]
 );
 
@@ -453,6 +472,13 @@ export const tasks = pgTable(
     index("tasks_company_id_idx").on(t.companyId),
     index("tasks_application_id_idx").on(t.applicationId),
     index("tasks_deadline_id_idx").on(t.deadlineId),
+    index("tasks_company_user_owner_idx").on(t.companyId, t.userId),
+    index("tasks_company_guest_owner_idx").on(t.companyId, t.guestId),
+    index("tasks_application_user_owner_idx").on(t.applicationId, t.userId),
+    index("tasks_application_guest_owner_idx").on(t.applicationId, t.guestId),
+    index("tasks_deadline_user_owner_idx").on(t.deadlineId, t.userId),
+    index("tasks_deadline_guest_owner_idx").on(t.deadlineId, t.guestId),
+    index("tasks_deadline_status_idx").on(t.deadlineId, t.status),
     index("tasks_status_idx").on(t.status),
     index("tasks_user_status_due_idx").on(t.userId, t.status, t.dueDate),
     index("tasks_guest_status_due_idx").on(t.guestId, t.status, t.dueDate),
@@ -467,10 +493,10 @@ export const notifications = pgTable(
     id: text("id").primaryKey(),
     userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
     guestId: text("guest_id").references(() => guestUsers.id, { onDelete: "cascade" }),
-    type: text("type", { enum: ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary", "calendar_sync_failed"] }).notNull(),
+    type: text("type", { enum: ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary", "calendar_sync_failed", "billing_status"] }).notNull(),
     title: text("title").notNull(),
     message: text("message").notNull(),
-    data: text("data"),
+    data: jsonb("data").$type<JsonRecord>(),
     isRead: boolean("is_read").notNull().default(false),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     expiresAt: timestamptz("expires_at"),
@@ -517,6 +543,12 @@ export const documents = pgTable(
     index("documents_company_id_idx").on(t.companyId),
     index("documents_application_id_idx").on(t.applicationId),
     index("documents_job_type_id_idx").on(t.jobTypeId),
+    index("documents_company_user_owner_idx").on(t.companyId, t.userId),
+    index("documents_company_guest_owner_idx").on(t.companyId, t.guestId),
+    index("documents_application_user_owner_idx").on(t.applicationId, t.userId),
+    index("documents_application_guest_owner_idx").on(t.applicationId, t.guestId),
+    index("documents_job_type_user_owner_idx").on(t.jobTypeId, t.userId),
+    index("documents_job_type_guest_owner_idx").on(t.jobTypeId, t.guestId),
     index("documents_status_idx").on(t.status),
     index("documents_user_updated_at_active_idx")
       .on(t.userId, t.updatedAt.desc())
@@ -575,7 +607,7 @@ export const gakuchikaConversations = pgTable(
     messages: jsonb("messages").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
     questionCount: integer("question_count").notNull().default(0),
     status: text("status", { enum: ["in_progress", "completed"] }).default("in_progress"),
-    starScores: text("star_scores"),
+    starScores: jsonb("star_scores").$type<JsonRecord>(),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
@@ -609,7 +641,7 @@ export const aiMessages = pgTable(
       .references(() => aiThreads.id, { onDelete: "cascade" }),
     role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
     content: text("content").notNull(),
-    metadata: text("metadata"),
+    metadata: jsonb("metadata").$type<JsonRecord>(),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (t) => [index("ai_messages_thread_created_at_idx").on(t.threadId, t.createdAt)]
@@ -751,6 +783,8 @@ export const submissionItems = pgTable(
     index("submission_items_user_id_idx").on(t.userId),
     index("submission_items_guest_id_idx").on(t.guestId),
     index("submission_items_application_id_idx").on(t.applicationId),
+    index("submission_items_application_user_owner_idx").on(t.applicationId, t.userId),
+    index("submission_items_application_guest_owner_idx").on(t.applicationId, t.guestId),
   ]
 );
 
@@ -768,9 +802,9 @@ export const notificationSettings = pgTable("notification_settings", {
   dailySummary: boolean("daily_summary").notNull().default(true),
   /** JST hour for daily summary: 7, 9, 12, or 18 */
   dailySummaryHourJst: integer("daily_summary_hour_jst").notNull().default(9),
-  reminderTiming: text("reminder_timing"),
+  reminderTiming: jsonb("reminder_timing").$type<ReminderTiming>(),
   /** Per-deadline-type reminder tier overrides. JSON: { "es_submission": ["7d","3d","1d","0d"], ... }. null = use defaults. */
-  deadlineReminderOverrides: text("deadline_reminder_overrides"),
+  deadlineReminderOverrides: jsonb("deadline_reminder_overrides").$type<Record<string, string[]>>(),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
 });
@@ -804,6 +838,8 @@ export const motivationConversations = pgTable(
   (t) => [
     check("motivation_conversations_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("motivation_conversations_company_id_idx").on(t.companyId),
+    index("motivation_conversations_company_user_owner_idx").on(t.companyId, t.userId),
+    index("motivation_conversations_company_guest_owner_idx").on(t.companyId, t.guestId),
     uniqueIndex("motivation_conversations_company_user_ux").on(t.companyId, t.userId),
     uniqueIndex("motivation_conversations_company_guest_ux").on(t.companyId, t.guestId),
   ]
@@ -850,6 +886,8 @@ export const interviewConversations = pgTable(
   (t) => [
     check("interview_conversations_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("interview_conversations_company_idx").on(t.companyId),
+    index("interview_conversations_company_user_owner_idx").on(t.companyId, t.userId),
+    index("interview_conversations_company_guest_owner_idx").on(t.companyId, t.guestId),
     uniqueIndex("interview_conversations_company_user_ux").on(t.companyId, t.userId),
     uniqueIndex("interview_conversations_company_guest_ux").on(t.companyId, t.guestId),
   ]
@@ -880,6 +918,9 @@ export const interviewFeedbackHistories = pgTable(
     preparationPoints: jsonb("preparation_points").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     premiseConsistency: integer("premise_consistency").notNull().default(0),
     satisfactionScore: integer("satisfaction_score"),
+    scoreEvidenceByAxis: jsonb("score_evidence_by_axis").$type<Record<string, string[]>>().notNull().default(sql`'{}'::jsonb`),
+    scoreRationaleByAxis: jsonb("score_rationale_by_axis").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
+    confidenceByAxis: jsonb("confidence_by_axis").$type<Record<string, string>>().notNull().default(sql`'{}'::jsonb`),
     sourceQuestionCount: integer("source_question_count").notNull().default(0),
     sourceMessagesSnapshot: jsonb("source_messages_snapshot").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
     // Phase 2 Stage 0-3: evaluation harness lineage for A/B test infrastructure.
@@ -892,6 +933,8 @@ export const interviewFeedbackHistories = pgTable(
   (t) => [
     check("interview_feedback_histories_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("interview_feedback_histories_company_idx").on(t.companyId, t.createdAt),
+    index("interview_feedback_histories_company_user_owner_idx").on(t.companyId, t.userId),
+    index("interview_feedback_histories_company_guest_owner_idx").on(t.companyId, t.guestId),
     index("interview_feedback_histories_conversation_idx").on(t.conversationId, t.createdAt),
   ]
 );
@@ -932,6 +975,8 @@ export const interviewTurnEvents = pgTable(
     check("interview_turn_events_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("interview_turn_events_conversation_idx").on(t.conversationId, t.createdAt),
     index("interview_turn_events_company_idx").on(t.companyId, t.createdAt),
+    index("interview_turn_events_company_user_owner_idx").on(t.companyId, t.userId),
+    index("interview_turn_events_company_guest_owner_idx").on(t.companyId, t.guestId),
     index("interview_turn_events_turn_id_idx").on(t.turnId),
   ]
 );
@@ -984,6 +1029,8 @@ export const interviewDrillAttempts = pgTable(
     check("interview_drill_attempts_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("interview_drill_attempts_conversation_idx").on(t.conversationId, t.createdAt),
     index("interview_drill_attempts_company_idx").on(t.companyId, t.createdAt),
+    index("interview_drill_attempts_company_user_owner_idx").on(t.companyId, t.userId),
+    index("interview_drill_attempts_company_guest_owner_idx").on(t.companyId, t.guestId),
   ],
 );
 
@@ -991,8 +1038,16 @@ export const interviewDrillAttempts = pgTable(
 export const processedStripeEvents = pgTable("processed_stripe_events", {
   eventId: text("event_id").primaryKey(),
   eventType: text("event_type").notNull(),
-  processedAt: timestamptz("processed_at").notNull().defaultNow(),
-});
+  status: text("status", { enum: ["processing", "succeeded", "failed"] }).notNull().default("processing"),
+  startedAt: timestamptz("started_at").notNull().defaultNow(),
+  processedAt: timestamptz("processed_at"),
+  lastError: text("last_error"),
+  attemptCount: integer("attempt_count").notNull().default(1),
+  stripeCreated: timestamptz("stripe_created"),
+}, (t) => [
+  check("processed_stripe_events_status_check", sql`${t.status} in ('processing', 'succeeded', 'failed')`),
+  index("processed_stripe_events_status_started_idx").on(t.status, t.startedAt),
+]);
 
 // User pins table - generic favorites for any entity
 export const userPins = pgTable(

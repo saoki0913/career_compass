@@ -33,16 +33,18 @@ from app.utils.llm_providers import (
     SUCCESS,
     WARNING,
     LLMResult,
-    _call_claude_raw_stream,
     _classify_anthropic_error,
     _create_error,
     _log,
     _log_debug,
     _parse_json_response,
 )
+from app.utils.llm_prompt_safety import detect_output_leakage
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
+
+OUTPUT_GUARD_BUFFER_CHARS = 512
 
 
 @dataclass
@@ -54,6 +56,23 @@ class StreamFieldEvent:
     text: str = ""  # For chunk/string_chunk events
     value: object = None  # For field_complete/array_item_complete events
     result: Optional[Any] = None  # LLMResult — Optional[Any] to avoid circular import
+
+
+def _leakage_error_if_detected(
+    *,
+    text: str,
+    feature: str,
+    provider: str = "anthropic",
+):
+    result = detect_output_leakage(text)
+    if not result.is_leaked:
+        return None
+    return _create_error(
+        "refusal",
+        provider,
+        feature,
+        "LLM streaming output leakage blocked: patterns=" + ",".join(result.matched_patterns),
+    )
 
 
 async def call_llm_streaming(
@@ -74,6 +93,8 @@ async def call_llm_streaming(
     """
     from app.utils.llm import (  # local import to break cycle with llm.py
         _call_claude,
+        _call_claude_raw_stream,
+        _emit_output_leakage_event,
         _json_repair_system_prompt,
         _json_repair_user_prompt,
         call_llm_with_error,
@@ -106,6 +127,7 @@ async def call_llm_streaming(
 
     try:
         accumulated = ""
+        pending_emit = ""
         usage_summary: dict[str, int] | None = None
 
         def _capture_usage(usage: dict[str, int] | None) -> None:
@@ -123,8 +145,20 @@ async def call_llm_streaming(
             on_complete=_capture_usage,
         ):
             accumulated += chunk
-            if on_chunk:
-                on_chunk(chunk, len(accumulated))
+            pending_emit += chunk
+            leakage_error = _leakage_error_if_detected(text=accumulated, feature=feature)
+            if leakage_error is not None:
+                _emit_output_leakage_event(
+                    feature=feature,
+                    model=actual_model or "",
+                    provider="anthropic",
+                    raw_text=accumulated,
+                )
+                return LLMResult(success=False, error=leakage_error)
+            if on_chunk and len(pending_emit) > OUTPUT_GUARD_BUFFER_CHARS:
+                safe_prefix = pending_emit[:-OUTPUT_GUARD_BUFFER_CHARS]
+                pending_emit = pending_emit[-OUTPUT_GUARD_BUFFER_CHARS:]
+                on_chunk(safe_prefix, len(accumulated) - len(pending_emit))
 
         if not accumulated:
             error = _create_error("parse", "anthropic", feature, "空のストリーミングレスポンス")
@@ -143,6 +177,17 @@ async def call_llm_streaming(
             call_kind="stream",
             usage=usage_summary,
         )
+        leakage_error = _leakage_error_if_detected(text=accumulated, feature=feature)
+        if leakage_error is not None:
+            _emit_output_leakage_event(
+                feature=feature,
+                model=actual_model or "",
+                provider="anthropic",
+                raw_text=accumulated,
+            )
+            return LLMResult(success=False, error=leakage_error)
+        if on_chunk and pending_emit:
+            on_chunk(pending_emit, len(accumulated))
 
         result = _parse_json_response(accumulated)
         if result is not None:
@@ -219,6 +264,8 @@ async def call_llm_streaming_fields(
     """
     from app.utils.llm import (  # local import to break cycle with llm.py
         _call_claude,
+        _call_claude_raw_stream,
+        _emit_output_leakage_event,
         _json_repair_system_prompt,
         _json_repair_user_prompt,
         call_llm_with_error,
@@ -263,26 +310,14 @@ async def call_llm_streaming_fields(
 
     try:
         usage_summary: dict[str, int] | None = None
+        pending_feed = ""
 
         def _capture_usage(usage: dict[str, int] | None) -> None:
             nonlocal usage_summary
             usage_summary = usage
 
-        async for chunk in _call_claude_raw_stream(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            model=actual_model,
-            feature=feature,
-            on_complete=_capture_usage,
-        ):
-            # Emit raw chunk event
-            yield StreamFieldEvent(type="chunk", text=chunk)
-
-            # Feed to JSON extractor
-            field_events = extractor.feed(chunk)
+        async def _feed_safe_text(text: str):
+            field_events = extractor.feed(text)
             for fe in field_events:
                 if fe.type == StreamEventType.STRING_CHUNK:
                     yield StreamFieldEvent(
@@ -296,6 +331,55 @@ async def call_llm_streaming_fields(
                     yield StreamFieldEvent(
                         type="array_item_complete", path=fe.path, value=fe.value
                     )
+
+        async for chunk in _call_claude_raw_stream(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=actual_model,
+            feature=feature,
+            on_complete=_capture_usage,
+        ):
+            pending_feed += chunk
+            leakage_error = _leakage_error_if_detected(text=extractor.get_accumulated() + pending_feed, feature=feature)
+            if leakage_error is not None:
+                _emit_output_leakage_event(
+                    feature=feature,
+                    model=actual_model or "",
+                    provider="anthropic",
+                    raw_text=extractor.get_accumulated() + pending_feed,
+                )
+                yield StreamFieldEvent(
+                    type="error",
+                    result=LLMResult(success=False, error=leakage_error),
+                )
+                return
+            if len(pending_feed) > OUTPUT_GUARD_BUFFER_CHARS:
+                safe_prefix = pending_feed[:-OUTPUT_GUARD_BUFFER_CHARS]
+                pending_feed = pending_feed[-OUTPUT_GUARD_BUFFER_CHARS:]
+                yield StreamFieldEvent(type="chunk", text=safe_prefix)
+                async for safe_event in _feed_safe_text(safe_prefix):
+                    yield safe_event
+
+        if pending_feed:
+            leakage_error = _leakage_error_if_detected(text=extractor.get_accumulated() + pending_feed, feature=feature)
+            if leakage_error is not None:
+                _emit_output_leakage_event(
+                    feature=feature,
+                    model=actual_model or "",
+                    provider="anthropic",
+                    raw_text=extractor.get_accumulated() + pending_feed,
+                )
+                yield StreamFieldEvent(
+                    type="error",
+                    result=LLMResult(success=False, error=leakage_error),
+                )
+                return
+            yield StreamFieldEvent(type="chunk", text=pending_feed)
+            async for safe_event in _feed_safe_text(pending_feed):
+                yield safe_event
 
         # Stream finished — parse the full accumulated text
         accumulated = extractor.get_accumulated()
@@ -318,6 +402,19 @@ async def call_llm_streaming_fields(
             call_kind="stream_fields",
             usage=usage_summary,
         )
+        leakage_error = _leakage_error_if_detected(text=accumulated, feature=feature)
+        if leakage_error is not None:
+            _emit_output_leakage_event(
+                feature=feature,
+                model=actual_model or "",
+                provider="anthropic",
+                raw_text=accumulated,
+            )
+            yield StreamFieldEvent(
+                type="error",
+                result=LLMResult(success=False, error=leakage_error),
+            )
+            return
 
         result = _parse_json_response(accumulated)
         if result is not None:

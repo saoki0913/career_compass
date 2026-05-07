@@ -124,7 +124,7 @@ export LIVE_ES_REVIEW_CASE_SET="$suite"
 export LIVE_COMPANY_INFO_CASE_SET="$suite"
 export LIVE_COMPANY_INFO_TARGET_ENV="${LIVE_COMPANY_INFO_TARGET_ENV:-staging}"
 export RUN_LIVE_ES_REVIEW=1
-if [[ "$suite" == "extended" ]]; then
+if [[ "$suite" == "extended" && "${AI_LIVE_TEST_CATEGORY:-functional}" == "quality" ]]; then
   export LIVE_ES_REVIEW_ENABLE_JUDGE="${LIVE_ES_REVIEW_ENABLE_JUDGE:-1}"
   if [[ -n "${OPENAI_API_KEY:-}" ]]; then
     case "${LIVE_AI_CONVERSATION_LLM_JUDGE-__unset__}" in
@@ -132,6 +132,9 @@ if [[ "$suite" == "extended" ]]; then
       *) export LIVE_AI_CONVERSATION_LLM_JUDGE=1 ;;
     esac
   fi
+else
+  export LIVE_ES_REVIEW_ENABLE_JUDGE="${LIVE_ES_REVIEW_ENABLE_JUDGE:-0}"
+  export LIVE_AI_CONVERSATION_LLM_JUDGE="${LIVE_AI_CONVERSATION_LLM_JUDGE:-0}"
 fi
 
 run_es_review() {
@@ -158,7 +161,7 @@ run_es_review() {
       PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-https://stg.shupass.jp}" \
       PLAYWRIGHT_SKIP_WEBSERVER=1 \
       CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
-      npx playwright test -c playwright.live.config.ts e2e/live-ai-major.spec.ts
+      npx playwright test -c playwright.live.config.ts e2e/live-smoke/live-ai-major.spec.ts
   fi
 }
 
@@ -186,7 +189,7 @@ run_conversation_feature() {
     LIVE_AI_CONVERSATION_TARGET_ENV="${LIVE_AI_CONVERSATION_TARGET_ENV:-staging}" \
     LIVE_AI_CONVERSATION_FEATURE="$conversation_feature" \
     LIVE_AI_CONVERSATION_BLOCKING_FAILURES="$blocking_failures" \
-    npx playwright test -c playwright.live.config.ts e2e/live-ai-conversations.spec.ts
+    npx playwright test -c playwright.live.config.ts e2e/live-smoke/live-ai-conversations.spec.ts
 }
 
 run_company_info_feature() {
@@ -220,8 +223,8 @@ run_company_info_feature() {
 
   local playwright_spec=""
   case "$company_feature" in
-    rag-ingest) playwright_spec="e2e/company-info-rag.spec.ts" ;;
-    selection-schedule) playwright_spec="e2e/company-info-search.spec.ts" ;;
+    rag-ingest) playwright_spec="e2e/functional/company-info-rag.spec.ts" ;;
+    selection-schedule) playwright_spec="e2e/functional/company-info-search.spec.ts" ;;
   esac
 
   if [[ -n "$playwright_spec" ]]; then
@@ -234,7 +237,7 @@ run_company_info_feature() {
         PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
         PLAYWRIGHT_SKIP_WEBSERVER=1 \
         CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
-        npx playwright test -c playwright.live.config.ts "$playwright_spec"
+        npx playwright test "$playwright_spec"
     fi
   fi
 }
@@ -282,7 +285,7 @@ run_company_info_search_feature() {
       PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
       PLAYWRIGHT_SKIP_WEBSERVER=1 \
       CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
-      npx playwright test -c playwright.live.config.ts e2e/company-info-search.spec.ts
+      npx playwright test e2e/functional/company-info-search.spec.ts
   fi
 }
 
@@ -305,7 +308,7 @@ run_crud_feature() {
 
   local playwright_spec=""
   case "$crud_feature" in
-    calendar|tasks-deadlines) playwright_spec="e2e/deadlines-calendar.spec.ts" ;;
+    calendar|tasks-deadlines) playwright_spec="e2e/functional/deadlines-calendar.spec.ts" ;;
   esac
 
   if [[ -n "$playwright_spec" ]]; then
@@ -318,7 +321,7 @@ run_crud_feature() {
         PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
         PLAYWRIGHT_SKIP_WEBSERVER=1 \
         CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
-        npx playwright test -c playwright.live.config.ts "$playwright_spec"
+        npx playwright test "$playwright_spec"
     fi
   fi
 }
@@ -335,7 +338,7 @@ run_pages_smoke() {
     PLAYWRIGHT_BASE_URL="${PLAYWRIGHT_BASE_URL:-${AI_LIVE_BASE_URL:-https://stg.shupass.jp}}" \
     PLAYWRIGHT_SKIP_WEBSERVER=1 \
     CI_E2E_AUTH_SECRET="${CI_E2E_AUTH_SECRET:-}" \
-    npx playwright test -c playwright.live.config.ts e2e/live-ai-pages.spec.ts
+    npx playwright test -c playwright.live.config.ts e2e/live-smoke/live-ai-pages.spec.ts
 }
 
 case "$feature" in

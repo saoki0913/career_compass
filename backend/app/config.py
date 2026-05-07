@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     # HMAC secret for the `X-Career-Principal` header minted by the Next BFF.
     # Distinct from INTERNAL_API_JWT_SECRET so that service-level trust and
     # actor-level principal propagation can be rotated independently.
-    # See docs/security/principal_spec.md.
+    # See docs/architecture/BFF_FASTAPI_CONTRACT.md#x-career-principal.
     career_principal_hmac_secret: str = Field(
         default="",
         validation_alias=AliasChoices("CAREER_PRINCIPAL_HMAC_SECRET"),
@@ -90,15 +90,37 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("TENANT_KEY_SECRET"),
     )
-    # Feature flag: when True, ChromaDB and BM25 queries filter by tenant_key.
-    # Enable after running migrate_tenant_key.py to backfill existing data.
-    tenant_key_filter_enabled: bool = Field(
+    rag_metrics_exporter_enabled: bool = Field(
         default=False,
-        validation_alias=AliasChoices("TENANT_KEY_FILTER_ENABLED"),
+        validation_alias=AliasChoices("RAG_METRICS_EXPORTER_ENABLED"),
+    )
+    rag_metrics_exporter_host: str = Field(
+        default="127.0.0.1",
+        validation_alias=AliasChoices("RAG_METRICS_EXPORTER_HOST"),
+    )
+    rag_metrics_exporter_port: int = Field(
+        default=9464,
+        validation_alias=AliasChoices("RAG_METRICS_EXPORTER_PORT"),
     )
     trusted_hosts: list[str] = Field(
         default=["localhost", "127.0.0.1"],
         validation_alias=AliasChoices("BACKEND_TRUSTED_HOSTS"),
+    )
+    sentry_dsn: str = Field(
+        default="",
+        validation_alias=AliasChoices("SENTRY_DSN"),
+    )
+    sentry_environment: str = Field(
+        default="",
+        validation_alias=AliasChoices("SENTRY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "ENVIRONMENT"),
+    )
+    sentry_release: str = Field(
+        default="",
+        validation_alias=AliasChoices("SENTRY_RELEASE", "RAILWAY_GIT_COMMIT_SHA"),
+    )
+    sentry_traces_sample_rate: float = Field(
+        default=0.05,
+        validation_alias=AliasChoices("SENTRY_TRACES_SAMPLE_RATE"),
     )
 
     @field_validator("trusted_hosts", mode="before")
@@ -321,6 +343,21 @@ class Settings(BaseSettings):
         default=1.5,
         validation_alias=AliasChoices("MOTIVATION_EMBEDDING_DEDUP_TIMEOUT_SECONDS"),
         description="P5-1: semantic duplicate embedding 判定の fail-open timeout seconds。",
+    )
+    reference_es_rag_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("REFERENCE_ES_RAG_ENABLED"),
+        description="P2-1: 匿名化済み参考ESのsemantic retrievalをES添削へ接続する。",
+    )
+    contextual_retrieval_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("CONTEXTUAL_RETRIEVAL_ENABLED"),
+        description="P2-2: Contextual Retrieval shadow collectionを検索に使う。",
+    )
+    contextual_retrieval_dual_write: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("CONTEXTUAL_RETRIEVAL_DUAL_WRITE"),
+        description="P2-2: 通常collectionに加えてcontextual shadow collectionへdual-writeする。",
     )
     # MMRの多様性係数（0=多様性重視、1=関連性重視）
     rag_mmr_lambda: float = 0.5

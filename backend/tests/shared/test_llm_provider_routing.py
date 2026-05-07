@@ -7,7 +7,7 @@ import pytest
 from openai import APIError as OpenAIAPIError
 
 from app.config import settings
-from app.utils import llm, llm_providers
+from app.utils import llm, llm_model_routing, llm_providers
 from app.utils.llm_client_registry import reset_registry
 
 
@@ -65,7 +65,7 @@ def test_resolve_feature_model_metadata_uses_current_feature_config(
     monkeypatch.setattr(settings, "model_es_review", "gemini-3.1-pro-preview")
     reset_registry()
 
-    provider, model_name = llm.resolve_feature_model_metadata("es_review")
+    provider, model_name = llm_model_routing.resolve_feature_model_metadata("es_review")
 
     assert provider == "google"
     assert model_name == "gemini-3.1-pro-preview"
@@ -78,7 +78,7 @@ def test_build_chat_response_format_maps_provider_capabilities() -> None:
         "required": ["answer"],
     }
 
-    assert llm._build_chat_response_format("openai", "json_schema", schema) == {
+    assert llm_providers._build_chat_response_format("openai", "json_schema", schema) == {
         "type": "json_schema",
         "json_schema": {
             "name": "response",
@@ -98,7 +98,7 @@ def test_build_chat_response_format_preserves_explicit_openai_schema_name() -> N
         },
     }
 
-    assert llm._build_chat_response_format("openai", "json_schema", schema) == {
+    assert llm_providers._build_chat_response_format("openai", "json_schema", schema) == {
         "type": "json_schema",
         "json_schema": {
             "name": "es_review_response",
@@ -122,7 +122,7 @@ def test_build_google_response_schema_drops_unsupported_keys() -> None:
         "additionalProperties": False,
     }
 
-    assert llm._build_google_response_schema(schema) == {
+    assert llm_providers._build_google_response_schema(schema) == {
         "type": "object",
         "properties": {
             "ok": {

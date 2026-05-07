@@ -65,45 +65,65 @@
 
 ---
 
-## Step 6: develop → main マージ & デプロイ
+## Step 6: develop → main 昇格 & デプロイ
 
-### 6-1. ローカルで昇格準備を完了する
+### 6-1. ローカルで release 前提を確認する
 
 ```bash
 # develop ブランチで実行
 make ops-release-check
+```
+
+`make ops-release-check` は provider auth、infra bootstrap、secret inventory、provider key drift、branch 前提を確認します。secret の値は表示せず、bundle と provider に存在する key 名だけを照合します。CLI の安全ラッパー方針は [CLI_GUARDRAILS.md](../ops/CLI_GUARDRAILS.md) を参照してください。
+
+secret bundle を provider へ明示同期する場合は、次を正本にします。
+
+```bash
+# 既定は check。同期する場合だけ SYNC_MODE=--apply を付ける
+make ops-secrets-sync
+SYNC_MODE=--apply TARGET=all make ops-secrets-sync
+```
+
+### 6-2. release PR を作成する
+
+```bash
+make release-pr
+```
+
+`make release-pr` は `develop -> main` の PR を作成し、release version、対象 commit、必須検証項目を PR body に残します。
+
+### 6-3. 一括 release を実行する
+
+```bash
 make deploy
 ```
 
-> `make deploy` は `develop` 上で `lint` / `build` を通し、staging 昇格前の最終確認だけを行います。  
-> `main` へのマージや本番デプロイはこのコマンドでは実行しません。CLI の安全ラッパー方針は [CLI_GUARDRAILS.md](../ops/CLI_GUARDRAILS.md) を参照してください。
+`make deploy` は以下を順に実行します。
 
-### 6-2. staging に反映して確認する
+- local gate: frontend verify、backend deterministic、`test:release-critical`
+- canonical secret bundle から provider env / secrets を同期（値はログに出さない）
+- staged 変更がある場合は commit
+- `develop` を push し、`Develop CI` の成功を待つ
+- staging health、guest/user/regression Playwright、全 functional smoke を確認
+- `develop -> main` promotion PR を作成または再利用し、checks 成功後に merge
+- production health / readonly Playwright を確認（product API への write request は失敗扱い）
 
-```bash
-git push origin develop
-```
+### 6-4. `main` merge 後の tag / release
 
-- `develop` への push で staging 用 CI が走る
-- staging 環境 `https://stg.shupass.jp` と `https://stg-api.shupass.jp` が最新 `develop` を反映する
-- Google ログイン、企業作成、canonical、`robots.txt`、`sitemap.xml` を staging で確認する
-
-### 6-3. GitHub で `develop -> main` PR を作成する
-
-- GitHub 上で `develop` から `main` への Pull Request を作成する
-- `main` への PR は `develop` からのみ許可する
-- required checks は `main-promotion-guard` と `develop-ci` を green にする
-
-### 6-4. `main` マージで本番デプロイする
-
-- GitHub 上で PR を merge する
-- `main` への更新だけをトリガーに Vercel / Railway が本番へ自動デプロイする
-- ローカルで `main` を直接更新したり、provider CLI から本番 deploy を実行しない
+`main` に release PR が merge されると、`.github/workflows/release-tag.yml` が `vYYYY.MM.DD.N` tag と draft GitHub Release を作成します。
 
 ### 6-5. デプロイ状況の確認
 
 - **Vercel**: https://vercel.com/dashboard → Deployments タブ
 - **Railway**: https://railway.app/dashboard → 対象 Service → Deployments タブ
+
+### 6-6. rollback dry-run
+
+```bash
+make rollback-prod TARGET=<deployment-id-or-commit-sha>
+```
+
+rollback は provider CLI の ad hoc 実行ではなく、release-engineer 承認のもとで target を明示して進めます。現時点の entrypoint は dry-run と計画確認を正本にし、provider-specific rollback 実行は別途承認して行います。
 
 ---
 
@@ -140,9 +160,9 @@ git push origin develop
 npm run check:prod-db-drift
 ```
 
-`documents.es_category` の有無、`interview_conversations` / `interview_feedback_histories` の存在、interview v2 必須カラム（`role_track`, `interview_format`, `selection_type`, `interview_stage`, `interviewer_type`, `strictness_mode`, `interview_plan_json`, `turn_state_json`, `turn_meta_json`, `consistency_risks`, `weakest_question_type`）、`__drizzle_migrations` 件数を [drizzle_pg/meta/_journal.json](drizzle_pg/meta/_journal.json) と突合します。問題があれば `make deploy-migrate` の後に再実行してください。
+`documents.es_category` の有無、`interview_conversations` / `interview_feedback_histories` / `interview_turn_events` の存在、interview v2 必須カラム（`role_track`, `interview_format`, `selection_type`, `interview_stage`, `interviewer_type`, `strictness_mode`, `interview_plan_json`, `turn_state_json`, `turn_meta_json`, `active_feedback_draft`, `current_feedback_id`, `consistency_risks`, `weakest_question_type`, `weakest_turn_id`, `weakest_question_snapshot`, `weakest_answer_snapshot`, `satisfaction_score`, `score_evidence_by_axis`, `score_rationale_by_axis`, `confidence_by_axis`, `source_messages_snapshot`, `turn_id`, `coverage_checklist_snapshot`, `deterministic_coverage_passed`, `format_phase`）、`__drizzle_migrations` 件数を [drizzle_pg/meta/_journal.json](drizzle_pg/meta/_journal.json) と突合します。問題があれば `make deploy-migrate` の後に再実行してください。
 
-本番 Playwright（`scripts/release/post-deploy-playwright.sh production`）で企業詳細まで踏む場合は、Google storage state に加え **`E2E_PRODUCTION_COMPANY_ID`**（対象企業の UUID）を環境変数で渡してください（[e2e/release-production-readonly.spec.ts](../../e2e/release-production-readonly.spec.ts)）。
+本番 Playwright（`scripts/release/post-deploy-playwright.sh production`）では、release mode の readonly gate として認証済み read-only 画面と企業詳細を確認します。**`E2E_PRODUCTION_COMPANY_ID`**（削除禁止の本番確認用企業 UUID）を環境変数で渡してください。AI 生成、課金、DB 書き込みは標準の本番 gate では実行せず、staging の full smoke で確認します（[e2e/release-production-readonly.spec.ts](../../e2e/release-production-readonly.spec.ts)）。
 
 ### デプロイ不具合の切り分け（CLI）
 

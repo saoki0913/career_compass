@@ -8,7 +8,6 @@ import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 import { trackEvent } from "@/lib/analytics/client";
 import { notifySuccess } from "@/lib/notifications";
-import { DashboardHeader } from "@/components/dashboard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -191,8 +190,6 @@ export default function NewCompanyPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-
       <Dialog open={duplicateOpen} onOpenChange={setDuplicateOpen}>
         <DialogContent showCloseButton className="sm:max-w-md">
           <DialogHeader>

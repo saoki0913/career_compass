@@ -9,8 +9,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { submissionItems } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { logError } from "@/lib/logger";
 import { parseBody, submissionUpdateSchema } from "@/lib/validation";
 

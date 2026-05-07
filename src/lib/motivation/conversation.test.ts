@@ -80,4 +80,26 @@ describe("motivation conversation draft readiness", () => {
     expect(context.questionStage).toBe("desired_work");
     expect(context.draftReady).toBe(true);
   });
+
+  it("defaults postDraftAwaitingResume to undefined when not set", () => {
+    const context = safeParseConversationContext(null);
+    expect(context.postDraftAwaitingResume).toBeUndefined();
+  });
+
+  it("preserves postDraftAwaitingResume when explicitly set", () => {
+    const context = safeParseConversationContext({
+      postDraftAwaitingResume: true,
+      draftReady: true,
+    });
+    expect(context.postDraftAwaitingResume).toBe(true);
+  });
+
+  it("preserves the latest generated draft document id", () => {
+    const context = safeParseConversationContext({
+      draftDocumentId: "doc-1",
+      draftReady: true,
+    });
+    expect(context.draftDocumentId).toBe("doc-1");
+    expect(safeParseConversationContext(null).draftDocumentId).toBeNull();
+  });
 });

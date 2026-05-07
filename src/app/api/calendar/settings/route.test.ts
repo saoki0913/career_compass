@@ -59,6 +59,12 @@ vi.mock("@/lib/calendar/sync", () => ({
   getCalendarSyncSummary: getCalendarSyncSummaryMock,
 }));
 
+const csrfHeaders = {
+  "content-type": "application/json",
+  cookie: "csrf_token=test-csrf",
+  "x-csrf-token": "test-csrf",
+};
+
 describe("api/calendar/settings", () => {
   beforeEach(() => {
     getSessionMock.mockReset();
@@ -125,9 +131,7 @@ describe("api/calendar/settings", () => {
         provider: "google",
         freebusyCalendarIds: ["calendar-1"],
       }),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: csrfHeaders,
     });
 
     const response = await PUT(request);
@@ -174,14 +178,53 @@ describe("api/calendar/settings", () => {
       body: JSON.stringify({
         provider: "app",
       }),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: csrfHeaders,
     });
 
     const response = await PUT(request);
 
     expect(response.status).toBe(200);
     expect(cancelPendingCalendarSyncJobsForUserMock).toHaveBeenCalledWith("user-1");
+  });
+
+  it("does not expose OAuth token fields or owner ids in settings responses", async () => {
+    const { GET } = await import("@/app/api/calendar/settings/route");
+
+    const response = await GET(new NextRequest("http://localhost:3000/api/calendar/settings"));
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.settings).toMatchObject({
+      provider: "app",
+      targetCalendarId: null,
+      freebusyCalendarIds: [],
+      connectionStatus: expect.objectContaining({ connected: true }),
+      syncSummary: expect.objectContaining({ pendingCount: 0 }),
+    });
+    expect(data.settings.id).toBeUndefined();
+    expect(data.settings.userId).toBeUndefined();
+    expect(data.settings.googleAccessToken).toBeUndefined();
+    expect(data.settings.googleRefreshToken).toBeUndefined();
+    expect(data.settings.googleTokenExpiresAt).toBeUndefined();
+    expect(data.settings.googleGrantedScopes).toBeUndefined();
+  });
+
+  it("rejects settings updates before session lookup when CSRF is missing", async () => {
+    const { PUT } = await import("@/app/api/calendar/settings/route");
+
+    const request = new NextRequest("http://localhost:3000/api/calendar/settings", {
+      method: "PUT",
+      body: JSON.stringify({ provider: "app" }),
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+
+    const response = await PUT(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data.error.code).toBe("CSRF_VALIDATION_FAILED");
+    expect(getSessionMock).not.toHaveBeenCalled();
   });
 });

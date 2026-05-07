@@ -12,8 +12,10 @@ import { calendarEvents, deadlines, companies } from "@/lib/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { headers } from "next/headers";
 import { syncWorkBlockImmediately, type ImmediateSyncResult } from "@/lib/calendar/sync";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { hasOwnedDeadline } from "@/app/api/_shared/owner-access";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { hasOwnedDeadline } from "@/bff/identity/owner-access";
+import { createCalendarCsrfErrorResponse } from "@/app/api/calendar/_shared/csrf";
+import { getCsrfFailureReason } from "@/lib/csrf";
 
 export async function GET(request: NextRequest) {
   try {
@@ -102,6 +104,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const csrfFailure = getCsrfFailureReason(request);
+  if (csrfFailure) {
+    return createCalendarCsrfErrorResponse(request, csrfFailure);
+  }
+
   try {
     const session = await auth.api.getSession({
       headers: await headers(),

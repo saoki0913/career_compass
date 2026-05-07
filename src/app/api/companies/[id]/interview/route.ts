@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { DEFAULT_INTERVIEW_SESSION_CREDIT_COST } from "@/lib/credits";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import {
+  DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
+  INTERVIEW_CONTINUE_CREDIT_COST,
+  INTERVIEW_START_CREDIT_COST,
+  INTERVIEW_TURN_CREDIT_COST,
+} from "@/lib/credits";
 import { createInitialInterviewTurnState, getInterviewStageStatus } from "@/lib/interview/session";
 
 import {
@@ -10,6 +15,13 @@ import {
   normalizeInterviewPersistenceError,
 } from "./persistence-errors";
 import { buildInterviewContext } from ".";
+
+const INTERVIEW_BILLING_COSTS = {
+  start: INTERVIEW_START_CREDIT_COST,
+  turn: INTERVIEW_TURN_CREDIT_COST,
+  continue: INTERVIEW_CONTINUE_CREDIT_COST,
+  feedback: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
+} as const;
 
 export async function GET(
   request: NextRequest,
@@ -54,10 +66,15 @@ export async function GET(
       name: context.company.name,
       industry: context.company.industry,
     },
-    questionModel: "GPT-5.4 mini",
-    feedbackModel: "Claude Sonnet 4.6",
-    model: "GPT-5.4 mini",
     creditCost: DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
+    billingCosts: INTERVIEW_BILLING_COSTS,
+    sessionState: {
+      status: context.conversation?.status ?? "setup_pending",
+      isActive: Boolean(context.conversation && context.conversation.status !== "setup_pending"),
+      isLegacySession: Boolean(context.conversation?.isLegacySession),
+      questionCount: context.conversation?.questionCount ?? 0,
+      hasFeedback: Boolean(context.conversation?.feedback),
+    },
     materials: context.materials,
     setup: context.setup,
     feedbackHistories: context.feedbackHistories,

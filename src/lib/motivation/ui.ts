@@ -85,7 +85,7 @@ export const STAGE_ANSWER_GUIDE: Record<MotivationStageKey, string> = {
 
 export const CONVERSATION_MODE_LABELS: Record<ConversationMode, string> = {
   slot_fill: "材料を集めています",
-  deepdive: "弱い部分を補強しています",
+  deepdive: "補強ポイントを確認しています",
 };
 
 export const INTENT_LABELS: Record<string, string> = {
@@ -158,6 +158,23 @@ export const MOTIVATION_LIFECYCLE_PHASES = [
   { key: "deep_dive_active", label: "深堀り中" },
   { key: "interview_ready", label: "面接準備完了" },
 ] as const;
+
+export function deriveMotivationModeLabel(params: {
+  conversationMode: ConversationMode;
+  questionCount: number;
+  isDraftReady: boolean;
+  causalGapCount: number;
+}): string {
+  const { conversationMode, questionCount, isDraftReady, causalGapCount } = params;
+
+  if (conversationMode === "deepdive") {
+    return causalGapCount > 0 ? `補強中（残り${causalGapCount}件）` : "追加で補強できます";
+  }
+
+  if (isDraftReady) return "材料が揃いました";
+  if (questionCount <= 2) return "志望動機の土台を整えています";
+  return "材料をもう少し揃えています";
+}
 
 export function getMotivationPhaseStatus(
   phaseKey: "draft_ready" | "deep_dive_active" | "interview_ready",

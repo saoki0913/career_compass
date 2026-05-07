@@ -113,4 +113,35 @@ describe("performSearch", () => {
     expect(result.results.documents[0]?.companyName).toBe("OpenAI");
     expect(result.results.deadlines[0]?.companyName).toBe("OpenAI");
   });
+
+  it("does not hit the database when initial search has no identity", async () => {
+    const { getInitialSearchResults } = await import("@/lib/server/search-loader");
+
+    const result = await getInitialSearchResults(null, "OpenAI");
+
+    expect(result).toBeNull();
+    expect(dbSelectMock).not.toHaveBeenCalled();
+  });
+
+  it("does not hit the database when initial search sanitizes to empty", async () => {
+    const { getInitialSearchResults } = await import("@/lib/server/search-loader");
+
+    const result = await getInitialSearchResults({ userId: "user-1", guestId: null }, "\u0000\t\n");
+
+    expect(result).toBeNull();
+    expect(dbSelectMock).not.toHaveBeenCalled();
+  });
+
+  it("respects requested search types", async () => {
+    const { performSearch } = await import("@/lib/server/search-loader");
+
+    dbSelectMock.mockReturnValueOnce(makeCompanySearchQuery([]));
+
+    await performSearch(
+      { userId: "user-1", guestId: null },
+      { q: "OpenAI", types: "companies", limit: 5 }
+    );
+
+    expect(dbSelectMock).toHaveBeenCalledTimes(1);
+  });
 });

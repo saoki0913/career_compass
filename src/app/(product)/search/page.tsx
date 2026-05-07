@@ -1,20 +1,22 @@
 import { headers } from "next/headers";
-import { DashboardHeader } from "@/components/dashboard";
 import { SearchPageClient } from "@/components/search/SearchPageClient";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getInitialSearchResults } from "@/lib/server/search-loader";
 import { sanitizeSearchInput } from "@/lib/search/utils";
 
 type SearchPageProps = {
-  searchParams?: {
+  searchParams?: Promise<{
     q?: string | string[];
-  };
+  }>;
 };
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const requestHeaders = await headers();
   const identity = await getHeadersIdentity(requestHeaders);
-  const rawQuery = Array.isArray(searchParams?.q) ? searchParams?.q[0] : searchParams?.q;
+  const resolvedSearchParams = await searchParams;
+  const rawQuery = Array.isArray(resolvedSearchParams?.q)
+    ? resolvedSearchParams?.q[0]
+    : resolvedSearchParams?.q;
   const initialQuery = sanitizeSearchInput(rawQuery || "");
   const initialResults = await getInitialSearchResults(identity, initialQuery, {
     types: "all",
@@ -23,7 +25,6 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
       <SearchPageClient initialQuery={initialQuery} initialResults={initialResults} />
     </div>
   );

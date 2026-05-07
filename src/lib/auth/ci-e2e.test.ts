@@ -3,6 +3,8 @@ import {
   getBetterAuthSessionCookieAttributes,
   getBetterAuthSessionCookieCandidates,
   getBetterAuthSessionCookieName,
+  hasValidCiE2EAuthSecret,
+  isCiE2EAuthHostAllowed,
   isCiE2EAuthEnabled,
   isProductionAppUrl,
 } from "@/lib/auth/ci-e2e";
@@ -25,14 +27,33 @@ describe("ci e2e auth helpers", () => {
     expect(getBetterAuthSessionCookieAttributes("https://stg.shupass.jp").secure).toBe(true);
   });
 
-  it("enables CI auth on non-production apps when the shared secret is configured", () => {
-    process.env.CI_E2E_AUTH_SECRET = "top-secret";
+  it("requires explicit opt-in, an allowlisted host, and a strong shared secret", () => {
+    process.env.CI_E2E_AUTH_SECRET = "top-secret-at-least-16";
+    process.env.CI_E2E_AUTH_ENABLED = "1";
+    expect(isCiE2EAuthHostAllowed("https://stg.shupass.jp")).toBe(true);
     expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(true);
     expect(isCiE2EAuthEnabled("https://www.shupass.jp")).toBe(false);
+    expect(isCiE2EAuthEnabled("https://preview.example.com")).toBe(false);
     process.env.CI_E2E_AUTH_ENABLED = "0";
+    expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
+    process.env.CI_E2E_AUTH_ENABLED = "1";
+    process.env.CI_E2E_AUTH_SECRET = "short";
+    expect(hasValidCiE2EAuthSecret()).toBe(false);
     expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
     delete process.env.CI_E2E_AUTH_ENABLED;
     delete process.env.CI_E2E_AUTH_SECRET;
     expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
+  });
+
+  it("allows additional CI auth hosts only through an explicit env allowlist", () => {
+    process.env.CI_E2E_AUTH_ENABLED = "1";
+    process.env.CI_E2E_AUTH_SECRET = "top-secret-at-least-16";
+    process.env.CI_E2E_AUTH_ALLOWED_HOSTS = "preview.example.com";
+
+    expect(isCiE2EAuthEnabled("https://preview.example.com")).toBe(true);
+
+    delete process.env.CI_E2E_AUTH_ALLOWED_HOSTS;
+    delete process.env.CI_E2E_AUTH_ENABLED;
+    delete process.env.CI_E2E_AUTH_SECRET;
   });
 });

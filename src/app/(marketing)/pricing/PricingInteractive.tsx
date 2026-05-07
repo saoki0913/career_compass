@@ -322,17 +322,16 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
     <>
       <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/84 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-1 sm:gap-3">
             <Image
-              src="/icon.png"
+              src="/marketing/logo/logo_text_clean.png"
               alt="就活Pass"
-              width={40}
-              height={40}
-              className="h-10 w-10 shrink-0 rounded-2xl object-cover"
+              width={144}
+              height={44}
+              className="h-10 w-24 shrink-0 object-cover sm:h-11 sm:w-36"
               priority
             />
-            <div className="leading-tight">
-              <p className="text-sm font-semibold tracking-tight text-slate-950">就活Pass</p>
+            <div className="hidden leading-tight sm:block">
               <p className="text-xs text-slate-500">Pricing</p>
             </div>
           </Link>
@@ -346,12 +345,12 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
               </Button>
             ) : (
               <>
-                <Button variant="ghost" size="sm" asChild>
+                <Button variant="ghost" size="sm" className="hidden sm:inline-flex" asChild>
                   <Link href="/login">ログイン</Link>
                 </Button>
                 <Button size="sm" asChild>
                   <Link href="/login" className="inline-flex items-center gap-1.5">
-                    無料で始める
+                    <span className="hidden sm:inline">無料で</span>始める
                     <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
                   </Link>
                 </Button>

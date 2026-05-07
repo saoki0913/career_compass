@@ -15,6 +15,9 @@ except Exception:
     redis = None  # type: ignore
 
 from app.config import settings
+from app.utils.secure_logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def build_cache_key(*parts: str) -> str:
@@ -41,7 +44,7 @@ class BaseCache:
         try:
             value = await self._redis.get(key)
         except Exception as e:
-            print(f"[Cache] ⚠️ get失敗: {e}")
+            logger.warning("Cache get failed: %s", e)
             return None
         if not value:
             return None
@@ -56,7 +59,7 @@ class BaseCache:
         try:
             await self._redis.setex(key, ttl, json.dumps(value, ensure_ascii=False))
         except Exception as e:
-            print(f"[Cache] ⚠️ set失敗: {e}")
+            logger.warning("Cache set failed: %s", e)
 
     async def delete_pattern(self, pattern: str) -> None:
         if not self.enabled():
@@ -65,25 +68,51 @@ class BaseCache:
             async for key in self._redis.scan_iter(match=pattern):
                 await self._redis.delete(key)
         except Exception as e:
-            print(f"[Cache] ⚠️ delete失敗: {e}")
+            logger.warning("Cache delete failed: %s", e)
 
 
 class RAGCache(BaseCache):
     """Cache for RAG context results."""
 
-    def _context_key(self, company_id: str, query_hash: str) -> str:
-        return f"rag:context:{company_id}:{query_hash}"
+    def _context_key(
+        self,
+        company_id: str,
+        query_hash: str,
+        tenant_key: str,
+    ) -> str:
+        return f"rag:context:{tenant_key}:{company_id}:{query_hash}"
 
-    async def get_context(self, company_id: str, query_hash: str) -> Optional[dict]:
-        return await self.get_json(self._context_key(company_id, query_hash))
+    async def get_context(
+        self,
+        company_id: str,
+        query_hash: str,
+        tenant_key: str,
+    ) -> Optional[dict]:
+        return await self.get_json(
+            self._context_key(company_id, query_hash, tenant_key)
+        )
 
     async def set_context(
-        self, company_id: str, query_hash: str, context: dict, ttl: int = 43200
+        self,
+        company_id: str,
+        query_hash: str,
+        context: dict,
+        *,
+        tenant_key: str,
+        ttl: int = 43200,
     ) -> None:
-        await self.set_json(self._context_key(company_id, query_hash), context, ttl)
+        await self.set_json(
+            self._context_key(company_id, query_hash, tenant_key),
+            context,
+            ttl,
+        )
 
-    async def invalidate_company(self, company_id: str) -> None:
-        await self.delete_pattern(f"rag:context:{company_id}:*")
+    async def invalidate_company(
+        self,
+        company_id: str,
+        tenant_key: str,
+    ) -> None:
+        await self.delete_pattern(f"rag:context:{tenant_key}:{company_id}:*")
 
 
 class ESReviewCache(BaseCache):

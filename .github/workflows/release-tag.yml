@@ -1,0 +1,43 @@
+name: Release Tag
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  tag-release:
+    if: github.event.pull_request.merged == true && github.event.pull_request.head.ref == 'develop'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create release tag
+        id: version
+        run: |
+          version_date="$(date -u +%Y.%m.%d)"
+          count="$(git tag --list "v${version_date}.*" | wc -l | tr -d ' ')"
+          version="v${version_date}.$((count + 1))"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$version" -m "Release $version"
+          git push origin "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh release create "$VERSION" \
+            --draft \
+            --title "$VERSION" \
+            --notes "Release from ${PR_TITLE}\n\nPR: ${PR_URL}\n\nPost-deploy checks: production health and readonly Playwright via scripts/release/release-career-compass.sh."

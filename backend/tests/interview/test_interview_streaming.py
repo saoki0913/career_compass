@@ -20,6 +20,9 @@ from app.routers.interview import (
     _normalize_feedback,
     _stream_llm_json_completion,
 )
+from app.routers._interview import endpoints
+from app.security.career_principal import CareerPrincipal
+from app.security.sse_concurrency import SseConcurrencyExceeded, SseConcurrencyRejection
 
 
 def _stream_event(payload: dict[str, object]) -> SimpleNamespace:
@@ -1000,3 +1003,34 @@ async def test_turn_stream_short_coaching_falls_back_when_llm_omits(
         assert isinstance(sc[k], str) and sc[k], (
             f"fallback short_coaching.{k} が空: {sc[k]!r}"
         )
+@pytest.mark.asyncio
+async def test_interview_stream_response_acquires_sse_lease_before_generator_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = False
+
+    async def generator():
+        nonlocal started
+        started = True
+        yield "data: ok\n\n"
+
+    async def reject(**_kwargs):
+        raise SseConcurrencyExceeded(SseConcurrencyRejection(limit=1, retry_after_seconds=30))
+
+    monkeypatch.setattr(endpoints.SseLease, "acquire", reject)
+
+    principal = CareerPrincipal(
+        scope="ai-stream",
+        actor_kind="guest",
+        actor_id="guest-1",
+        plan="guest",
+        company_id=None,
+        jti="jti",
+        tenant_key="t" * 32,
+    )
+
+    with pytest.raises(endpoints.HTTPException) as exc_info:
+        await endpoints._leased_stream_response(generator(), principal)
+
+    assert exc_info.value.status_code == 429
+    assert started is False

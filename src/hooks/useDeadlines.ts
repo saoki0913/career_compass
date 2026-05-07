@@ -41,6 +41,7 @@ function buildHeaders(): Record<string, string> {
 
 export function useDeadlines(days: number = 7, options: UseDeadlinesOptions = {}) {
   const { isLoading: isAuthLoading } = useAuth();
+  const initialMatchesDays = options.initialData?.periodDays === days;
   const [deadlines, setDeadlines] = useState<Deadline[]>(() => options.initialData?.deadlines ?? []);
   const [count, setCount] = useState(() => options.initialData?.count ?? 0);
   const [isLoading, setIsLoading] = useState(() => !options.initialData);
@@ -101,14 +102,18 @@ export function useDeadlines(days: number = 7, options: UseDeadlinesOptions = {}
   }, [days, isAuthLoading]);
 
   useEffect(() => {
-    if (options.initialData) {
+    if (options.initialData && initialMatchesDays) {
+      setDeadlines(options.initialData.deadlines);
+      setCount(options.initialData.count);
+      setIsLoading(false);
+      setError(null);
       return;
     }
     if (isAuthLoading) {
       return;
     }
     fetchDeadlines();
-  }, [fetchDeadlines, isAuthLoading, options.initialData]);
+  }, [fetchDeadlines, initialMatchesDays, isAuthLoading, options.initialData]);
 
   return {
     deadlines,

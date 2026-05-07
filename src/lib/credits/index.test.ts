@@ -38,4 +38,16 @@ describe("credits month reset", () => {
 
     expect(CONVERSATION_CREDITS_PER_TURN).toBe(1);
   });
+
+  it("exposes interview-specific credit costs", async () => {
+    const {
+      INTERVIEW_CONTINUE_CREDIT_COST,
+      INTERVIEW_START_CREDIT_COST,
+      INTERVIEW_TURN_CREDIT_COST,
+    } = await import("@/lib/credits");
+
+    expect(INTERVIEW_START_CREDIT_COST).toBe(2);
+    expect(INTERVIEW_TURN_CREDIT_COST).toBe(1);
+    expect(INTERVIEW_CONTINUE_CREDIT_COST).toBe(1);
+  });
 });

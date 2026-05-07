@@ -4,48 +4,31 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { HelpCircle } from "lucide-react";
-import { DashboardHeader } from "@/components/dashboard";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
+import { CharLimitSelector } from "@/components/chat/CharLimitSelector";
+import { GeneratedDraftActionCard } from "@/components/chat/GeneratedDraftActionCard";
 import {
   ConversationSidebarCard,
   ConversationWorkspaceShell,
 } from "@/components/chat/ConversationWorkspaceShell";
-import { useGakuchikaConversationController } from "@/hooks/useGakuchikaConversationController";
-import { useGakuchikaViewModel } from "@/hooks/gakuchika/useGakuchikaViewModel";
+import { useGakuchikaConversationController } from "@/features/gakuchika/hooks/useGakuchikaConversationController";
+import { useGakuchikaViewModel } from "@/features/gakuchika/hooks/useGakuchikaViewModel";
 import {
   CompletionSummary,
-  GakuchikaDraftModal,
   GakuchikaRestartConfirmDialog,
   NaturalProgressStatus,
-  STAR_EXPLANATIONS,
 } from "@/components/gakuchika";
+import { DraftPreviewModal } from "@/components/chat/DraftPreviewModal";
+import { GakuchikaStartScreen } from "@/components/gakuchika/GakuchikaStartScreen";
 import { notifyGakuchikaDraftSaved } from "@/lib/notifications";
 import { GakuchikaDeepDiveSkeleton } from "@/components/skeletons/GakuchikaDeepDiveSkeleton";
-import { getConversationBadgeLabel } from "@/lib/gakuchika/conversation-state";
-import { PROCESSING_LABELS } from "@/lib/gakuchika/ui";
-
-const ArrowLeftIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
-
-const LoadingSpinner = () => (
-  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-    />
-  </svg>
-);
+import { getConversationBadgeLabel } from "@/features/gakuchika/domain/conversation-state";
+import { PROCESSING_LABELS } from "@/features/gakuchika/domain/ui";
 
 type GakuchikaConversationContentProps = {
   gakuchikaId: string;
@@ -65,16 +48,17 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     isSending,
     isWaitingForResponse,
     answer,
-    error,
     isAIPowered,
     conversationState,
     conversationStarted,
     isStarting,
+    isResumingSession,
     gakuchikaTitle,
     gakuchikaContent,
     showStarInfo,
     summary,
     isSummaryLoading,
+    summaryRequested,
     sessions,
     assistantPhase,
     isTextStreaming,
@@ -89,23 +73,22 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     interviewReady,
     generatedDraft,
     shouldPauseConversation,
-    gakuchikaDraftHelperText,
     currentSessionLabel,
     isDraftModalOpen,
     generatedDraftText,
     generatedDocumentId,
+    generatedDraftQuality,
+    gakuchikaDraftHelperText,
   } = state;
   const {
     setAnswer,
-    setError,
-    setIsLoading,
     setShowStarInfo,
-    fetchConversation,
     retrySummary: handleRetrySummary,
     startDeepDive: handleStartDeepDive,
     send: handleSend,
     selectSession: handleSessionSelect,
     resumeSession: handleResumeSession,
+    discardDraftAndResumeSession: handleDiscardDraftAndResumeSession,
     generateDraft: handleGenerateDraft,
     restartConversation: handleRestartConversation,
     confirmRestartConversation: handleConfirmRestartConversation,
@@ -118,15 +101,16 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     messages,
     conversationState,
   });
+  const pausedQuestion = conversationState?.pausedQuestion?.trim() || null;
+  const displayedNextQuestion = nextQuestion || (shouldPauseConversation ? pausedQuestion : null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [assistantPhase, messages, nextQuestion, streamingText, isTextStreaming]);
+  }, [assistantPhase, displayedNextQuestion, messages, streamingText, isTextStreaming]);
 
   if (isLoading) {
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-background">
-        <DashboardHeader />
         <GakuchikaDeepDiveSkeleton accent="ガクチカ作成の材料を読み込んでいます" />
       </div>
     );
@@ -135,97 +119,14 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
   if (!conversationStarted) {
     return (
       <div className="min-h-screen bg-background">
-        <DashboardHeader />
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <Link
-            href="/gakuchika"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
-          >
-            <ArrowLeftIcon />
-            戻る
-          </Link>
-
-          <div className="space-y-6 max-w-3xl">
-            <Card>
-              <CardContent className="pt-6">
-                <h1 className="text-xl font-bold mb-2">{gakuchikaTitle}</h1>
-                {gakuchikaContent ? (
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                    {gakuchikaContent}
-                  </p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    テーマのみ登録されています。短い会話で ES に使える材料を揃えていきます。
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <details
-              className="group"
-              open={showStarInfo}
-              onToggle={(e) => setShowStarInfo((e.target as HTMLDetailsElement).open)}
-            >
-              <summary className="cursor-pointer text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5 py-2">
-                <svg
-                  className={cn("w-4 h-4 transition-transform", showStarInfo && "rotate-90")}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                先に整理する4つの要素
-              </summary>
-              <div className="mt-2 space-y-2 pl-1">
-                <p className="text-xs text-muted-foreground mb-3">
-                  最初は状況・課題・行動・結果を押さえ、ES が書ける状態まで短く整えます。
-                </p>
-                {Object.entries(STAR_EXPLANATIONS).map(([key, info]) => (
-                  <div
-                    key={key}
-                    className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 border border-border/50"
-                  >
-                    <span className="shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm">
-                      {info.title[0]}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">{info.title}</p>
-                      <p className="text-xs text-muted-foreground">{info.description}</p>
-                      <p className="text-xs text-muted-foreground/70 mt-1">{info.example}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </details>
-
-            {error && (
-              <div className="p-4 rounded-lg bg-destructive/10 border border-destructive/20">
-                <p className="text-sm text-destructive">{error}</p>
-              </div>
-            )}
-
-            <Button onClick={handleStartDeepDive} disabled={isStarting} className="w-full h-12 text-base font-medium" size="lg">
-              {isStarting ? (
-                <span className="flex items-center gap-2">
-                  <LoadingSpinner />
-                  AIが最初の質問を準備中...
-                </span>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                  作成を始める
-                </span>
-              )}
-            </Button>
-
-            <p className="text-xs text-center text-muted-foreground">
-              最初は短い会話で ES を書ける材料を揃え、その後に必要なら同じ画面で深掘りできます
-            </p>
-          </div>
-        </main>
+        <GakuchikaStartScreen
+          title={gakuchikaTitle}
+          content={gakuchikaContent}
+          showStarInfo={showStarInfo}
+          isStarting={isStarting}
+          onShowStarInfoChange={setShowStarInfo}
+          onStartDeepDive={handleStartDeepDive}
+        />
       </div>
     );
   }
@@ -237,36 +138,30 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       title="ガクチカを作成"
       subtitle={gakuchikaTitle || "作成セッション"}
       actionBar={
-        <ConversationActionBar
-          helperText={gakuchikaDraftHelperText}
-          actionLabel="ガクチカESを作成"
-          pendingLabel="作成中..."
-          onAction={handleGenerateDraft}
-          disabled={!draftReady || isGeneratingDraft || interviewReady}
-          isPending={isGeneratingDraft}
-          controls={
-            <>
-              <p className="text-xs font-medium text-muted-foreground xl:shrink-0">文字数</p>
-              <div className="grid grid-cols-3 gap-2">
-                {([300, 400, 500] as const).map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setDraftCharLimit(n)}
-                    className={cn(
-                      "rounded-xl border px-3 py-2 text-sm font-medium transition-colors cursor-pointer",
-                      draftCharLimit === n
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-background hover:bg-secondary"
-                    )}
-                  >
-                    {n}字
-                  </button>
-                ))}
-              </div>
-            </>
-          }
-        />
+        generatedDraftText && generatedDocumentId ? (
+          <GeneratedDraftActionCard
+            draft={generatedDraftText}
+            charLimit={draftCharLimit}
+            documentId={generatedDocumentId}
+            onOpenPreview={() => setIsDraftModalOpen(true)}
+            isBusy={isGeneratingDraft || isSending || isResumingSession}
+          />
+        ) : (
+          <ConversationActionBar
+            actionLabel="ガクチカESを作成"
+            pendingLabel="作成中..."
+            onAction={handleGenerateDraft}
+            disabled={!draftReady || isGeneratingDraft || interviewReady}
+            isPending={isGeneratingDraft}
+            controls={
+              <CharLimitSelector
+                value={draftCharLimit}
+                onChange={setDraftCharLimit}
+                disabled={isGeneratingDraft}
+              />
+            }
+          />
+        )
       }
       mobileStatus={
         <div className="space-y-2">
@@ -280,13 +175,55 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
               {isAIPowered ? "AI" : "基本"}
             </Badge>
           </div>
-          {!interviewReady ? (
-            <NaturalProgressStatus
-              state={conversationState}
-              variant="inline"
-              answeredCount={answeredCount}
-            />
-          ) : null}
+          <NaturalProgressStatus
+            state={conversationState}
+            variant="inline"
+            answeredCount={answeredCount}
+          />
+          <div className="grid gap-2 lg:grid-cols-2 xl:hidden">
+            {sessions.length > 1 ? (
+              <details className="rounded-xl border border-border/60 bg-background px-3 py-2 text-xs">
+                <summary className="cursor-pointer font-medium text-foreground">セッション履歴</summary>
+                <div className="mt-2 space-y-2">
+                  {isGeneratingDraft ? (
+                    <p className="text-muted-foreground">ES生成中はセッションを切り替えられません。</p>
+                  ) : null}
+                  {!isGeneratingDraft
+                    ? sessions.map((session, index) => (
+                        <button
+                          key={session.id}
+                          type="button"
+                          onClick={() => {
+                            if (isSending || isResumingSession) return;
+                            void handleSessionSelect(session.id);
+                          }}
+                          disabled={isSending || isResumingSession}
+                          className={cn(
+                            "flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                            session.id === currentSessionId
+                              ? "border-primary/40 bg-primary/5 text-foreground"
+                              : "border-border/60 text-muted-foreground hover:text-foreground",
+                            (isSending || isResumingSession) && "cursor-not-allowed opacity-60",
+                          )}
+                        >
+                          <span className="font-medium">#{sessions.length - index}</span>
+                          <span>{getConversationBadgeLabel(session.status, session.conversationState)}</span>
+                        </button>
+                      ))
+                    : null}
+                </div>
+              </details>
+            ) : null}
+            <details className="rounded-xl border border-border/60 bg-background px-3 py-2 text-xs">
+              <summary className="cursor-pointer font-medium text-foreground">作成メモ</summary>
+              <div className="mt-2 space-y-1">
+                <p className="font-medium text-foreground">{gakuchikaTitle}</p>
+                <p className="line-clamp-4 leading-5 text-muted-foreground">
+                  {gakuchikaContent || "テーマのみ登録されています。会話で内容を膨らませていきます。"}
+                </p>
+              </div>
+            </details>
+          </div>
         </div>
       }
       conversation={
@@ -296,23 +233,6 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
               <p className="text-sm text-amber-800">
                 <strong>基本質問モード:</strong> AIサーバーに接続できないため、定型の質問を使用しています。回答は通常通り保存されます。
               </p>
-            </div>
-          ) : null}
-
-          {error ? (
-            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-4">
-              <p className="mb-3 text-sm text-destructive">{error}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setError(null);
-                  setIsLoading(true);
-                  fetchConversation();
-                }}
-              >
-                もう一度試す
-              </Button>
             </div>
           ) : null}
 
@@ -339,12 +259,11 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
             <StreamingChatMessage streamingText={streamingText} isStreaming={true} />
           ) : null}
 
-          {nextQuestion &&
-          !shouldPauseConversation &&
+          {displayedNextQuestion &&
           !isWaitingForResponse &&
           !isTextStreaming &&
-          !(messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === nextQuestion) ? (
-            <ChatMessage role="assistant" content={nextQuestion} />
+          !(messages.length > 0 && messages[messages.length - 1].role === "assistant" && messages[messages.length - 1].content === displayedNextQuestion) ? (
+            <ChatMessage role="assistant" content={displayedNextQuestion} />
           ) : null}
 
           <div ref={messagesEndRef} />
@@ -357,23 +276,24 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
               onResumeSession={handleResumeSession}
               resumeFromInterviewLabel="もっと深掘る"
               onRetrySummary={handleRetrySummary}
+              summaryRequested={summaryRequested}
               hideGenerateAction
             />
           ) : shouldPauseConversation ? (
             <div className="flex flex-col items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 sm:flex-row sm:items-center">
               <p className="min-w-0 flex-1 text-sm leading-6 text-foreground">
                 {generatedDraft
-                  ? "ESを生成しました。このまま深掘りを続けて更に強化できます。"
+                  ? "ESを生成しました。生成案のモーダルから深掘りを続ける場合、このES下書きは削除されます。"
                   : "材料が揃いました。ESを作成するか、深掘りを続けて強化できます。"}
               </p>
               <Button
-                variant="outline"
+                variant={isResumingSession ? "default" : "outline"}
                 size="sm"
                 onClick={handleResumeSession}
-                disabled={isStarting || isSending || isGeneratingDraft}
-                className="shrink-0 rounded-xl"
+                disabled={isStarting || isSending || isGeneratingDraft || isResumingSession}
+                className="shrink-0 rounded-xl shadow-sm active:translate-y-px"
               >
-                深掘りを続ける
+                {isResumingSession ? "再開中..." : "深掘りを続ける"}
               </Button>
             </div>
           ) : null}
@@ -428,7 +348,7 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                   variant="outline"
                   size="sm"
                   onClick={handleRestartConversation}
-                  disabled={isStarting || isSending || isGeneratingDraft}
+                  disabled={isStarting || isSending || isGeneratingDraft || isResumingSession}
                   className="h-9 rounded-xl px-3 text-xs shadow-sm"
                 >
                   会話をやり直す
@@ -447,42 +367,50 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                   </Badge>
                 ) : null}
               </div>
-              {!interviewReady ? (
-                <NaturalProgressStatus
-                  state={conversationState}
-                  answeredCount={answeredCount}
-                />
-              ) : null}
-              {interviewReady ? (
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {conversationState?.progressLabel
-                    ? `${conversationState.progressLabel}。`
-                    : "短い会話で ES の骨格を整え、その後に必要なら面接向けの深掘りへ進みます。"}
-                </p>
-              ) : null}
+              <NaturalProgressStatus
+                state={conversationState}
+                answeredCount={answeredCount}
+              />
+              <p className="text-xs leading-5 text-muted-foreground">
+                {interviewReady && conversationState?.progressLabel
+                  ? `${conversationState.progressLabel}。`
+                  : gakuchikaDraftHelperText}
+              </p>
             </div>
           </ConversationSidebarCard>
 
           {sessions.length > 1 ? (
             <ConversationSidebarCard title="セッション履歴">
               <div className="space-y-2">
-                {sessions.map((session, index) => (
-                  <button
-                    key={session.id}
-                    onClick={() => handleSessionSelect(session.id)}
-                    className={cn(
-                      "w-full rounded-xl border px-3 py-3 text-left text-xs transition-colors",
-                      session.id === currentSessionId
-                        ? "border-primary/40 bg-primary/5 text-foreground"
-                        : "border-border/60 bg-background text-muted-foreground hover:text-foreground",
-                    )}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">#{sessions.length - index}</span>
-                        <span>{getConversationBadgeLabel(session.status, session.conversationState)}</span>
-                      </div>
-                    </button>
-                ))}
+                {isGeneratingDraft ? (
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    ES生成中はセッションを切り替えられません。
+                  </p>
+                ) : null}
+                {!isGeneratingDraft
+                  ? sessions.map((session, index) => (
+                      <button
+                        key={session.id}
+                        onClick={() => {
+                          if (isSending || isResumingSession) return;
+                          void handleSessionSelect(session.id);
+                        }}
+                        disabled={isSending || isResumingSession}
+                        className={cn(
+                          "w-full rounded-xl border px-3 py-3 text-left text-xs transition-colors",
+                          session.id === currentSessionId
+                            ? "border-primary/40 bg-primary/5 text-foreground"
+                            : "border-border/60 bg-background text-muted-foreground hover:text-foreground",
+                          (isSending || isResumingSession) && "cursor-not-allowed opacity-60 hover:text-muted-foreground",
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium">#{sessions.length - index}</span>
+                          <span>{getConversationBadgeLabel(session.status, session.conversationState)}</span>
+                        </div>
+                      </button>
+                    ))
+                  : null}
               </div>
             </ConversationSidebarCard>
           ) : null}
@@ -504,12 +432,16 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       onConfirm={handleConfirmRestartConversation}
       isConfirming={isStarting && restartDialogOpen}
     />
-    <GakuchikaDraftModal
+    <DraftPreviewModal
       isOpen={isDraftModalOpen}
+      title="生成したガクチカES"
+      description="内容を確認して開くか、現在の下書きを削除して深掘りから作り直せます。"
       draft={generatedDraftText ?? ""}
       charLimit={draftCharLimit}
+      draftQuality={generatedDraftQuality}
       isSaving={false}
-      onSave={() => {
+      primaryLabel="ESを開く"
+      onPrimary={() => {
         setIsDraftModalOpen(false);
         if (generatedDocumentId) {
           notifyGakuchikaDraftSaved();
@@ -518,9 +450,19 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       }}
       onDeepDive={async () => {
         setIsDraftModalOpen(false);
-        await handleResumeSession();
+        await handleDiscardDraftAndResumeSession();
       }}
       onClose={() => setIsDraftModalOpen(false)}
+      deepDiveConfirm={{
+        title: "このES下書きを削除しますか？",
+        description: "深掘りを再開すると、今表示しているES下書きは削除されます。削除後は会話を続けてから再生成します。",
+        confirmLabel: "削除して深掘りする",
+      }}
+      preBodyNotice={
+        <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
+          「もっと深掘りして再生成する」を選ぶと、今表示しているES下書きは削除されます。残したい場合は先にESを開いてください。
+        </div>
+      }
     />
     </>
   );

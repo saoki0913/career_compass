@@ -1,79 +1,100 @@
 import Link from "next/link";
+import { BookOpen, FilePenLine, Heart, Mic, Plus, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface QuickAction {
+type ActionDef = {
+  key: string;
   title: string;
-  description: string;
   href?: string;
-  onClick?: () => void;
-  icon: React.ReactNode;
-  color: "indigo" | "orange" | "emerald" | "rose" | "sky";
-}
-
-interface QuickActionsProps {
-  actions: QuickAction[];
-  className?: string;
-  children?: React.ReactNode;
-}
-
-const colorClasses = {
-  indigo: "from-indigo-600 to-indigo-700 shadow-indigo-500/25 hover:shadow-indigo-500/40",
-  orange: "from-orange-500 to-orange-600 shadow-orange-500/25 hover:shadow-orange-500/40",
-  emerald: "from-emerald-500 to-emerald-600 shadow-emerald-500/25 hover:shadow-emerald-500/40",
-  rose: "from-rose-500 to-rose-600 shadow-rose-500/25 hover:shadow-rose-500/40",
-  sky: "from-sky-500 to-sky-600 shadow-sky-500/25 hover:shadow-sky-500/40",
+  actionType?: "interview" | "motivation";
+  tone: string;
+  Icon: LucideIcon;
 };
 
-function QuickActionCard({
-  action,
-  className,
-}: {
-  action: QuickAction;
+const ACTIONS: ActionDef[] = [
+  { key: "add-company", title: "企業を追加", href: "/companies/new", tone: "purple", Icon: Plus },
+  { key: "es-review", title: "ES作成/添削", href: "/es", tone: "orange", Icon: FilePenLine },
+  { key: "interview", title: "面接対策", actionType: "interview", tone: "green", Icon: Mic },
+  { key: "gakuchika", title: "ガクチカ作成", href: "/gakuchika", tone: "pink", Icon: BookOpen },
+  { key: "motivation", title: "志望動機作成", actionType: "motivation", tone: "blue", Icon: Heart },
+];
+
+const ACTION_TONES: Record<string, { pill: string; icon: string }> = {
+  purple: {
+    pill: "border-[#6d5dfc]/65 bg-[#f6f4ff] text-[#4033d6] hover:bg-[#eeeaff] focus-visible:ring-[#6d5dfc]/35",
+    icon: "bg-[#4033d6]/10",
+  },
+  orange: {
+    pill: "border-[#ff8a1f]/65 bg-[#fff5eb] text-[#e15d00] hover:bg-[#ffe8d2] focus-visible:ring-[#ff8a1f]/35",
+    icon: "bg-[#e15d00]/10",
+  },
+  green: {
+    pill: "border-[#19bf77]/65 bg-[#edfff7] text-[#04975f] hover:bg-[#dcfcea] focus-visible:ring-[#19bf77]/35",
+    icon: "bg-[#04975f]/10",
+  },
+  pink: {
+    pill: "border-[#ff3a74]/65 bg-[#fff0f5] text-[#e41452] hover:bg-[#ffe0eb] focus-visible:ring-[#ff3a74]/35",
+    icon: "bg-[#e41452]/10",
+  },
+  blue: {
+    pill: "border-[#20a7e8]/65 bg-[#eef9ff] text-[#087fc2] hover:bg-[#dcf2ff] focus-visible:ring-[#20a7e8]/35",
+    icon: "bg-[#087fc2]/10",
+  },
+};
+
+interface QuickActionsProps {
+  onInterviewClick: () => void;
+  onMotivationClick: () => void;
   className?: string;
-}) {
-  const content = (
-    <>
-      <div className="absolute top-0 right-0 w-24 h-24 -mr-6 -mt-6">
-        <div className="w-full h-full rounded-full bg-white/10 group-hover:scale-110 transition-transform duration-200" />
-      </div>
-      <div className="relative">
-        <div className="w-10 h-10 rounded-xl bg-white/15 backdrop-blur-sm flex items-center justify-center mb-3 group-hover:bg-white/20 transition-colors duration-200">
-          {action.icon}
-        </div>
-        <h3 className="font-semibold tracking-tight">{action.title}</h3>
-        <p className="mt-1 text-sm opacity-85">{action.description}</p>
-      </div>
-    </>
-  );
-
-  const baseClasses = cn(
-    "group relative overflow-hidden rounded-2xl p-5 text-white cursor-pointer transition-all duration-200 hover:shadow-xl hover:-translate-y-1 active:scale-[0.98] bg-gradient-to-br shadow-md h-[136px] flex flex-col justify-start items-start text-left",
-    colorClasses[action.color],
-    className
-  );
-
-  if (action.onClick) {
-    return (
-      <button type="button" onClick={action.onClick} className={baseClasses}>
-        {content}
-      </button>
-    );
-  }
-
-  return (
-    <Link href={action.href || "#"} className={baseClasses}>
-      {content}
-    </Link>
-  );
 }
 
-export function QuickActions({ actions, className, children }: QuickActionsProps) {
+export function QuickActions({ onInterviewClick, onMotivationClick, className }: QuickActionsProps) {
   return (
-    <div className={cn("grid grid-cols-2 lg:grid-cols-3 gap-4", className)}>
-      {actions.map((action, index) => (
-        <QuickActionCard key={index} action={action} />
-      ))}
-      {children}
+    <div className={cn(
+      "flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:overflow-visible lg:pb-0",
+      className,
+    )} data-testid="dashboard-quick-actions">
+      {ACTIONS.map((action) => {
+        const tone = ACTION_TONES[action.tone];
+        const Icon = action.Icon;
+        const content = (
+          <>
+            <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-md", tone.icon)}>
+              <Icon className="h-4 w-4" aria-hidden="true" strokeWidth={2.2} />
+            </span>
+            <span className="whitespace-nowrap text-xs font-semibold leading-tight">{action.title}</span>
+          </>
+        );
+        const actionClassName = cn(
+          "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border-[1.5px] px-3 text-left shadow-sm transition-all duration-150 hover:-translate-y-px hover:shadow-md active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          tone.pill,
+        );
+
+        if (action.actionType) {
+          return (
+            <button
+              key={action.key}
+              type="button"
+              onClick={action.actionType === "interview" ? onInterviewClick : onMotivationClick}
+              className={cn(actionClassName, "cursor-pointer")}
+              data-testid={`dashboard-quick-action-${action.key}`}
+            >
+              {content}
+            </button>
+          );
+        }
+
+        return (
+          <Link
+            key={action.key}
+            href={action.href!}
+            className={actionClassName}
+            data-testid={`dashboard-quick-action-${action.key}`}
+          >
+            {content}
+          </Link>
+        );
+      })}
     </div>
   );
 }

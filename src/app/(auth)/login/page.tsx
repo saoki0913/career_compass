@@ -47,24 +47,15 @@ function FeaturePill({
 function LoginFallback() {
   return (
     <main className="flex flex-col items-center justify-center">
-      <div className="flex items-center gap-4 mb-8">
-        <div className="relative">
-          <div
-            className="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150"
-            aria-hidden="true"
-          />
-          <Image
-            src="/icon.png"
-            alt="就活Pass"
-            width={56}
-            height={56}
-            className="relative rounded-xl shadow-lg"
-            priority
-          />
-        </div>
-        <span className="text-3xl font-extrabold text-foreground tracking-tight">
-          就活Pass
-        </span>
+      <div className="mb-8 flex items-center justify-center">
+        <Image
+          src="/marketing/logo/logo_text_clean.png"
+          alt="就活Pass"
+          width={260}
+          height={80}
+          className="h-20 w-[260px] object-cover"
+          priority
+        />
       </div>
 
       <Card className="w-full max-w-sm border-border/50 shadow-xl shadow-black/5">
@@ -100,22 +91,16 @@ function LoginPageContent() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="flex items-center gap-4 mb-6"
+        className="mb-6 flex items-center justify-center"
       >
-        <div className="relative">
-          <div className="absolute inset-0 bg-primary/20 blur-xl rounded-full scale-150" aria-hidden="true" />
-          <Image
-            src="/icon.png"
-            alt="就活Pass"
-            width={56}
-            height={56}
-            className="relative rounded-xl shadow-lg"
-            priority
-          />
-        </div>
-        <span className="text-3xl font-extrabold text-foreground tracking-tight">
-          就活Pass
-        </span>
+        <Image
+          src="/marketing/logo/logo_text_clean.png"
+          alt="就活Pass"
+          width={260}
+          height={80}
+          className="h-20 w-[260px] object-cover"
+          priority
+        />
       </motion.div>
 
       {/* Value Proposition */}

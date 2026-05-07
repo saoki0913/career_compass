@@ -9,6 +9,7 @@ const {
   dbInsertMock,
   enqueueDeadlineSyncMock,
   generateTasksForDeadlineMock,
+  inArrayMock,
 } = vi.hoisted(() => ({
   authGetSessionMock: vi.fn(),
   getGuestUserMock: vi.fn(),
@@ -17,6 +18,7 @@ const {
   dbInsertMock: vi.fn(),
   enqueueDeadlineSyncMock: vi.fn(),
   generateTasksForDeadlineMock: vi.fn(),
+  inArrayMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -46,11 +48,20 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/calendar/sync", () => ({
   enqueueDeadlineDelete: vi.fn(),
   enqueueDeadlineSync: enqueueDeadlineSyncMock,
+  syncDeadlineImmediately: vi.fn(),
 }));
 
 vi.mock("@/lib/server/task-generation", () => ({
   generateTasksForDeadline: generateTasksForDeadlineMock,
 }));
+
+vi.mock("drizzle-orm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("drizzle-orm")>();
+  return {
+    ...actual,
+    inArray: inArrayMock.mockImplementation(actual.inArray),
+  };
+});
 
 function makeThenableQuery(result: unknown) {
   type Query = {
@@ -78,6 +89,7 @@ describe("api/deadlines/[id] PUT", () => {
     dbInsertMock.mockReset();
     enqueueDeadlineSyncMock.mockReset();
     generateTasksForDeadlineMock.mockReset();
+    inArrayMock.mockClear();
 
     authGetSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     getGuestUserMock.mockResolvedValue(null);
@@ -147,5 +159,117 @@ describe("api/deadlines/[id] PUT", () => {
       userId: "user-1",
       guestId: null,
     });
+  });
+
+  it("unmarking completion only reverts auto-completed tasks, not manually completed ones", async () => {
+    const deadline = {
+      id: "deadline-1",
+      companyId: "company-1",
+      applicationId: "app-1",
+      type: "es_submission",
+      title: "ES提出",
+      description: null,
+      memo: null,
+      dueDate: new Date("2026-04-01T00:00:00.000Z"),
+      sourceUrl: null,
+      confidence: 0,
+      isConfirmed: true,
+      completedAt: new Date("2026-03-20T00:00:00.000Z"),
+      autoCompletedTaskIds: ["task-1", "task-2"],
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    };
+
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => makeThenableQuery([deadline])),
+    });
+
+    const taskWhereMock = vi.fn().mockResolvedValue([]);
+    dbUpdateMock
+      .mockReturnValueOnce({
+        set: vi.fn(() => ({
+          where: taskWhereMock,
+        })),
+      })
+      .mockReturnValueOnce({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({
+            returning: vi.fn().mockResolvedValue([
+              {
+                ...deadline,
+                completedAt: null,
+                autoCompletedTaskIds: null,
+                updatedAt: new Date("2026-03-21T00:00:00.000Z"),
+              },
+            ]),
+          })),
+        })),
+      });
+
+    const { PUT } = await import("@/app/api/deadlines/[id]/route");
+    const request = new NextRequest("http://localhost:3000/api/deadlines/deadline-1", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ completedAt: null }),
+    });
+
+    const response = await PUT(request, { params: Promise.resolve({ id: "deadline-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(dbUpdateMock).toHaveBeenCalledTimes(2);
+    expect(taskWhereMock).toHaveBeenCalledTimes(1);
+    expect(inArrayMock).toHaveBeenCalledWith(expect.anything(), ["task-1", "task-2"]);
+  });
+
+  it("unmarking with empty autoCompletedTaskIds does not issue task update", async () => {
+    const deadline = {
+      id: "deadline-1",
+      companyId: "company-1",
+      applicationId: "app-1",
+      type: "es_submission",
+      title: "ES提出",
+      description: null,
+      memo: null,
+      dueDate: new Date("2026-04-01T00:00:00.000Z"),
+      sourceUrl: null,
+      confidence: 0,
+      isConfirmed: true,
+      completedAt: new Date("2026-03-20T00:00:00.000Z"),
+      autoCompletedTaskIds: [],
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-20T00:00:00.000Z"),
+    };
+
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => makeThenableQuery([deadline])),
+    });
+
+    dbUpdateMock.mockReturnValueOnce({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([
+            {
+              ...deadline,
+              completedAt: null,
+              autoCompletedTaskIds: null,
+              updatedAt: new Date("2026-03-21T00:00:00.000Z"),
+            },
+          ]),
+        })),
+      })),
+    });
+
+    const { PUT } = await import("@/app/api/deadlines/[id]/route");
+    const request = new NextRequest("http://localhost:3000/api/deadlines/deadline-1", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ completedAt: null }),
+    });
+
+    const response = await PUT(request, { params: Promise.resolve({ id: "deadline-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(dbUpdateMock).toHaveBeenCalledTimes(1);
+    expect(inArrayMock).not.toHaveBeenCalled();
   });
 });

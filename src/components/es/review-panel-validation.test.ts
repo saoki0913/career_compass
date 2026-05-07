@@ -11,6 +11,7 @@ describe("review panel validation", () => {
         internName: "",
         hasSelectedCompany: true,
         requiresIndustrySelection: true,
+        requiresRoleSelection: true,
         selectedIndustry: null,
         selectedRoleName: "",
       }).map((issue) => issue.field),
@@ -25,6 +26,7 @@ describe("review panel validation", () => {
         internName: "",
         hasSelectedCompany: true,
         requiresIndustrySelection: false,
+        requiresRoleSelection: true,
         selectedIndustry: "IT・ソフトウェア",
         selectedRoleName: "",
       }).map((issue) => issue.field),
@@ -39,6 +41,7 @@ describe("review panel validation", () => {
         internName: "夏季インターン",
         hasSelectedCompany: true,
         requiresIndustrySelection: true,
+        requiresRoleSelection: true,
         selectedIndustry: "IT・ソフトウェア",
         selectedRoleName: "企画職",
       }),
@@ -53,20 +56,37 @@ describe("review panel validation", () => {
         internName: "",
         hasSelectedCompany: true,
         requiresIndustrySelection: true,
+        requiresRoleSelection: true,
         selectedIndustry: null,
         selectedRoleName: "",
       }).map((issue) => issue.field),
     ).toEqual(["section_content", "intern_name", "industry", "role_name"]);
   });
 
+  it("skips role when the template does not require role selection", () => {
+    expect(
+      getReviewValidationIssues({
+        sectionContent: "あいうえおか",
+        requiresInternName: false,
+        internName: "",
+        hasSelectedCompany: true,
+        requiresIndustrySelection: false,
+        requiresRoleSelection: false,
+        selectedIndustry: null,
+        selectedRoleName: "",
+      }),
+    ).toEqual([]);
+  });
+
   it("accepts section body at exactly MIN length (trimmed)", () => {
     expect(
       getReviewValidationIssues({
-        sectionContent: "あいうえお",
+        sectionContent: "あいうえおか",
         requiresInternName: false,
         internName: "",
         hasSelectedCompany: false,
         requiresIndustrySelection: false,
+        requiresRoleSelection: false,
         selectedIndustry: null,
         selectedRoleName: "",
       }),

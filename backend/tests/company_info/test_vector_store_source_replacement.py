@@ -1,7 +1,9 @@
 import pytest
 
 from app.utils.embeddings import EmbeddingBackend
-from app.utils import vector_store
+from app.rag import vector_store
+
+TENANT_KEY = "a" * 32
 
 
 class FakeCollection:
@@ -104,6 +106,7 @@ async def test_store_full_text_content_replaces_only_same_source_url(
         content_type="corporate_site",
         backend=fake_backend,
         raw_format="text",
+        tenant_key=TENANT_KEY,
     )
     result_b = await vector_store.store_full_text_content(
         company_id="company-1",
@@ -113,6 +116,7 @@ async def test_store_full_text_content_replaces_only_same_source_url(
         content_type="corporate_site",
         backend=fake_backend,
         raw_format="text",
+        tenant_key=TENANT_KEY,
     )
     result_a_v2 = await vector_store.store_full_text_content(
         company_id="company-1",
@@ -122,6 +126,7 @@ async def test_store_full_text_content_replaces_only_same_source_url(
         content_type="corporate_site",
         backend=fake_backend,
         raw_format="text",
+        tenant_key=TENANT_KEY,
     )
 
     assert result_a_v1["success"] is True
@@ -170,6 +175,7 @@ async def test_store_full_text_content_moves_url_to_new_content_type_on_reingest
         content_type="corporate_site",
         backend=fake_backend,
         raw_format="text",
+        tenant_key=TENANT_KEY,
     )
     await vector_store.store_full_text_content(
         company_id="company-1",
@@ -179,6 +185,7 @@ async def test_store_full_text_content_moves_url_to_new_content_type_on_reingest
         content_type="corporate_site",
         backend=fake_backend,
         raw_format="text",
+        tenant_key=TENANT_KEY,
     )
 
     documents = fake_collection.get(include=["metadatas"])
@@ -216,6 +223,7 @@ async def test_store_full_text_content_keeps_previous_source_data_on_reingest_fa
         content_type="corporate_site",
         backend=fake_backend,
         raw_format="text",
+        tenant_key=TENANT_KEY,
     )
     assert success["success"] is True
 
@@ -233,6 +241,7 @@ async def test_store_full_text_content_keeps_previous_source_data_on_reingest_fa
         content_type="corporate_site",
         backend=fake_backend,
         raw_format="text",
+        tenant_key=TENANT_KEY,
     )
 
     after = fake_collection.get(

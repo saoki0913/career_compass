@@ -30,9 +30,11 @@ export interface MotivationConversationPayload {
   questionCount: number;
   isDraftReady: boolean;
   generatedDraft: string | null;
+  draftDocumentId: string | null;
   scores: MotivationScores | null;
   evidenceSummary: string | null;
   evidenceCards: EvidenceCard[];
+  userEvidenceCards: EvidenceCard[];
   coachingFocus: string | null;
   riskFlags: string[];
   questionStage: MotivationStage;
@@ -101,6 +103,71 @@ export function buildMotivationEvidenceSummaryFromCards(
     .slice(0, 2)
     .map((card) => `${card.sourceId} ${card.title}: ${card.excerpt}`)
     .join(" / ");
+}
+
+const USER_EVIDENCE_SLOT_LABELS: Record<MotivationSlot, string> = {
+  industry_reason: "業界を選ぶ理由",
+  company_reason: "企業を選ぶ理由",
+  self_connection: "自分との接点",
+  desired_work: "やりたい仕事",
+  value_contribution: "貢献できること",
+  differentiation: "他社ではなくこの企業の理由",
+};
+
+function toUserEvidenceCard(args: {
+  index: number;
+  title: string;
+  excerpt: string;
+  relevanceLabel: string;
+}): EvidenceCard {
+  return {
+    sourceId: `U${args.index}`,
+    title: args.title,
+    contentType: "user_context",
+    excerpt: args.excerpt,
+    sourceUrl: "",
+    relevanceLabel: args.relevanceLabel,
+  };
+}
+
+export function buildMotivationUserEvidenceCards(
+  conversationContext: MotivationConversationContext,
+): EvidenceCard[] {
+  const cards: EvidenceCard[] = [];
+  const summaries = conversationContext.slotSummaries ?? {};
+
+  for (const slot of Object.keys(USER_EVIDENCE_SLOT_LABELS) as MotivationSlot[]) {
+    const summary = summaries[slot];
+    if (!summary?.trim()) continue;
+    cards.push(toUserEvidenceCard({
+      index: cards.length + 1,
+      title: USER_EVIDENCE_SLOT_LABELS[slot],
+      excerpt: summary.trim(),
+      relevanceLabel: "会話で確認",
+    }));
+  }
+
+  const strengths = conversationContext.userAnchorStrengths ?? [];
+  if (strengths.length > 0) {
+    cards.push(toUserEvidenceCard({
+      index: cards.length + 1,
+      title: "登録済みの強み",
+      excerpt: strengths.slice(0, 3).join("、"),
+      relevanceLabel: "プロフィール/ガクチカ",
+    }));
+  }
+
+  const episodes = conversationContext.userAnchorEpisodes ?? [];
+  if (episodes.length > 0) {
+    cards.push(toUserEvidenceCard({
+      index: cards.length + 1,
+      title: "登録済みの経験",
+      excerpt: episodes.slice(0, 2).join(" / "),
+      relevanceLabel: "プロフィール/ガクチカ",
+    }));
+  }
+
+  return cards.slice(0, 6);
 }
 
 export function buildMotivationSetupSnapshot(args: {
@@ -190,9 +257,11 @@ export function buildMotivationConversationPayload(args: {
     questionCount: args.questionCount,
     isDraftReady: args.isDraftReady,
     generatedDraft: args.generatedDraft ?? null,
+    draftDocumentId: args.conversationContext.draftDocumentId ?? null,
     scores: args.scores ?? null,
     evidenceSummary: args.evidenceSummary ?? buildMotivationEvidenceSummaryFromCards(evidenceCards),
     evidenceCards,
+    userEvidenceCards: buildMotivationUserEvidenceCards(args.conversationContext),
     coachingFocus: args.coachingFocus ?? null,
     riskFlags: args.riskFlags ?? [],
     questionStage,

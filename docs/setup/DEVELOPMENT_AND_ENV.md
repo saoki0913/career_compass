@@ -770,6 +770,8 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 | `OPENAI_API_KEY` | OpenAI APIキー（Embeddings + GPT） | 🔶 | OpenAI Dashboard |
 | `ANTHROPIC_API_KEY` | Anthropic APIキー（Claude） | 🔶 | Anthropic Console |
 | `NEXT_PUBLIC_FASTAPI_URL` | FastAPI バックエンドURL | 🔶 | `http://localhost:8000`（開発時） |
+| `NEXT_PUBLIC_LOGO_DEV_TOKEN` | ダッシュボード企業アイコンの実ロゴ取得（Logo.dev publishable key） | 🔶 | Logo.dev Dashboard |
+| `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` | ダッシュボード企業アイコンの実ロゴ fallback（Brandfetch Logo API client ID） | 🔶 | Brandfetch Developer Portal |
 
 ✅ = 必須、🔶 = 機能使用時に必要
 

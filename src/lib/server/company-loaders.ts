@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
 import {
   applications,
@@ -15,6 +15,8 @@ import {
   serializeCompanyRecord,
   serializeDate,
 } from "./loader-helpers";
+import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
+import { estimateCompanyLogoProfile } from "./company-domain-estimator";
 import { getDocumentsPageData } from "./document-loaders";
 
 export async function getCompaniesPageData(identity: RequestIdentity) {
@@ -119,9 +121,12 @@ export async function getCompaniesPageData(identity: RequestIdentity) {
     const nearestDeadline = nearestDeadlineMap.get(company.id);
     const appCounts = applicationCountMap.get(company.id) || { total: 0, active: 0 };
     const docCounts = documentCountMap.get(company.id) || { total: 0, esCount: 0 };
+    const logoProfile = estimateCompanyLogoProfile(company.name);
 
     return {
       ...serializeCompanyRecord(company),
+      estimatedLogoDomains: logoProfile?.logoDomains ?? [],
+      estimatedFaviconUrl: company.corporateUrl ? null : logoProfile?.fallbackFaviconUrl ?? null,
       nearestDeadline: nearestDeadline
         ? {
             id: nearestDeadline.id,
@@ -182,7 +187,7 @@ export async function getCompanyApplicationsData(identity: RequestIdentity, comp
 
     return {
       ...application,
-      phase: application.phase ? JSON.parse(application.phase) : [],
+      phase: parseStringArrayCompat(application.phase),
       deadlineCount: appDeadlines.length,
       nearestDeadline: nearestDeadline ? nearestDeadline.dueDate.toISOString() : null,
       sortOrder: application.sortOrder ?? 0,

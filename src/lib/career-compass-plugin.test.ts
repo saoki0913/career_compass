@@ -135,6 +135,7 @@ describe("career-compass-dev plugin", () => {
     expect(ruleMap["backend-api"].suggest).toEqual([
       "command:quality-check",
       "skill:backend-refactor-check",
+      "command:codex-post-review",
     ]);
     expect(ruleMap["rag-search"].suggest).toEqual([
       "command:quality-check",

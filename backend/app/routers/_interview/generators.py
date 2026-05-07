@@ -72,7 +72,7 @@ from app.routers._interview.setup import (
     _build_setup,  # noqa: F401 — _gen_self monkeypatch seam
     _default_turn_state,
 )
-from app.utils.llm import call_llm_streaming_fields
+from app.utils.llm_streaming import call_llm_streaming_fields
 from app.utils.llm_usage_cost import consume_request_llm_cost_summary
 from app.utils.secure_logger import get_logger
 

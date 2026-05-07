@@ -27,41 +27,25 @@ import {
   getRemainingCompanyRagHtmlFreeUnitsSafe,
   getRemainingCompanyRagPdfFreeUnitsSafe,
 } from "@/lib/company-info/usage";
-
-function parseStringArray(value: string | null): string[] {
-  if (!value) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
+import { parseJsonCompat, parseStringArrayCompat } from "@/lib/db/jsonb-compat";
 
 function parseReminderTiming(
-  value: string | null,
+  value: unknown,
 ): Array<{ type: string; hours?: number }> {
   if (!value) {
     return [{ type: "day_before" }, { type: "hour_before", hours: 3 }];
   }
 
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed)
-      ? parsed.filter(
-          (item): item is { type: string; hours?: number } =>
-            typeof item === "object" &&
-            item !== null &&
-            typeof item.type === "string" &&
-            (item.hours === undefined || typeof item.hours === "number"),
-        )
-      : [{ type: "day_before" }, { type: "hour_before", hours: 3 }];
-  } catch {
-    return [{ type: "day_before" }, { type: "hour_before", hours: 3 }];
-  }
+  const parsed = parseJsonCompat(value);
+  return Array.isArray(parsed)
+    ? parsed.filter(
+        (item): item is { type: string; hours?: number } =>
+          typeof item === "object" &&
+          item !== null &&
+          typeof item.type === "string" &&
+          (item.hours === undefined || typeof item.hours === "number"),
+      )
+    : [{ type: "day_before" }, { type: "hour_before", hours: 3 }];
 }
 
 function serializeDate(value: Date | null | undefined): string | null {
@@ -89,8 +73,8 @@ function buildAccountProfile(params: {
     university: profile?.university ?? null,
     faculty: profile?.faculty ?? null,
     graduationYear: profile?.graduationYear ?? null,
-    targetIndustries: parseStringArray(profile?.targetIndustries ?? null),
-    targetJobTypes: parseStringArray(profile?.targetJobTypes ?? null),
+    targetIndustries: parseStringArrayCompat(profile?.targetIndustries ?? null),
+    targetJobTypes: parseStringArrayCompat(profile?.targetJobTypes ?? null),
     createdAt: serializeDate(user.createdAt),
     creditsBalance: creditBalance,
     currentPeriodEnd: serializeDate(subscription?.currentPeriodEnd),

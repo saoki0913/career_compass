@@ -15,9 +15,9 @@ import type {
   TemplateType,
   UseESReviewOptions,
   UseESReviewReturn,
-} from "./es-review/types";
-import { createSSESteps } from "./es-review/sse-steps";
-import { consumeESReviewStream } from "./es-review/transport";
+} from "@/features/es-review/hooks/types";
+import { createSSESteps } from "@/features/es-review/hooks/sse-steps";
+import { consumeESReviewStream } from "@/features/es-review/hooks/transport";
 import {
   createVisibleSource,
   derivePlaybackPhase,
@@ -30,7 +30,7 @@ import {
   mergeStreamedItems,
   type ReceivedReviewState,
   upsertStreamItem,
-} from "./es-review/playback";
+} from "@/features/es-review/hooks/playback";
 
 export type {
   CurrentSectionInfo,
@@ -54,14 +54,14 @@ export type {
   UseESReviewOptions,
   UseESReviewReturn,
   VisibleTemplateSource,
-} from "./es-review/types";
+} from "@/features/es-review/hooks/types";
 
 export {
   EXTRA_FIELD_LABELS,
   TEMPLATE_EXTRA_FIELDS,
   TEMPLATE_LABELS,
   TEMPLATE_OPTIONS,
-} from "./es-review/template-meta";
+} from "@/features/es-review/hooks/template-meta";
 
 export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOptions): UseESReviewReturn {
   const [review, setReview] = useState<ReviewResult | null>(null);
@@ -132,9 +132,9 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
   const requestSectionReview = useCallback(
     async (params: {
       sectionTitle: string;
+      sectionId?: string;
       sectionContent: string;
       sectionCharLimit?: number;
-      hasCompanyRag?: boolean;
       companyId?: string;
       templateType?: TemplateType;
       internName?: string;
@@ -193,7 +193,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
       try {
         trackEvent("ai_review_start", {
           templateType: params.templateType ?? null,
-          hasCompanyRag: params.hasCompanyRag ?? false,
+          companyId: params.companyId ?? null,
           reviewMode: effectiveReviewMode,
         });
 
@@ -206,7 +206,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
           signal: controller.signal,
           body: JSON.stringify({
             content: params.sectionContent,
-            hasCompanyRag: params.hasCompanyRag || false,
+            sectionId: params.sectionId,
             companyId: params.companyId,
             sectionTitle: params.sectionTitle,
             sectionCharLimit: params.sectionCharLimit,

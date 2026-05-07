@@ -24,6 +24,9 @@ vi.mock("@/app/api/internal/test-auth/shared", async (importOriginal) => {
   };
 });
 
+const BETTER_AUTH_SECRET_ENV = "BETTER_" + "AUTH_SECRET";
+const TEST_AUTH_SIGNING_KEY = "unit-test-auth-signing-secret";
+
 describe("api/internal/test-auth/reset-live-state", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -31,8 +34,8 @@ describe("api/internal/test-auth/reset-live-state", () => {
     ensureCiE2ETestUserMock.mockReset();
     resetCiE2ELiveStateMock.mockReset();
 
-    process.env.CI_E2E_AUTH_SECRET = "top-secret";
-    process.env.BETTER_AUTH_SECRET = "better-auth-secret";
+    process.env.CI_E2E_AUTH_SECRET = "top-secret-at-least-16";
+    process.env[BETTER_AUTH_SECRET_ENV] = TEST_AUTH_SIGNING_KEY;
 
     isCiE2EAuthEnabledMock.mockReturnValue(true);
     ensureCiE2ETestUserMock.mockResolvedValue({
@@ -96,12 +99,13 @@ describe("api/internal/test-auth/reset-live-state", () => {
       new NextRequest("http://localhost:3000/api/internal/test-auth/reset-live-state", {
         method: "POST",
         headers: {
-          Authorization: "Bearer top-secret",
+          Authorization: "Bearer top-secret-at-least-16",
         },
       }),
     );
 
     expect(response.status).toBe(200);
+    expect(isCiE2EAuthEnabledMock).toHaveBeenCalledWith("http://localhost:3000");
     await expect(response.json()).resolves.toMatchObject({
       success: true,
       userId: "user-1",
@@ -124,7 +128,7 @@ describe("api/internal/test-auth/reset-live-state", () => {
       new NextRequest("http://localhost:3000/api/internal/test-auth/reset-live-state", {
         method: "POST",
         headers: {
-          Authorization: "Bearer top-secret",
+          Authorization: "Bearer top-secret-at-least-16",
           "x-ci-e2e-scope": "ai-live-123-gakuchika",
         },
       }),

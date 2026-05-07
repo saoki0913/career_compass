@@ -11,6 +11,7 @@ import { notifications, deadlines, companies, userProfiles, notificationSettings
 import { eq, and, lte, gte, gt, isNull, count, inArray, or } from "drizzle-orm";
 import { getJstHour, startOfJstDayAsUtc } from "@/lib/datetime/jst";
 import { classifyTier, getEffectiveTiers, TIER_MESSAGES, type ReminderTier } from "@/lib/notifications/deadline-importance";
+import { parseJsonRecordCompat } from "@/lib/db/jsonb-compat";
 
 type NotificationInsertRow = typeof notifications.$inferInsert;
 
@@ -133,10 +134,7 @@ export async function POST(request: NextRequest) {
 
       const settingsMap = new Map(
         settingsRows.map((row) => {
-          let overrides: Record<string, ReminderTier[]> | null = null;
-          if (row.deadlineReminderOverrides) {
-            try { overrides = JSON.parse(row.deadlineReminderOverrides); } catch { /* ignore */ }
-          }
+          const overrides = parseJsonRecordCompat(row.deadlineReminderOverrides) as Record<string, ReminderTier[]> | null;
           return [
             row.userId,
             {
@@ -154,13 +152,9 @@ export async function POST(request: NextRequest) {
           const owner = row.userId ? `user:${row.userId}` : row.guestId ? `guest:${row.guestId}` : "";
           let deadlineId = "";
           let tier = "";
-          if (row.data) {
-            try {
-              const parsed = JSON.parse(row.data);
-              deadlineId = parsed.deadlineId ?? "";
-              tier = parsed.tier ?? "";
-            } catch { /* ignore */ }
-          }
+          const parsed = parseJsonRecordCompat(row.data);
+          deadlineId = typeof parsed?.deadlineId === "string" ? parsed.deadlineId : "";
+          tier = typeof parsed?.tier === "string" ? parsed.tier : "";
           return `${owner}:${deadlineId}:${tier}`;
         })
       );
@@ -209,12 +203,12 @@ export async function POST(request: NextRequest) {
           type: notifType,
           title: message,
           message: `${company?.name || ""}の${deadline.title}の締切が近づいています`,
-          data: JSON.stringify({
+          data: {
             deadlineId: deadline.id,
             companyId: deadline.companyId,
             dueDate: deadline.dueDate.toISOString(),
             tier,
-          }),
+          },
           isRead: false,
           createdAt: now,
           expiresAt: buildNotificationExpiry(now),
@@ -320,9 +314,9 @@ export async function POST(request: NextRequest) {
           type: "daily_summary",
           title: "今日のサマリー",
           message,
-          data: JSON.stringify({
+          data: {
             urgentDeadlineCount,
-          }),
+          },
           isRead: false,
           createdAt: now,
           expiresAt: buildNotificationExpiry(now),

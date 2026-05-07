@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { documents, documentVersions } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 async function verifyDocumentAccess(
   documentId: string,

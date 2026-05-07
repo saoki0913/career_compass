@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
 import process from "node:process";
-import { resolveE2EFunctionalScopeFromContext } from "../src/lib/e2e-functional-scope.mjs";
+import { getStagedFiles } from "../scripts/ci/e2e-functional-snapshot.mjs";
+import {
+  resolveE2EFunctionalScope,
+  resolveE2EFunctionalScopeFromContext,
+} from "../src/lib/e2e-functional-scope.mjs";
 
 const args = new Set(process.argv.slice(2));
 const githubOutputMode = args.has("--github-output");
+const ciMode = args.has("--ci") || githubOutputMode || Boolean(process.env.GITHUB_ACTIONS);
 
-const scope = resolveE2EFunctionalScopeFromContext();
+const scope = ciMode
+  ? resolveE2EFunctionalScopeFromContext()
+  : resolveE2EFunctionalScope({ changedFiles: getStagedFiles() });
 
 if (githubOutputMode) {
   const outputs = {

@@ -387,5 +387,3 @@ export function CalendarSidebar({
     </div>
   );
 }
-
-export default CalendarSidebar;

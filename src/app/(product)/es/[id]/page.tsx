@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getDocumentDetailPageData } from "@/lib/server/app-loaders";
 import ESEditorPageClient from "@/components/es/ESEditorPageClient";
 

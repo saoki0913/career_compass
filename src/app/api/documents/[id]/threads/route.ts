@@ -10,8 +10,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { documents, aiThreads, aiMessages } from "@/lib/db/schema";
 import { eq, desc, count } from "drizzle-orm";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 const postBodySchema = z.object({
   title: z.string().min(1).max(220),
@@ -186,7 +186,7 @@ export async function POST(
           threadId,
           role: m.role,
           content: m.content,
-          metadata: m.metadata !== undefined ? JSON.stringify(m.metadata) : null,
+          metadata: m.metadata ?? null,
           createdAt: new Date(now.getTime() + i),
         }))
       );

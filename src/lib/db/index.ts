@@ -1,6 +1,9 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import * as schema from "./schema";
+import * as relations from "./relations";
+import * as tables from "./schema";
+
+const schema = { ...tables, ...relations };
 
 declare const globalThis: typeof global & {
   __career_compass_postgres__?: ReturnType<typeof postgres>;

@@ -19,6 +19,22 @@ def test_validate_public_url_rejects_private_resolution(monkeypatch: pytest.Monk
     assert result.reason == "内部アドレスにはアクセスできません。"
 
 
+def test_validate_public_url_rejects_ipv4_mapped_private_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_getaddrinfo(*args, **kwargs):
+        return [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::ffff:169.254.169.254", 443)),
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+    result = validate_public_url("https://corp.example.com/recruit")
+
+    assert result.allowed is False
+    assert result.reason == "内部アドレスにはアクセスできません。"
+
+
 def test_validate_public_url_rejects_non_standard_port(monkeypatch: pytest.MonkeyPatch) -> None:
     result = validate_public_url("https://corp.example.com:8443/recruit")
     assert result.allowed is False

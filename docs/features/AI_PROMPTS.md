@@ -1387,7 +1387,7 @@
 
 ## 5. RAG 補助 LLM（`hybrid_search.py`）
 
-実装: [`backend/app/utils/hybrid_search.py`](../../backend/app/utils/hybrid_search.py)。**以下の文字列はコードと一致するそのまま掲載**（`len(query) < SHORT_QUERY_THRESHOLD` で分岐）。
+実装: [`backend/app/rag/hybrid_search.py`](../../backend/app/rag/hybrid_search.py)。**以下の文字列はコードと一致するそのまま掲載**（`len(query) < SHORT_QUERY_THRESHOLD` で分岐）。
 
 ### 5.1 クエリ拡張 — 短文（`is_short`）
 
@@ -1475,7 +1475,7 @@
 {"passage": "..."}
 ```
 
-実装参照: [`hybrid_search.py`](../../backend/app/utils/hybrid_search.py) `expand_queries_with_llm` / `generate_hypothetical_document`（805–897 行付近）。
+実装参照: [`hybrid_search.py`](../../backend/app/rag/hybrid_search.py) `expand_queries_with_llm` / `generate_hypothetical_document`。
 
 ---
 
@@ -1569,6 +1569,6 @@
 | `backend/app/prompts/gakuchika_prompts.py` |
 | `backend/app/prompts/reference_es.py` |
 | `backend/app/utils/llm.py` |
-| `backend/app/utils/hybrid_search.py` |
+| `backend/app/rag/hybrid_search.py` |
 | `backend/app/prompts/notion_registry.py` |
 | `backend/app/prompts/generated/notion_prompts.json` |

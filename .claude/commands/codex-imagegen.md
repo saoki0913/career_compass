@@ -2,7 +2,7 @@
 description: Codex CLI に GPT Image 2 での高品質画像生成を委譲する
 ---
 
-Codex CLI (GPT-5.4) に $imagegen (GPT Image 2) を使った画像生成を委譲する。
+Codex CLI (GPT-5.5) に $imagegen (GPT Image 2) を使った画像生成を委譲する。
 品質ガイドラインは `.codex/skills/imagegen/` と awesome-gpt-image-2 から統合済み。
 
 手順:
@@ -46,6 +46,6 @@ Fallback パス:
 - 参照: ~/.codex/skills/imagegen/references/cli.md
 
 注意:
-- Codex は workspace-write sandbox で実行。scope audit が public/generated_images/ 外の変更を検出すると失敗扱い
+- Codex は workspace-write sandbox で実行。post-run で `public/generated_images/`, `public/marketing/`, `.codex/cache/`, `.codex/tmp/` 配下の画像候補を収集し、正式アセット化は Claude の視覚確認とユーザー承認後に行う
 - LP 正式アセットは public/marketing/screenshots/ + src/lib/marketing/landing-media.ts が SSOT。generated_images/ は作業バッファ
 - 日本語テキストは品質不安定。テキストなし or 英語テキストを推奨

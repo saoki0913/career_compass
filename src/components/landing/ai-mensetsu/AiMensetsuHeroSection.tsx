@@ -6,8 +6,8 @@ import { LandingSectionMotion } from "../LandingSectionMotion";
 
 const HERO_CHECKS = [
   "カード登録不要",
-  "質問フロー中は課金なし",
-  "最終講評の成功時のみ 6 クレジット",
+  "開始 2 クレジット",
+  "回答・続き 各 1 クレジット",
 ] as const;
 
 const TOPIC_ITEMS = [

@@ -11,7 +11,8 @@ import { deadlines, companies } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { syncDeadlineImmediately, type ImmediateSyncResult } from "@/lib/calendar/sync";
 import { generateTasksForDeadline } from "@/lib/server/task-generation";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { logError } from "@/lib/logger";
 
 type DeadlineType =
   | "es_submission"
@@ -213,16 +214,27 @@ export async function POST(
       })
       .returning();
 
-    // Auto-create tasks from templates for confirmed deadlines (all types)
-    await generateTasksForDeadline({
-      deadlineId,
-      deadlineType: body.type,
-      deadlineDueDate: dueDate,
-      companyId,
-      applicationId: null,
-      userId,
-      guestId,
-    });
+    // Auto-create tasks from templates for confirmed deadlines (all types).
+    // Deadline creation is the primary operation; task generation is a recoverable side effect.
+    try {
+      await generateTasksForDeadline({
+        deadlineId,
+        deadlineType: body.type,
+        deadlineDueDate: dueDate,
+        companyId,
+        applicationId: null,
+        userId,
+        guestId,
+      });
+    } catch (taskGenerationError) {
+      logError("deadline-task-generation-failed", taskGenerationError, {
+        deadlineId,
+        companyId,
+        deadlineType: body.type,
+        userId,
+        guestId,
+      });
+    }
 
     let calendarSync: ImmediateSyncResult | undefined;
     if (userId) {

@@ -2,7 +2,7 @@
 
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import { cn } from "@/lib/utils";
-import type { EvidenceCard } from "@/lib/motivation/ui";
+import type { EvidenceCard } from "@/features/motivation/domain/ui";
 
 function MotivationEvidenceCards({
   evidenceCards,

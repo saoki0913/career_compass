@@ -1,0 +1,10 @@
+[importlinter]
+root_package = app
+
+[importlinter:contract:services_do_not_import_routers]
+name = FastAPI service layer must not import routers
+type = forbidden
+source_modules =
+    app.services
+forbidden_modules =
+    app.routers

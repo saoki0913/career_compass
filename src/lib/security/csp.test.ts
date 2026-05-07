@@ -13,12 +13,6 @@ describe("security/csp", () => {
   });
 
   afterEach(() => {
-    if (originalNodeEnv === undefined) {
-      vi.unstubAllEnvs();
-      delete process.env.NODE_ENV;
-      return;
-    }
-
     vi.stubEnv("NODE_ENV", originalNodeEnv);
   });
 
@@ -34,6 +28,31 @@ describe("security/csp", () => {
     const { buildStaticCsp } = await importCspModule();
 
     expect(buildStaticCsp()).not.toContain("'unsafe-eval'");
+  });
+
+  it("allows Google Favicon images in img-src", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const { buildStaticCsp } = await importCspModule();
+    const csp = buildStaticCsp();
+
+    expect(csp).toContain("https://www.google.com");
+  });
+
+  it("allows configured real logo provider images in img-src", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const { buildStaticCsp } = await importCspModule();
+    const csp = buildStaticCsp();
+
+    expect(csp).toContain("https://img.logo.dev");
+    expect(csp).toContain("https://cdn.brandfetch.io");
+  });
+
+  it("allows DuckDuckGo favicon images in img-src", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const { buildStaticCsp } = await importCspModule();
+    const csp = buildStaticCsp();
+
+    expect(csp).toContain("https://icons.duckduckgo.com");
   });
 
   it("keeps the nonce CSP strict while allowing development eval support", async () => {

@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluateLocalAiE2EReadiness } from "./enforce-local-ai-e2e.mjs";
+import {
+  evaluateLocalAiE2EReadiness,
+  parseE2EFunctionalDecision,
+} from "./enforce-local-ai-e2e.mjs";
 
 test("passes when no AI functional files are staged", () => {
   const result = evaluateLocalAiE2EReadiness({
@@ -29,6 +32,7 @@ test("requires a fresh passed local manifest for affected features", () => {
         playwrightStatus: "not_run",
       };
     },
+    readDecisionImpl: () => null,
   });
 
   assert.equal(result.ok, false);
@@ -42,6 +46,199 @@ test("requires a fresh passed local manifest for affected features", () => {
   ]);
 });
 
+test("allows missing functional manifests when a fresh skip checkpoint covers affected features", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: ["backend/app/routers/motivation.py"],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: () => null,
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "fresh-hash",
+      categories: {
+        "e2e-functional": "skip:motivation",
+      },
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.features, ["motivation"]);
+  assert.deepEqual(result.failures, []);
+  assert.deepEqual(result.decision, {
+    action: "skip",
+    runFeatures: [],
+    skipFeatures: ["motivation"],
+    qualityAcceptedFeatures: [],
+    snapshotHash: "fresh-hash",
+    reason: "approved",
+  });
+});
+
+test("rejects stale skip checkpoint when staged snapshot changes", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: ["backend/app/routers/motivation.py"],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: () => null,
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "old-hash",
+      categories: {
+        "e2e-functional": "skip:motivation",
+      },
+    }),
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.failures, [
+    {
+      feature: "motivation",
+      reason: "missing_manifest",
+    },
+    {
+      feature: "motivation",
+      reason: "stale_decision",
+      decisionSnapshotHash: "old-hash",
+    },
+  ]);
+});
+
+test("rejects skip checkpoint without a reason", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: ["backend/app/routers/motivation.py"],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: () => null,
+    readDecisionImpl: () => "skip:motivation:fresh-hash:",
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.failures, [
+    {
+      feature: "motivation",
+      reason: "missing_manifest",
+    },
+  ]);
+});
+
+test("allows partial checkpoint only for skipped failed features", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: [
+      "backend/app/routers/motivation.py",
+      "backend/app/routers/gakuchika.py",
+    ],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: (_repoRoot, feature) =>
+      feature === "gakuchika"
+        ? {
+            targetEnv: "local",
+            snapshotHash: "fresh-hash",
+            status: "passed",
+            playwrightStatus: "passed",
+          }
+        : null,
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "fresh-hash",
+      categories: {
+        "e2e-functional": "partial:gakuchika:motivation",
+      },
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.features, ["gakuchika", "motivation"]);
+  assert.deepEqual(result.failures, []);
+});
+
+test("requires quality confirmation for soft fails in passed manifests", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: ["backend/app/routers/motivation.py"],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: () => ({
+      targetEnv: "local",
+      snapshotHash: "fresh-hash",
+      status: "passed",
+      playwrightStatus: "passed",
+      softFailCount: 2,
+    }),
+    readDecisionImpl: () => null,
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.failures, [
+    {
+      feature: "motivation",
+      reason: "quality_confirmation_required",
+      softFailCount: 2,
+    },
+  ]);
+});
+
+test("accepts quality confirmation checkpoint for soft and judge failures", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: ["backend/app/routers/motivation.py"],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: () => ({
+      targetEnv: "local",
+      snapshotHash: "fresh-hash",
+      status: "passed",
+      playwrightStatus: "passed",
+      softFailCount: 1,
+      judgeFailCount: 1,
+    }),
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "fresh-hash",
+      categories: {
+        "e2e-functional": "run:motivation",
+        quality: "accept:motivation",
+      },
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.failures, []);
+});
+
+test("finds quality-only confirmation checkpoint for soft failures", () => {
+  const result = evaluateLocalAiE2EReadiness({
+    changedFiles: ["backend/app/routers/motivation.py"],
+    snapshotHash: "fresh-hash",
+    readManifestImpl: () => ({
+      targetEnv: "local",
+      snapshotHash: "fresh-hash",
+      status: "passed",
+      playwrightStatus: "passed",
+      softFailCount: 1,
+    }),
+    readDecisionImpl: () => JSON.stringify({
+      decision: "approved",
+      e2eFunctionalSnapshotHash: "fresh-hash",
+      categories: {
+        quality: "accept:motivation",
+      },
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.failures, []);
+});
+
+test("parses e2e functional decisions", () => {
+  assert.deepEqual(parseE2EFunctionalDecision("run:gakuchika,motivation:hash"), {
+    action: "run",
+    runFeatures: ["gakuchika", "motivation"],
+    skipFeatures: [],
+    snapshotHash: "hash",
+    reason: "",
+  });
+  assert.deepEqual(parseE2EFunctionalDecision("skip:motivation:hash:LLM cost deferred"), {
+    action: "skip",
+    runFeatures: [],
+    skipFeatures: ["motivation"],
+    snapshotHash: "hash",
+    reason: "LLM cost deferred",
+  });
+});
+
 test("requires ES review browser E2E to pass for commit gating", () => {
   const result = evaluateLocalAiE2EReadiness({
     changedFiles: ["backend/app/routers/es_review.py"],
@@ -52,6 +249,7 @@ test("requires ES review browser E2E to pass for commit gating", () => {
       status: "passed",
       playwrightStatus: "skipped",
     }),
+    readDecisionImpl: () => null,
   });
 
   assert.equal(result.ok, false);
@@ -72,7 +270,7 @@ test("detects CRUD feature scope for calendar changes", () => {
       targetEnv: "local",
       snapshotHash: "fresh-hash",
       status: "passed",
-      playwrightStatus: "not_run",
+      playwrightStatus: "passed",
     }),
   });
 
@@ -89,7 +287,7 @@ test("detects CRUD feature scope for notifications changes", () => {
       targetEnv: "local",
       snapshotHash: "fresh-hash",
       status: "passed",
-      playwrightStatus: "not_run",
+      playwrightStatus: "passed",
     }),
   });
 
@@ -106,7 +304,7 @@ test("detects CRUD shared trigger for staging_client changes", () => {
       targetEnv: "local",
       snapshotHash: "fresh-hash",
       status: "passed",
-      playwrightStatus: "not_run",
+      playwrightStatus: "passed",
     }),
   });
 
@@ -126,6 +324,7 @@ test("requires conversation feature browser E2E to pass for commit gating", () =
       status: "passed",
       playwrightStatus: "skipped",
     }),
+    readDecisionImpl: () => null,
   });
 
   assert.equal(result.ok, false);
@@ -163,7 +362,7 @@ test("detects settings path changes as notifications feature", () => {
       targetEnv: "local",
       snapshotHash: "fresh-hash",
       status: "passed",
-      playwrightStatus: "not_run",
+      playwrightStatus: "passed",
     }),
   });
 
@@ -183,7 +382,7 @@ test("accepts valid manifests for multiple affected features", () => {
       targetEnv: "local",
       snapshotHash: "fresh-hash",
       status: "passed",
-      playwrightStatus: ["es-review", "gakuchika", "motivation", "interview", "pages-smoke"].includes(feature) ? "passed" : "not_run",
+      playwrightStatus: "passed",
     }),
   });
 

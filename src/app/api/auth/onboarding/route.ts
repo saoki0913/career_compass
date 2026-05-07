@@ -12,6 +12,7 @@ import { userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { getCsrfFailureReason } from "@/lib/csrf";
+import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
 
 // Onboarding data type
 interface OnboardingData {
@@ -87,8 +88,8 @@ export async function POST(request: NextRequest) {
       university: data.university || null,
       faculty: data.faculty || null,
       graduationYear: data.graduationYear || null,
-      targetIndustries: data.targetIndustries ? JSON.stringify(data.targetIndustries) : null,
-      targetJobTypes: data.targetJobTypes ? JSON.stringify(data.targetJobTypes) : null,
+      targetIndustries: data.targetIndustries ?? null,
+      targetJobTypes: data.targetJobTypes ?? null,
       onboardingCompleted: true,
       updatedAt: now,
     };
@@ -152,34 +153,14 @@ export async function GET() {
       });
     }
 
-    // Parse JSON fields
-    let targetIndustries: string[] = [];
-    let targetJobTypes: string[] = [];
-
-    try {
-      if (profile.targetIndustries) {
-        targetIndustries = JSON.parse(profile.targetIndustries);
-      }
-    } catch {
-      // Ignore parse errors
-    }
-
-    try {
-      if (profile.targetJobTypes) {
-        targetJobTypes = JSON.parse(profile.targetJobTypes);
-      }
-    } catch {
-      // Ignore parse errors
-    }
-
     return NextResponse.json({
       onboardingCompleted: profile.onboardingCompleted,
       data: {
         university: profile.university,
         faculty: profile.faculty,
         graduationYear: profile.graduationYear,
-        targetIndustries,
-        targetJobTypes,
+        targetIndustries: parseStringArrayCompat(profile.targetIndustries),
+        targetJobTypes: parseStringArrayCompat(profile.targetJobTypes),
       },
     });
   } catch (error) {

@@ -1051,9 +1051,6 @@ def is_parent_domain(url: str, company_name: str) -> bool:
     if not domain:
         return False
 
-    # ドメインをセグメントに分割（例: "career.mitsui.com" → ["career", "mitsui", "com"]）
-    domain_segments = domain.split(".")
-
     def _matches_domain_pattern(domain: str, pattern: str) -> bool:
         return domain_pattern_matches(domain, pattern)
 

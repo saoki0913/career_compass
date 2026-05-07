@@ -11,10 +11,13 @@ from app.limiter import limiter
 from app.routers import health, company_info, es_review, gakuchika, motivation, interview, local_ai_live
 from app.security.internal_service import require_internal_service
 from app.security.payload_limits import JsonPayloadSizeLimitMiddleware
+from app.observability.sentry_setup import init_sentry
+from app.rag.metrics_exporter import start_metrics_exporter_once
 from app.utils.secure_logger import get_logger
 from app.utils.llm_usage_cost import reset_request_llm_cost_summary
 
 logger = get_logger(__name__)
+init_sentry(settings)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -89,6 +92,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     """Log security-critical configuration on startup."""
+    start_metrics_exporter_once(settings)
     logger.info(f"[Security] CORS allowed origins: {settings.cors_origins}")
     logger.info(f"[Security] Frontend URL: {settings.frontend_url}")
     logger.info("[Reranker] lazy load enabled")

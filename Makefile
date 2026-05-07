@@ -1,4 +1,4 @@
-.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression test-e2e-regression test-e2e-functional test-e2e-functional-es test-e2e-functional-gakuchika test-e2e-functional-motivation test-e2e-functional-interview test-e2e-functional-company-info-search test-e2e-functional-rag-ingest test-e2e-functional-selection-schedule test-e2e-functional-calendar test-e2e-functional-tasks-deadlines test-e2e-functional-notifications test-e2e-functional-company-crud test-e2e-functional-profile-settings test-e2e-functional-billing test-e2e-functional-search-query test-e2e-functional-local test-e2e-functional-local-company-info-search test-e2e-functional-local-selection-schedule test-e2e-functional-local-rag-ingest test-e2e-functional-local-gakuchika test-e2e-functional-local-motivation test-e2e-functional-local-interview test-e2e-functional-local-es test-e2e-functional-local-calendar test-e2e-functional-local-tasks-deadlines test-e2e-functional-local-notifications test-e2e-functional-local-company-crud test-e2e-functional-local-profile-settings test-e2e-functional-local-billing test-e2e-functional-local-search-query ai-live-local db-push db-generate db-studio clean \
+.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression test-e2e-regression test-e2e-functional test-e2e-functional-es test-e2e-functional-gakuchika test-e2e-functional-motivation test-e2e-functional-interview test-e2e-functional-company-info-search test-e2e-functional-rag-ingest test-e2e-functional-selection-schedule test-e2e-functional-calendar test-e2e-functional-tasks-deadlines test-e2e-functional-notifications test-e2e-functional-company-crud test-e2e-functional-profile-settings test-e2e-functional-billing test-e2e-functional-search-query test-e2e-functional-local test-e2e-functional-local-company-info-search test-e2e-functional-local-selection-schedule test-e2e-functional-local-rag-ingest test-e2e-functional-local-gakuchika test-e2e-functional-local-motivation test-e2e-functional-local-interview test-e2e-functional-local-es test-e2e-functional-local-calendar test-e2e-functional-local-tasks-deadlines test-e2e-functional-local-notifications test-e2e-functional-local-company-crud test-e2e-functional-local-profile-settings test-e2e-functional-local-billing test-e2e-functional-local-search-query test-quality-all test-static test-coverage backend-test-coverage security-scan ai-live-local db-push db-generate db-studio clean \
 	up down restart backend-test backend-test-search backend-lint backend-format logs check deps reset-db seed \
 	backend-deadcode frontend-deadcode deadcode \
 	db-migrate db-status db-check db-drop db-introspect db-fresh backend-install \
@@ -7,7 +7,7 @@
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
 	backend-test-live-es-review backend-test-interview-calibration \
-	deploy deploy-stage-all deploy-check deploy-migrate ops-status ops-auth-check ops-release-check \
+	deploy deploy-stage-all deploy-check deploy-migrate release-pr rollback-prod ops-status ops-auth-check ops-release-check ops-secrets-sync \
 	db-up db-down db-restart db-down-clean db-local-status \
 	supabase-start supabase-stop supabase-stop-clean supabase-status
 
@@ -222,6 +222,19 @@ test-e2e-functional-local-pages-smoke:
 test-e2e-functional-pages-smoke:
 	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=pages-smoke bash scripts/ci/run-ai-live.sh
 
+## LLM / RAG / search quality checks (opt-in)
+test-quality-all:
+	AI_LIVE_TEST_CATEGORY=quality AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=all bash scripts/ci/run-ai-live.sh
+
+## Static checks (opt-in)
+test-static:
+	npx tsc --noEmit
+	npm run lint
+
+## Lightweight security scan (staged critical only)
+security-scan:
+	bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical
+
 # ===========================================
 # データベース (Drizzle + Supabase/PostgreSQL)
 # ===========================================
@@ -374,6 +387,14 @@ LIVE_ES_REVIEW_CASE_FILTER ?=
 ## 全バックエンドテストを実行
 backend-test:
 	cd backend && python -m pytest tests/ -v
+
+## フロントエンド coverage レポートを生成
+test-coverage:
+	npm run test:coverage
+
+## バックエンド coverage レポートを生成
+backend-test-coverage:
+	cd backend && python -m pytest tests/ -m "not integration and not golden_eval and not llm_judge and not calibration" --cov=app --cov-report=term-missing --cov-report=html:htmlcov --cov-report=json:coverage.json -q
 
 ## Live検索レポートテスト（デフォルト: hybrid のみ, ネットワーク必須）
 ## 50社 × 1モード × 11検索種 = 550検索、所要時間目安: ~2-3分 (10 req/s)
@@ -550,6 +571,14 @@ deploy:
 deploy-stage-all:
 	zsh scripts/release/release-career-compass.sh --stage-all
 
+## develop -> main の手動 release PR を作成
+release-pr:
+	zsh scripts/release/create-career-compass-release-pr.sh
+
+## 本番 rollback の dry-run / 承認済み実行入口
+rollback-prod:
+	zsh scripts/release/rollback-career-compass.sh --target "$(TARGET)" --dry-run
+
 ## ヘルスチェックのみ実行（スタンドアロン）
 deploy-check:
 	@echo "=== Health Check ==="
@@ -629,6 +658,10 @@ ops-auth-check:
 ops-release-check:
 	zsh scripts/release/release-career-compass.sh --check
 
+## secret inventory / provider key drift 確認（SYNC_MODE=--apply TARGET=vercel-staging で同期）
+ops-secrets-sync:
+	zsh scripts/release/sync-career-compass-secrets.sh $${SYNC_MODE:---check} --target "$${TARGET:-all}"
+
 # ===========================================
 # ヘルプ
 # ===========================================
@@ -690,11 +723,14 @@ help:
 	@echo "  🚀 デプロイ:"
 	@echo "    make deploy         - staged 済み release scope で本番反映"
 	@echo "    make deploy-stage-all - ローカル変更を全部 stage して本番反映"
+	@echo "    make release-pr     - develop -> main の release PR 作成"
+	@echo "    make rollback-prod TARGET=<id-or-sha> - rollback dry-run"
 	@echo "    make deploy-check   - ヘルスチェックのみ（Frontend + Backend）"
 	@echo "    make deploy-migrate - 本番DBマイグレーションのみ"
 	@echo "    make ops-status     - provider auth の現状確認"
 	@echo "    make ops-auth-check - provider auth の厳密確認"
 	@echo "    make ops-release-check - release 前提（auth/secrets/branch）確認"
+	@echo "    make ops-secrets-sync - secret inventory / provider key drift 確認"
 	@echo ""
 	@echo "  🔧 環境・セットアップ:"
 	@echo "    make check        - 開発環境の状態確認"

@@ -8,4 +8,4 @@ cd "$repo_root"
 
 PLAYWRIGHT_BASE_URL="$base_url" \
 PLAYWRIGHT_SKIP_WEBSERVER=1 \
-npx playwright test e2e/demo-recording.spec.ts --project=chromium --workers=1 "$@"
+npx playwright test e2e/tooling/demo-recording.spec.ts --project=chromium --workers=1 "$@"

@@ -1,62 +1,67 @@
 #!/bin/bash
-# Verify integrity of docs/review/TRACKER.md against docs/plan/ and EXECUTION_ORDER.md
+# Verify current documentation entrypoints after legacy plan/review docs cleanup.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-TRACKER="docs/review/TRACKER.md"
-EXEC_ORDER="docs/plan/EXECUTION_ORDER.md"
 ERRFILE=$(mktemp)
 echo 0 > "$ERRFILE"
 
 bump_err() { echo $(( $(cat "$ERRFILE") + 1 )) > "$ERRFILE"; }
 
-if [ ! -f "$TRACKER" ]; then
-  echo "ERROR: $TRACKER not found"
-  rm -f "$ERRFILE"
-  exit 1
-fi
+check_markdown_links() {
+  local source_file="$1"
+  local source_dir
+  source_dir=$(dirname "$source_file")
 
-# 1. Check that all plan links in TRACKER point to existing files
-echo "--- Checking TRACKER plan links ---"
-for link in $(grep -oE '\.\./plan/[A-Z_]+\.md' "$TRACKER" | sort -u); do
-  resolved="docs/plan/$(basename "$link")"
-  if [ ! -f "$resolved" ]; then
-    echo "ERROR: TRACKER references $link but $resolved does not exist"
-    bump_err
-  fi
-done
-
-# 2. Check that all review links in TRACKER point to existing files
-echo "--- Checking TRACKER review links ---"
-for link in $(grep -oE '\([a-z][-a-z]*/[^)]+\.md\)' "$TRACKER" | tr -d '()' | sort -u); do
-  resolved="docs/review/$link"
-  if [ ! -f "$resolved" ]; then
-    echo "ERROR: TRACKER references review $link but $resolved does not exist"
-    bump_err
-  fi
-done
-
-# 3. Check that every *_PLAN.md in docs/plan/ (except EXECUTION_ORDER) is listed in TRACKER
-echo "--- Checking plan coverage ---"
-for plan in docs/plan/*_PLAN.md; do
-  basename_plan=$(basename "$plan")
-  if ! grep -q "$basename_plan" "$TRACKER"; then
-    echo "WARNING: $basename_plan exists in docs/plan/ but is not listed in TRACKER"
-  fi
-done
-
-# 4. Check that EXECUTION_ORDER references plans that exist in TRACKER
-echo "--- Checking EXECUTION_ORDER consistency ---"
-if [ -f "$EXEC_ORDER" ]; then
-  for plan_name in $(grep -oE '[A-Z][A-Z_]+_PLAN' "$EXEC_ORDER" | sort -u); do
-    if ! grep -q "$plan_name" "$TRACKER"; then
-      echo "WARNING: EXECUTION_ORDER references $plan_name but it's not in TRACKER"
+  while read -r raw_link; do
+    local link="${raw_link%%#*}"
+    if [ -z "$link" ]; then
+      continue
     fi
-  done
+    case "$link" in
+      http://*|https://*|mailto:*)
+        continue
+        ;;
+    esac
+
+    local resolved
+    if [[ "$link" == /* ]]; then
+      resolved=".${link}"
+    else
+      resolved="$source_dir/$link"
+    fi
+    if [ ! -e "$resolved" ]; then
+      echo "ERROR: $source_file references missing local path $raw_link"
+      bump_err
+    fi
+  done < <(grep -oE '\[[^]]+\]\([^)]+\)' "$source_file" | sed -E 's/^.*\]\(([^)]+)\)$/\1/')
+}
+
+echo "--- Checking docs entrypoint links ---"
+for entrypoint in README.md docs/INDEX.md docs/ops/SECURITY.md docs/release/ENV_REFERENCE.md; do
+  if [ ! -f "$entrypoint" ]; then
+    echo "ERROR: $entrypoint not found"
+    bump_err
+    continue
+  fi
+  check_markdown_links "$entrypoint"
+done
+
+echo "--- Checking removed legacy docs are not referenced ---"
+LEGACY_REFS=$(rg -l 'docs/(PROGRESS|OVERVIEW|security/principal_spec|review/TRACKER|plan/EXECUTION_ORDER)|docs/review/TRACKER|docs/plan/EXECUTION_ORDER|principal_spec' \
+  README.md docs src backend scripts tools private .agents .codex \
+  --hidden \
+  -g '!scripts/test-review-tracker.sh' \
+  -g '!backend/tests/output/**' \
+  -g '!.codex/state/**' 2>/dev/null || true)
+if [ -n "$LEGACY_REFS" ]; then
+  echo "ERROR: Found references to removed legacy docs in:"
+  echo "$LEGACY_REFS"
+  bump_err
 fi
 
-# 5. Check for stale v1/v2 references
+# Check for stale v1/v2 references
 echo "--- Checking for stale v1/v2 references ---"
 STALE=$(grep -rl "feature/v[12]/" docs/ 2>/dev/null || true)
 if [ -n "$STALE" ]; then
@@ -64,21 +69,6 @@ if [ -n "$STALE" ]; then
   echo "$STALE"
   bump_err
 fi
-
-# 6. Check frontmatter presence in review/plan files
-echo "--- Checking frontmatter ---"
-for f in docs/review/feature/*.md docs/review/security/*.md \
-         docs/review/maintainability-architecture/[0-9]*.md \
-         docs/review/harness/[0-9]*.md; do
-  if [ -f "$f" ] && ! head -1 "$f" | grep -q '^---$'; then
-    echo "WARNING: $f lacks YAML frontmatter"
-  fi
-done
-for f in docs/plan/*_PLAN.md; do
-  if [ -f "$f" ] && ! head -1 "$f" | grep -q '^---$'; then
-    echo "WARNING: $f lacks YAML frontmatter"
-  fi
-done
 
 ERRORS=$(cat "$ERRFILE")
 rm -f "$ERRFILE"
@@ -88,5 +78,5 @@ if [ "$ERRORS" -gt 0 ]; then
   echo "FAIL: $ERRORS error(s) found"
   exit 1
 else
-  echo "PASS: TRACKER integrity check passed"
+  echo "PASS: documentation entrypoint integrity check passed"
 fi

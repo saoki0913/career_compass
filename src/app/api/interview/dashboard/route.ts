@@ -19,9 +19,9 @@
 import { desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { createServerTimingRecorder } from "@/bff/api/server-timing";
 import { db } from "@/lib/db";
 import {
   companies,

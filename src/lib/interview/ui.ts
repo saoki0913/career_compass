@@ -49,6 +49,9 @@ export type Feedback = {
   next_preparation: string[];
   premise_consistency?: number;
   satisfaction_score?: number;
+  score_evidence_by_axis?: Record<string, string[]>;
+  score_rationale_by_axis?: Record<string, string>;
+  confidence_by_axis?: Record<string, string>;
 };
 
 export type FeedbackHistoryItem = {
@@ -66,8 +69,26 @@ export type FeedbackHistoryItem = {
   nextPreparation: string[];
   premiseConsistency: number;
   satisfactionScore: number | null;
+  scoreEvidenceByAxis?: Record<string, string[]>;
+  scoreRationaleByAxis?: Record<string, string>;
+  confidenceByAxis?: Record<string, string>;
   sourceQuestionCount: number;
   createdAt: string;
+};
+
+export type InterviewBillingCosts = {
+  start: number;
+  turn: number;
+  continue: number;
+  feedback: number;
+};
+
+export type InterviewSessionState = {
+  status: HydratedConversation["status"];
+  isActive: boolean;
+  isLegacySession: boolean;
+  questionCount: number;
+  hasFeedback: boolean;
 };
 
 export type RoleOptionSource =
@@ -171,6 +192,9 @@ export function createEmptyFeedback(): Feedback {
     next_preparation: [],
     premise_consistency: undefined,
     satisfaction_score: undefined,
+    score_evidence_by_axis: undefined,
+    score_rationale_by_axis: undefined,
+    confidence_by_axis: undefined,
   };
 }
 

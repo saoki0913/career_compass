@@ -12,7 +12,7 @@ This header is additive to the existing `Authorization: Bearer <internal-jwt>`
 service authentication — the service JWT says "this request came from the BFF",
 the career principal says "…on behalf of user X with scope Y".
 
-See docs/security/principal_spec.md for the spec.
+See docs/architecture/BFF_FASTAPI_CONTRACT.md#x-career-principal for the contract.
 """
 from __future__ import annotations
 
@@ -75,6 +75,24 @@ def compute_tenant_key(actor_kind: str, actor_id: str) -> str | None:
         return None
     msg = f"{actor_kind}:{actor_id}".encode()
     return hmac.new(secret.encode(), msg, hashlib.sha256).hexdigest()[:32]
+
+
+def require_tenant_key(principal: CareerPrincipal) -> str:
+    """Return the principal tenant key or fail closed.
+
+    RAG storage, cache, BM25, and retrieval paths must never fall back to a
+    company_id-only boundary. A missing key means TENANT_KEY_SECRET is not
+    configured for this environment.
+    """
+    if not principal.tenant_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "tenant key is not configured",
+                "error_type": "tenant_key_not_configured",
+            },
+        )
+    return principal.tenant_key
 
 
 def _b64url_decode(value: str) -> bytes:
@@ -141,7 +159,10 @@ def _extract_principal(request: Request, expected_scope: CareerPrincipalScope) -
         # endpoints depend on it, a missing secret is a misconfiguration.
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="career principal is not configured",
+            detail={
+                "error": "career principal is not configured",
+                "error_type": "career_principal_not_configured",
+            },
         )
 
     raw_token = request.headers.get(PRINCIPAL_HEADER, "").strip()

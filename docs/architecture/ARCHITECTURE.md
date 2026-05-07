@@ -59,7 +59,9 @@
 | Pages (App Router) | ルーティング、ページレンダリング |
 | Components | UI部品（shadcn/ui ベース） |
 | Hooks | データフェッチ、状態管理 |
-| API Routes | サーバーサイドロジック（認証、DB操作） |
+| API Routes | App Router の HTTP entrypoint。実処理は BFF / feature / shared loader へ委譲 |
+| BFF | Next.js request context に依存する identity、owner check、billing policy、FastAPI proxy |
+| Features | motivation / es-review / gakuchika / company-info の UI・hook・domain・application |
 
 ### 主要導線の描画方針
 
@@ -115,9 +117,9 @@ career_compass/
 │   │   │   ├── calendar/, tasks/, notifications/
 │   │   │   └── settings/, profile/, search/
 │   │   ├── api/                         # Next API Routes
-│   │   │   ├── _shared/                 # request identity など共通処理
+│   │   │   ├── motivation/, gakuchika/  # thin route wrapper（実体は src/bff）
 │   │   │   ├── auth/, companies/, documents/
-│   │   │   ├── motivation/, gakuchika/, calendar/
+│   │   │   ├── calendar/
 │   │   │   ├── tasks/, notifications/, deadlines/
 │   │   │   ├── stripe/, checkout/, webhooks/, cron/
 │   │   │   └── search/, guest/, settings/, pins/
@@ -132,6 +134,16 @@ career_compass/
 │   │   ├── tasks/, notifications/       # server wrapper 配下の client UI
 │   │   ├── skeletons/, shared/, chat/
 │   │   └── auth/, calendar/, tools/, seo/ など
+│   ├── bff/                             # Next request context 依存の backend-for-frontend
+│   │   ├── api/                         # structured error / Server-Timing
+│   │   ├── identity/                    # request identity / owner access / LLM cost guard
+│   │   ├── billing/                     # feature-specific credit / quota policy
+│   │   └── motivation/, es-review/, gakuchika/
+│   ├── features/                        # feature-local UI / hooks / domain / application
+│   │   ├── motivation/
+│   │   ├── es-review/
+│   │   ├── gakuchika/
+│   │   └── company-info/
 │   ├── hooks/                           # client hook
 │   ├── lib/                             # サーバー/共通ロジック
 │   │   ├── auth/, db/, server/, security/
@@ -144,7 +156,8 @@ career_compass/
 │   ├── app/
 │   │   ├── main.py, config.py, limiter.py
 │   │   ├── security/                    # internal service auth
-│   │   ├── routers/                     # company_info, es_review など
+│   │   ├── routers/                     # FastAPI endpoint / thin facade
+│   │   ├── services/                    # motivation, es_review, gakuchika, company_info の use case
 │   │   ├── utils/                       # LLM, RAG,検索, fetch, telemetry
 │   │   ├── prompts/                     # ES / 志望動機 / ガクチカ
 │   │   └── testing/                     # live gate など検証補助
@@ -171,10 +184,10 @@ career_compass/
 
 ### 肥大ポイント
 
-- `src/app/api` は 109 files あり、認証・課金・AI 中継・cron が一箇所に集まっています。
-- `src/components/es` は 18 files、`src/components/companies` は 10 files あり、主要 UI の複雑さが高いです。
-- 単一ファイルでは `backend/app/routers/company_info.py` が 5424 行、`backend/app/routers/es_review.py` が 4802 行、`backend/app/utils/llm.py` が 3392 行で、FastAPI 側に大きな集中があります。
-- フロント側では `src/components/companies/CorporateInfoSection.tsx` が 3271 行、`src/components/es/ReviewPanel.tsx` が 1502 行、`src/hooks/useESReview.ts` が 980 行、`src/lib/server/app-loaders.ts` が 928 行で、画面・hook・loader の責務分離が次の整理候補です。
+- `src/app/api` は HTTP entrypoint として残し、AI / BFF 寄りの実処理は `src/bff/` へ移している途中です。
+- `src/features/{motivation,es-review,gakuchika,company-info}` が feature-local UI / hook / domain の正本です。旧 `src/components/**` や `src/hooks/**` に残るファイルは互換 entrypoint または未移行 slice として扱います。
+- FastAPI 側は `backend/app/services/{motivation,es_review,gakuchika,company_info}` を service 層の正本にし、router から service への一方向依存を `import-linter` で検査します。
+- 現在の大きな単一ファイルは `backend/app/routers/es_review.py`（約 1,300 行）、`backend/app/routers/gakuchika.py`（約 1,100 行）、`src/hooks/useESReview.ts`（約 700 行）で、追加変更時の次分割候補です。`company_info.py` と `motivation.py` は service 移行済みです。
 
 ---
 

@@ -1,4 +1,5 @@
 import logging
+import pickle
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -10,7 +11,7 @@ from app.utils.bm25_store import BM25Index
 
 @pytest.fixture
 def index_with_docs():
-    idx = BM25Index("test-company")
+    idx = BM25Index("test-company", tenant_key="a" * 32)
     idx.add_document("doc1", "テスト文書です")
     idx.add_document("doc2", "別のテスト文書です")
     bm25_module.HAS_BM25 = True
@@ -66,3 +67,42 @@ def test_inner_empty_array_returns_empty_list(index_with_docs):
 
     result = index_with_docs.search("テスト")
     assert result == []
+
+
+def test_save_does_not_clobber_stale_fixed_tmp_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(bm25_module, "BM25_PERSIST_DIR", tmp_path)
+    tenant_key = "a" * 32
+    company_id = "company-1"
+    stale_tmp = tmp_path / f"{tenant_key}__{company_id}.json.tmp"
+    stale_tmp.write_text("stale data", encoding="utf-8")
+
+    idx = BM25Index(company_id, tenant_key=tenant_key)
+    idx.add_document("doc1", "テスト文書です")
+    idx.save()
+
+    assert (tmp_path / f"{tenant_key}__{company_id}.json").exists()
+    assert stale_tmp.read_text(encoding="utf-8") == "stale data"
+
+
+def test_load_ignores_tenant_scoped_pickle(tmp_path, monkeypatch):
+    monkeypatch.setattr(bm25_module, "BM25_PERSIST_DIR", tmp_path)
+    tenant_key = "a" * 32
+    company_id = "company-1"
+    pickle_path = tmp_path / f"{tenant_key}__{company_id}.pkl"
+    pickle_path.write_bytes(
+        pickle.dumps(
+            {
+                "documents": [
+                    {
+                        "doc_id": "legacy-doc",
+                        "text": "古い文書",
+                        "tokens": ["古い", "文書"],
+                        "metadata": {},
+                    }
+                ]
+            }
+        )
+    )
+
+    assert BM25Index.load(company_id, tenant_key=tenant_key) is None
+    assert pickle_path.exists()

@@ -9,13 +9,13 @@ import {
   parseUrlListInput,
   pdfFileKey,
   removePdfDraftFile,
-} from "@/components/companies/corporate-info-section/workflow-helpers";
+} from "@/features/company-info/ui/corporate-info-section/workflow-helpers";
 import {
   buildCorporateSearchQuery,
   detectCorporateContentType,
   resolveCorporateContentChannel,
-} from "@/components/companies/corporate-info-section/use-corporate-info-controller";
-import { DEFAULT_PDF_UPLOAD_CONTENT_TYPE, type PdfDraft } from "@/components/companies/corporate-info-section/workflow-config";
+} from "@/features/company-info/ui/corporate-info-section/use-corporate-info-controller";
+import { DEFAULT_PDF_UPLOAD_CONTENT_TYPE, type PdfDraft } from "@/features/company-info/ui/corporate-info-section/workflow-config";
 
 describe("getExtractionMethodLabel", () => {
   it("keeps legacy and new OCR method labels compatible", () => {

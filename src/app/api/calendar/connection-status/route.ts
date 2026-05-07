@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { buildCalendarConnectionStatus, ensureCalendarSettingsRecord } from "@/lib/calendar/connection";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 
 export async function GET() {
   try {

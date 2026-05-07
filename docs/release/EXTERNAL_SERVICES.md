@@ -160,3 +160,43 @@ Vercel のサーバーレス環境では分散 rate limit のために Upstash R
 |---|---|---|
 | **Free** | 10,000 コマンド/日, 256MB | 就活アプリの規模では十分 |
 | **Pay As You Go** | $0.2/100K コマンド | 超過時の自動課金 |
+
+## 5-6. Sentry 設定（エラー追跡）
+
+Phase 0 では Replay を使わず、error tracking と最小 tracing のみ有効化する。設定前に `docs/ops/MONITORING_SETUP.md` の送信禁止項目を確認する。
+
+### Vercel
+
+| 変数 | 用途 |
+|---|---|
+| `NEXT_PUBLIC_SENTRY_DSN` | browser SDK |
+| `SENTRY_DSN` | server / edge SDK |
+| `SENTRY_ORG` | source map upload |
+| `SENTRY_PROJECT` | source map upload |
+| `SENTRY_AUTH_TOKEN` | source map upload |
+| `SENTRY_ENVIRONMENT` | `production` / `staging` |
+| `SENTRY_RELEASE` | release id |
+
+### Railway
+
+| 変数 | 用途 |
+|---|---|
+| `SENTRY_DSN` | FastAPI SDK |
+| `SENTRY_ENVIRONMENT` | `production` / `staging` |
+| `SENTRY_RELEASE` | release id |
+| `SENTRY_TRACES_SAMPLE_RATE` | 既定 `0.05` |
+
+## 5-7. UptimeRobot 設定（外部死活監視）
+
+UptimeRobot Free は 5 分間隔の HTTP / keyword monitor として使う。SSL expiry と cron heartbeat は Free plan では不足する可能性があるため、後続で Sentry Crons または paid monitor を選ぶ。
+
+| # | Monitor | URL | Type |
+|---:|---|---|---|
+| 1 | 本番 Frontend | `https://www.shupass.jp` | HTTP(s) 200 |
+| 2 | 本番 Backend Health | `https://shupass-backend-production.up.railway.app/health` | HTTP(s) 200 |
+| 3 | 本番 Backend Ready | `https://shupass-backend-production.up.railway.app/health/ready` | HTTP(s) 200 |
+| 4 | Staging Frontend | `https://stg.shupass.jp` | HTTP(s) 200 |
+| 5 | Staging Backend | `https://stg-api.shupass.jp/health` | HTTP(s) 200 |
+| 6 | Apex Redirect | `https://shupass.jp` | HTTP(s) 301/302 |
+| 7 | robots.txt | `https://www.shupass.jp/robots.txt` | keyword `shupass` |
+| 8 | Backend request id | `https://shupass-backend-production.up.railway.app/health` | header `X-Request-Id` |

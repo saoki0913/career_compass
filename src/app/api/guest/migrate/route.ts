@@ -9,10 +9,21 @@ import { auth } from "@/lib/auth";
 import { migrateGuestToUser } from "@/lib/auth/guest";
 import { clearGuestDeviceTokenCookie, readGuestDeviceToken } from "@/lib/auth/guest-cookie";
 import { headers } from "next/headers";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getCsrfFailureReason } from "@/lib/csrf";
 import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
+  const csrfFailure = getCsrfFailureReason(request);
+  if (csrfFailure) {
+    return createApiErrorResponse(request, {
+      status: 403,
+      code: csrfFailure === "missing" ? "CSRF_TOKEN_MISSING" : "CSRF_TOKEN_INVALID",
+      userMessage: "画面を再読み込みして、もう一度お試しください。",
+      action: "ページを再読み込みしてください。",
+    });
+  }
+
   try {
     // Get the authenticated user session
     const session = await auth.api.getSession({
@@ -20,10 +31,21 @@ export async function POST(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "ログインし直してください。",
+      });
+    }
+
+    const deviceToken = readGuestDeviceToken(request);
+    if (!deviceToken) {
+      return NextResponse.json({
+        success: true,
+        migrated: false,
+        reason: "guest_session_not_found",
+      });
     }
 
     const rateLimitKey = createRateLimitKey("guestMigrate", session.user.id, null);
@@ -39,36 +61,33 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    const deviceToken = readGuestDeviceToken(request);
-    if (!deviceToken) {
-      return NextResponse.json(
-        { error: "Guest session not found" },
-        { status: 400 }
-      );
-    }
-
     const result = await migrateGuestToUser(deviceToken, session.user.id);
 
     if (!result) {
-      return NextResponse.json(
-        { error: "Guest session not found or already migrated" },
-        { status: 404 }
-      );
+      const response = NextResponse.json({
+        success: true,
+        migrated: false,
+        reason: "guest_session_not_found_or_already_migrated",
+      });
+      clearGuestDeviceTokenCookie(response);
+      return response;
     }
 
     const response = NextResponse.json({
       success: true,
-      guestId: result.guestId,
-      userId: result.userId,
+      migrated: true,
       message: "Guest data migrated successfully",
     });
     clearGuestDeviceTokenCookie(response);
     return response;
   } catch (error) {
-    console.error("Error migrating guest data:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "GUEST_MIGRATION_FAILED",
+      userMessage: "ゲストデータの引き継ぎに失敗しました。",
+      action: "時間を置いてから、もう一度お試しください。",
+      error,
+      logContext: "guest-migrate",
+    });
   }
 }

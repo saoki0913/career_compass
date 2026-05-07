@@ -5,12 +5,19 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { createServerTimingRecorder } from "@/bff/api/server-timing";
 import { retryFailedSyncJobs } from "@/lib/calendar/sync-persistence";
+import { createCalendarCsrfErrorResponse } from "@/app/api/calendar/_shared/csrf";
+import { getCsrfFailureReason } from "@/lib/csrf";
 
 export async function POST(request: NextRequest) {
+  const csrfFailure = getCsrfFailureReason(request);
+  if (csrfFailure) {
+    return createCalendarCsrfErrorResponse(request, csrfFailure);
+  }
+
   const timing = createServerTimingRecorder();
   try {
     const identity = await timing.measure("identity", () => getRequestIdentity(request));

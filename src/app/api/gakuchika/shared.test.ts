@@ -41,6 +41,8 @@ describe("api/gakuchika/shared conversation state", () => {
       readyForDraft: true,
       draftReadinessReason: "ES本文の材料は揃っています。",
       draftText: "私は学園祭運営で導線改善に取り組んだ。",
+      draftDocumentId: "doc-1",
+      summaryStale: true,
       strengthTags: ["ownership_visible"],
       issueTags: ["learning_generic"],
       deepdiveRecommendationTags: ["deepen_learning_transfer"],
@@ -60,6 +62,10 @@ describe("api/gakuchika/shared conversation state", () => {
         role: 2,
       },
       lastQuestionSignature: "action_reason:v2",
+      extendedDeepDiveRound: 0,
+      coachProgressMessage: "あと1問で材料が揃いそうです。",
+      remainingQuestionsEstimate: 1,
+      pausedQuestion: null,
     };
 
     const parsed = safeParseConversationState(serializeConversationState(state));
@@ -77,6 +83,9 @@ describe("api/gakuchika/shared conversation state", () => {
     expect(parsed.loopBlockedFocuses).toEqual(["challenge"]);
     expect(parsed.focusAttemptCounts.action).toBe(2);
     expect(parsed.lastQuestionSignature).toBe("action_reason:v2");
+    expect(parsed.extendedDeepDiveRound).toBe(0);
+    expect(parsed.coachProgressMessage).toBe("あと1問で材料が揃いそうです。");
+    expect(parsed.remainingQuestionsEstimate).toBe(1);
   });
 
   it("derives the next action from the current conversation state", () => {

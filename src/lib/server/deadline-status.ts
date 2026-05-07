@@ -9,6 +9,8 @@
  * 5. Otherwise → "not_started"
  */
 
+import { getJstDateKey } from "@/lib/datetime/jst";
+
 export type DeadlineComputedStatus = "not_started" | "in_progress" | "completed" | "overdue";
 
 export function computeDeadlineStatus(params: {
@@ -26,7 +28,7 @@ export function computeDeadlineStatus(params: {
     return "completed";
   }
 
-  if (params.dueDate < new Date()) {
+  if (getJstDateKey(params.dueDate) < getJstDateKey(new Date())) {
     return "overdue";
   }
 

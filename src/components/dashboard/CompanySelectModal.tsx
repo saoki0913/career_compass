@@ -13,41 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useCompanies } from "@/hooks/useCompanies";
 import { cn } from "@/lib/utils";
-
-// Icons
-const SearchIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-    />
-  </svg>
-);
-
-const BuildingIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-    />
-  </svg>
-);
-
-const ChevronRightIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-  </svg>
-);
-
-const PlusIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-  </svg>
-);
+import { Building2, ChevronRight, Plus, Search } from "lucide-react";
 
 interface CompanySelectModalProps {
   open: boolean;
@@ -99,7 +65,7 @@ export function CompanySelectModal({
         {/* Search input */}
         <div className="relative mt-2">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-            <SearchIcon />
+            <Search className="h-4 w-4" aria-hidden="true" />
           </div>
           <Input
             placeholder="企業を検索..."
@@ -119,7 +85,7 @@ export function CompanySelectModal({
           ) : filteredCompanies.length === 0 ? (
             <div className="py-8 text-center">
               <div className="w-12 h-12 mx-auto rounded-full bg-muted flex items-center justify-center text-muted-foreground mb-3">
-                <BuildingIcon />
+                <Building2 className="h-5 w-5" aria-hidden="true" />
               </div>
               <p className="text-sm text-muted-foreground">
                 {searchQuery ? "該当する企業が見つかりません" : "まだ企業が登録されていません"}
@@ -138,7 +104,7 @@ export function CompanySelectModal({
               >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                    <BuildingIcon />
+                    <Building2 className="h-5 w-5" aria-hidden="true" />
                   </div>
                   <div>
                     <p className="font-medium">{company.name}</p>
@@ -147,7 +113,7 @@ export function CompanySelectModal({
                     )}
                   </div>
                 </div>
-                <ChevronRightIcon />
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
               </button>
             ))
           )}
@@ -160,7 +126,7 @@ export function CompanySelectModal({
           </p>
           <Button variant="outline" className="w-full" asChild>
             <Link href="/companies/new" onClick={() => onOpenChange(false)}>
-              <PlusIcon />
+              <Plus className="h-4 w-4" aria-hidden="true" />
               <span className="ml-2">企業を追加する</span>
             </Link>
           </Button>
@@ -169,5 +135,3 @@ export function CompanySelectModal({
     </Dialog>
   );
 }
-
-export default CompanySelectModal;

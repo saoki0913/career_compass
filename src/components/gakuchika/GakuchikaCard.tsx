@@ -8,7 +8,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import {
   STARStatusBadge,
-  STARProgressCompact,
   type ConversationState,
 } from "@/components/gakuchika";
 import { Star, MoreVertical, Pencil, Trash2 } from "lucide-react";
@@ -64,9 +63,9 @@ function GakuchikaCardComponent({
   return (
     <Link href={`/gakuchika/${gakuchika.id}`}>
       <Card className="h-full hover:shadow-md transition-all duration-200 hover:border-primary/30 hover:-translate-y-0.5 active:scale-[0.99] cursor-pointer group">
-        <CardContent className="p-4 flex flex-col h-full">
+        <CardContent className="p-2.5 flex flex-col h-full">
           {/* Header: Star + Title + Status Badge */}
-          <div className="flex items-start justify-between gap-2 mb-1">
+          <div className="flex items-center justify-between gap-2 mb-1">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
               {onTogglePin && (
                 <button
@@ -95,7 +94,7 @@ function GakuchikaCardComponent({
                   />
                 </button>
               )}
-              <h3 className="font-semibold text-base text-foreground truncate group-hover:text-primary transition-colors">
+              <h3 className="font-semibold text-sm text-foreground truncate group-hover:text-primary transition-colors">
                 {gakuchika.title}
               </h3>
             </div>
@@ -116,18 +115,15 @@ function GakuchikaCardComponent({
                   <Trash2 className="h-4 w-4" />
                 </Button>
               ) : null}
-              <STARStatusBadge state={gakuchika.conversationState} status={gakuchika.conversationStatus} />
             </div>
           </div>
 
-          {/* Summary preview */}
-          <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-            {summaryText}
-          </p>
-
-          {/* STAR progress */}
-          <div className="mb-3">
-            <STARProgressCompact state={gakuchika.conversationState} status={gakuchika.conversationStatus} />
+          {/* Meta: Summary + Status */}
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <p className="text-xs text-muted-foreground truncate">
+              {summaryText}
+            </p>
+            <STARStatusBadge state={gakuchika.conversationState} status={gakuchika.conversationStatus} />
           </div>
 
           {/* Footer: Date + Menu */}

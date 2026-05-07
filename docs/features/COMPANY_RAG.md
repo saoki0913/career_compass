@@ -8,7 +8,7 @@ ES添削時に、ユーザーが選択して保存した企業ソースだけを
 
 | 項目 | 内容 |
 |------|------|
-| **実装** | `backend/app/utils/vector_store.py`, `backend/app/utils/hybrid_search.py` |
+| **実装** | `backend/app/rag/vector_store.py`, `backend/app/rag/hybrid_search.py` |
 | **API** | `backend/app/routers/company_info.py` |
 | **ベクトルDB** | ChromaDB（永続化） |
 | **キーワード検索** | BM25（bm25sライブラリ） |
@@ -46,9 +46,17 @@ ES添削時に企業情報を参照し、「企業接続」軸の評価を可能
 
 ### 3. テナント分離
 
-企業RAGの保存・検索・削除は、実体ストア側では主に `company_id` を境界にしている。Next API では `companies` の owner を確認してから FastAPI を呼ぶため、通常運用で他ユーザーの RAG が混ざる前提ではない。ただし ChromaDB / BM25 自体は `userId` / `guestId` / `tenant_key` を持たず、分離保証は `company_id` の一意性と Next API の owner check に依存している。
+企業RAGの保存・検索・削除は、実体ストア側でも `company_id + tenant_key` を境界にする。`tenant_key` は FastAPI が `X-Career-Principal` の actor と `TENANT_KEY_SECRET` から HMAC で導出し、ChromaDB metadata / BM25 path / RAG cache key に必ず含める。`TENANT_KEY_SECRET` が未設定の場合、RAG endpoint は 503 で fail-closed する。
+
+既存 RAG データは移行せず、strict 化後に削除・再取得する。guest から user に昇格した場合も、guest 側 RAG は user tenant に移行せず再取得する。
 
 詳細は [docs/architecture/TENANT_ISOLATION_AUDIT.md](../architecture/TENANT_ISOLATION_AUDIT.md) を参照。
+
+### 3.1 Contextual Retrieval と参考 ES
+
+企業RAGの正本は `company_info__{provider}__{model}` collection。Contextual Retrieval は shadow dual-write として `company_info__{provider}__{model}__ctx` に書き込み、本文 chunk は汚さず `metadata.contextual_prefix` と embedding 用 text だけを拡張する。検索の既定切替は `CONTEXTUAL_RETRIEVAL_ENABLED` で制御する。
+
+参考 ES は企業RAGとは物理分離し、`reference_es__{provider}__{model}` collection に保存する。metadata に `company_id` / `tenant_key` を持たせず、設問タイプ・業界・文字数上限で検索する。既定では `REFERENCE_ES_RAG_ENABLED=false` のため、既存の quality profile にフォールバックする。
 
 ### 4. コンテンツタイプ優先順位
 
@@ -316,8 +324,12 @@ ES添削プロンプトに注入される形式：
 
 | ファイル | 役割 |
 |---------|------|
-| `backend/app/utils/vector_store.py` | ChromaDB操作、RAG保存・検索 |
-| `backend/app/utils/hybrid_search.py` | ハイブリッド検索、RRF、クエリ拡張、HyDE、リランキング |
+| `backend/app/rag/vector_store.py` | ChromaDB操作、RAG保存・検索、Contextual Retrieval shadow dual-write |
+| `backend/app/rag/hybrid_search.py` | ハイブリッド検索、RRF、クエリ拡張、HyDE、リランキング |
+| `backend/app/rag/reference_es.py` | 参考 ES embedding collection の保存・検索 |
+| `backend/app/rag/chunking.py` | Contextual chunking |
+| `backend/app/rag/telemetry.py` | RAG metrics 定義 |
+| `backend/app/rag/metrics_exporter.py` | 内部 Prometheus exporter |
 | `backend/app/utils/bm25_store.py` | BM25インデックス管理 |
 | `backend/app/utils/embeddings.py` | Embedding生成 |
 | `backend/app/utils/text_chunker.py` | テキストチャンキング |

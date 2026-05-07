@@ -24,7 +24,6 @@ from app.config import settings
 from app.utils.company_names import (
     classify_company_domain_relation,
     domain_pattern_matches,
-    get_conflicting_companies_for_domain,
     normalize_company_result_source_type,
     resolve_domain_profile,
 )

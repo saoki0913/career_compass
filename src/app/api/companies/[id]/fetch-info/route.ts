@@ -10,10 +10,10 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { guardDailyTokenLimit } from "@/app/api/_shared/llm-cost-guard";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { getOwnedCompanyRecord } from "@/app/api/_shared/owner-access";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { getOwnedCompanyRecord } from "@/bff/identity/owner-access";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -29,7 +29,7 @@ import {
 } from "@/lib/ai/cost-summary-log";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
-import { companyFetchPolicy } from "@/lib/api-route/billing/company-fetch-policy";
+import { companyFetchPolicy } from "@/bff/billing/company-fetch-policy";
 import { saveExtractedDeadlines } from "@/lib/company-info/deadline-persistence";
 import type { ExtractedDeadline } from "@/lib/company-info/deadline-persistence";
 
@@ -88,10 +88,6 @@ function userFacingScheduleFetchError(detail: unknown): {
   if (!t || typeof t !== "string") {
     return null;
   }
-  const msg =
-    typeof d.error === "string" && d.error.trim()
-      ? d.error
-      : "情報の取得に失敗しました。時間を置いて、もう一度お試しください。";
   if (t === "no_api_key") {
     return {
       userMessage: "AI機能の設定に問題があります。",
@@ -100,8 +96,16 @@ function userFacingScheduleFetchError(detail: unknown): {
       llmErrorType: t,
     };
   }
+  if (t === "no_relevant_content" || t === "no_schedule_found") {
+    return {
+      userMessage: "締切情報を確認できませんでした。",
+      action: "別の公開採用ページURLを指定して、もう一度お試しください。",
+      retryable: false,
+      llmErrorType: t,
+    };
+  }
   return {
-    userMessage: msg,
+    userMessage: "情報の取得に失敗しました。",
     action: "時間を置いて、もう一度お試しください。",
     retryable: true,
     llmErrorType: t,
@@ -147,6 +151,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let cancelOutstandingBilling: ((reason: string) => Promise<void>) | null = null;
   try {
     const { id: companyId } = await params;
     const requestId = getRequestId(request);
@@ -248,6 +253,13 @@ export async function POST(
       companyName: company.name,
       plan: plan as "free" | "standard" | "pro",
     };
+    let billingReservationId: string | null = null;
+    const cancelBillingReservation = async (reason: string) => {
+      if (!billingReservationId) return;
+      await companyFetchPolicy.cancel(billingCtx, billingReservationId, reason);
+      billingReservationId = null;
+    };
+    cancelOutstandingBilling = cancelBillingReservation;
     const precheckResult = await companyFetchPolicy.precheck(billingCtx);
     if (!precheckResult.ok) {
       return createApiErrorResponse(request, {
@@ -257,7 +269,17 @@ export async function POST(
         action: "プランまたは残高を確認してください。",
       });
     }
-    const useMonthlyScheduleFree = precheckResult.freeQuotaAvailable;
+    const reservation = await companyFetchPolicy.reserve?.(billingCtx, 1);
+    if (!reservation?.reservationId) {
+      return createApiErrorResponse(request, {
+        status: 402,
+        code: "INSUFFICIENT_CREDITS",
+        userMessage: "クレジットが不足しています。",
+        action: "プランまたは残高を確認してください。",
+      });
+    }
+    billingReservationId = reservation.reservationId;
+    const useMonthlyScheduleFree = billingReservationId === "schedule-free-quota";
 
     // Get user's graduation year from profile if not provided in request
     let effectiveGraduationYear = graduationYear;
@@ -292,6 +314,7 @@ export async function POST(
         const errorData = await response.json().catch(() => ({}));
         const llmMapped = userFacingScheduleFetchError(errorData.detail);
         if (llmMapped) {
+          await cancelBillingReservation("fastapi_not_ok");
           return createApiErrorResponse(request, {
             status: 503,
             code: "SCHEDULE_FETCH_FAILED",
@@ -334,6 +357,7 @@ export async function POST(
       fetchResult = split.payload as FetchResult;
     } catch (error) {
       logError("backend-fetch", error);
+      await cancelBillingReservation("fastapi_fetch_exception");
       return createApiErrorResponse(request, {
         status: 503,
         code: "SCHEDULE_FETCH_FAILED",
@@ -368,6 +392,7 @@ export async function POST(
         creditsUsed: 0,
         telemetry,
       });
+      await cancelBillingReservation("backend_reported_failure");
       return NextResponse.json({
         success: false,
         resultStatus,
@@ -402,6 +427,7 @@ export async function POST(
         telemetry,
       });
       void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
+      await cancelBillingReservation("no_deadlines_partial_success");
 
       return NextResponse.json({
         success: false,
@@ -433,6 +459,7 @@ export async function POST(
         creditsUsed: 0,
         telemetry,
       });
+      await cancelBillingReservation("no_billable_data");
       return NextResponse.json({
         success: false,
         resultStatus: "no_deadlines" satisfies FetchInfoResultStatus,
@@ -469,32 +496,17 @@ export async function POST(
       })
       .where(eq(companies.id, companyId));
 
-    // Billing confirm: consume free quota or 1 credit (success only)
-    await companyFetchPolicy.confirm(
-      billingCtx,
-      {
-        kind: "billable_success",
-        creditsConsumed: useMonthlyScheduleFree ? 0 : 1,
-        freeQuotaUsed: useMonthlyScheduleFree,
-      },
-      null,
-    );
-
-    const creditsConsumed = useMonthlyScheduleFree ? 0 : 1;
-    const actualCreditsDeducted = useMonthlyScheduleFree ? undefined : 1;
-
-    // Get updated free remaining
-    const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
-
     if (duplicatesOnly) {
+      const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
       logAiCreditCostSummary({
         feature: "selection_schedule",
         requestId,
         status: "success",
-        creditsUsed: actualCreditsDeducted ?? 0,
+        creditsUsed: 0,
         telemetry,
       });
       void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
+      await cancelBillingReservation("duplicates_only");
       return NextResponse.json({
         success: false,
         resultStatus: "duplicates_only" satisfies FetchInfoResultStatus,
@@ -510,13 +522,32 @@ export async function POST(
         deadlines: savedDeadlineSummaries,
         deadlinesExtractedCount,
         deadlinesSavedCount,
-        creditsConsumed,
-        actualCreditsDeducted,
-        freeUsed: useMonthlyScheduleFree,
+        creditsConsumed: 0,
+        actualCreditsDeducted: 0,
+        freeUsed: false,
         freeRemaining,
         message: "取得した締切はすべて既存データと重複していたため、新規追加はありませんでした。",
       });
     }
+
+    // Billing confirm: consume free quota or 1 credit (success only)
+    await companyFetchPolicy.confirm(
+      billingCtx,
+      {
+        kind: "billable_success",
+        creditsConsumed: useMonthlyScheduleFree ? 0 : 1,
+        freeQuotaUsed: useMonthlyScheduleFree,
+      },
+      billingReservationId,
+    );
+    billingReservationId = null;
+    cancelOutstandingBilling = null;
+
+    const creditsConsumed = useMonthlyScheduleFree ? 0 : 1;
+    const actualCreditsDeducted = useMonthlyScheduleFree ? undefined : 1;
+
+    // Get updated free remaining
+    const freeRemaining = await getRemainingFreeFetches(userId, guestId, plan);
 
     logAiCreditCostSummary({
       feature: "selection_schedule",
@@ -548,6 +579,11 @@ export async function POST(
     });
   } catch (error) {
     logError("fetch-company-info", error);
+    if (cancelOutstandingBilling) {
+      await cancelOutstandingBilling("unhandled_exception").catch((cancelError) => {
+        logError("fetch-company-info-billing-cancel", cancelError);
+      });
+    }
     return createApiErrorResponse(request, {
       status: 500,
       code: "INTERNAL_ERROR",

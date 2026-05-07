@@ -1,6 +1,6 @@
 import { and, eq, type SQL } from "drizzle-orm";
 
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
 import type { ProfileContext } from "@/lib/ai/user-context";
 import { resolveMotivationRoleContext } from "@/lib/constants/es-review-role-catalog";
 import { db } from "@/lib/db";

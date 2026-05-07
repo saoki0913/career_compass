@@ -15,6 +15,7 @@ describe("resolveE2EFunctionalScope", () => {
       changedFiles: [
         "backend/app/routers/es_review.py",
         "src/app/api/documents/_services/handle-review-stream.ts",
+        "src/features/es-review/hooks/transport.ts",
       ],
     });
 
@@ -27,15 +28,32 @@ describe("resolveE2EFunctionalScope", () => {
       changedFiles: [
         "src/app/(product)/gakuchika/[id]/page.tsx",
         "src/app/(product)/companies/[id]/motivation/page.tsx",
+        "src/features/motivation/hooks/useMotivationConversationController.ts",
       ],
     });
 
     expect(scope.features).toEqual(["gakuchika", "motivation"]);
   });
 
+  it("maps gakuchika draft quality evaluator changes to gakuchika", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: ["backend/app/evaluators/draft_quality.py"],
+    });
+
+    expect(scope.features).toEqual(["gakuchika"]);
+  });
+
+  it("includes gakuchika when shared ES template changes", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: ["backend/app/prompts/es_templates.py"],
+    });
+
+    expect(scope.features).toContain("gakuchika");
+  });
+
   it("treats shared llm and live e2e files as all features", () => {
     const scope = resolveE2EFunctionalScope({
-      changedFiles: ["backend/app/utils/llm.py", "e2e/live-ai-conversations.spec.ts"],
+      changedFiles: ["backend/app/utils/llm.py", "e2e/live-smoke/live-ai-conversations.spec.ts"],
     });
 
     expect(scope.features).toEqual([
@@ -86,6 +104,33 @@ describe("resolveE2EFunctionalScope", () => {
       "rag-ingest",
       "selection-schedule",
     ]);
+  });
+
+  it("maps RAG package changes to company-info search and ingest", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: [
+        "backend/app/rag/hybrid_search.py",
+        "backend/app/rag/vector_store.py",
+        "backend/app/rag/reference_es.py",
+      ],
+    });
+
+    expect(scope.features).toEqual(["company-info-search", "rag-ingest"]);
+  });
+
+  it("maps product page smoke targets to pages-smoke", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: [
+        "src/app/(product)/es/page.tsx",
+        "src/app/(product)/gakuchika/page.tsx",
+        "src/app/(product)/calendar/page.tsx",
+        "src/app/(product)/notifications/page.tsx",
+        "src/app/(product)/settings/page.tsx",
+        "e2e/live-smoke/live-ai-pages.spec.ts",
+      ],
+    });
+
+    expect(scope.features).toContain("pages-smoke");
   });
 
   it("maps absolute repo paths for shell hooks", () => {

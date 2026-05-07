@@ -7,7 +7,7 @@ Used for hybrid search combining with semantic search.
 
 import json
 import os
-import pickle
+import tempfile
 import time
 from pathlib import Path
 from typing import Optional
@@ -26,9 +26,9 @@ try:
 except ImportError:
     HAS_BM25 = False
     bm25s = None  # type: ignore
-    print("Warning: bm25s not installed. BM25 search will be disabled.")
+    logger.warning("bm25s not installed. BM25 search will be disabled.")
 
-from app.utils.japanese_tokenizer import tokenize, tokenize_with_domain_expansion
+from app.utils.japanese_tokenizer import tokenize_with_domain_expansion
 
 # BM25 index persistence directory
 BM25_PERSIST_DIR = Path(__file__).parent.parent.parent / "data" / "bm25"
@@ -37,22 +37,20 @@ BM25_PERSIST_DIR = Path(__file__).parent.parent.parent / "data" / "bm25"
 BM25_FORMAT_VERSION = 1
 
 
-def _index_file_stem(company_id: str, tenant_key: Optional[str] = None) -> str:
+def _index_file_stem(company_id: str, tenant_key: str) -> str:
     """Build the file stem for BM25 index files.
 
-    With tenant_key: ``{tenant_key}__{company_id}``
-    Without: ``{company_id}``
+    BM25 paths are tenant-scoped. Company-only paths are intentionally not
+    supported because company_id is not a sufficient storage boundary.
     """
-    if tenant_key:
-        return f"{tenant_key}__{company_id}"
-    return company_id
+    if not tenant_key:
+        raise ValueError("tenant_key is required for BM25 index access")
+    return f"{tenant_key}__{company_id}"
 
 
-def _cache_key(company_id: str, tenant_key: Optional[str] = None) -> str:
+def _cache_key(company_id: str, tenant_key: str) -> str:
     """Build the LRU cache key."""
-    if tenant_key:
-        return f"{tenant_key}__{company_id}"
-    return company_id
+    return f"{tenant_key}__{company_id}"
 
 
 @dataclass
@@ -73,7 +71,7 @@ class BM25Index:
     Persists to disk for durability.
     """
 
-    def __init__(self, company_id: str, tenant_key: Optional[str] = None):
+    def __init__(self, company_id: str, tenant_key: str):
         """
         Initialize BM25 index for a company.
 
@@ -224,22 +222,39 @@ class BM25Index:
             ],
         }
 
-        tmp_path = json_path.with_suffix(".json.tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
+        tmp_path: Optional[str] = None
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=BM25_PERSIST_DIR,
+            prefix=f".{stem}.",
+            suffix=".json.tmp",
+            delete=False,
+        ) as f:
+            tmp_path = f.name
             json.dump(data, f, ensure_ascii=False)
-        os.replace(tmp_path, json_path)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.replace(tmp_path, json_path)
+        except Exception:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
 
-        print(f"[BM25] Saved index for {self.company_id} ({len(self.documents)} docs)")
+        logger.info(
+            "Saved BM25 index for %s (%d docs)",
+            self.company_id,
+            len(self.documents),
+        )
 
     @classmethod
-    def load(cls, company_id: str, tenant_key: Optional[str] = None) -> Optional["BM25Index"]:
+    def load(cls, company_id: str, tenant_key: str) -> Optional["BM25Index"]:
         """
         Load an index from disk.
 
-        Tries tenant-aware path first, then falls back to legacy company-only
-        path (for pre-migration data). Tries JSON format first (secure), then
-        falls back to pickle for migration. Corrupted files are moved to
-        .corrupted extension.
+        Tries JSON format only. Company-only legacy paths and pickle indexes are
+        intentionally not read because tenant strict storage is the boundary.
 
         Args:
             company_id: Company identifier
@@ -250,16 +265,6 @@ class BM25Index:
         """
         stem = _index_file_stem(company_id, tenant_key)
         json_path = BM25_PERSIST_DIR / f"{stem}.json"
-        pkl_path = BM25_PERSIST_DIR / f"{stem}.pkl"
-
-        # Fallback to legacy (non-tenant) path if tenant-aware file doesn't exist
-        if tenant_key and not json_path.exists() and not pkl_path.exists():
-            legacy_json = BM25_PERSIST_DIR / f"{company_id}.json"
-            legacy_pkl = BM25_PERSIST_DIR / f"{company_id}.pkl"
-            if legacy_json.exists():
-                json_path = legacy_json
-            elif legacy_pkl.exists():
-                pkl_path = legacy_pkl
 
         # Try JSON first (new secure format)
         if json_path.exists():
@@ -270,7 +275,11 @@ class BM25Index:
                 # Validate schema version
                 version = data.get("version", 0)
                 if version != BM25_FORMAT_VERSION:
-                    print(f"[BM25] ⚠️ Unsupported version {version} for {company_id}")
+                    logger.warning(
+                        "Unsupported BM25 index version %s for %s",
+                        version,
+                        company_id,
+                    )
                     return None
 
                 index = cls(company_id, tenant_key=tenant_key)
@@ -283,68 +292,30 @@ class BM25Index:
                     )
                     index.documents.append(doc)
 
-                print(
-                    f"[BM25] ✅ Loaded index for {company_id} ({len(index.documents)} docs)"
+                logger.info(
+                    "Loaded BM25 index for %s (%d docs)",
+                    company_id,
+                    len(index.documents),
                 )
                 return index
 
             except Exception as e:
-                print(f"[BM25] ❌ Error loading JSON index for {company_id}: {e}")
+                logger.error("Error loading BM25 JSON index for %s: %s", company_id, e)
                 # Move corrupted file
                 corrupted_path = json_path.with_suffix(
                     f".json.corrupted.{int(time.time())}"
                 )
                 try:
                     json_path.rename(corrupted_path)
-                    print(f"[BM25] Moved corrupted file to: {corrupted_path}")
+                    logger.warning("Moved corrupted BM25 file to: %s", corrupted_path)
                 except Exception as rename_error:
-                    print(f"[BM25] Could not move corrupted file: {rename_error}")
-                return None
-
-        # Fall back to pickle for migration (legacy format)
-        if pkl_path.exists():
-            try:
-                print(f"[BM25] Migrating pickle to JSON for {company_id}...")
-                with open(pkl_path, "rb") as f:
-                    data = pickle.load(f)
-
-                index = cls(company_id, tenant_key=tenant_key)
-                for doc_data in data.get("documents", []):
-                    doc = BM25Document(
-                        doc_id=doc_data["doc_id"],
-                        text=doc_data["text"],
-                        tokens=doc_data["tokens"],
-                        metadata=doc_data.get("metadata", {}),
-                    )
-                    index.documents.append(doc)
-
-                # Save as JSON (migrate)
-                index.save()
-
-                # Remove old pickle file after successful migration
-                pkl_path.unlink()
-                print(
-                    f"[BM25] ✅ Migrated {company_id} from pickle to JSON ({len(index.documents)} docs)"
-                )
-                return index
-
-            except Exception as e:
-                print(f"[BM25] ❌ Error loading pickle index for {company_id}: {e}")
-                # Move corrupted pickle file
-                corrupted_path = pkl_path.with_suffix(
-                    f".pkl.corrupted.{int(time.time())}"
-                )
-                try:
-                    pkl_path.rename(corrupted_path)
-                    print(f"[BM25] Moved corrupted pickle to: {corrupted_path}")
-                except Exception as rename_error:
-                    print(f"[BM25] Could not move corrupted file: {rename_error}")
+                    logger.warning("Could not move corrupted BM25 file: %s", rename_error)
                 return None
 
         return None
 
     @classmethod
-    def delete(cls, company_id: str, tenant_key: Optional[str] = None) -> bool:
+    def delete(cls, company_id: str, tenant_key: str) -> bool:
         """
         Delete an index from disk.
 
@@ -358,26 +329,21 @@ class BM25Index:
         deleted = False
         stem = _index_file_stem(company_id, tenant_key)
         json_path = BM25_PERSIST_DIR / f"{stem}.json"
-        pkl_path = BM25_PERSIST_DIR / f"{stem}.pkl"
 
         if json_path.exists():
             json_path.unlink()
             deleted = True
-        if pkl_path.exists():
-            pkl_path.unlink()
-            deleted = True
 
         if deleted:
-            print(f"[BM25] Deleted index for {company_id}")
+            logger.info("Deleted BM25 index for %s", company_id)
         return deleted
 
     @classmethod
-    def exists(cls, company_id: str, tenant_key: Optional[str] = None) -> bool:
+    def exists(cls, company_id: str, tenant_key: str) -> bool:
         """Check if an index exists on disk."""
         stem = _index_file_stem(company_id, tenant_key)
         json_path = BM25_PERSIST_DIR / f"{stem}.json"
-        pkl_path = BM25_PERSIST_DIR / f"{stem}.pkl"
-        return json_path.exists() or pkl_path.exists()
+        return json_path.exists()
 
 
 # LRU cache for performance with bounded memory usage
@@ -385,7 +351,7 @@ class BM25Index:
 _index_cache: LRUCache = LRUCache(maxsize=100)
 
 
-def get_or_create_index(company_id: str, tenant_key: Optional[str] = None) -> BM25Index:
+def get_or_create_index(company_id: str, tenant_key: str) -> BM25Index:
     """
     Get or create a BM25 index for a company.
 
@@ -420,6 +386,8 @@ def clear_index_cache(company_id: Optional[str] = None, tenant_key: Optional[str
         tenant_key: Tenant key for data isolation.
     """
     if company_id:
+        if not tenant_key:
+            raise ValueError("tenant_key is required when clearing a company BM25 cache")
         key = _cache_key(company_id, tenant_key)
         _index_cache.pop(key, None)
     else:

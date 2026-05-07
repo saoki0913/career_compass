@@ -14,7 +14,8 @@ import { headers } from "next/headers";
 import { logError } from "@/lib/logger";
 import { getSettingsPageData } from "@/lib/server/account-loaders";
 import { getBillingPeriodFromPriceId } from "@/lib/stripe/config";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
 
 export async function GET(request: NextRequest) {
   try {
@@ -168,12 +169,12 @@ export async function PUT(request: NextRequest) {
     }
     if (targetIndustries !== undefined) {
       profileData.targetIndustries = Array.isArray(targetIndustries)
-        ? JSON.stringify(targetIndustries)
+        ? targetIndustries
         : null;
     }
     if (targetJobTypes !== undefined) {
       profileData.targetJobTypes = Array.isArray(targetJobTypes)
-        ? JSON.stringify(targetJobTypes)
+        ? targetJobTypes
         : null;
     }
 
@@ -228,12 +229,8 @@ export async function PUT(request: NextRequest) {
         university: profile?.university || null,
         faculty: profile?.faculty || null,
         graduationYear: profile?.graduationYear || null,
-        targetIndustries: profile?.targetIndustries
-          ? JSON.parse(profile.targetIndustries)
-          : [],
-        targetJobTypes: profile?.targetJobTypes
-          ? JSON.parse(profile.targetJobTypes)
-          : [],
+        targetIndustries: parseStringArrayCompat(profile?.targetIndustries ?? null),
+        targetJobTypes: parseStringArrayCompat(profile?.targetJobTypes ?? null),
         creditsBalance: creditRow?.balance ?? 0,
         currentPeriodEnd: subscriptionRow?.currentPeriodEnd?.toISOString() ?? null,
         subscriptionStatus: subscriptionRow?.status ?? null,

@@ -7,6 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import { getRemainingCompanyRagPdfFreeUnits } from "@/lib/company-info/usage";
 
 export const runtime = "nodejs";
@@ -129,6 +130,12 @@ export async function POST(
 
     return NextResponse.json(data);
   } catch (error) {
+    if (isSecretMissingError(error)) {
+      return NextResponse.json(
+        { error: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。" },
+        { status: 503 }
+      );
+    }
     console.error("Error estimating corporate PDF upload:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

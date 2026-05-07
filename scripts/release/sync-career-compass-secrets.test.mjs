@@ -35,7 +35,7 @@ test("checks env files with spaces and emails without sourcing them", () => {
 
     const result = spawnSync(
       "zsh",
-      [scriptPath, "--check", "--target", "vercel-staging", "--secret-dir", secretDir],
+      [scriptPath, "--check", "--target", "vercel-staging", "--secret-dir", secretDir, "--skip-provider-drift"],
       {
         cwd: repoRoot,
         encoding: "utf8",
@@ -46,6 +46,245 @@ test("checks env files with spaces and emails without sourcing them", () => {
     assert.match(`${result.stdout}\n${result.stderr}`, /Checked Vercel staging env/);
   } finally {
     rmSync(secretDir, { recursive: true, force: true });
+  }
+});
+
+test("check fails on provider missing keys without printing secret values", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-staging.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "PUBLIC_SETTING=expected-public",
+        "INTERNAL_API_JWT_SECRET=super-secret-value-that-must-not-leak",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "env" && "$2" == "pull" ]]; then
+  cat > "$3" <<'EOF'
+PUBLIC_SETTING=expected-public
+CI_E2E_AUTH_SECRET=provider-secret
+CI_E2E_AUTH_ENABLED=1
+PLAYWRIGHT_BASE_URL=https://example.test
+EOF
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--check", "--target", "vercel-staging", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+        },
+      },
+    );
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.notEqual(result.status, 0, output);
+    assert.match(output, /missing provider keys: INTERNAL_API_JWT_SECRET/);
+    assert.doesNotMatch(output, /super-secret-value-that-must-not-leak/);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("check accepts Vercel staging overlay keys and only warns on extra keys", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-staging.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "PUBLIC_SETTING=expected-public",
+        "SUPABASE_URL=https://example.supabase.co",
+        "SUPABASE_SERVICE_ROLE_KEY=service-role-secret-that-must-not-leak",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "env" && "$2" == "pull" ]]; then
+  cat > "$3" <<'EOF'
+PUBLIC_SETTING=expected-public
+SUPABASE_URL=https://example.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=provider-secret
+CI_E2E_AUTH_SECRET=provider-secret
+CI_E2E_AUTH_ENABLED=1
+PLAYWRIGHT_BASE_URL=https://example.test
+TEMP_PROVIDER_ONLY_KEY=extra
+EOF
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--check", "--target", "vercel-staging", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+        },
+      },
+    );
+
+    const output = `${result.stdout}\n${result.stderr}`;
+    assert.equal(result.status, 0, output);
+    assert.match(output, /unexpected provider keys: TEMP_PROVIDER_ONLY_KEY/);
+    assert.doesNotMatch(output, /missing provider keys: CI_E2E_AUTH_SECRET/);
+    assert.doesNotMatch(output, /service-role-secret-that-must-not-leak/);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("applies every Vercel key even when CLI reads stdin", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+  const keysLog = path.join(secretDir, "vercel-keys.log");
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-production.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "FIRST_SETTING=first-value",
+        "SECOND_SETTING=second-value",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "env" && "$2" == "add" ]]; then
+  print -r -- "$3" >> "$VERCEL_KEYS_LOG"
+  cat >/dev/null || true
+  exit 0
+fi
+if [[ "$1" == "env" && "$2" == "rm" ]]; then
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--apply", "--target", "vercel-production", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          VERCEL_KEYS_LOG: keysLog,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const keys = readFileSync(keysLog, "utf8").trim().split("\n").sort();
+    assert.equal(keys.length, 4);
+    assert.deepEqual([...new Set(keys)], ["FIRST_SETTING", "SECOND_SETTING"]);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("checks Vercel production without preview branch argument", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-production.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "PUBLIC_SETTING=expected-public",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "env" && "$2" == "pull" ]]; then
+  cat > "$3" <<'EOF'
+PUBLIC_SETTING=expected-public
+EOF
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--check", "--target", "vercel-production", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Checked Vercel production provider key drift/);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
   }
 });
 

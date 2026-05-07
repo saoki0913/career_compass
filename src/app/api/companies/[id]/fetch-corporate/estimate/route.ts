@@ -13,6 +13,7 @@ import { calculatePdfIngestCredits } from "@/lib/company-info/pricing";
 import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
 import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 
 export const runtime = "nodejs";
 
@@ -181,6 +182,10 @@ export async function POST(
       requiresConfirmation,
     });
   } catch (error) {
+    if (isSecretMissingError(error)) {
+      const msg = "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。";
+      return NextResponse.json({ error: msg, errors: [msg] }, { status: 503 });
+    }
     console.error("Error estimating corporate info fetch:", error);
     const msg = "Internal server error";
     return NextResponse.json({ error: msg, errors: [msg] }, { status: 500 });

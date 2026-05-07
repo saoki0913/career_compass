@@ -4,7 +4,7 @@ const baseURL = process.env.PLAYWRIGHT_BASE_URL?.trim() || "http://localhost:300
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEBSERVER === "1";
 
 export default defineConfig({
-  testDir: "./e2e",
+  testDir: "./e2e/live-smoke",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

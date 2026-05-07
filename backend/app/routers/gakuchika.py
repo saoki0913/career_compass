@@ -50,7 +50,16 @@ from app.prompts.es_templates import (
     build_template_draft_generation_prompt,
 )
 from app.evaluators.deepdive_completion import _evaluate_deepdive_completion
-from app.evaluators.draft_quality import _build_causal_gaps, _build_draft_quality_checks
+from app.evaluators.draft_quality import (
+    _build_causal_gaps,
+    _build_draft_quality_checks,
+    _detect_gakuchika_critic_closing,
+)
+from app.routers.es_review_validation import (
+    _compute_ai_smell_score,
+    _detect_ai_smell_patterns,
+    _is_within_char_limits,
+)
 from app.normalization.gakuchika_payload import (
     _build_coach_progress_message,
     _default_state,
@@ -60,7 +69,7 @@ from app.normalization.gakuchika_payload import (
     _normalize_es_build_payload,
     _sanitize_blocked_focuses,
 )
-from app.routers.gakuchika_question_pipeline import (
+from app.services.gakuchika.question_pipeline import (
     _generate_initial_question as _generate_initial_question_pipeline,
     _generate_next_question_progress as _generate_next_question_progress_pipeline,
     _sse_event as _sse_event_pipeline,
@@ -85,11 +94,8 @@ from app.utils.gakuchika_text import (
     _normalize_text,
     _role_required,
 )
-from app.utils.llm import (
-    _parse_json_response,
-    call_llm_with_error,
-    consume_request_llm_cost_summary,
-)
+from app.utils.llm import call_llm_with_error, consume_request_llm_cost_summary
+from app.utils.llm_providers import _parse_json_response
 from app.utils.llm_prompt_safety import (
     PromptSafetyError,
     sanitize_prompt_input,
@@ -117,6 +123,102 @@ def _check_fact_overlap(draft_text: str, student_expressions: list[str]) -> dict
     }
 
 
+def _format_draft_material(material: dict[str, Any] | None) -> str:
+    if not isinstance(material, dict):
+        return ""
+    lines: list[str] = []
+    readiness_reason = _clean_string(material.get("draft_readiness_reason"))
+    if readiness_reason:
+        lines.append(f"- 準備状況: {readiness_reason}")
+    for key, label in (
+        ("strength_tags", "強みタグ"),
+        ("issue_tags", "注意タグ"),
+        ("deferred_focuses", "追加で深掘りできる論点"),
+    ):
+        values = _clean_string_list(material.get(key), max_items=5)
+        if values:
+            lines.append(f"- {label}: {'、'.join(values)}")
+    quality_checks = material.get("draft_quality_checks")
+    if isinstance(quality_checks, dict):
+        missing = [key for key, ok in quality_checks.items() if ok is False]
+        if missing:
+            lines.append(f"- 本文で補うべき観点: {'、'.join(missing[:5])}")
+    return "\n".join(lines)
+
+
+def _build_gakuchika_draft_quality_report(
+    *,
+    draft_text: str,
+    user_origin_text: str,
+    student_expressions: list[str],
+    char_min: int,
+    char_max: int,
+) -> dict[str, Any]:
+    ai_warnings = _detect_ai_smell_patterns(
+        draft_text,
+        user_origin_text,
+        template_type="gakuchika",
+        char_max=char_max,
+    )
+    smell_score = _compute_ai_smell_score(
+        ai_warnings,
+        template_type="gakuchika",
+        char_max=char_max,
+    )
+    within_limits, length_detail = _is_within_char_limits(draft_text, char_min, char_max)
+    critic_closing = _detect_gakuchika_critic_closing(draft_text, user_origin_text)
+    fact_check = _check_fact_overlap(draft_text, student_expressions)
+    failure_codes: list[str] = []
+    warnings: list[str] = []
+    if not within_limits:
+        if str(length_detail).startswith("under_min"):
+            failure_codes.append("under_char_min")
+            warnings.append(f"本文が短めです（目安は{char_min}〜{char_max}字）。")
+        elif str(length_detail).startswith("over_max"):
+            failure_codes.append("over_char_max")
+            warnings.append(f"本文が長めです（目安は{char_min}〜{char_max}字）。")
+    if int(smell_score.get("tier", 0) or 0) >= 2:
+        failure_codes.append("ai_smell_high")
+        warnings.append("定型的・抽象的に見える表現が残っています。")
+    if critic_closing.get("detected"):
+        failure_codes.append("critic_closing")
+        failure_codes.extend(str(code) for code in critic_closing.get("codes", []) if code)
+        warnings.append("結びが評論調または結果のない学びに寄っているため、経験内の結果、または結果＋学びで締める確認が必要です。")
+    if not fact_check["overlap_ok"]:
+        failure_codes.append("low_fact_overlap")
+        warnings.append("本人の言葉や具体表現の反映が弱い可能性があります。")
+    return {
+        "failure_codes": list(dict.fromkeys(failure_codes)),
+        "warnings": list(dict.fromkeys(warnings)),
+        "ai_warnings": ai_warnings,
+        "ai_smell_score": smell_score,
+        "within_limits": within_limits,
+        "length_detail": length_detail,
+        "critic_closing": critic_closing,
+        "fact_overlap": fact_check,
+    }
+
+
+def _build_gakuchika_draft_retry_hints(report: dict[str, Any], *, char_min: int, char_max: int) -> list[str]:
+    codes = set(report.get("failure_codes") or [])
+    hints: list[str] = []
+    if "under_char_min" in codes:
+        hints.append(f"内容を保ったまま具体的な行動・結果を補い、{char_min}字以上にする")
+    if "over_char_max" in codes:
+        hints.append(f"冗長な抽象表現を削り、{char_max}字以内に収める")
+    if "critic_closing" in codes or "resultless_closing" in codes:
+        hints.append("結びは必ず経験内の結果、または結果を書いた直後の学びで締める")
+    if "critic_closing" in codes:
+        hints.append("「手法は〜に直結する」「〜と言える」「〜が重要である」のような一般論で終えない")
+    if "resultless_closing" in codes:
+        hints.append("最終2文のどちらかに、成果・数字・前後差・改善結果を明示する")
+    if "ai_smell_high" in codes:
+        hints.append("抽象名詞を主語にした一般論を避け、本人の経験内の具体事実・結果・学びを主語に戻す")
+    if "low_fact_overlap" in codes:
+        hints.append("会話中の本人の表現・数値・固有名を少なくとも1つ自然に残す")
+    return list(dict.fromkeys(hints))
+
+
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
@@ -139,6 +241,8 @@ class ConversationStateInput(BaseModel):
     ready_for_draft: bool = False
     draft_readiness_reason: str | None = Field(default=None, max_length=240)
     draft_text: str | None = Field(default=None, max_length=3000)
+    draft_document_id: str | None = Field(default=None, max_length=120)
+    summary_stale: bool = False
     strength_tags: list[str] = Field(default_factory=list)
     issue_tags: list[str] = Field(default_factory=list)
     deepdive_recommendation_tags: list[str] = Field(default_factory=list)
@@ -157,6 +261,7 @@ class ConversationStateInput(BaseModel):
     extended_deep_dive_round: int = Field(default=0, ge=0, le=100)
     # Round-trip fields surfaced to the client via SSE (pass-through on resume).
     coach_progress_message: str | None = Field(default=None, max_length=120)
+    paused_question: str | None = Field(default=None, max_length=300)
     remaining_questions_estimate: int | None = Field(default=None, ge=0, le=20)
     retry_degraded: bool = False
 
@@ -216,12 +321,15 @@ class StructuredSummaryResponse(BaseModel):
     likely_followup_questions: list[str] = []
     weak_points_to_prepare: list[str] = []
     two_minute_version_outline: list[str] = []
+    internal_telemetry: Optional[dict[str, object]] = None
 
 
 class GakuchikaESDraftRequest(BaseModel):
     gakuchika_title: str = Field(max_length=200)
     conversation_history: list[Message]
     char_limit: int = Field(default=400, ge=300, le=500)
+    known_facts: str | None = Field(default=None, max_length=3000)
+    draft_material: dict[str, Any] | None = None
 
 
 class GakuchikaESDraftResponse(BaseModel):
@@ -229,6 +337,7 @@ class GakuchikaESDraftResponse(BaseModel):
     char_count: int
     followup_suggestion: str = "更に深掘りする"
     draft_diagnostics: dict[str, list[str]] | None = None
+    draft_quality: dict[str, Any] | None = None
     internal_telemetry: Optional[dict[str, object]] = None
 
 
@@ -243,6 +352,14 @@ def _format_conversation(messages: list[Message]) -> str:
         content = sanitize_user_prompt_text(msg.content, max_length=3000) if msg.role == "user" else msg.content
         formatted.append(f"{role_label}: {content}")
     return "\n\n".join(formatted)
+
+
+def _format_user_answers(messages: list[Message]) -> str:
+    return "\n\n".join(
+        sanitize_user_prompt_text(msg.content, max_length=3000)
+        for msg in messages
+        if msg.role == "user" and msg.content.strip()
+    )
 
 
 def _prompt_safety_http_error() -> HTTPException:
@@ -283,6 +400,8 @@ def _sanitize_summary_request(request: StructuredSummaryRequest) -> None:
 
 def _sanitize_es_draft_request(request: GakuchikaESDraftRequest) -> None:
     request.gakuchika_title = sanitize_user_prompt_text(request.gakuchika_title, max_length=200).strip()
+    if request.known_facts is not None:
+        request.known_facts = sanitize_user_prompt_text(request.known_facts, max_length=3000, rich_text=True)
     _sanitize_messages(request.conversation_history)
 
 
@@ -449,7 +568,7 @@ def _resolve_next_action(state: dict[str, Any]) -> str:
     stage = _clean_string(state.get("stage")) or "es_building"
     draft_text = _clean_string(state.get("draft_text"))
     if stage == "interview_ready":
-        return "show_interview_ready"
+        return "show_interview_ready" if draft_text else "ask"
     if stage == "draft_ready":
         return "continue_deep_dive" if draft_text else "show_generate_draft_cta"
     return "ask"
@@ -459,8 +578,9 @@ def _is_deepdive_request(request: NextQuestionRequest) -> bool:
     state = request.conversation_state
     if not state:
         return False
-    # draft_ready: 「もう少し整える」等で ES 下書き本文がまだ無い段階でも深掘りプロンプトに乗せる（es_building ではない限り衝突しない）
-    return bool(state.draft_text) or state.stage in {
+    if not state.draft_text:
+        return False
+    return state.stage in {
         "draft_ready",
         "deep_dive_active",
         "interview_ready",
@@ -520,8 +640,12 @@ def _build_deepdive_prompt(request: NextQuestionRequest) -> tuple[str, str]:
     )
     loop_blocked = list(state.loop_blocked_focuses) if state else []
 
+    deepdive_turn_count = max(
+        0,
+        len([focus for focus in asked if focus not in CORE_BUILD_ELEMENTS]),
+    )
     phase_name, phase_description, preferred_focuses = _determine_deepdive_phase(
-        request.question_count,
+        deepdive_turn_count,
         asked_focuses=asked,
         resolved_focuses=resolved,
         blocked_focuses=blocked,
@@ -821,6 +945,7 @@ async def generate_structured_summary(payload: StructuredSummaryRequest, request
         likely_followup_questions=_clean_string_list(data.get("likely_followup_questions"), max_items=4),
         weak_points_to_prepare=_clean_string_list(data.get("weak_points_to_prepare"), max_items=3),
         two_minute_version_outline=_clean_string_list(data.get("two_minute_version_outline"), max_items=4),
+        internal_telemetry=consume_request_llm_cost_summary("gakuchika_summary"),
     )
 
 
@@ -837,9 +962,17 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
         raise _prompt_safety_http_error()
 
     conversation_text = _format_conversation(payload.conversation_history)
+    user_answers_text = _format_user_answers(payload.conversation_history)
     char_min = int(payload.char_limit * 0.9)
     title = sanitize_prompt_input(payload.gakuchika_title, max_length=200)
-    primary_body = f"テーマ: {title}\n\n{conversation_text}"
+    draft_material_text = _format_draft_material(payload.draft_material)
+    known_facts_text = _clean_string(payload.known_facts)
+    material_sections = [f"テーマ: {title}", conversation_text]
+    if known_facts_text:
+        material_sections.append(f"【本人が話した具体事実】\n{known_facts_text}")
+    if draft_material_text:
+        material_sections.append(f"【材料診断】\n{draft_material_text}")
+    primary_body = "\n\n".join(section for section in material_sections if section)
     # Phase B.5: pull up to 5 of the student's own-words expressions so the
     # draft can reuse them verbatim rather than over-polishing everything.
     student_expressions = _extract_student_expressions(payload.conversation_history, max_items=5)
@@ -885,9 +1018,22 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
                         draft_text = draft_text[: last_period + 1]
                 if len(draft_text) >= 100:
                     draft_text = normalize_es_draft_single_paragraph(draft_text)
+                    quality_report = _build_gakuchika_draft_quality_report(
+                        draft_text=draft_text,
+                        user_origin_text=user_answers_text,
+                        student_expressions=student_expressions,
+                        char_min=char_min,
+                        char_max=payload.char_limit,
+                    )
                     return GakuchikaESDraftResponse(
                         draft=draft_text,
                         char_count=len(draft_text),
+                        draft_quality={
+                            "status": "warning" if quality_report["failure_codes"] else "passed",
+                            "warnings": quality_report["warnings"],
+                            "retry_count": 0,
+                            "failure_codes": quality_report["failure_codes"],
+                        },
                         internal_telemetry=consume_request_llm_cost_summary("gakuchika_draft"),
                     )
         error = llm_result.error
@@ -901,8 +1047,73 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
     data = llm_result.data
     draft = normalize_es_draft_single_paragraph(_clean_string(data.get("draft")))
     followup_suggestion = _clean_string(data.get("followup_suggestion")) or "更に深掘りする"
+    initial_quality = _build_gakuchika_draft_quality_report(
+        draft_text=draft,
+        user_origin_text=user_answers_text,
+        student_expressions=student_expressions,
+        char_min=char_min,
+        char_max=payload.char_limit,
+    )
+    retry_count = 0
+    selected_reason = "initial"
+    if initial_quality["failure_codes"]:
+        retry_hints = _build_gakuchika_draft_retry_hints(
+            initial_quality,
+            char_min=char_min,
+            char_max=payload.char_limit,
+        )
+        if retry_hints:
+            retry_system_prompt = (
+                f"{system_prompt}\n\n"
+                "## 品質修正指示\n"
+                + "\n".join(f"- {hint}" for hint in retry_hints)
+            )
+            retry_result = await call_llm_with_error(
+                system_prompt=retry_system_prompt,
+                user_message=user_prompt,
+                max_tokens=1400,
+                temperature=0.25,
+                feature="gakuchika_draft",
+                retry_on_parse=True,
+                disable_fallback=True,
+            )
+            retry_count = 1
+            if retry_result.success and retry_result.data is not None:
+                retry_draft = normalize_es_draft_single_paragraph(
+                    _clean_string(retry_result.data.get("draft"))
+                )
+                retry_quality = _build_gakuchika_draft_quality_report(
+                    draft_text=retry_draft,
+                    user_origin_text=user_answers_text,
+                    student_expressions=student_expressions,
+                    char_min=char_min,
+                    char_max=payload.char_limit,
+                )
+                initial_fail_count = len(initial_quality["failure_codes"])
+                retry_fail_count = len(retry_quality["failure_codes"])
+                initial_score = float(initial_quality["ai_smell_score"].get("score", 0.0) or 0.0)
+                retry_score = float(retry_quality["ai_smell_score"].get("score", 0.0) or 0.0)
+                initial_codes = set(initial_quality["failure_codes"])
+                retry_codes = set(retry_quality["failure_codes"])
+                if (
+                    retry_draft
+                    and retry_codes.issubset(initial_codes)
+                    and (
+                        retry_fail_count < initial_fail_count
+                        or (
+                            retry_quality["within_limits"]
+                            and retry_quality["fact_overlap"]["overlap_ok"]
+                            and retry_fail_count == initial_fail_count
+                            and retry_score < initial_score
+                        )
+                    )
+                ):
+                    draft = retry_draft
+                    initial_quality = retry_quality
+                    selected_reason = "retry_improved"
+
     draft_diagnostics = _build_draft_diagnostics(draft)
-    fact_check = _check_fact_overlap(draft, student_expressions)
+    fact_check = initial_quality["fact_overlap"]
     if not fact_check["overlap_ok"]:
         logger.warning(
             "gakuchika_draft_low_fact_overlap",
@@ -910,10 +1121,24 @@ async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
             matched_count=len(fact_check["matched"]),
             total_expressions=len(student_expressions),
         )
+    quality_status = (
+        "passed"
+        if not initial_quality["failure_codes"] and retry_count == 0
+        else "repaired"
+        if not initial_quality["failure_codes"]
+        else "warning"
+    )
     return GakuchikaESDraftResponse(
         draft=draft,
         char_count=len(draft),
         followup_suggestion=followup_suggestion,
         draft_diagnostics=draft_diagnostics,
+        draft_quality={
+            "status": quality_status,
+            "warnings": initial_quality["warnings"],
+            "retry_count": retry_count,
+            "failure_codes": initial_quality["failure_codes"],
+            "selection_reason": selected_reason,
+        },
         internal_telemetry=consume_request_llm_cost_summary("gakuchika_draft"),
     )

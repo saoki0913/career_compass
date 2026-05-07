@@ -63,6 +63,8 @@ export interface ConversationState {
   readyForDraft: boolean;
   draftReadinessReason: string;
   draftText: string | null;
+  draftDocumentId: string | null;
+  summaryStale: boolean;
   strengthTags: string[];
   issueTags: string[];
   deepdiveRecommendationTags: string[];
@@ -88,6 +90,11 @@ export interface ConversationState {
    * 値がある場合、UI は `missingElements.length` などの client heuristic より優先する。
    */
   remainingQuestionsEstimate: number | null;
+  /**
+   * draft_ready / interview_ready で入力を一時停止しても、LLM が返した
+   * 次の深掘り質問を会話内に残すための表示用テキスト。
+   */
+  pausedQuestion: string | null;
 }
 
 export const BUILD_TRACK_KEYS: Array<Extract<BuildElement, "context" | "task" | "action" | "result">> = [
@@ -122,6 +129,8 @@ export function getDefaultConversationState(): ConversationState {
     readyForDraft: false,
     draftReadinessReason: "",
     draftText: null,
+    draftDocumentId: null,
+    summaryStale: false,
     strengthTags: [],
     issueTags: [],
     deepdiveRecommendationTags: [],
@@ -140,10 +149,9 @@ export function getDefaultConversationState(): ConversationState {
     extendedDeepDiveRound: 0,
     coachProgressMessage: null,
     remainingQuestionsEstimate: null,
+    pausedQuestion: null,
   };
 }
-
-export const defaultConversationState = getDefaultConversationState;
 
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -276,6 +284,8 @@ function parseLegacyState(value: Record<string, unknown>, status: string | null 
     readyForDraft: status === "completed",
     draftReadinessReason: "",
     draftText: null,
+    draftDocumentId: null,
+    summaryStale: false,
     strengthTags: [],
     issueTags: [],
     deepdiveRecommendationTags: [],
@@ -294,11 +304,12 @@ function parseLegacyState(value: Record<string, unknown>, status: string | null 
     extendedDeepDiveRound: 0,
     coachProgressMessage: null,
     remainingQuestionsEstimate: status === "completed" ? 0 : null,
+    pausedQuestion: null,
   };
 }
 
-export function safeParseConversationState(json: string | null, status?: string | null): ConversationState {
-  if (!json) {
+export function safeParseConversationState(value: unknown, status?: string | null): ConversationState {
+  if (!value) {
     return status === "completed"
       ? {
           ...getDefaultConversationState(),
@@ -308,18 +319,24 @@ export function safeParseConversationState(json: string | null, status?: string 
           resolvedFocuses: ["context", "task", "action", "result"],
           deferredFocuses: ["learning"],
           remainingQuestionsEstimate: 0,
+          pausedQuestion: null,
         }
       : getDefaultConversationState();
   }
 
   try {
-    const parsed = JSON.parse(json) as Record<string, unknown>;
+    const parsed = typeof value === "string" ? JSON.parse(value) as Record<string, unknown> : value as Record<string, unknown>;
     const legacy = parseLegacyState(parsed, status);
     if (legacy) return legacy;
 
-    const stage = normalizeString(parsed.stage) as ConversationStage | null;
+    const rawStage = normalizeString(parsed.stage) as ConversationStage | null;
     const focusKeyRaw = normalizeString(parsed.focus_key ?? parsed.focusKey);
     const focusKey = focusKeyRaw && isFocusKey(focusKeyRaw) ? focusKeyRaw : null;
+    const draftText = normalizeString(parsed.draft_text ?? parsed.draftText);
+    const stage =
+      rawStage === "interview_ready" && !draftText
+        ? "deep_dive_active"
+        : rawStage;
 
     return {
       stage:
@@ -336,7 +353,9 @@ export function safeParseConversationState(json: string | null, status?: string 
       completionChecks: normalizeCompletionChecks(parsed.completion_checks ?? parsed.completionChecks),
       readyForDraft: Boolean(parsed.ready_for_draft ?? parsed.readyForDraft),
       draftReadinessReason: String(parsed.draft_readiness_reason ?? parsed.draftReadinessReason ?? "").trim(),
-      draftText: normalizeString(parsed.draft_text ?? parsed.draftText),
+      draftText,
+      draftDocumentId: normalizeString(parsed.draft_document_id ?? parsed.draftDocumentId),
+      summaryStale: Boolean(parsed.summary_stale ?? parsed.summaryStale),
       strengthTags: normalizeStringList(parsed.strength_tags ?? parsed.strengthTags),
       issueTags: normalizeStringList(parsed.issue_tags ?? parsed.issueTags),
       deepdiveRecommendationTags: normalizeStringList(
@@ -361,14 +380,15 @@ export function safeParseConversationState(json: string | null, status?: string 
       remainingQuestionsEstimate: normalizeRemainingQuestionsEstimate(
         parsed.remaining_questions_estimate ?? parsed.remainingQuestionsEstimate,
       ),
+      pausedQuestion: normalizeString(parsed.paused_question ?? parsed.pausedQuestion),
     };
   } catch {
     return getDefaultConversationState();
   }
 }
 
-export function serializeConversationState(state: ConversationState): string {
-  return JSON.stringify({
+export function serializeConversationState(state: ConversationState): Record<string, unknown> {
+  return {
     stage: state.stage,
     focus_key: state.focusKey,
     progress_label: state.progressLabel,
@@ -381,6 +401,8 @@ export function serializeConversationState(state: ConversationState): string {
     ready_for_draft: state.readyForDraft,
     draft_readiness_reason: state.draftReadinessReason,
     draft_text: state.draftText,
+    draft_document_id: state.draftDocumentId,
+    summary_stale: state.summaryStale,
     strength_tags: state.strengthTags,
     issue_tags: state.issueTags,
     deepdive_recommendation_tags: state.deepdiveRecommendationTags,
@@ -399,7 +421,8 @@ export function serializeConversationState(state: ConversationState): string {
     extended_deep_dive_round: state.extendedDeepDiveRound,
     coach_progress_message: state.coachProgressMessage,
     remaining_questions_estimate: state.remainingQuestionsEstimate,
-  });
+    paused_question: state.pausedQuestion,
+  };
 }
 
 export function buildConversationStatePatch(
@@ -438,6 +461,15 @@ export function buildConversationStatePatch(
     remainingQuestionsEstimate: Object.prototype.hasOwnProperty.call(patch, "remainingQuestionsEstimate")
       ? (patch.remainingQuestionsEstimate ?? null)
       : current.remainingQuestionsEstimate,
+    pausedQuestion: Object.prototype.hasOwnProperty.call(patch, "pausedQuestion")
+      ? (patch.pausedQuestion ?? null)
+      : current.pausedQuestion,
+    draftDocumentId: Object.prototype.hasOwnProperty.call(patch, "draftDocumentId")
+      ? (patch.draftDocumentId ?? null)
+      : current.draftDocumentId,
+    summaryStale: Object.prototype.hasOwnProperty.call(patch, "summaryStale")
+      ? Boolean(patch.summaryStale)
+      : current.summaryStale,
   };
 }
 
@@ -447,7 +479,7 @@ export function isDraftReady(state: ConversationState | null | undefined): boole
 }
 
 export function isInterviewReady(state: ConversationState | null | undefined): boolean {
-  return state?.stage === "interview_ready";
+  return state?.stage === "interview_ready" && Boolean(state.draftText);
 }
 
 export function hasDraftText(state: ConversationState | null | undefined): boolean {
@@ -458,7 +490,7 @@ export function getGakuchikaNextAction(
   state: ConversationState | null | undefined,
 ): GakuchikaNextAction {
   if (!state) return "ask";
-  if (state.stage === "interview_ready") return "show_interview_ready";
+  if (isInterviewReady(state)) return "show_interview_ready";
   if (state.stage === "draft_ready") {
     return state.draftText ? "continue_deep_dive" : "show_generate_draft_cta";
   }
@@ -473,14 +505,15 @@ export function getBuildItemStatus(
   if (state.stage !== "es_building" && isDraftReady(state)) {
     return "done";
   }
+  const fk = state.focusKey;
+  const focusIsStar = fk !== null && (BUILD_TRACK_KEYS as readonly string[]).includes(fk);
+  if (focusIsStar) {
+    if (key === fk) return "current";
+    return state.missingElements.includes(key) ? "pending" : "done";
+  }
   // ES 材料フェーズで missing が空なのにまだ es_building のとき、サーバーは「揃った」とみなすが
   // ユーザーは直近の AI 質問に未回答のことがある。全面「完了」にしない。
   if (state.stage === "es_building" && state.missingElements.length === 0) {
-    const fk = state.focusKey;
-    if (fk && (BUILD_TRACK_KEYS as readonly string[]).includes(fk)) {
-      if (key === fk) return "current";
-      return "done";
-    }
     // focusKey が無い間（送信中の一瞬など）は誤って「状況まで完了」と出さない
     return "pending";
   }
@@ -490,8 +523,6 @@ export function getBuildItemStatus(
   if (state.focusKey === key) {
     return "current";
   }
-  const fk = state.focusKey;
-  const focusIsStar = fk !== null && (BUILD_TRACK_KEYS as readonly string[]).includes(fk);
   if (!focusIsStar) {
     const firstMissing = BUILD_TRACK_KEYS.find((k) => state.missingElements.includes(k));
     if (firstMissing === key) {

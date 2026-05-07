@@ -21,6 +21,8 @@ const {
   resolveMotivationInputsMock,
   isMotivationSetupCompleteMock,
   fetchMotivationApplicationJobCandidatesMock,
+  fetchProfileContextMock,
+  fetchGakuchikaContextMock,
 } = vi.hoisted(() => ({
   dbUpdateMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
@@ -41,6 +43,8 @@ const {
   resolveMotivationInputsMock: vi.fn(),
   isMotivationSetupCompleteMock: vi.fn(),
   fetchMotivationApplicationJobCandidatesMock: vi.fn(),
+  fetchProfileContextMock: vi.fn(),
+  fetchGakuchikaContextMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -84,11 +88,11 @@ vi.mock("@/lib/rate-limit-spike", () => ({
   CONVERSATION_RATE_LAYERS: [],
 }));
 
-vi.mock("@/app/api/_shared/request-identity", () => ({
+vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 
-vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+vi.mock("@/bff/identity/llm-cost-guard", () => ({
   guardDailyTokenLimit: vi.fn().mockResolvedValue(null),
 }));
 
@@ -99,6 +103,16 @@ vi.mock("@/lib/llm-cost-limit", () => ({
 
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
+  fetchFastApiWithPrincipal: fetchFastApiInternalMock,
+}));
+
+vi.mock("@/lib/ai/user-context", () => ({
+  fetchProfileContext: fetchProfileContextMock,
+  fetchGakuchikaContext: fetchGakuchikaContextMock,
+}));
+
+vi.mock("@/lib/server/loader-helpers", () => ({
+  getViewerPlan: vi.fn().mockResolvedValue("standard"),
 }));
 
 vi.mock("@/lib/motivation/motivation-input-resolver", () => ({
@@ -156,6 +170,8 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     resolveMotivationInputsMock.mockReset();
     isMotivationSetupCompleteMock.mockReset();
     fetchMotivationApplicationJobCandidatesMock.mockReset();
+    fetchProfileContextMock.mockReset();
+    fetchGakuchikaContextMock.mockReset();
     vi.restoreAllMocks();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
@@ -194,6 +210,8 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     });
     isMotivationSetupCompleteMock.mockReturnValue(true);
     fetchMotivationApplicationJobCandidatesMock.mockResolvedValue([]);
+    fetchProfileContextMock.mockResolvedValue(null);
+    fetchGakuchikaContextMock.mockResolvedValue([]);
     buildMotivationConversationPayloadMock.mockImplementation((args) => ({
       nextQuestion: args?.messages?.at(-1)?.content ?? null,
       isDraftReady: args?.isDraftReady ?? false,
@@ -228,7 +246,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     }));
   });
 
-  it("returns follow-up question when generatedDraft exists", async () => {
+  it("confirms one credit after follow-up question is persisted", async () => {
     fetchFastApiInternalMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -267,14 +285,25 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
 
     expect(response.status).toBe(200);
     expect(buildMotivationConversationPayloadMock).toHaveBeenCalled();
+    expect(reserveCreditsMock).toHaveBeenCalledWith(
+      "user-1",
+      1,
+      "motivation_resume_deepdive",
+      "company-1",
+      expect.stringContaining("深掘り再開"),
+    );
     expect(confirmReservationMock).toHaveBeenCalledWith("res-1");
     expect(dbUpdateMock).toHaveBeenCalled();
   });
 
-  it("returns 409 when no generatedDraft exists", async () => {
+  it("returns 409 when draft is not ready", async () => {
     getMotivationConversationByConditionMock.mockResolvedValueOnce({
       ...BASE_CONVERSATION,
       generatedDraft: null,
+    });
+    safeParseConversationContextMock.mockReturnValueOnce({
+      draftReady: false,
+      questionStage: "differentiation",
     });
 
     const { POST } = await import(
@@ -297,9 +326,83 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
   });
 
-  it("returns 503 and cancels reservation when FastAPI fails", async () => {
+  it("returns 409 without consuming credits when a deepdive question is already pending", async () => {
+    safeParseConversationContextMock.mockReturnValueOnce({
+      draftReady: true,
+      questionStage: "differentiation",
+      postDraftAwaitingResume: false,
+    });
+    safeParseMessagesMock.mockReturnValueOnce([
+      { role: "user", content: "a" },
+      { role: "assistant", content: "さらに補強したい点はどこですか？" },
+    ]);
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+    expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
+  });
+
+  it("returns success and releases reservation when credit confirmation fails after follow-up persistence", async () => {
+    confirmReservationMock.mockRejectedValueOnce(new Error("credit store unavailable"));
     fetchFastApiInternalMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ detail: "Service Unavailable" }), {
+      new Response(
+        JSON.stringify({
+          question: "さらに深掘りしたい点はありますか？",
+          evidence_summary: null,
+          evidence_cards: [],
+          coaching_focus: "補足深掘り",
+          question_stage: "differentiation",
+          conversation_mode: "deepdive",
+          current_slot: "company_reason",
+          current_intent: "experience_anchor",
+          next_advance_condition: "原体験との接続が補えれば十分です。",
+          progress: { completed: 6, total: 6 },
+          causal_gaps: [],
+          stage_status: null,
+          captured_context: { draftReady: true, questionStage: "differentiation" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(dbUpdateMock).toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+  });
+
+  it("returns 503 when FastAPI fails", async () => {
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "tenant key is not configured" }), {
         status: 503,
         headers: { "Content-Type": "application/json" },
       }),
@@ -321,7 +424,93 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     });
 
     expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error.code).toBe("FASTAPI_TENANT_KEY_NOT_CONFIGURED");
+    expect(body.error.llmErrorType).toBe("tenant_key_not_configured");
+    expect(body.error.userMessage).toBe("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。");
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves FastAPI 429 status for concurrency errors", async () => {
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: { code: "sse_concurrency_exceeded", limit: 1 } }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(429);
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+    const body = await response.json();
+    expect(body.error.code).toBe("AI_STREAM_CONCURRENCY_EXCEEDED");
+    expect(body.error.retryable).toBe(true);
+  });
+
+  it("returns structured 503 when principal secret is missing", async () => {
+    fetchFastApiInternalMock.mockRejectedValueOnce(
+      new Error("CAREER_PRINCIPAL_HMAC_SECRET is not configured"),
+    );
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+    const body = await response.json();
+    expect(body.error.code).toBe("FASTAPI_SECRET_NOT_CONFIGURED");
+    expect(body.error.userMessage).toBe("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。");
+  });
+
+  it("returns 429 when deepdiveResumeCount exceeds limit", async () => {
+    safeParseConversationContextMock.mockReturnValueOnce({
+      draftReady: true,
+      questionStage: "differentiation",
+      deepdiveResumeCount: 3,
+    });
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(429);
+    expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
   });
 });

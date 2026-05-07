@@ -8,6 +8,7 @@ from app.routers.gakuchika import (
     _build_causal_gaps,
     _build_draft_quality_checks,
     _build_known_facts,
+    _detect_gakuchika_critic_closing,
     _classify_input_richness,
     _evaluate_deepdive_completion,
 )
@@ -164,6 +165,82 @@ def test_result_traceability_still_requires_action_specific() -> None:
     checks = _build_draft_quality_checks(text)
     assert checks["action_ownership"] is False
     assert checks["result_traceability"] is False
+
+
+def test_detect_gakuchika_critic_closing_flags_abstract_generalization() -> None:
+    draft = (
+        "私は開発サークルでレビュー遅延の改善に取り組んだ。レビュー基準を整理し、担当者ごとの確認項目を明確にした。"
+        "設計の強制力と段階的導入を組み合わせることで、チームに無理なく浸透させる手法は、複数人が関わるシステム開発の品質維持に直結する。"
+    )
+
+    result = _detect_gakuchika_critic_closing(draft, user_origin_text="レビュー基準を整理しました。")
+
+    assert result["detected"] is True
+    assert "abstract_generalization_closing" in result["codes"]
+
+
+def test_detect_gakuchika_critic_closing_allows_owned_action_closing() -> None:
+    draft = (
+        "私は開発サークルでレビュー遅延の改善に取り組んだ。レビュー基準を整理し、担当者ごとの確認項目を明確にした。"
+        "結果、レビュー待ちの時間を短縮できた。"
+        "この経験から、複数人で開発する際に最初に判断基準をそろえる力を身につけた。"
+    )
+
+    result = _detect_gakuchika_critic_closing(draft, user_origin_text="判断基準をそろえる力を身につけた。")
+
+    assert result["detected"] is False
+
+
+def test_detect_gakuchika_critic_closing_does_not_ignore_assistant_origin_terms() -> None:
+    draft = (
+        "私はレビュー基準を整理し、チーム内で確認の観点をそろえた。"
+        "設計の強制力と段階的導入を組み合わせることで、チームに無理なく浸透させる手法は、複数人が関わるシステム開発の品質維持に直結する。"
+    )
+
+    result = _detect_gakuchika_critic_closing(
+        draft,
+        user_origin_text="質問: どのような手法や重要性がありましたか。\n回答: レビュー基準を整理しました。",
+    )
+
+    assert result["detected"] is True
+    assert "abstract_generalization_closing" in result["codes"]
+
+
+def test_detect_gakuchika_critic_closing_flags_generic_learning_without_result() -> None:
+    draft = (
+        "私は新歓活動で体験参加から入会までの導線改善に取り組んだ。体験後の案内を見直し、個別連絡を徹底した。"
+        "この経験から、課題の構造を分解してから施策を設計し、実行を仕組み化する重要性を学んだ。"
+    )
+
+    result = _detect_gakuchika_critic_closing(draft, user_origin_text="体験後の案内を見直しました。")
+
+    assert result["detected"] is True
+    assert "generic_learning_closing" in result["codes"]
+    assert "resultless_closing" in result["codes"]
+
+
+def test_detect_gakuchika_critic_closing_rejects_unrelated_digit_without_result() -> None:
+    draft = (
+        "私は新歓活動で体験参加から入会までの導線改善に取り組んだ。体験後の案内を見直し、個別連絡を徹底した。"
+        "この経験は2025年の活動であり、相手の不安を分解する大切さを学んだ。"
+    )
+
+    result = _detect_gakuchika_critic_closing(draft, user_origin_text="2025年に活動しました。")
+
+    assert result["detected"] is True
+    assert "resultless_closing" in result["codes"]
+
+
+def test_detect_gakuchika_critic_closing_allows_result_plus_learning_close() -> None:
+    draft = (
+        "私は新歓活動で体験参加から入会までの導線改善に取り組んだ。体験後の案内を見直し、個別連絡を徹底した。"
+        "結果、体験参加から入会までの移行率を高めることができた。"
+        "この経験から、相手の不安を分解して次の行動を設計する大切さを学んだ。"
+    )
+
+    result = _detect_gakuchika_critic_closing(draft, user_origin_text="移行率が上がりました。")
+
+    assert result["detected"] is False
 
 
 def test_evaluate_deepdive_completion_is_server_side_and_requires_evidence() -> None:

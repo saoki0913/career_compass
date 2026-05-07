@@ -1,8 +1,8 @@
 import { cache } from "react";
 import { and, desc, eq, ne } from "drizzle-orm";
 
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
-import { isOwnedByIdentity } from "@/app/api/_shared/owner-access";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
+import { isOwnedByIdentity } from "@/bff/identity/owner-access";
 import { db } from "@/lib/db";
 import {
   applications,

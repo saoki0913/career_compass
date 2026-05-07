@@ -13,7 +13,7 @@ const CONNECT_SRC = [
 const BASE_DIRECTIVES = [
   "default-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://lh3.googleusercontent.com https://www.google-analytics.com",
+  "img-src 'self' data: blob: https://lh3.googleusercontent.com https://www.google-analytics.com https://img.logo.dev https://cdn.brandfetch.io https://www.google.com https://icons.duckduckgo.com",
   "font-src 'self'",
   `connect-src ${CONNECT_SRC.join(" ")}`,
   "frame-src https://js.stripe.com https://hooks.stripe.com",

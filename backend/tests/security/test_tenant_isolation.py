@@ -4,11 +4,12 @@ import json
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 
-import app.config as app_config
 import app.security.career_principal as career_principal
 import app.utils.bm25_store as bm25_store
-from app.utils import vector_store
+from app.rag import vector_store
+from app.utils.cache import RAGCache
 from app.utils.bm25_store import BM25Index, clear_index_cache, get_or_create_index
 from app.utils.embeddings import EmbeddingBackend
 
@@ -119,11 +120,6 @@ def tmp_bm25_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def tenant_filter_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(app_config.settings, "tenant_key_filter_enabled", True)
-
-
-@pytest.fixture
 def fake_backend() -> EmbeddingBackend:
     return EmbeddingBackend(provider="openai", model="test-embedding-model", dimension=3)
 
@@ -210,31 +206,44 @@ class TestBM25TenantIsolation:
         assert loaded_a.search("本文") == [("doc-a", 1.0)]
         assert loaded_b.search("本文") == [("doc-b", 1.0)]
 
-    def test_legacy_fallback_without_tenant_key(
+    def test_company_only_bm25_path_is_not_used(
         self,
         tmp_bm25_dir: Path,
         tenant_keys,
     ) -> None:
         company_id = "company-test-001"
-        legacy_index = BM25Index(company_id)
-        legacy_index.add_document("legacy-doc", "移行前の本文です。")
-        legacy_index.save()
+        legacy_path = tmp_bm25_dir / f"{company_id}.json"
+        legacy_path.parent.mkdir(parents=True, exist_ok=True)
+        legacy_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "company_id": company_id,
+                    "documents": [
+                        {
+                            "doc_id": "legacy-doc",
+                            "text": "移行前の本文です。",
+                            "tokens": ["移行前"],
+                            "metadata": {"company_id": company_id},
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
 
         clear_index_cache()
         loaded = BM25Index.load(company_id, tenant_key=tenant_keys["tenant_a"])
 
-        assert loaded is not None
-        assert loaded.tenant_key == tenant_keys["tenant_a"]
-        assert [doc.doc_id for doc in loaded.documents] == ["legacy-doc"]
+        assert loaded is None
 
 
 class TestChromaDBTenantIsolation:
     """S1-S3: ChromaDB metadata and search isolation."""
 
     @pytest.mark.asyncio
-    async def test_search_without_tenant_key_keeps_backward_compat(
+    async def test_search_without_tenant_key_fails_closed(
         self,
-        tenant_filter_enabled,
         fake_collection: FakeCollection,
         tenant_keys,
     ) -> None:
@@ -249,20 +258,17 @@ class TestChromaDBTenantIsolation:
             tenant_key=tenant_keys["tenant_a"],
         )
 
+        assert stored["success"] is True
         results = await vector_store.search_company_context_by_type(
             company_id=company_id,
             query="後方互換",
-            tenant_key=None,
+            tenant_key=None,  # type: ignore[arg-type]
         )
-
-        assert stored["success"] is True
-        assert len(results) > 0
-        assert fake_collection.last_query_where == {"company_id": company_id}
+        assert results == []
 
     @pytest.mark.asyncio
     async def test_tenant_key_in_stored_metadata(
         self,
-        tenant_filter_enabled,
         fake_collection: FakeCollection,
         tenant_keys,
     ) -> None:
@@ -300,7 +306,6 @@ class TestChromaDBTenantIsolation:
     @pytest.mark.asyncio
     async def test_cross_tenant_search_returns_empty(
         self,
-        tenant_filter_enabled,
         fake_collection: FakeCollection,
         tenant_keys,
     ) -> None:
@@ -333,6 +338,160 @@ class TestChromaDBTenantIsolation:
             for item in results_for_owner
         )
 
+    @pytest.mark.asyncio
+    async def test_status_is_tenant_scoped(
+        self,
+        fake_collection: FakeCollection,
+        tenant_keys,
+    ) -> None:
+        company_id = "company-test-001"
+        await vector_store.store_full_text_content(
+            company_id=company_id,
+            company_name="テスト株式会社",
+            raw_text="第一テナントのRAG本文です。" * 20,
+            source_url="https://example.com/tenant-a",
+            content_type="corporate_site",
+            raw_format="text",
+            tenant_key=tenant_keys["tenant_a"],
+        )
+        await vector_store.store_full_text_content(
+            company_id=company_id,
+            company_name="テスト株式会社",
+            raw_text="第二テナントのRAG本文です。" * 20,
+            source_url="https://example.com/tenant-b",
+            content_type="corporate_site",
+            raw_format="text",
+            tenant_key=tenant_keys["tenant_b"],
+        )
+
+        status_a = vector_store.get_company_rag_status(
+            company_id,
+            tenant_key=tenant_keys["tenant_a"],
+        )
+        status_b = vector_store.get_company_rag_status(
+            company_id,
+            tenant_key=tenant_keys["tenant_b"],
+        )
+        status_missing = vector_store.get_company_rag_status(
+            company_id,
+            tenant_key="c" * 32,
+        )
+
+        assert vector_store.has_company_rag(company_id, tenant_key=tenant_keys["tenant_a"])
+        assert vector_store.has_company_rag(company_id, tenant_key=tenant_keys["tenant_b"])
+        assert not vector_store.has_company_rag(company_id, tenant_key="c" * 32)
+        assert status_a["has_rag"] is True
+        assert status_b["has_rag"] is True
+        assert status_missing["has_rag"] is False
+        assert status_a["total_chunks"] > 0
+        assert status_b["total_chunks"] > 0
+
+    @pytest.mark.asyncio
+    async def test_structured_rag_ids_are_tenant_scoped(
+        self,
+        fake_collection: FakeCollection,
+        tenant_keys,
+    ) -> None:
+        company_id = "company-test-001"
+        chunks = [{"text": "構造化RAGの本文です。", "type": "general", "metadata": {}}]
+
+        assert await vector_store.store_company_info(
+            company_id=company_id,
+            company_name="テスト株式会社",
+            content_chunks=chunks,
+            source_url="https://example.com/structured",
+            tenant_key=tenant_keys["tenant_a"],
+        )
+        assert await vector_store.store_company_info(
+            company_id=company_id,
+            company_name="テスト株式会社",
+            content_chunks=chunks,
+            source_url="https://example.com/structured",
+            tenant_key=tenant_keys["tenant_b"],
+        )
+
+        assert f"{tenant_keys['tenant_a']}_{company_id}_0" in fake_collection.records
+        assert f"{tenant_keys['tenant_b']}_{company_id}_0" in fake_collection.records
+
+    @pytest.mark.asyncio
+    async def test_delete_by_urls_is_tenant_scoped(
+        self,
+        fake_collection: FakeCollection,
+        tenant_keys,
+    ) -> None:
+        company_id = "company-test-001"
+        source_url = "https://example.com/shared-source"
+        await vector_store.store_full_text_content(
+            company_id=company_id,
+            company_name="テスト株式会社",
+            raw_text="第一テナントだけに残すRAG本文です。" * 20,
+            source_url=source_url,
+            content_type="corporate_site",
+            raw_format="text",
+            tenant_key=tenant_keys["tenant_a"],
+        )
+        await vector_store.store_full_text_content(
+            company_id=company_id,
+            company_name="テスト株式会社",
+            raw_text="第二テナントだけ削除するRAG本文です。" * 20,
+            source_url=source_url,
+            content_type="corporate_site",
+            raw_format="text",
+            tenant_key=tenant_keys["tenant_b"],
+        )
+
+        result = vector_store.delete_company_rag_by_urls(
+            company_id,
+            [source_url],
+            tenant_key=tenant_keys["tenant_b"],
+        )
+
+        remaining_a = await vector_store.search_company_context_by_type(
+            company_id=company_id,
+            query="第一テナント",
+            tenant_key=tenant_keys["tenant_a"],
+        )
+        remaining_b = await vector_store.search_company_context_by_type(
+            company_id=company_id,
+            query="第二テナント",
+            tenant_key=tenant_keys["tenant_b"],
+        )
+
+        assert result["total_deleted"] > 0
+        assert len(remaining_a) > 0
+        assert remaining_b == []
+
+    @pytest.mark.asyncio
+    async def test_delete_all_is_tenant_scoped(
+        self,
+        fake_collection: FakeCollection,
+        tenant_keys,
+    ) -> None:
+        company_id = "company-test-001"
+        await vector_store.store_full_text_content(
+            company_id=company_id,
+            company_name="テスト株式会社",
+            raw_text="第一テナントだけ削除するRAG本文です。" * 20,
+            source_url="https://example.com/tenant-a",
+            content_type="corporate_site",
+            raw_format="text",
+            tenant_key=tenant_keys["tenant_a"],
+        )
+        await vector_store.store_full_text_content(
+            company_id=company_id,
+            company_name="テスト株式会社",
+            raw_text="第二テナントに残すRAG本文です。" * 20,
+            source_url="https://example.com/tenant-b",
+            content_type="corporate_site",
+            raw_format="text",
+            tenant_key=tenant_keys["tenant_b"],
+        )
+
+        assert vector_store.delete_company_rag(company_id, tenant_key=tenant_keys["tenant_a"])
+
+        assert not vector_store.has_company_rag(company_id, tenant_key=tenant_keys["tenant_a"])
+        assert vector_store.has_company_rag(company_id, tenant_key=tenant_keys["tenant_b"])
+
 
 class TestTenantKeyComputation:
     """Verify tenant_key derivation."""
@@ -361,3 +520,38 @@ class TestTenantKeyComputation:
         monkeypatch.setattr(career_principal.settings, "tenant_key_secret", "   ")
 
         assert career_principal.compute_tenant_key("user", "user-123") is None
+
+
+class TestRAGTenantStrictHelpers:
+    """Endpoint/cache helpers used by strict tenant RAG paths."""
+
+    def test_rag_endpoint_requires_tenant_key(self) -> None:
+        from app.security.career_principal import CareerPrincipal
+        from app.security.career_principal import require_tenant_key
+
+        principal = CareerPrincipal(
+            scope="company",
+            actor_kind="user",
+            actor_id="user-123",
+            plan="free",
+            company_id="company-test-001",
+            jti="jti",
+            tenant_key=None,
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            require_tenant_key(principal)
+
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == {
+            "error": "tenant key is not configured",
+            "error_type": "tenant_key_not_configured",
+        }
+
+    def test_rag_cache_key_includes_tenant_key(self) -> None:
+        cache = RAGCache(redis_url="")
+
+        tenant_a_key = cache._context_key("company-1", "query-hash", "a" * 32)
+        tenant_b_key = cache._context_key("company-1", "query-hash", "b" * 32)
+
+        assert tenant_a_key != tenant_b_key

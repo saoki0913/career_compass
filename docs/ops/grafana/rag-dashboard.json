@@ -1,0 +1,102 @@
+{
+  "title": "Career Compass RAG",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "tags": ["career-compass", "rag"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "RAG requests by status",
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(rag_retrieval_requests_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "RAG stage p95 latency",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(rag_retrieval_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{stage}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Rerank invocations",
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(rag_rerank_invocations_total[5m]))",
+          "legendFormat": "{{model}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Expansion cache hits",
+      "targets": [
+        {
+          "expr": "sum by (cache_type) (rate(rag_expansion_cache_hits_total[5m]))",
+          "legendFormat": "{{cache_type}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Tenant boundary counters",
+      "targets": [
+        {
+          "expr": "sum(rate(rag_principal_missing_total[5m]))",
+          "legendFormat": "principal_missing"
+        },
+        {
+          "expr": "sum(rate(rag_principal_mismatch_total[5m]))",
+          "legendFormat": "principal_mismatch"
+        },
+        {
+          "expr": "sum(rate(rag_tenant_key_filter_miss_total[5m]))",
+          "legendFormat": "tenant_filter_miss"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "BM25 resync rate",
+      "targets": [
+        {
+          "expr": "sum by (trigger) (rate(rag_bm25_resync_total[5m]))",
+          "legendFormat": "{{trigger}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Rerank p95 latency",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, model) (rate(rag_rerank_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{model}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 }
+    }
+  ]
+}

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Building2, LayoutGrid, Layers } from "lucide-react";
-import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { CompanyGrid } from "@/components/companies/CompanyGrid";
 import { IndustryGroup } from "@/components/companies/IndustryGroup";
 import { MultiSelect } from "@/components/ui/multi-select";
@@ -137,8 +136,6 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <DashboardHeader />
-
       <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
         {isLoading ? (
           <CompaniesListContentSkeleton />
@@ -146,16 +143,20 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
           <>
             <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h1 className="text-2xl font-bold tracking-tight">登録企業</h1>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-2xl font-bold tracking-tight">登録企業</h1>
+                  <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    {limit ? `${count} / ${limit} 社` : `${count} 社`}
+                  </span>
+                </div>
                 <p className="mt-1 text-muted-foreground">
-                  {limit ? `${count} / ${limit} 社登録中` : `${count} 社登録中`}
+                  選考状況、締切、企業研究への導線を同じ画面で確認できます
                 </p>
               </div>
-
               <Button asChild className="sm:self-start">
                 <Link href="/companies/new">
                   <Plus className="w-5 h-5" />
-                  <span className="ml-2">企業を追加</span>
+                  <span className="ml-1.5">企業を追加</span>
                 </Link>
               </Button>
             </div>
@@ -181,6 +182,11 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
                 />
               }
               viewToggle={<ViewToggle options={viewOptions} activeKey={viewMode} onChange={setViewMode} />}
+              activeFilters={[
+                selectedIndustries.length > 0 ? `業界: ${selectedIndustries.length}件` : "",
+                searchQuery ? `検索: ${searchQuery}` : "",
+                filter !== "all" ? `状態: ${filterTabs.find((tab) => tab.key === filter)?.label ?? filter}` : "",
+              ].filter(Boolean)}
             />
 
             {error && (

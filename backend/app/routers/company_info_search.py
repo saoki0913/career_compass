@@ -4,12 +4,6 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from app.routers.company_info_candidate_scoring import (
-    _hybrid_score_to_confidence,
-    _recruitment_hybrid_score_to_confidence,
-    _recruitment_score_to_confidence,
-    _score_to_confidence,
-)
 from app.utils.company_names import (
     classify_company_domain_relation,
     get_company_domain_patterns,

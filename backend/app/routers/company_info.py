@@ -12,12 +12,13 @@ SPEC Section 9.5 Requirements:
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from typing import Optional
+import sys
 
 from app.utils.firecrawl import FirecrawlScrapeResult  # noqa: F401
 from app.config import settings
 from app.utils.secure_logger import get_logger
 from app.utils.embeddings import resolve_embedding_backend  # noqa: F401
-from app.utils.vector_store import store_full_text_content  # noqa: F401
+from app.rag.vector_store import store_full_text_content  # noqa: F401
 from app.utils.web_search import (
     hybrid_web_search,  # noqa: F401
     CONTENT_TYPE_SEARCH_INTENT,  # noqa: F401
@@ -27,11 +28,13 @@ from app.utils.pdf_ocr import extract_text_from_pdf_with_ocr  # noqa: F401
 from app.limiter import limiter
 from app.security.career_principal import (
     CareerPrincipal,
+    require_tenant_key,
     require_career_principal,
 )
 from app.security.upload_limits import (
     MAX_PDF_UPLOAD_BYTES,
-    enforce_pdf_upload_size,
+    read_pdf_upload_bytes,
+    validate_pdf_upload_metadata,
 )
 from app.routers.company_info_models import (
     FetchRequest,
@@ -56,6 +59,14 @@ from app.routers.company_info_models import (
     CrawlCorporateEstimateResponse,
     SearchCorporatePagesRequest,
 )
+from app.routers import company_info_models as _company_info_models
+from app.routers import company_info_config as _company_info_config
+from app.routers import company_info_candidate_scoring as _company_info_candidate_scoring
+from app.routers import company_info_url_utils as _company_info_url_utils
+from app.routers import company_info_pdf as _company_info_pdf
+from app.services.company_info import build_rag_source as _rag_service
+from app.services.company_info import extract_deadlines as _deadline_service
+from app.services.company_info import fetch_schedule as _schedule_service
 
 # ===== Re-exports from extracted modules =====
 # These symbols must remain importable from ``company_info`` because tests,
@@ -82,10 +93,10 @@ from app.routers.company_info_candidate_scoring import (
     _search_with_ddgs,  # noqa: F401
     HAS_DDGS,  # noqa: F401
 )
-from app.routers.company_info_schedule import (
+from app.services.company_info.fetch_schedule import (
     _compress_schedule_page_text_for_llm,  # noqa: F401
 )
-from app.routers.company_info_schedule_links import (
+from app.services.company_info.fetch_schedule import (
     _build_recruit_queries,  # noqa: F401
     _build_schedule_source_metadata,  # noqa: F401
     _extract_schedule_follow_links,  # noqa: F401
@@ -113,10 +124,10 @@ from app.routers.company_info_corporate_search import (
 from app.routers.company_info_recruit_search import (
     _search_company_pages_impl,
 )
-from app.routers.company_info_schedule_service import (
+from app.services.company_info.fetch_schedule import (
     fetch_schedule_response as _fetch_schedule_response,
 )
-from app.routers.company_info_rag_service import (
+from app.services.company_info.build_rag_source import (
     _extracted_data_to_chunks,  # noqa: F401
     build_company_rag_impl as _build_company_rag_impl,
     get_rag_context_impl as _get_rag_context_impl,
@@ -127,7 +138,7 @@ from app.routers.company_info_rag_service import (
     delete_rag_by_type_impl as _delete_rag_by_type_impl,
     delete_rag_by_urls_impl as _delete_rag_by_urls_impl,
 )
-from app.routers.company_info_ingest_service import (
+from app.services.company_info.build_rag_source import (
     _looks_like_pdf_payload,  # noqa: F401
     _looks_like_html_payload,  # noqa: F401
     _process_crawl_source,  # noqa: F401
@@ -138,6 +149,25 @@ from app.routers.company_info_ingest_service import (
 )
 
 logger = get_logger(__name__)
+
+_deadline_service.configure_dependencies(
+    models=_company_info_models,
+    config=_company_info_config,
+    candidate_scoring=_company_info_candidate_scoring,
+)
+_schedule_service.configure_dependencies(
+    models=_company_info_models,
+    config=_company_info_config,
+    candidate_scoring=_company_info_candidate_scoring,
+    url_utils=_company_info_url_utils,
+    company_info_module=sys.modules[__name__],
+    pdf_module=_company_info_pdf,
+)
+_rag_service.configure_dependencies(
+    models=_company_info_models,
+    pdf=_company_info_pdf,
+    company_info_module=sys.modules[__name__],
+)
 
 # ===== Hybrid Search Configuration =====
 USE_HYBRID_SEARCH = settings.company_search_hybrid
@@ -178,7 +208,8 @@ async def build_company_rag(
 ):
     """Build RAG (vector embeddings) for a company."""
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _build_company_rag_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _build_company_rag_impl(payload, tenant_key=tenant_key)
 
 
 @router.post("/rag/context", response_model=RagContextResponse)
@@ -190,7 +221,8 @@ async def get_rag_context(
 ):
     """Get RAG context for ES review."""
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _get_rag_context_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _get_rag_context_impl(payload, tenant_key=tenant_key)
 
 
 @router.get("/rag/status/{company_id}", response_model=RagStatusResponse)
@@ -202,7 +234,8 @@ async def get_rag_status(
 ):
     """Check if a company has RAG data."""
     _assert_principal_owns_company(principal, company_id)
-    return _get_rag_status_impl(company_id)
+    tenant_key = require_tenant_key(principal)
+    return _get_rag_status_impl(company_id, tenant_key=tenant_key)
 
 
 @router.get(
@@ -216,7 +249,8 @@ async def get_detailed_rag_status(
 ):
     """Get detailed RAG status for a company."""
     _assert_principal_owns_company(principal, company_id)
-    return _get_detailed_rag_status_impl(company_id)
+    tenant_key = require_tenant_key(principal)
+    return _get_detailed_rag_status_impl(company_id, tenant_key=tenant_key)
 
 
 @router.post("/rag/gap-analysis", response_model=GapAnalysisResponse)
@@ -228,7 +262,8 @@ async def analyze_rag_gap(
 ):
     """Query-aware RAG gap analysis."""
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _analyze_rag_gap_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _analyze_rag_gap_impl(payload, tenant_key=tenant_key)
 
 
 @router.delete("/rag/{company_id}")
@@ -240,7 +275,8 @@ async def delete_rag(
 ):
     """Delete all RAG data for a company."""
     _assert_principal_owns_company(principal, company_id)
-    return await _delete_rag_impl(company_id)
+    tenant_key = require_tenant_key(principal)
+    return await _delete_rag_impl(company_id, tenant_key=tenant_key)
 
 
 @router.delete("/rag/{company_id}/{content_type}")
@@ -253,7 +289,8 @@ async def delete_rag_by_type(
 ):
     """Delete RAG data for a company by content type."""
     _assert_principal_owns_company(principal, company_id)
-    return await _delete_rag_by_type_impl(company_id, content_type)
+    tenant_key = require_tenant_key(principal)
+    return await _delete_rag_by_type_impl(company_id, content_type, tenant_key=tenant_key)
 
 
 @router.post("/rag/{company_id}/delete-by-urls", response_model=DeleteByUrlsResponse)
@@ -266,7 +303,8 @@ async def delete_rag_by_urls(
 ):
     """Delete RAG data for a company by source URLs."""
     _assert_principal_owns_company(principal, company_id)
-    return await _delete_rag_by_urls_impl(company_id, payload)
+    tenant_key = require_tenant_key(principal)
+    return await _delete_rag_by_urls_impl(company_id, payload, tenant_key=tenant_key)
 
 
 # ============================================================================
@@ -288,14 +326,8 @@ async def estimate_corporate_pdf_upload(
 ):
     _assert_principal_owns_company(principal, company_id)
     filename = file.filename or "document.pdf"
-    mime_type = (file.content_type or "").lower()
-    if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="PDFファイルを指定してください。")
-
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="PDFファイルが空です。")
-    enforce_pdf_upload_size(pdf_bytes)
+    validate_pdf_upload_metadata(filename, file.content_type)
+    pdf_bytes = await read_pdf_upload_bytes(file, request)
 
     return await _estimate_pdf_upload_impl(
         company_id=company_id,
@@ -318,20 +350,23 @@ async def upload_corporate_pdf(
     content_type: Optional[str] = Form(None),
     content_channel: Optional[str] = Form(None),
     billing_plan: str = Form("free"),
+    source_kind: str = Form("corporate_public"),
+    private_material_consent: bool = Form(False),
+    consent_reference: Optional[str] = Form(None),
     file: UploadFile = File(...),
     principal: CareerPrincipal = Depends(require_career_principal("company")),
 ):
     """Extract text from an uploaded PDF and store it in company RAG."""
     _assert_principal_owns_company(principal, company_id)
     filename = file.filename or "document.pdf"
-    mime_type = (file.content_type or "").lower()
-    if not filename.lower().endswith(".pdf") and mime_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="PDFファイルを指定してください。")
-
-    pdf_bytes = await file.read()
-    if not pdf_bytes:
-        raise HTTPException(status_code=400, detail="PDFファイルが空です。")
-    enforce_pdf_upload_size(pdf_bytes)
+    validate_pdf_upload_metadata(filename, file.content_type)
+    source_kind_value = source_kind if isinstance(source_kind, str) else "corporate_public"
+    consent_reference_value = consent_reference if isinstance(consent_reference, str) else None
+    if source_kind_value == "private_user_material" and (
+        not bool(private_material_consent) or not (consent_reference_value or "").strip()
+    ):
+        raise HTTPException(status_code=400, detail="私的資料の取り込みには明示的な同意が必要です。")
+    pdf_bytes = await read_pdf_upload_bytes(file, request)
 
     return await _upload_pdf_impl(
         company_id=company_id,
@@ -342,6 +377,9 @@ async def upload_corporate_pdf(
         billing_plan=billing_plan,
         pdf_bytes=pdf_bytes,
         filename=filename,
+        tenant_key=require_tenant_key(principal),
+        source_kind=source_kind_value,
+        consent_reference=consent_reference_value,
     )
 
 
@@ -353,7 +391,8 @@ async def estimate_crawl_corporate_pages(
     principal: CareerPrincipal = Depends(require_career_principal("company")),
 ):
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _estimate_crawl_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _estimate_crawl_impl(payload, tenant_key=tenant_key)
 
 
 @router.post("/rag/crawl-corporate", response_model=CrawlCorporateResponse)
@@ -365,7 +404,8 @@ async def crawl_corporate_pages(
 ):
     """Crawl and index corporate site pages for RAG."""
     _assert_principal_owns_company(principal, payload.company_id)
-    return await _crawl_impl(payload)
+    tenant_key = require_tenant_key(principal)
+    return await _crawl_impl(payload, tenant_key=tenant_key)
 
 
 @router.post("/search-corporate-pages")

@@ -6,33 +6,36 @@ type NotificationArgs = {
   title: string;
   description?: string;
   duration?: number;
+  action?: { label: string; onClick: () => void };
 };
 
 const DEFAULT_DURATION = 3600;
 const ERROR_DURATION = 5200;
+const ACTION_DURATION = 8000;
 
 export function notifySnackbar(
   tone: SnackbarTone,
-  { title, description, duration }: NotificationArgs,
+  { title, description, duration, action }: NotificationArgs,
 ) {
   enqueueSnackbar({
     tone,
     title,
     description,
-    duration: duration ?? (tone === "error" ? ERROR_DURATION : DEFAULT_DURATION),
+    duration: duration ?? (action ? ACTION_DURATION : tone === "error" ? ERROR_DURATION : DEFAULT_DURATION),
+    action,
   });
 }
 
-export function notifySuccess({ title, description, duration = DEFAULT_DURATION }: NotificationArgs) {
-  enqueueSnackbar({ tone: "success", title, description, duration });
+export function notifySuccess({ title, description, duration = DEFAULT_DURATION, action }: NotificationArgs) {
+  enqueueSnackbar({ tone: "success", title, description, duration, action });
 }
 
-export function notifyError({ title, description, duration = ERROR_DURATION }: NotificationArgs) {
-  enqueueSnackbar({ tone: "error", title, description, duration });
+export function notifyError({ title, description, duration, action }: NotificationArgs) {
+  enqueueSnackbar({ tone: "error", title, description, duration: duration ?? (action ? ACTION_DURATION : ERROR_DURATION), action });
 }
 
-export function notifyInfo({ title, description, duration = DEFAULT_DURATION }: NotificationArgs) {
-  enqueueSnackbar({ tone: "info", title, description, duration });
+export function notifyInfo({ title, description, duration = DEFAULT_DURATION, action }: NotificationArgs) {
+  enqueueSnackbar({ tone: "info", title, description, duration, action });
 }
 
 /** 単文のニュートラル通知（旧 toast.message 相当） */
@@ -110,6 +113,14 @@ export function notifyGakuchikaDraftGenerated() {
 export function notifyGakuchikaDraftSaved() {
   return notifySuccess({
     title: "ESを開きます",
+    duration: 4200,
+  });
+}
+
+export function notifyGakuchikaInterviewReady() {
+  return notifySuccess({
+    title: "面接準備が完了しました",
+    description: "必要なタイミングでフィードバックを表示できます。",
     duration: 4200,
   });
 }

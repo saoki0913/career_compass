@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { getHeadersIdentity } from "@/app/api/_shared/request-identity";
+import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getCompaniesPageData } from "@/lib/server/app-loaders";
 import { CompaniesPageClient } from "@/components/companies/CompaniesPageClient";
 

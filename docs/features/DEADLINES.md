@@ -9,7 +9,7 @@ ES提出、面接、WEBテストなどの就活イベント締切を管理する
 | 締切取得 hook | `src/hooks/useDeadlines.ts` |
 | ダッシュボード hook | `src/hooks/useDeadlinesDashboard.ts` |
 | ダッシュボードページ | `src/app/(product)/deadlines/page.tsx` |
-| ダッシュボード | `src/components/dashboard/DeadlineList.tsx` |
+| ダッシュボード締切カード | `src/components/dashboard/DeadlineCard.tsx`（`/dashboard` 右カラム下部。承認済み締切のみ表示） |
 | フォーム・モーダル | `src/components/deadlines/` |
 | 自動抽出承認 UI | `src/components/companies/DeadlineApprovalModal.tsx` |
 
@@ -238,7 +238,7 @@ POST /api/companies/[id]/deadlines
 | `src/components/deadlines/DeadlineSummaryStats.tsx` | サマリー統計 |
 | `src/components/deadlines/DeadlineProgressBar.tsx` | 進捗バー |
 | `src/components/deadlines/DeadlineListView.tsx` | リスト表示 |
-| `src/components/dashboard/DeadlineList.tsx` | ダッシュボード締切リスト |
+| `src/components/dashboard/DeadlineCard.tsx` | ダッシュボード右カラムの独立締切カード。空状態は `public/dashboard/assets/image_05.png` を使用 |
 | `src/components/deadlines/DeadlineForm.tsx` | 締切フォーム |
 | `src/components/deadlines/DeadlineModal.tsx` | 締切モーダル |
 | `src/components/companies/DeadlineApprovalModal.tsx` | 自動抽出承認UI（重複警告付き） |

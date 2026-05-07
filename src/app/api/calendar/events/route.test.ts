@@ -26,7 +26,14 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/calendar/sync", () => ({
   enqueueWorkBlockUpsert: vi.fn(),
+  syncWorkBlockImmediately: vi.fn(),
 }));
+
+const csrfHeaders = {
+  "content-type": "application/json",
+  cookie: "csrf_token=test-csrf",
+  "x-csrf-token": "test-csrf",
+};
 
 describe("GET /api/calendar/events", () => {
   beforeEach(() => {
@@ -91,6 +98,26 @@ describe("GET /api/calendar/events", () => {
         endAt: "2026-03-25T11:00:00.000Z",
         deadlineId: "deadline-foreign",
       }),
+      headers: csrfHeaders,
+    });
+
+    const response = await POST(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error.code).toBe("CALENDAR_EVENT_DEADLINE_NOT_FOUND");
+  });
+
+  it("rejects event creation before session lookup when CSRF is missing", async () => {
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost/api/calendar/events", {
+      method: "POST",
+      body: JSON.stringify({
+        type: "work_block",
+        title: "作業",
+        startAt: "2026-03-25T10:00:00.000Z",
+        endAt: "2026-03-25T11:00:00.000Z",
+      }),
       headers: {
         "content-type": "application/json",
       },
@@ -99,7 +126,8 @@ describe("GET /api/calendar/events", () => {
     const response = await POST(request);
     const body = await response.json();
 
-    expect(response.status).toBe(404);
-    expect(body.error.code).toBe("CALENDAR_EVENT_DEADLINE_NOT_FOUND");
+    expect(response.status).toBe(403);
+    expect(body.error.code).toBe("CSRF_VALIDATION_FAILED");
+    expect(getSessionMock).not.toHaveBeenCalled();
   });
 });

@@ -182,6 +182,10 @@ export interface MotivationConversationContext {
   /** Python-owned; read-only on TS side */
   draftReady?: boolean;
   draftReadyUnlockedAt?: string | null;
+  postDraftAwaitingResume?: boolean;
+  deepdiveResumeCount?: number;
+  /** TS-owned draft metadata for the latest generated ES document. */
+  draftDocumentId?: string | null;
 }
 
 // ---------------------------------------------------------------------------

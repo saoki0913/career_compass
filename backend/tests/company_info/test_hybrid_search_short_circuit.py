@@ -1,4 +1,4 @@
-from app.utils.hybrid_search import _should_short_circuit_search
+from app.rag.hybrid_search import _should_short_circuit_search
 
 
 def test_short_circuit_when_top_results_are_confident_and_diverse() -> None:

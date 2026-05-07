@@ -96,12 +96,10 @@ function isCalendarEvent(event: DisplayEvent): event is CalendarEvent {
 export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDetailModalProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Reset states when event changes
   useEffect(() => {
     setShowDeleteConfirm(false);
-    setDeleteError(null);
     setIsDeleting(false);
   }, [event]);
 
@@ -121,15 +119,14 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
     if (!onDelete || !("id" in event) || isGoogleEvent(event)) return;
 
     setIsDeleting(true);
-    setDeleteError(null);
     try {
       await onDelete(event.id);
       onClose();
     } catch (error) {
-      setDeleteError(reportUserFacingError(error, {
+      reportUserFacingError(error, {
         code: "CALENDAR_EVENT_DELETE_FAILED",
         userMessage: "削除に失敗しました。",
-      }, "EventDetailModal:delete"));
+      }, "EventDetailModal:delete");
     } finally {
       setIsDeleting(false);
     }
@@ -330,12 +327,6 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
                 </span>
               </div>
             </div>
-
-            {deleteError && (
-              <div className="p-2 rounded-lg bg-red-50 border border-red-200">
-                <p className="text-xs text-red-800">{deleteError}</p>
-              </div>
-            )}
 
             <div className="flex gap-2 pt-2">
               {onDelete && !showDeleteConfirm && (

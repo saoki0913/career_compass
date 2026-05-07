@@ -1,0 +1,136 @@
+{
+  "title": "#17 Monitoring Phase 0 final release tasks",
+  "updatedAt": "2026-05-05",
+  "statusValues": [
+    "Todo",
+    "In Progress",
+    "Blocked",
+    "Review",
+    "Done"
+  ],
+  "completionCriteria": [
+    "All tasks in this file are Done or explicitly documented as Blocked with a follow-up owner.",
+    "Shared TypeScript and Python sanitizers are covered by focused tests.",
+    "Sentry initialization is no-op when DSNs are absent and uses recursive PII scrubbing when enabled.",
+    "Public health responses do not expose provider key configuration.",
+    "Monitoring setup docs list external services, allowed telemetry fields, and known deferred work.",
+    "Focused verification, static checks, and git diff checks pass before commit.",
+    "docs/plan/execution-order.md is updated last with the actual implementation result."
+  ],
+  "tasks": [
+    {
+      "id": "MON-P0-001",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Task Tracking",
+      "task": "Create machine-readable task tracker and updater",
+      "evidence": [
+        "docs/plan/monitoring-release-final-tasks.json",
+        "scripts/plan/update-monitoring-task-status.mjs"
+      ],
+      "acceptanceCriteria": "Task states can be updated without hand-editing JSON formatting.",
+      "updatedAt": "2026-05-05"
+    },
+    {
+      "id": "MON-P0-002",
+      "status": "Done",
+      "priority": "P0",
+      "area": "PII Scrub",
+      "task": "Extract TypeScript sanitizer and connect frontend logger",
+      "evidence": [
+        "src/lib/sanitize.ts",
+        "src/lib/logger.ts",
+        "src/lib/sanitize.test.ts",
+        "src/lib/logger.test.ts"
+      ],
+      "acceptanceCriteria": "Nested headers, cookies, tokens, emails, and prompt-like payloads are redacted or dropped in log payloads.",
+      "updatedAt": "2026-05-05"
+    },
+    {
+      "id": "MON-P0-003",
+      "status": "Done",
+      "priority": "P0",
+      "area": "PII Scrub",
+      "task": "Extract Python sanitizer and connect backend logger",
+      "evidence": [
+        "backend/app/utils/sanitizer.py",
+        "backend/app/utils/secure_logger.py",
+        "backend/tests/observability/test_sanitizer.py",
+        "backend/tests/shared/test_secure_logger.py"
+      ],
+      "acceptanceCriteria": "Backend structured logs use shared redaction for nested extras and known sensitive patterns.",
+      "updatedAt": "2026-05-05"
+    },
+    {
+      "id": "MON-P0-004",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Sentry",
+      "task": "Add privacy-first Sentry initialization for Next.js and FastAPI",
+      "evidence": [
+        "instrumentation-client.ts",
+        "src/instrumentation.ts",
+        "sentry.server.config.ts",
+        "sentry.edge.config.ts",
+        "backend/app/observability/sentry_setup.py"
+      ],
+      "acceptanceCriteria": "Replay is disabled, DSN absence is safe, and beforeSend scrubs request, breadcrumb, and exception data.",
+      "updatedAt": "2026-05-05"
+    },
+    {
+      "id": "MON-P0-005",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Health",
+      "task": "Reduce public readiness response details",
+      "evidence": [
+        "backend/app/routers/health.py",
+        "backend/tests/shared/test_health.py"
+      ],
+      "acceptanceCriteria": "Readiness status does not expose provider key configured booleans or secret-derived details.",
+      "updatedAt": "2026-05-05"
+    },
+    {
+      "id": "MON-P0-006",
+      "status": "Done",
+      "priority": "P0",
+      "area": "External Monitoring",
+      "task": "Document UptimeRobot and Sentry production setup",
+      "evidence": [
+        "docs/ops/MONITORING_SETUP.md",
+        "docs/release/EXTERNAL_SERVICES.md",
+        "docs/ops/OBSERVABILITY.md"
+      ],
+      "acceptanceCriteria": "Docs list monitor targets, allowed telemetry, required env vars, and deferred SSL/heartbeat work.",
+      "updatedAt": "2026-05-05"
+    },
+    {
+      "id": "MON-P0-007",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Verification",
+      "task": "Run focused verification and fix regressions",
+      "evidence": [
+        "npm run test:unit -- src/lib/sanitize.test.ts src/lib/logger.test.ts",
+        "pytest backend/tests/observability/test_sanitizer.py backend/tests/shared/test_secure_logger.py backend/tests/shared/test_health.py -q",
+        "npx tsc --noEmit",
+        "npm run lint",
+        "git diff --check"
+      ],
+      "acceptanceCriteria": "Focused tests and static checks pass or failures are documented with a blocking reason.",
+      "updatedAt": "2026-05-05"
+    },
+    {
+      "id": "MON-P0-008",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Execution Order",
+      "task": "Update execution-order.md last",
+      "evidence": [
+        "docs/plan/execution-order.md"
+      ],
+      "acceptanceCriteria": "Execution order reflects completed Phase 0 monitoring work and deferred follow-up tasks.",
+      "updatedAt": "2026-05-05"
+    }
+  ]
+}

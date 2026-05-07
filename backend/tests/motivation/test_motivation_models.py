@@ -60,3 +60,20 @@ class TestGenerateDraftRequestMaxLength:
                 company_name="Test Co",
                 conversation_history=_make_messages(61),
             )
+
+    def test_is_regeneration_defaults_to_false(self) -> None:
+        req = GenerateDraftRequest(
+            company_id="c1",
+            company_name="Test Co",
+            conversation_history=_make_messages(2),
+        )
+        assert req.is_regeneration is False
+
+    def test_is_regeneration_accepts_true(self) -> None:
+        req = GenerateDraftRequest(
+            company_id="c1",
+            company_name="Test Co",
+            conversation_history=_make_messages(2),
+            is_regeneration=True,
+        )
+        assert req.is_regeneration is True

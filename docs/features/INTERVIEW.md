@@ -24,7 +24,7 @@
 - 面接対策はログイン必須。guest は開始・進行・講評・満足度保存のいずれも利用しない
 - 会話は `interview_conversations`、講評履歴は `interview_feedback_histories` に保存する
 - 旧版セッションは互換復元せず、v2 開始時にリセット扱いにする
-- 最終講評の成功時のみ `6 credits` を予約・確定で消費する
+- 課金は開始成功時 `2 credits`、回答送信成功時 `1 credit`、講評後の続き成功時 `1 credit`、最終講評成功時 `6 credits`
 - persistence schema が未適用のときは `INTERVIEW_PERSISTENCE_UNAVAILABLE` で fail-closed する
 
 ## v2.1 の進行モデル
@@ -162,21 +162,24 @@ seed は repo 内の設定資産として保持し、実行時に毎回 live sea
 - `preparationPoints`
 - `premiseConsistency`
 - `satisfactionScore`
+- `scoreEvidenceByAxis`
+- `scoreRationaleByAxis`
+- `confidenceByAxis`
 - `sourceQuestionCount`
 - `sourceMessagesSnapshot`
 
 ## Next API
 
 - `GET /api/companies/[id]/interview`
-  - hydrate 用。`setup`, `materials`, `conversation`, `feedbackHistories`, `creditCost` を返す
+  - hydrate 用。`setup`, `materials`, `conversation`, `sessionState`, `feedbackHistories`, `creditCost`, `billingCosts` を返す
 - `POST /api/companies/[id]/interview/start`
-  - v2 setup を保存し、`plan -> opening question` を SSE で返す
+  - 既存進行中セッションがなければ v2 setup を保存し、`plan -> opening question` を SSE で返す。成功時に 2 credits を消費する
 - `POST /api/companies/[id]/interview/stream`
-  - 直近回答を追加し、次質問を SSE で返す
+  - 直近回答を追加し、次質問を SSE で返す。成功時に 1 credit を消費する
 - `POST /api/companies/[id]/interview/feedback`
   - 最終講評を SSE 返却し、成功時のみ 6 credits を確定する
 - `POST /api/companies/[id]/interview/continue`
-  - 直近講評の `next_preparation` と現 plan を踏まえて追加深掘りを再開する
+  - 直近講評の `next_preparation` と現 plan を踏まえて追加深掘りを再開する。成功時に 1 credit を消費する
 - `POST /api/companies/[id]/interview/reset`
   - active session を初期化し、講評履歴は残す
 - `POST /api/companies/[id]/interview/feedback/satisfaction`
@@ -252,10 +255,16 @@ seed は repo 内の設定資産として保持し、実行時に毎回 live sea
 - `next_preparation`
 - `premise_consistency`
 - `satisfaction_score`
+- `score_evidence_by_axis`
+- `score_rationale_by_axis`
+- `confidence_by_axis`
 
 ## UI / UX
 
-- 開始前は setup card を表示し、設定確認後に開始できる
+- 開始前は `面接設定` card を表示し、設定確認後に開始できる
+  - 見出し下に「開始前に応募職種、面接方式、選考種別、面接段階、面接官タイプ、厳しさを設定します。」と表示する
+  - 応募職種、面接方式、選考種別、面接段階、面接官タイプ、厳しさを設定する
+  - 画面上では材料充足度チェック、準備カード、モデル分業表示は出さない
 - 右カラムにガクチカ風の進捗カードを表示する
   - トピックピル: 確認済み (emerald + ✓) / 進行中 (sky) / 未着手 (muted) の 3 色バッジ
   - 内部キー（`motivation_fit` 等）は `labelTopic()` で日本語ラベル（「志望動機」等）に変換して表示する
@@ -265,10 +274,10 @@ seed は repo 内の設定資産として保持し、実行時に毎回 live sea
   - SSE `string_chunk` はローカル蓄積のみ行い、`complete` イベント後に playback を開始する
   - playback 完了 + 180ms 遅延後に `startTransition` で全 state を一括適用し、ステータス切り替え時のガタつきを防ぐ
   - フィードバックの `string_chunk` は従来どおり即時表示（文字送り不要）
-- 右カラムに `面接設定 / PrepPack / 論点詳細 / 参考にする材料 / 過去の最終講評` を表示する
-- PrepPack は折りたたみ式（accordion）で面接設定カードの下に配置する
+- 右カラムに `進捗 / 面接設定 / 参考にする材料 / 過去の最終講評` を表示する
+- 参考材料は志望動機 / ガクチカ / 関連 ES / 企業情報 / 業界 seed を compact 表示する。カード表示を廃止しても、質問生成・講評ではこれらの材料を引き続き使う
 - 過去講評は compact 表示にし、クリックでモーダル全文表示する
-- 最終講評後は `最弱設問 / そのときの回答 / improved_answer / 次に準備すべき論点 / 1問満足度` を表示する
+- 最終講評後は `最弱設問 / そのときの回答 / improved_answer / 次に準備すべき論点 / 採点根拠 / 1問満足度` を表示する
 - 最終講評後は `面接対策を続ける` と `会話をやり直す` を表示する
 
 ## 面接官口調ルール
@@ -290,6 +299,6 @@ seed は repo 内の設定資産として保持し、実行時に毎回 live sea
 
 ## 課金
 
-- 質問フロー中は課金しない
-- `POST /feedback` の成功時のみ `6 credits` を予約・確定する
+- 開始・回答・講評後の続きは `interview`、最終講評は `interview_feedback` として、すべて `reserveCredits -> 永続化成功 -> confirmReservation` で消費する
+- `POST /start` は 2 credits、`POST /stream` と `POST /continue` は 1 credit、`POST /feedback` は 6 credits を予約・確定する
 - 失敗・中断時は `cancelReservation` で返金する

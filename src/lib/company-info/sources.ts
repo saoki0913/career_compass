@@ -203,13 +203,13 @@ export function inferTrustedForEsReview(source: Pick<
   return source.sourceType === "parent" && source.parentAllowed === true;
 }
 
-export function parseCorporateInfoSources(raw: string | null | undefined): CorporateInfoSource[] {
+export function parseCorporateInfoSources(raw: unknown): CorporateInfoSource[] {
   if (!raw || raw === "corporate_info_urls") {
     return [];
   }
 
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (!Array.isArray(parsed)) return [];
 
     return parsed
@@ -267,8 +267,8 @@ export function parseCorporateInfoSources(raw: string | null | undefined): Corpo
   }
 }
 
-export function serializeCorporateInfoSources(sources: CorporateInfoSource[]): string {
-  return JSON.stringify(sources);
+export function serializeCorporateInfoSources(sources: CorporateInfoSource[]): CorporateInfoSource[] {
+  return sources;
 }
 
 export function upsertCorporateInfoSource(

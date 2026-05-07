@@ -1,5 +1,7 @@
 import { getCsrfFailureReason } from "@/lib/csrf";
 
+type CsrfRequestLike = Parameters<typeof getCsrfFailureReason>[0];
+
 function createRequest(cookieToken?: string, headerToken?: string) {
   return {
     cookies: {
@@ -11,7 +13,7 @@ function createRequest(cookieToken?: string, headerToken?: string) {
       },
     },
     headers: new Headers(headerToken ? { "x-csrf-token": headerToken } : {}),
-  } as const;
+  } as CsrfRequestLike;
 }
 
 describe("getCsrfFailureReason", () => {

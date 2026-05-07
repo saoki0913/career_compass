@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "plan": "legal-commercial-support-plan",
+  "scope": "#14 Phase 0 legal and commercial P0",
+  "statusValues": [
+    "Todo",
+    "Doing",
+    "Blocked",
+    "Review",
+    "Done"
+  ],
+  "lastUpdated": "2026-05-06",
+  "tasks": [
+    {
+      "id": "L-01",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Legal",
+      "task": "AI生成物の著作権・知的財産条項追加",
+      "acceptanceCriteria": "ユーザー入力の権利留保、運営者のAI出力への権利非主張、著作物性・独占性・第三者権利非侵害の非保証、類似出力可能性、最終確認責任、サービス提供に必要な限定処理許諾を/termsに明記する",
+      "evidence": "terms page AI output rights regression test pass",
+      "updatedAt": "2026-05-06",
+      "notes": "AIプロバイダの学習不使用は断定せず、管理API利用・契約設定の範囲に限定した表現にした"
+    },
+    {
+      "id": "L-05",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Legal",
+      "task": "AI免責条項の強化",
+      "acceptanceCriteria": "事実誤認、古い情報、類似性、選考結果非保証、企業公式情報での確認、外部プロバイダ依存、専門助言非代替を/termsに明記する",
+      "evidence": "terms page AI disclaimer regression test pass",
+      "updatedAt": "2026-05-06",
+      "notes": "公開文面として安全寄りの表現で実装"
+    },
+    {
+      "id": "L-03",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Legal",
+      "task": "消費者契約法との整合性（返金例外条項）",
+      "acceptanceCriteria": "原則返金なし、二重課金・誤課金・提供不能時の例外、軽過失時の賠償上限、故意重過失の除外を/termsとStripe表示へ反映する",
+      "evidence": "checkout/terms/managed-config legal copy tests pass",
+      "updatedAt": "2026-05-06",
+      "notes": "課金ロジックはrefund/dispute webhook側で別途整合"
+    },
+    {
+      "id": "T-04a",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Commerce",
+      "task": "BCI-01/02/03 トランザクション整合性修正",
+      "acceptanceCriteria": "consumeCreditsの残高更新と監査ログ挿入を同一transactionにし、plan allocationを競合安全な差分更新にする",
+      "evidence": "credits focused Vitest pass",
+      "updatedAt": "2026-05-06",
+      "notes": "reserveCreditsとRAG free-unit lost updateは既に改善済みのため、残リスクに絞って実装"
+    },
+    {
+      "id": "T-03",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Commerce",
+      "task": "past_due 即時 free 制限",
+      "acceptanceCriteria": "invoice.payment_failedのfree降格に加え、credit層でもpast_due等の不正状態をconsume/reserve前にfail-closedする",
+      "evidence": "credit-layer block tests pass",
+      "updatedAt": "2026-05-06",
+      "notes": "hasEnoughCreditsもbilling blockを参照する"
+    },
+    {
+      "id": "T-01",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Commerce",
+      "task": "charge.refunded webhook 実装",
+      "acceptanceCriteria": "全額返金時はfree降格し、部分返金は自動降格せずbilling notificationのみ作成する",
+      "evidence": "stripe refund webhook tests pass",
+      "updatedAt": "2026-05-06",
+      "notes": "Stripe charge->invoice->subscription でユーザーを解決し、client metadataは信用しない"
+    },
+    {
+      "id": "T-02",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Commerce",
+      "task": "charge.dispute.* webhook 実装",
+      "acceptanceCriteria": "dispute createdでbilling holdを保存して新規AI消費を停止し、closed/wonで解除、lostでfree降格する",
+      "evidence": "stripe dispute webhook and billing hold tests pass",
+      "updatedAt": "2026-05-06",
+      "notes": "メール通知はP1へ分離し、今回はアプリ内通知のみ"
+    }
+  ]
+}

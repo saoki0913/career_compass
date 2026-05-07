@@ -67,7 +67,7 @@ describe("api/notifications/batch POST", () => {
       },
     ];
     const deadlineCounts = [{ userId: "user-1", count: 2 }];
-    const existing = [];
+    const existing: unknown[] = [];
 
     const selectResults = [profiles, deadlineCounts, existing];
     let selectCallIndex = 0;

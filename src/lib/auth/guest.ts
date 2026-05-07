@@ -12,6 +12,10 @@ import {
   documents,
   gakuchikaContents,
   guestUsers,
+  interviewConversations,
+  interviewDrillAttempts,
+  interviewFeedbackHistories,
+  interviewTurnEvents,
   loginPrompts,
   motivationConversations,
   notifications,
@@ -19,7 +23,7 @@ import {
   tasks,
   userPins,
 } from "@/lib/db/schema";
-import { eq, and, lt, isNull } from "drizzle-orm";
+import { eq, and, lt, isNull, gte, or } from "drizzle-orm";
 
 const GUEST_RETENTION_DAYS = 7;
 
@@ -162,33 +166,30 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
     return null;
   }
   const hashedToken = hashDeviceToken(deviceToken);
-  let guest = (await db
-    .select()
-    .from(guestUsers)
-    .where(eq(guestUsers.deviceToken, hashedToken))
-    .limit(1))[0];
-
-  // Fallback for un-hashed tokens
-  if (!guest) {
-    guest = (await db
-      .select()
-      .from(guestUsers)
-      .where(eq(guestUsers.deviceToken, deviceToken))
-      .limit(1))[0];
-  }
-
-  if (!guest || guest.migratedToUserId) {
-    return null;
-  }
-
-  // Reject expired guests
-  if (guest.expiresAt < new Date()) {
-    return null;
-  }
 
   const now = new Date();
 
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
+    const [guest] = await tx
+      .update(guestUsers)
+      .set({
+        deviceToken: hashedToken,
+        migratedToUserId: userId,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          or(eq(guestUsers.deviceToken, hashedToken), eq(guestUsers.deviceToken, deviceToken)),
+          isNull(guestUsers.migratedToUserId),
+          gte(guestUsers.expiresAt, now),
+        ),
+      )
+      .returning({ id: guestUsers.id });
+
+    if (!guest) {
+      return null;
+    }
+
     const migrateOwner = async (
       table:
         | typeof companies
@@ -198,6 +199,10 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
         | typeof notifications
         | typeof gakuchikaContents
         | typeof motivationConversations
+        | typeof interviewConversations
+        | typeof interviewFeedbackHistories
+        | typeof interviewTurnEvents
+        | typeof interviewDrillAttempts
         | typeof submissionItems
         | typeof userPins,
     ) => {
@@ -214,28 +219,22 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
         .where(eq(ownerTable.guestId, guest.id));
     };
 
-    await Promise.all([
-      migrateOwner(companies),
-      migrateOwner(applications),
-      migrateOwner(documents),
-      migrateOwner(tasks),
-      migrateOwner(notifications),
-      migrateOwner(gakuchikaContents),
-      migrateOwner(motivationConversations),
-      migrateOwner(submissionItems),
-      migrateOwner(userPins),
-    ]);
+    await migrateOwner(companies);
+    await migrateOwner(applications);
+    await migrateOwner(documents);
+    await migrateOwner(tasks);
+    await migrateOwner(notifications);
+    await migrateOwner(gakuchikaContents);
+    await migrateOwner(motivationConversations);
+    await migrateOwner(interviewConversations);
+    await migrateOwner(interviewFeedbackHistories);
+    await migrateOwner(interviewTurnEvents);
+    await migrateOwner(interviewDrillAttempts);
+    await migrateOwner(submissionItems);
+    await migrateOwner(userPins);
 
-    await tx
-      .update(guestUsers)
-      .set({
-        migratedToUserId: userId,
-        updatedAt: now,
-      })
-      .where(eq(guestUsers.id, guest.id));
+    return { guestId: guest.id, userId };
   });
-
-  return { guestId: guest.id, userId };
 }
 
 /**

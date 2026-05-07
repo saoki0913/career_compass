@@ -19,7 +19,7 @@ function LoadingSpinner() {
 }
 
 interface ConversationActionBarProps {
-  helperText: string;
+  helperText?: string;
   actionLabel: string;
   pendingLabel?: string;
   onAction: () => void;
@@ -39,15 +39,29 @@ export function ConversationActionBar({
   controls,
   className,
 }: ConversationActionBarProps) {
+  const hasHelper = Boolean(helperText);
+
   return (
     <div
       className={cn(
-        "rounded-[28px] border border-border/70 bg-background/90 px-3 py-2 shadow-sm",
+        "rounded-[28px] border border-border/70 bg-background/90 px-3 shadow-sm",
+        hasHelper ? "py-2" : "py-1.5",
         className,
       )}
     >
-      <div className="grid grid-cols-1 items-center gap-3 xl:grid-cols-[minmax(0,1fr)_auto_auto]">
-        <p className="min-w-0 text-sm leading-6 text-muted-foreground xl:max-w-[34rem]">{helperText}</p>
+      <div
+        className={cn(
+          "grid grid-cols-1 items-center gap-3",
+          hasHelper
+            ? "xl:grid-cols-[minmax(0,1fr)_auto_auto]"
+            : controls
+              ? "xl:grid-cols-[auto_auto]"
+              : "",
+        )}
+      >
+        {hasHelper ? (
+          <p className="min-w-0 text-sm leading-6 text-muted-foreground xl:max-w-[34rem]">{helperText}</p>
+        ) : null}
 
         {controls ? <div className="flex items-center gap-2 xl:justify-self-end">{controls}</div> : null}
 
@@ -55,7 +69,8 @@ export function ConversationActionBar({
           onClick={onAction}
           disabled={disabled || isPending}
           className={cn(
-            "h-11 w-full rounded-2xl px-5 shadow-sm",
+            "w-full rounded-2xl px-5 shadow-sm",
+            hasHelper ? "h-11" : "h-9",
             controls ? "xl:min-w-[228px] xl:w-auto" : "xl:min-w-[260px] xl:w-auto",
           )}
         >

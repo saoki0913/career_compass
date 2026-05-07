@@ -13,11 +13,12 @@ import { eq } from "drizzle-orm";
 import { VALID_STATUSES } from "@/lib/constants/status";
 import { stripCompanyCredentials } from "@/lib/db/sanitize";
 import { encrypt } from "@/lib/crypto";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
-import { createServerTimingRecorder } from "@/app/api/_shared/server-timing";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
-import { hasOwnedCompany } from "@/app/api/_shared/owner-access";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { createServerTimingRecorder } from "@/bff/api/server-timing";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { buildOwnedRowCondition, hasOwnedCompany } from "@/bff/identity/owner-access";
 import { getCompanyDetailPageData } from "@/lib/server/app-loaders";
+import { normalizeCompanyUrlField } from "@/app/api/companies/_shared/url-validation";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -58,7 +59,7 @@ export async function GET(
 
     return timing.apply(
       NextResponse.json({
-        company: detail.company,
+        company: stripCompanyCredentials(detail.company),
         deadlines: detail.deadlines,
       })
     );
@@ -136,6 +137,19 @@ export async function PUT(
       });
     }
 
+    const normalizedRecruitmentUrl = recruitmentUrl !== undefined
+      ? await normalizeCompanyUrlField(request, "recruitmentUrl", recruitmentUrl)
+      : null;
+    if (normalizedRecruitmentUrl?.response) return normalizedRecruitmentUrl.response;
+    const normalizedCorporateUrl = corporateUrl !== undefined
+      ? await normalizeCompanyUrlField(request, "corporateUrl", corporateUrl)
+      : null;
+    if (normalizedCorporateUrl?.response) return normalizedCorporateUrl.response;
+    const normalizedMypageUrl = mypageUrl !== undefined
+      ? await normalizeCompanyUrlField(request, "mypageUrl", mypageUrl)
+      : null;
+    if (normalizedMypageUrl?.response) return normalizedMypageUrl.response;
+
     // Build update object
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
@@ -143,9 +157,9 @@ export async function PUT(
 
     if (name !== undefined) updateData.name = name.trim();
     if (industry !== undefined) updateData.industry = industry?.trim() || null;
-    if (recruitmentUrl !== undefined) updateData.recruitmentUrl = recruitmentUrl?.trim() || null;
-    if (corporateUrl !== undefined) updateData.corporateUrl = corporateUrl?.trim() || null;
-    if (mypageUrl !== undefined) updateData.mypageUrl = mypageUrl?.trim() || null;
+    if (recruitmentUrl !== undefined) updateData.recruitmentUrl = normalizedRecruitmentUrl?.value ?? null;
+    if (corporateUrl !== undefined) updateData.corporateUrl = normalizedCorporateUrl?.value ?? null;
+    if (mypageUrl !== undefined) updateData.mypageUrl = normalizedMypageUrl?.value ?? null;
     if (mypageLoginId !== undefined && mypageLoginId !== null && mypageLoginId.trim() !== "") updateData.mypageLoginId = mypageLoginId.trim();
     if (mypagePassword !== undefined && mypagePassword !== null && mypagePassword.trim() !== "") updateData.mypagePassword = encrypt(mypagePassword.trim());
     if (notes !== undefined) updateData.notes = notes?.trim() || null;
@@ -153,20 +167,26 @@ export async function PUT(
     if (sortOrder !== undefined) updateData.sortOrder = sortOrder;
     if (isPinned !== undefined) updateData.isPinned = isPinned;
 
-    await db
+    const updated = await db
       .update(companies)
       .set(updateData)
-      .where(eq(companies.id, id));
+      .where(buildOwnedRowCondition(eq(companies.id, id), companies, identity)!)
+      .returning();
 
-    // Get updated company
-    const [updatedCompany] = await db
-      .select()
-      .from(companies)
-      .where(eq(companies.id, id))
-      .limit(1);
+    if (!updated[0]) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_UPDATE_NOT_FOUND",
+        userMessage: "更新対象の企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found during update",
+        logContext: "update-company-not-found",
+      });
+    }
+
 
     return NextResponse.json({
-      company: updatedCompany ? stripCompanyCredentials(updatedCompany) : null,
+      company: stripCompanyCredentials(updated[0]),
       message: "Company updated successfully",
     });
   } catch (error) {
@@ -217,9 +237,21 @@ export async function DELETE(
     }
 
     // Delete company (deadlines will cascade delete due to schema)
-    await db
+    const deleted = await db
       .delete(companies)
-      .where(eq(companies.id, id));
+      .where(buildOwnedRowCondition(eq(companies.id, id), companies, identity)!)
+      .returning({ id: companies.id });
+
+    if (!deleted[0]) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_DELETE_NOT_FOUND",
+        userMessage: "削除対象の企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found during delete",
+        logContext: "delete-company-not-found",
+      });
+    }
 
     return NextResponse.json({
       message: "Company deleted successfully",

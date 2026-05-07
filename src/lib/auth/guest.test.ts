@@ -17,7 +17,17 @@ vi.mock("@/lib/db/schema", () => ({
   companies: { name: "companies" },
   documents: { name: "documents" },
   gakuchikaContents: { name: "gakuchika_contents" },
-  guestUsers: { name: "guest_users", deviceToken: "deviceToken", id: "id" },
+  guestUsers: {
+    name: "guest_users",
+    deviceToken: "deviceToken",
+    expiresAt: "expiresAt",
+    id: "id",
+    migratedToUserId: "migratedToUserId",
+  },
+  interviewConversations: { name: "interview_conversations" },
+  interviewDrillAttempts: { name: "interview_drill_attempts" },
+  interviewFeedbackHistories: { name: "interview_feedback_histories" },
+  interviewTurnEvents: { name: "interview_turn_events" },
   motivationConversations: { name: "motivation_conversations" },
   notifications: { name: "notifications" },
   submissionItems: { name: "submission_items" },
@@ -35,8 +45,10 @@ vi.mock("@/lib/db", () => ({
 vi.mock("drizzle-orm", () => ({
   and: (...values: unknown[]) => ({ and: values }),
   eq: (...values: unknown[]) => ({ eq: values }),
+  gte: (...values: unknown[]) => ({ gte: values }),
   isNull: (...values: unknown[]) => ({ isNull: values }),
   lt: (...values: unknown[]) => ({ lt: values }),
+  or: (...values: unknown[]) => ({ or: values }),
 }));
 
 describe("migrateGuestToUser", () => {
@@ -71,9 +83,15 @@ describe("migrateGuestToUser", () => {
     });
 
     txUpdateMock.mockImplementation((table) => ({
-      set: vi.fn(() => ({
-        where: vi.fn().mockResolvedValue(table),
-      })),
+      set: vi.fn(() => {
+        const whereResult =
+          table.name === "guest_users"
+            ? { returning: vi.fn().mockResolvedValue([{ id: "guest-1" }]) }
+            : Promise.resolve(table);
+        return {
+          where: vi.fn(() => whereResult),
+        };
+      }),
     }));
 
     dbTransactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) =>
@@ -92,6 +110,7 @@ describe("migrateGuestToUser", () => {
 
     const updatedTables = txUpdateMock.mock.calls.map(([table]) => table.name);
     expect(updatedTables).toEqual([
+      "guest_users",
       "companies",
       "applications",
       "documents",
@@ -99,9 +118,30 @@ describe("migrateGuestToUser", () => {
       "notifications",
       "gakuchika_contents",
       "motivation_conversations",
+      "interview_conversations",
+      "interview_feedback_histories",
+      "interview_turn_events",
+      "interview_drill_attempts",
       "submission_items",
       "user_pins",
-      "guest_users",
     ]);
+  });
+
+  it("returns null when the atomic claim loses the race", async () => {
+    txUpdateMock.mockImplementation((table) => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() =>
+          table.name === "guest_users"
+            ? { returning: vi.fn().mockResolvedValue([]) }
+            : Promise.resolve(table),
+        ),
+      })),
+    }));
+
+    const { migrateGuestToUser } = await import("@/lib/auth/guest");
+    const result = await migrateGuestToUser("550e8400-e29b-41d4-a716-446655440000", "user-1");
+
+    expect(result).toBeNull();
+    expect(txUpdateMock).toHaveBeenCalledTimes(1);
   });
 });

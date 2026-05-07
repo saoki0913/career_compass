@@ -28,7 +28,9 @@
 | `STRIPE_PRICE_PRO_ANNUAL` | Yes | Pro 年額 Price ID (`price_...`) |
 | `FASTAPI_URL` | Yes | `https://shupass-backend-production.up.railway.app` |
 | `INTERNAL_API_JWT_SECRET` | Yes | Next.js から FastAPI への内部呼び出し用 shared secret。32文字以上を推奨 |
-| `CAREER_PRINCIPAL_HMAC_SECRET` | Yes | `X-Career-Principal` ヘッダ署名用 HMAC シークレット（BFF 側）。`INTERNAL_API_JWT_SECRET` とは独立して回転できるよう別管理。32文字以上を推奨。詳細は `docs/security/principal_spec.md` |
+| `CAREER_PRINCIPAL_HMAC_SECRET` | Yes | `X-Career-Principal` ヘッダ署名用 HMAC シークレット（BFF 側）。`INTERNAL_API_JWT_SECRET` とは独立して回転できるよう別管理。32文字以上を推奨。詳細は `docs/architecture/BFF_FASTAPI_CONTRACT.md` |
+| `NEXT_PUBLIC_LOGO_DEV_TOKEN` | No | ダッシュボード企業アイコンの実ロゴ取得に使う Logo.dev publishable key。未設定時は favicon / 頭文字 avatar に fallback |
+| `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` | No | ダッシュボード企業アイコンの Brandfetch Logo API client ID。Logo.dev 取得失敗時の追加 fallback として使用 |
 | `CRON_SECRET` | Yes | Cron 認証トークン (hex 32) |
 | `COMPANY_PDF_INGEST_BUCKET` | No | 旧 deferred OCR 用 Storage。遅延 OCR 廃止後は主に互換・掃除用 |
 | `UPSTASH_REDIS_REST_URL` | No | Upstash Redis REST URL (`https://xxx.upstash.io`) |
@@ -52,7 +54,7 @@
 | `MISTRAL_API_KEY` | No | 難しい IR 系 PDF の高精度 OCR 用 API キー |
 | `CORS_ORIGINS` | Yes | `["https://www.shupass.jp","https://shupass.jp"]` |
 | `INTERNAL_API_JWT_SECRET` | Yes | Next.js BFF からの service JWT 検証用 shared secret |
-| `CAREER_PRINCIPAL_HMAC_SECRET` | Yes | `X-Career-Principal` ヘッダ署名検証用 HMAC シークレット（FastAPI 側）。BFF と同値を設定する。詳細は `docs/security/principal_spec.md` |
+| `CAREER_PRINCIPAL_HMAC_SECRET` | Yes | `X-Career-Principal` ヘッダ署名検証用 HMAC シークレット（FastAPI 側）。BFF と同値を設定する。詳細は `docs/architecture/BFF_FASTAPI_CONTRACT.md` |
 | `BACKEND_TRUSTED_HOSTS` | No | 受け付ける Host 名。例: `["shupass-backend-production.up.railway.app","stg-api.shupass.jp","localhost","127.0.0.1"]` |
 | `PORT` | No | Railway が自動注入することが多い。アプリは `${PORT:-8000}` で待受（ローカルは 8000） |
 | `FRONTEND_URL` | No | 任意（ログ出力用）。例: `https://www.shupass.jp` |
@@ -139,8 +141,12 @@
 ## Sync Commands
 
 - auth 確認: `zsh scripts/release/provider-auth-status.sh --strict`
-- env / secrets 同期: `zsh scripts/release/sync-career-compass-secrets.sh --check|--apply`
+- env / secrets 確認: `make ops-secrets-sync`
+- env / secrets 同期: `SYNC_MODE=--apply TARGET=all make ops-secrets-sync`
+- script 直実行: `zsh scripts/release/sync-career-compass-secrets.sh --check|--apply --target <target>`
 - infra bootstrap check: `zsh scripts/bootstrap-career-compass-infra.sh --check`
+
+`--check` は secret 値を比較・表示せず、bundle 側と provider 側の key set だけを照合します。bundle にある key が provider にない場合は release を止め、provider 側だけにある key は warning として出します。staging Vercel は `github-actions.env` の `CI_E2E_AUTH_SECRET` / `CI_E2E_AUTH_ENABLED` / `PLAYWRIGHT_BASE_URL` overlay も expected key に含めます。
 
 ## Secret Rotation Checklist
 

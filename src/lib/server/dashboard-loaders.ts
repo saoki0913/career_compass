@@ -1,8 +1,8 @@
 import { and, gte, isNull, lte, eq, desc } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
-import type { RequestIdentity } from "@/app/api/_shared/request-identity";
-import { isOwnedByIdentity } from "@/app/api/_shared/owner-access";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
+import { isOwnedByIdentity } from "@/bff/identity/owner-access";
 import { db } from "@/lib/db";
 import {
   applications,
@@ -18,6 +18,148 @@ import {
   buildTaskWhere,
   serializeDate,
 } from "./loader-helpers";
+
+type TodayTaskRow = {
+  task: typeof tasks.$inferSelect;
+  company: {
+    id: string | null;
+    name: string | null;
+    createdAt: Date | string | null;
+    userId: string | null;
+    guestId: string | null;
+  } | null;
+  application: {
+    id: string | null;
+    name: string | null;
+    userId: string | null;
+    guestId: string | null;
+  } | null;
+  deadline: {
+    id: string | null;
+    title: string | null;
+    dueDate: Date | string | null;
+    userId: string | null;
+    guestId: string | null;
+  } | null;
+};
+
+type UrgentDeadlineRow = {
+  id: string;
+  applicationId: string | null;
+  dueDate: Date | string;
+};
+
+const TODAY_TASK_TYPE_PRIORITY: Record<string, number> = {
+  es: 0,
+  gakuchika: 1,
+  self_analysis: 2,
+  web_test: 3,
+  video: 4,
+  other: 5,
+};
+
+function toTimestamp(value: Date | string | null | undefined): number {
+  if (!value) return Number.POSITIVE_INFINITY;
+  return new Date(value).getTime();
+}
+
+function compareTimestamps(
+  a: Date | string | null | undefined,
+  b: Date | string | null | undefined,
+) {
+  return toTimestamp(a) - toTimestamp(b);
+}
+
+function compareTodayTaskType(a: TodayTaskRow, b: TodayTaskRow) {
+  return (TODAY_TASK_TYPE_PRIORITY[a.task.type] ?? 5) - (TODAY_TASK_TYPE_PRIORITY[b.task.type] ?? 5);
+}
+
+function compareByCreatedAt(a: TodayTaskRow, b: TodayTaskRow) {
+  return compareTimestamps(a.task.createdAt, b.task.createdAt);
+}
+
+function compareDeadlineWorkOrder(a: TodayTaskRow, b: TodayTaskRow) {
+  const sortOrderDiff = (a.task.sortOrder ?? 0) - (b.task.sortOrder ?? 0);
+  if (sortOrderDiff !== 0) return sortOrderDiff;
+
+  const dueDateDiff = compareTimestamps(a.task.dueDate, b.task.dueDate);
+  if (dueDateDiff !== 0) return dueDateDiff;
+
+  return compareByCreatedAt(a, b);
+}
+
+function compareDeepDiveOrder(a: TodayTaskRow, b: TodayTaskRow) {
+  const typeDiff = compareTodayTaskType(a, b);
+  if (typeDiff !== 0) return typeDiff;
+
+  const companyDiff = compareTimestamps(a.company?.createdAt, b.company?.createdAt);
+  if (companyDiff !== 0) return companyDiff;
+
+  return compareByCreatedAt(a, b);
+}
+
+function isTaskActionable(row: TodayTaskRow) {
+  return row.task.isBlocked !== true;
+}
+
+function getDeadlineTargetTasks(deadline: UrgentDeadlineRow, taskRows: TodayTaskRow[]) {
+  return taskRows.filter(({ task, deadline: taskDeadline }) => {
+    if (deadline.applicationId && task.applicationId === deadline.applicationId) {
+      return true;
+    }
+    return task.deadlineId === deadline.id || taskDeadline?.id === deadline.id;
+  });
+}
+
+function selectUrgentDeadlineTask(
+  taskRows: TodayTaskRow[],
+  urgentDeadlines: UrgentDeadlineRow[],
+  now: Date,
+) {
+  let selectedTasks: TodayTaskRow[] = [];
+  let highestScore = 0;
+  let nearestDue: Date | null = null;
+
+  for (const urgentDeadline of urgentDeadlines) {
+    const targetTasks = getDeadlineTargetTasks(urgentDeadline, taskRows);
+    if (targetTasks.length === 0) continue;
+
+    const dueDate = new Date(urgentDeadline.dueDate);
+    const hoursToDue = Math.max(1, (dueDate.getTime() - now.getTime()) / (1000 * 60 * 60));
+    const score = targetTasks.length / hoursToDue;
+    const beatsCurrent =
+      score > highestScore ||
+      (score === highestScore && (!nearestDue || dueDate < nearestDue));
+
+    if (beatsCurrent) {
+      highestScore = score;
+      nearestDue = dueDate;
+      selectedTasks = targetTasks;
+    }
+  }
+
+  return [...selectedTasks].sort(compareDeadlineWorkOrder)[0] ?? null;
+}
+
+function selectDueTask(taskRows: TodayTaskRow[], threshold: Date) {
+  return (
+    taskRows
+      .filter((row) => toTimestamp(row.task.dueDate) <= threshold.getTime())
+      .sort((a, b) => {
+        const dueDateDiff = compareTimestamps(a.task.dueDate, b.task.dueDate);
+        if (dueDateDiff !== 0) return dueDateDiff;
+
+        const typeDiff = compareTodayTaskType(a, b);
+        if (typeDiff !== 0) return typeDiff;
+
+        return compareByCreatedAt(a, b);
+      })[0] ?? null
+  );
+}
+
+function selectDeepDiveTask(taskRows: TodayTaskRow[]) {
+  return [...taskRows].sort(compareDeepDiveOrder)[0] ?? null;
+}
 
 export async function getUpcomingDeadlinesData(identity: RequestIdentity, days = 7) {
   const maxDays = Math.min(Number.isFinite(days) && days > 0 ? days : 7, 30);
@@ -71,7 +213,7 @@ export async function getTodayTaskData(identity: RequestIdentity) {
   const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
   const deadlineCompany = alias(companies, "today_deadline_company");
 
-  const openTasks = await db
+  const openTasks: TodayTaskRow[] = await db
     .select({
       task: tasks,
       company: {
@@ -106,7 +248,12 @@ export async function getTodayTaskData(identity: RequestIdentity) {
     return { mode: null, task: null, message: "タスクがありません" };
   }
 
-  const urgentDeadlines = await db
+  const actionableTasks = openTasks.filter(isTaskActionable);
+  if (actionableTasks.length === 0) {
+    return { mode: null, task: null, message: "今すぐ着手できるタスクがありません" };
+  }
+
+  const urgentDeadlines: UrgentDeadlineRow[] = await db
     .select({
       id: deadlines.id,
       applicationId: deadlines.applicationId,
@@ -119,93 +266,36 @@ export async function getTodayTaskData(identity: RequestIdentity) {
         eq(deadlines.isConfirmed, true),
         isNull(deadlines.completedAt),
         lte(deadlines.dueDate, in72h),
-        gte(deadlines.dueDate, now),
         buildCompanyWhere(identity),
       ),
     );
 
-  let selectedTask = null;
+  let selectedTask: TodayTaskRow | null = null;
   let mode: "DEADLINE" | "DEEP_DIVE" = "DEEP_DIVE";
 
   if (urgentDeadlines.length > 0) {
-    mode = "DEADLINE";
-    const appScores = new Map<string, { score: number; dueDate: Date }>();
-    const openTaskCountByApplication = new Map<string, number>();
-
-    for (const { task } of openTasks) {
-      if (!task.applicationId) continue;
-      openTaskCountByApplication.set(task.applicationId, (openTaskCountByApplication.get(task.applicationId) ?? 0) + 1);
-    }
-
-    for (const urgentDeadline of urgentDeadlines) {
-      if (!urgentDeadline.applicationId) continue;
-      const dueDate = new Date(urgentDeadline.dueDate);
-      const hoursToDue = Math.max(1, (dueDate.getTime() - now.getTime()) / (1000 * 60 * 60));
-      const score = (openTaskCountByApplication.get(urgentDeadline.applicationId) ?? 0) / hoursToDue;
-      const existing = appScores.get(urgentDeadline.applicationId);
-      if (!existing || score > existing.score) {
-        appScores.set(urgentDeadline.applicationId, { score, dueDate });
-      }
-    }
-
-    let targetAppId: string | null = null;
-    let highestScore = 0;
-    let nearestDue: Date | null = null;
-
-    for (const [appId, data] of appScores) {
-      if (data.score > highestScore || (data.score === highestScore && nearestDue && data.dueDate < nearestDue)) {
-        highestScore = data.score;
-        nearestDue = data.dueDate;
-        targetAppId = appId;
-      }
-    }
-
-    if (targetAppId) {
-      selectedTask =
-        openTasks
-          .filter((task) => task.task.applicationId === targetAppId)
-          .sort((a, b) => new Date(a.task.createdAt).getTime() - new Date(b.task.createdAt).getTime())[0] ?? null;
-    }
-
-    if (!selectedTask) {
-      selectedTask =
-        openTasks
-          .filter((task) => task.deadline?.id)
-          .sort((a, b) => {
-            const aDue = a.deadline?.dueDate ? new Date(a.deadline.dueDate).getTime() : Number.POSITIVE_INFINITY;
-            const bDue = b.deadline?.dueDate ? new Date(b.deadline.dueDate).getTime() : Number.POSITIVE_INFINITY;
-            return aDue - bDue;
-          })[0] ?? null;
+    selectedTask = selectUrgentDeadlineTask(actionableTasks, urgentDeadlines, now);
+    if (selectedTask) {
+      mode = "DEADLINE";
     }
   }
 
   if (!selectedTask) {
-    const typePriority: Record<string, number> = {
-      es: 0,
-      gakuchika: 1,
-      self_analysis: 2,
-      web_test: 3,
-      video: 4,
-      other: 5,
-    };
+    selectedTask = selectDueTask(actionableTasks, in72h);
+    if (selectedTask) {
+      mode = "DEADLINE";
+    }
+  }
 
-    selectedTask =
-      [...openTasks].sort((a, b) => {
-        const aPriority = typePriority[a.task.type] ?? 5;
-        const bPriority = typePriority[b.task.type] ?? 5;
-        if (aPriority !== bPriority) return aPriority - bPriority;
-
-        const aCompanyCreatedAt = a.company?.createdAt ? new Date(a.company.createdAt).getTime() : Number.POSITIVE_INFINITY;
-        const bCompanyCreatedAt = b.company?.createdAt ? new Date(b.company.createdAt).getTime() : Number.POSITIVE_INFINITY;
-        if (aCompanyCreatedAt !== bCompanyCreatedAt) return aCompanyCreatedAt - bCompanyCreatedAt;
-
-        return new Date(a.task.createdAt).getTime() - new Date(b.task.createdAt).getTime();
-      })[0] ?? null;
+  if (!selectedTask) {
+    selectedTask = selectDeepDiveTask(actionableTasks);
   }
 
   if (!selectedTask) {
     return { mode: null, task: null, message: "推薦タスクがありません" };
   }
+
+  const serializedDeadlineDueDate = serializeDate(selectedTask.deadline?.dueDate);
 
   return {
     mode,
@@ -218,21 +308,23 @@ export async function getTodayTaskData(identity: RequestIdentity) {
         serializeDate(selectedTask.task.updatedAt) ?? serializeDate(selectedTask.task.createdAt) ?? new Date().toISOString(),
       sortOrder: selectedTask.task.sortOrder ?? 0,
       company:
-        selectedTask.company?.id && isOwnedByIdentity(selectedTask.company, identity)
+        selectedTask.company?.id && selectedTask.company.name && isOwnedByIdentity(selectedTask.company, identity)
           ? { id: selectedTask.company.id, name: selectedTask.company.name }
           : null,
       application:
-        selectedTask.application?.id && isOwnedByIdentity(selectedTask.application, identity)
+        selectedTask.application?.id &&
+        selectedTask.application.name &&
+        isOwnedByIdentity(selectedTask.application, identity)
           ? { id: selectedTask.application.id, name: selectedTask.application.name }
           : null,
       deadline:
         selectedTask.deadline?.id &&
-        selectedTask.deadline.dueDate &&
+        serializedDeadlineDueDate &&
         isOwnedByIdentity(selectedTask.deadline, identity)
           ? {
               id: selectedTask.deadline.id,
               title: selectedTask.deadline.title ?? "",
-              dueDate: selectedTask.deadline.dueDate.toISOString(),
+              dueDate: serializedDeadlineDueDate,
             }
           : null,
     },

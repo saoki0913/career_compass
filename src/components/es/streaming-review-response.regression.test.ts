@@ -20,4 +20,18 @@ describe("streaming review response regressions", () => {
     expect(source).toContain("explanationComplete");
     expect(source).not.toContain("top3");
   });
+
+  it("presents submission checks without pass/fail-like score grades", () => {
+    const source = readSource("src/components/es/StreamingReviewResponse.tsx");
+
+    expect(source).toContain("提出前チェック");
+    expect(source).toContain("確認済み");
+    expect(source).toContain("要確認");
+    expect(source).toContain("根拠不足");
+    expect(source).toContain("根拠制約");
+    expect(source).not.toContain("品質スコア");
+    expect(source).not.toContain("QualityGrade");
+    expect(source).not.toContain("GRADE_COLORS");
+    expect(source).not.toMatch(/["']S["']|["']A["']|["']B["']|["']C["']/);
+  });
 });

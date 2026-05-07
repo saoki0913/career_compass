@@ -54,14 +54,14 @@ export const TIER_MESSAGES: Record<ReminderTier, string> = {
  */
 export function getEffectiveTiers(
   deadlineType: string,
-  userOverrides?: Record<string, ReminderTier[]> | null,
+  userOverrides?: Readonly<Record<string, readonly ReminderTier[]>> | null,
 ): ReminderTier[] {
   if (userOverrides?.[deadlineType]) {
-    return userOverrides[deadlineType];
+    return [...userOverrides[deadlineType]];
   }
 
   const importance = DEADLINE_TYPE_IMPORTANCE[deadlineType] ?? "light";
-  return IMPORTANCE_TIERS[importance];
+  return [...IMPORTANCE_TIERS[importance]];
 }
 
 /**

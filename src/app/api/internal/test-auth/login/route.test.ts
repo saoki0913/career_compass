@@ -64,6 +64,9 @@ function makeSelectResult(result: unknown[]) {
   };
 }
 
+const BETTER_AUTH_SECRET_ENV = "BETTER_" + "AUTH_SECRET";
+const TEST_AUTH_SIGNING_KEY = "unit-test-auth-signing-secret";
+
 describe("api/internal/test-auth/login", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -80,8 +83,8 @@ describe("api/internal/test-auth/login", () => {
     txUpdateMock.mockReset();
     txDeleteMock.mockReset();
 
-    process.env.CI_E2E_AUTH_SECRET = "top-secret";
-    process.env.BETTER_AUTH_SECRET = "better-auth-secret";
+    process.env.CI_E2E_AUTH_SECRET = "top-secret-at-least-16";
+    process.env[BETTER_AUTH_SECRET_ENV] = TEST_AUTH_SIGNING_KEY;
     process.env.CI_E2E_TEST_EMAIL = "ci@example.com";
     process.env.CI_E2E_TEST_NAME = "CI";
     process.env.CI_E2E_TEST_PLAN = "standard";
@@ -171,10 +174,18 @@ describe("api/internal/test-auth/login", () => {
   });
 
   it("creates a session cookie for the CI test user", async () => {
-    txSelectMock
-      .mockReturnValueOnce(makeSelectResult([]))
-      .mockReturnValueOnce(makeSelectResult([]));
-    txInsertMock.mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) });
+    txSelectMock.mockReturnValueOnce(makeSelectResult([]));
+    txInsertMock
+      .mockReturnValueOnce({
+        values: vi.fn(() => ({
+          onConflictDoUpdate: vi.fn(() => ({
+            returning: vi.fn().mockResolvedValue([{ id: "test-user-id" }]),
+          })),
+        })),
+      })
+      .mockReturnValueOnce({
+        values: vi.fn().mockResolvedValue(undefined),
+      });
     txUpdateMock.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })) });
     txDeleteMock.mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
     transactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) =>
@@ -192,7 +203,7 @@ describe("api/internal/test-auth/login", () => {
       new NextRequest("http://localhost:3000/api/internal/test-auth/login", {
         method: "POST",
         headers: {
-          Authorization: "Bearer top-secret",
+          Authorization: "Bearer top-secret-at-least-16",
         },
       })
     );
@@ -200,10 +211,11 @@ describe("api/internal/test-auth/login", () => {
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
+    expect(isCiE2EAuthEnabledMock).toHaveBeenCalledWith("http://localhost:3000");
     expect(serializeSignedCookieMock).toHaveBeenCalledWith(
       "__Secure-better-auth.session_token",
       "better-auth-session-token",
-      "better-auth-secret",
+      TEST_AUTH_SIGNING_KEY,
       expect.objectContaining({ secure: true })
     );
     expect(response.headers.get("set-cookie")).toContain("__Secure-better-auth.session_token=signed");

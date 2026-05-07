@@ -223,3 +223,7 @@ def test_fails_closed_when_secret_not_configured(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         _resolve(dep, _make_request(token))
     assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == {
+        "error": "career principal is not configured",
+        "error_type": "career_principal_not_configured",
+    }

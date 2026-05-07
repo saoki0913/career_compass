@@ -22,17 +22,15 @@ if ! echo "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit'; then
   exit 0
 fi
 
-# --- 変更統計を取得 (tracked diff + untracked) ---
-NUMSTAT=$(git -C "$PROJECT_DIR" diff --numstat HEAD 2>/dev/null || true)
-UNTRACKED=$(git -C "$PROJECT_DIR" ls-files --others --exclude-standard 2>/dev/null || true)
+# --- 変更統計を取得 (staged diff only) ---
+NUMSTAT=$(git -C "$PROJECT_DIR" diff --cached --numstat 2>/dev/null || true)
 
 CHANGED_FILES=$(printf '%s\n' "$NUMSTAT" | grep -cE '.' || true)
-UNTRACKED_FILES=$(printf '%s\n' "$UNTRACKED" | grep -cE '.' || true)
-TOTAL_FILES=$((CHANGED_FILES + UNTRACKED_FILES))
+TOTAL_FILES=$CHANGED_FILES
 TOTAL_LINES=$(printf '%s\n' "$NUMSTAT" | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {sum += $1 + $2} END {print sum+0}')
 
 HOTSPOT_HIT=""
-ALL_PATHS=$(printf '%s\n%s\n' "$NUMSTAT" "$UNTRACKED" | awk 'NF {if (NF > 1) print $NF; else print $0}')
+ALL_PATHS=$(printf '%s\n' "$NUMSTAT" | awk 'NF {print $NF}')
 while IFS= read -r path; do
   [ -z "$path" ] && continue
   if is_hotspot_path "$path"; then
@@ -72,65 +70,103 @@ CLAUDE.md §B の Codex post_review + delegation 確認が必要です。
 
 手順:
   1. bash scripts/codex/delegate.sh post_review を実行
-  2. 最新 handoff: ls -td $PROJECT_DIR/.claude/state/codex-handoffs/post_review-*/ | head -1
+  2. 最新 handoff: ls -td $PROJECT_DIR/.codex/state/handoffs/post_review-*/ $PROJECT_DIR/.claude/state/codex-handoffs/post_review-*/ 2>/dev/null | head -1
   3. meta.json の status と result.md を確認
   4. AskUserQuestion で以下を提示:
        - post_review の status / 主要 findings
        - 選択肢: 「commit 続行」「Codex に修正委譲」「Claude fallback」
-  5. 回答に応じて checkpoint を作成:
-       echo "reviewed-proceed"  > $COMMIT_DELEG_FLAG   # commit 続行
-       echo "delegate-fixes"    > $COMMIT_DELEG_FLAG   # Codex に修正委譲してから
-       echo "fallback-reviewed" > $COMMIT_DELEG_FLAG   # post_review 失敗 → Claude fallback
+  5. 回答に応じて staged diff に結び付いた checkpoint を作成:
+       node scripts/harness/diff-snapshot.mjs checkpoint --kind commit-review --decision reviewed-proceed --project "$PROJECT_DIR" > $COMMIT_DELEG_FLAG
+       # decision は delegate-fixes / fallback-reviewed も可
   6. 再度 git commit を実行
 EOF
   exit 2
 fi
 
-# --- Check 2: 内容バリデーション (skip-review は廃止) ---
-CONTENT=$(tr -d '[:space:]' < "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-case "$CONTENT" in
+# --- Check 2: JSON checkpoint + staged diff snapshot ---
+DECISION=$(jq -r '.decision // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+case "$DECISION" in
   reviewed-proceed|delegate-fixes|fallback-reviewed) ;;
   *)
     cat >&2 <<EOF
 ⛔ git commit をブロックしました。
 
-commit delegation checkpoint の内容が不正: "$CONTENT"
-許可値: reviewed-proceed / delegate-fixes / fallback-reviewed
-(skip-review は廃止されました)
+commit delegation checkpoint は JSON で、decision は reviewed-proceed / delegate-fixes / fallback-reviewed のいずれかが必要です。
 
-手順: 削除して AskUserQuestion 経由で作り直してください:
-  rm $COMMIT_DELEG_FLAG
-  echo "<decision>" > $COMMIT_DELEG_FLAG
+作成例:
+  node scripts/harness/diff-snapshot.mjs checkpoint --kind commit-review --decision reviewed-proceed --project "$PROJECT_DIR" > $COMMIT_DELEG_FLAG
 EOF
     exit 2
     ;;
 esac
 
-# --- Check 3: stale 検出 (最新 post_review handoff より前の checkpoint は拒否) ---
-# fallback-reviewed は Codex post_review が失敗した場合用のため stale 照合を免除。
-if [ "$CONTENT" != "fallback-reviewed" ]; then
-  LATEST_PR=$(ls -td "$PROJECT_DIR"/.claude/state/codex-handoffs/post_review-*/meta.json 2>/dev/null | head -1)
-  if [ -n "$LATEST_PR" ]; then
-    PR_MTIME=$(stat -f %m "$LATEST_PR" 2>/dev/null || echo 0)
-    CP_MTIME=$(stat -f %m "$COMMIT_DELEG_FLAG" 2>/dev/null || echo 0)
-    if [ "$CP_MTIME" -le "$PR_MTIME" ]; then
-      cat >&2 <<EOF
-⛔ git commit をブロックしました (stale checkpoint)。
+CHECKPOINT_KIND=$(jq -r '.kind // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+if [ "$CHECKPOINT_KIND" != "commit-review" ] && [ "$CHECKPOINT_KIND" != "codex-post-review" ]; then
+  cat >&2 <<EOF
+⛔ git commit をブロックしました。
 
-commit delegation checkpoint が最新の post_review handoff より古いです。
-ancient checkpoint の再利用を防止するためブロックします。
-
-latest_post_review=$LATEST_PR
-  post_review_mtime=$PR_MTIME
-  checkpoint_mtime=$CP_MTIME
-
-手順: 削除して AskUserQuestion 経由で作り直してください:
-  rm $COMMIT_DELEG_FLAG
-  # AskUserQuestion で commit 続行 or 修正委譲を確認
-  echo "<decision>" > $COMMIT_DELEG_FLAG
+commit delegation checkpoint の kind は commit-review または codex-post-review である必要があります。
+checkpoint=$COMMIT_DELEG_FLAG
 EOF
-      exit 2
+  exit 2
+fi
+
+if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$COMMIT_DELEG_FLAG" >/dev/null; then
+  cat >&2 <<EOF
+⛔ git commit をブロックしました。
+
+checkpoint 作成後に staged diff が変わりました。post_review / AskUserQuestion 確認をやり直してください。
+checkpoint=$COMMIT_DELEG_FLAG
+EOF
+  exit 2
+fi
+
+REVIEW_REQUEST_ID=$(jq -r '.reviewRequestId // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+REVIEW_EXECUTION_STATUS=$(jq -r '.reviewExecutionStatus // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+REVIEW_VERDICT=$(jq -r '.reviewVerdict // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+MAX_SEVERITY=$(jq -r '.maxSeverity // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+
+if [ "$DECISION" != "fallback-reviewed" ]; then
+  if [ -z "$REVIEW_REQUEST_ID" ] || [ -z "$REVIEW_EXECUTION_STATUS" ] || [ -z "$REVIEW_VERDICT" ]; then
+    cat >&2 <<EOF
+⛔ git commit をブロックしました。
+
+checkpoint に reviewRequestId / reviewExecutionStatus / reviewVerdict がありません。
+Codex post_review の review.json を確認し、現在の staged diff に結び付いた checkpoint を作成してください。
+EOF
+    exit 2
+  fi
+
+  REVIEW_JSON=""
+  for dir in "$PROJECT_DIR/.codex/state/handoffs/$REVIEW_REQUEST_ID" "$PROJECT_DIR/.claude/state/codex-handoffs/$REVIEW_REQUEST_ID"; do
+    if [ -f "$dir/review.json" ]; then
+      REVIEW_JSON="$dir/review.json"
+      break
     fi
+  done
+  if [ -z "$REVIEW_JSON" ]; then
+    echo "git commit blocked: review.json not found for $REVIEW_REQUEST_ID." >&2
+    exit 2
+  fi
+
+  REVIEW_JSON_EXECUTION=$(jq -r '.executionStatus // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
+  REVIEW_JSON_VERDICT=$(jq -r '.reviewStatus // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
+  REVIEW_JSON_HASH=$(jq -r '.stagedDiffHash // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
+  CHECKPOINT_HASH=$(jq -r '.stagedDiffHash // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
+
+  if [ "$REVIEW_JSON_EXECUTION" != "$REVIEW_EXECUTION_STATUS" ] || [ "$REVIEW_JSON_VERDICT" != "$REVIEW_VERDICT" ] || [ "$REVIEW_JSON_HASH" != "$CHECKPOINT_HASH" ]; then
+    echo "git commit blocked: checkpoint does not match post_review artifact." >&2
+    exit 2
+  fi
+
+  if [ "$REVIEW_EXECUTION_STATUS" != "SUCCESS" ]; then
+    echo "git commit blocked: Codex post_review did not complete successfully. Use fallback-reviewed after Claude review." >&2
+    exit 2
+  fi
+
+  if [ "$REVIEW_VERDICT" = "NEEDS_DISCUSSION" ] || { [ "$REVIEW_VERDICT" = "REQUEST_CHANGES" ] && echo "$MAX_SEVERITY" | grep -qE '^(high|critical)$'; }; then
+    echo "git commit blocked: post_review requires changes or discussion before commit." >&2
+    exit 2
   fi
 fi
 

@@ -15,6 +15,14 @@ function normalizePath(path) {
   return normalizeE2EFunctionalPath(path);
 }
 
+/**
+ * @typedef {Object} E2EFunctionalScopeInput
+ * @property {string[]} [changedFiles]
+ */
+
+/**
+ * @param {E2EFunctionalScopeInput} [input]
+ */
 export function resolveE2EFunctionalScope({
   changedFiles = [],
 } = {}) {
@@ -74,6 +82,16 @@ export function resolveE2EFunctionalScope({
   };
 }
 
+/**
+ * @typedef {Object} E2EFunctionalContextInput
+ * @property {string} [cwd]
+ * @property {NodeJS.ProcessEnv} [env]
+ * @property {string[]} [explicitFiles]
+ */
+
+/**
+ * @param {E2EFunctionalContextInput} [input]
+ */
 export function resolveE2EFunctionalScopeFromContext({
   cwd = process.cwd(),
   env = process.env,

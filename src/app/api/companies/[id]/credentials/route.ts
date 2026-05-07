@@ -8,12 +8,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import { companies } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
 import { decrypt } from "@/lib/crypto";
 import { logError } from "@/lib/logger";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { getOwnedCompanyRecord } from "@/bff/identity/owner-access";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -29,45 +28,27 @@ export async function GET(
     // Authenticate
     const identity = await getRequestIdentity(request);
     if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "COMPANY_CREDENTIALS_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "company-credentials-auth",
+      });
     }
-    const { userId, guestId } = identity;
 
-    // Fetch only credential fields + ownership fields
-    const [company] = await db
-      .select({
-        id: companies.id,
-        userId: companies.userId,
-        guestId: companies.guestId,
-        mypageLoginId: companies.mypageLoginId,
-        mypagePassword: companies.mypagePassword,
-      })
-      .from(companies)
-      .where(eq(companies.id, id))
-      .limit(1);
-
+    const company = await getOwnedCompanyRecord(id, identity);
     if (!company) {
-      return NextResponse.json(
-        { error: "Company not found" },
-        { status: 404 }
-      );
-    }
-
-    // Verify ownership
-    if (userId && company.userId !== userId) {
-      return NextResponse.json(
-        { error: "Company not found" },
-        { status: 404 }
-      );
-    }
-    if (guestId && company.guestId !== guestId) {
-      return NextResponse.json(
-        { error: "Company not found" },
-        { status: 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_CREDENTIALS_NOT_FOUND",
+        userMessage: "企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found",
+        logContext: "company-credentials-not-found",
+      });
     }
 
     // Decrypt password and return credentials
@@ -86,10 +67,15 @@ export async function GET(
       mypagePassword: decryptedPassword,
     });
   } catch (error) {
-    logError("fetch-credentials", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANY_CREDENTIALS_FETCH_FAILED",
+      userMessage: "認証情報を取得できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Failed to fetch company credentials",
+      logContext: "fetch-credentials",
+    });
   }
 }

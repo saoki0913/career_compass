@@ -60,6 +60,7 @@ export function CompanyDetailSkeleton() {
               </div>
             </CardHeader>
             <CardContent className="pt-0">
+              {/* Deadline filter pill skeletons */}
               <div className="flex gap-2 overflow-hidden pb-2">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <SkeletonPill key={i} className="h-8 w-[5.5rem] shrink-0" />

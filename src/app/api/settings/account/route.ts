@@ -12,7 +12,7 @@ import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
 import { logError } from "@/lib/logger";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 
 export async function DELETE(request: NextRequest) {
   try {

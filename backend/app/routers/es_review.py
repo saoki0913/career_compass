@@ -6,6 +6,7 @@ from typing import Optional, AsyncGenerator, Any, Awaitable, Callable
 
 from app.security.career_principal import (
     CareerPrincipal,
+    require_tenant_key,
     require_career_principal,
 )
 from app.security.sse_concurrency import (
@@ -18,6 +19,7 @@ import math
 import time
 from urllib.parse import urlparse
 import os
+from contextlib import suppress
 
 from app.config import settings
 from app.utils.secure_logger import get_logger
@@ -32,7 +34,7 @@ from app.utils.llm_prompt_safety import (
     sanitize_es_content,
     sanitize_prompt_input,
 )
-from app.utils.vector_store import (
+from app.rag.vector_store import (
     get_enhanced_context_for_review_with_sources,
     has_company_rag,
     get_company_rag_status,
@@ -70,7 +72,7 @@ from app.utils.es_template_classifier import classify_es_question
 # ---------------------------------------------------------------------------
 # Extraction module imports — functions/constants split out of this file
 # ---------------------------------------------------------------------------
-from app.routers.es_review_request import (
+from app.services.es_review.request import (
     iter_string_leaves as _iter_string_leaves,
     collect_injection_scan_targets as _collect_injection_scan_targets,
     detect_request_injection_risk as _detect_request_injection_risk,
@@ -78,7 +80,7 @@ from app.routers.es_review_request import (
     sanitize_optional_prompt_text as _sanitize_optional_prompt_text,
     sanitize_review_request as _sanitize_review_request,
 )
-from app.routers.es_review_validation import (
+from app.services.es_review.validation import (
     SHORT_ANSWER_CHAR_MAX,
     FINAL_SOFT_MIN_FLOOR_RATIO,
     TIGHT_LENGTH_TEMPLATES,
@@ -105,7 +107,7 @@ from app.routers.es_review_validation import (
     _validate_standard_conclusion_focus,
     _validate_rewrite_candidate,
 )
-from app.routers.es_review_issue import (
+from app.services.es_review.issue import (
     DIFFICULTY_LEVELS,
     REQUIRED_ACTIONS,
     _normalize_difficulty,
@@ -118,7 +120,7 @@ from app.routers.es_review_issue import (
     _fallback_improvement_points,
     _merge_with_fallback_issues,
 )
-from app.routers.es_review_grounding import (
+from app.services.es_review.grounding import (
     COMPANY_HONORIFIC_TOKENS,
     COMPANY_REFERENCE_TOKENS,
     ROLE_SUPPORTIVE_CONTENT_TYPES,
@@ -146,7 +148,7 @@ from app.routers.es_review_grounding import (
     _assess_company_evidence_coverage,
     _collect_user_context_sources,
 )
-from app.routers.es_review_retry import (
+from app.services.es_review.retry import (
     REWRITE_MAX_ATTEMPTS,
     LENGTH_FIX_REWRITE_ATTEMPTS,
     _OPENAI_ES_REVIEW_OUTPUT_TOKEN_FLOOR,
@@ -181,14 +183,14 @@ from app.routers.es_review_retry import (
     _build_second_pass_content_type_boosts,
     _should_run_role_focused_second_pass,
 )
-from app.routers.es_review_pipeline import (
+from app.services.es_review.pipeline import (
     _empty_review_token_usage,
     _accumulate_review_token_usage,
     _maybe_review_token_usage,
     _evaluate_template_rag_availability,
     _build_review_meta,
 )
-from app.routers.es_review_stream import (
+from app.services.es_review.stream import (
     _queue_progress_event,
     _queue_stream_event,
     _stream_final_rewrite,
@@ -198,7 +200,7 @@ from app.routers.es_review_stream import (
     _extract_domain,
     _build_keyword_sources,
 )
-from app.routers.es_review_models import (
+from app.services.es_review.models import (
     TemplateRequest,
     TemplateVariant,
     TemplateSource,
@@ -215,24 +217,6 @@ from app.routers.es_review_models import (
     ReviewResponse,
     CompanyReviewStatusResponse,
 )
-from app.routers.es_review_models import (
-    TemplateRequest,
-    TemplateVariant,
-    TemplateSource,
-    RoleContext,
-    ProfileContext,
-    GakuchikaContextItem,
-    DocumentSectionContext,
-    DocumentContext,
-    ReviewTokenUsage,
-    ReviewMeta,
-    TemplateReview,
-    ReviewRequest,
-    Issue,
-    ReviewResponse,
-    CompanyReviewStatusResponse,
-)
-
 router = APIRouter(prefix="/api/es", tags=["es-review"])
 
 ReviewJSONCaller = Callable[..., Awaitable[Any]]
@@ -309,7 +293,7 @@ def _resolve_effective_grounding_level(
     classifier_grounding_level: str | None,
     char_max: int | None,
     evidence_coverage_level: str,
-    has_company_rag: bool,
+    rag_available: bool,
 ) -> str:
     level = classifier_grounding_level or _get_default_grounding_level(template_type)
     ordered = ["none", "light", "standard", "deep"]
@@ -323,7 +307,7 @@ def _resolve_effective_grounding_level(
 
     if template_type == "basic" and char_max and char_max <= SHORT_ANSWER_CHAR_MAX and level in {"standard", "deep"}:
         level = "light"
-    if not has_company_rag and level in {"standard", "deep"}:
+    if not rag_available and level in {"standard", "deep"}:
         level = lower(level)
     if evidence_coverage_level == "weak" and level in {"standard", "deep"}:
         level = lower(level)
@@ -774,7 +758,7 @@ async def review_section_with_template(
     progress_queue: "asyncio.Queue | None" = None,
 ) -> ReviewResponse:
     """Review a single ES section with a rewrite-only pipeline."""
-    from app.routers.es_review_orchestrator import (
+    from app.services.es_review.orchestrator import (
         prepare_review_context,
         execute_rewrite_loop,
         execute_recovery_pipeline,
@@ -851,6 +835,7 @@ def _extract_user_facing_message(detail: Any) -> str:
 async def _generate_review_progress(
     request: ReviewRequest,
     *,
+    tenant_key: str | None = None,
     review_runner: Callable[..., Awaitable[ReviewResponse]] = review_section_with_template,
     review_runner_kwargs: Optional[dict[str, Any]] = None,
 ) -> AsyncGenerator[str, None]:
@@ -932,7 +917,6 @@ async def _generate_review_progress(
                 role_name=request.role_context.primary_role if request.role_context else None,
             )
 
-        company_grounding = _get_company_grounding_policy(template_request.template_type)
         assistive_company_signal = _company_grounding_is_assistive(
             template_request.template_type
         ) and _question_has_assistive_company_signal(
@@ -956,7 +940,7 @@ async def _generate_review_progress(
         # Step 2: RAG fetch (if company_id)
         rag_context = ""
         rag_sources: list[dict] = []
-        company_rag_available = request.has_company_rag
+        company_rag_available = False
         context_length = get_dynamic_context_length(request.content)
         retrieval_query = request.retrieval_query or request.content
         grounding_mode = "none"
@@ -970,6 +954,11 @@ async def _generate_review_progress(
         )
 
         if request.company_id and should_fetch_company_rag:
+            if not tenant_key:
+                raise HTTPException(
+                    status_code=503,
+                    detail="tenant key is not configured",
+                )
             yield _sse_event(
                 "progress",
                 {
@@ -980,8 +969,10 @@ async def _generate_review_progress(
             )
             last_stream_activity = time.monotonic()
 
-            if not company_rag_available:
-                company_rag_available = has_company_rag(request.company_id)
+            company_rag_available = has_company_rag(
+                request.company_id,
+                tenant_key=tenant_key,
+            )
 
             if company_rag_available:
                 min_context_length = max(0, settings.rag_min_context_chars)
@@ -991,6 +982,7 @@ async def _generate_review_progress(
                         es_content=retrieval_query,
                         max_context_length=context_length,
                         search_options=template_rag_profile,
+                        tenant_key=tenant_key,
                     )
                 )
                 is_rag_available, rag_reason = _evaluate_template_rag_availability(
@@ -1104,64 +1096,70 @@ async def _generate_review_progress(
 
         review_task = asyncio.create_task(_run_template_review())
 
-        while not review_task.done():
-            try:
-                event_type, event_data = await asyncio.wait_for(
-                    progress_queue.get(), timeout=0.4
-                )
-                if event_type in {
-                    "progress",
-                    "string_chunk",
-                    "field_complete",
-                    "array_item_complete",
-                }:
-                    yield _sse_event(event_type, event_data)
-                    last_stream_activity = time.monotonic()
-            except asyncio.TimeoutError:
-                now = time.monotonic()
-                if (
-                    not review_task.done()
-                    and (now - last_stream_activity) >= SSE_KEEPALIVE_INTERVAL_SECONDS
-                    and (now - last_keepalive) >= SSE_KEEPALIVE_INTERVAL_SECONDS
-                ):
-                    yield _sse_comment()
-                    last_stream_activity = now
-                    last_keepalive = now
-                continue
-
-        while not progress_queue.empty():
-            try:
-                event_type, event_data = progress_queue.get_nowait()
-                if event_type in {
-                    "progress",
-                    "string_chunk",
-                    "field_complete",
-                    "array_item_complete",
-                }:
-                    yield _sse_event(event_type, event_data)
-                    last_stream_activity = time.monotonic()
-            except asyncio.QueueEmpty:
-                break
-
         try:
-            result = await review_task
-        except HTTPException as e:
-            logger.warning(
-                f"[ES添削/SSE] HTTPException {e.status_code}: {e.detail}"
-            )
-            if 400 <= e.status_code < 500:
-                message = _extract_user_facing_message(e.detail)
-            else:
-                message = "AI処理が混み合っています。しばらくしてからお試しください。"
-            yield _sse_event("error", {"message": message})
-            last_stream_activity = time.monotonic()
-            return
+            while not review_task.done():
+                try:
+                    event_type, event_data = await asyncio.wait_for(
+                        progress_queue.get(), timeout=0.4
+                    )
+                    if event_type in {
+                        "progress",
+                        "string_chunk",
+                        "field_complete",
+                        "array_item_complete",
+                    }:
+                        yield _sse_event(event_type, event_data)
+                        last_stream_activity = time.monotonic()
+                except asyncio.TimeoutError:
+                    now = time.monotonic()
+                    if (
+                        not review_task.done()
+                        and (now - last_stream_activity) >= SSE_KEEPALIVE_INTERVAL_SECONDS
+                        and (now - last_keepalive) >= SSE_KEEPALIVE_INTERVAL_SECONDS
+                    ):
+                        yield _sse_comment()
+                        last_stream_activity = now
+                        last_keepalive = now
+                    continue
+
+            while not progress_queue.empty():
+                try:
+                    event_type, event_data = progress_queue.get_nowait()
+                    if event_type in {
+                        "progress",
+                        "string_chunk",
+                        "field_complete",
+                        "array_item_complete",
+                    }:
+                        yield _sse_event(event_type, event_data)
+                        last_stream_activity = time.monotonic()
+                except asyncio.QueueEmpty:
+                    break
+
+            try:
+                result = await review_task
+            except HTTPException as e:
+                logger.warning(
+                    f"[ES添削/SSE] HTTPException {e.status_code}: {e.detail}"
+                )
+                if 400 <= e.status_code < 500:
+                    message = _extract_user_facing_message(e.detail)
+                else:
+                    message = "AI処理が混み合っています。しばらくしてからお試しください。"
+                yield _sse_event("error", {"message": message})
+                last_stream_activity = time.monotonic()
+                return
+        except asyncio.CancelledError:
+            review_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await review_task
+            raise
 
         result_payload = result.model_dump()
         final_rewrite_text = result.rewrites[0] if result.rewrites else ""
         explanation_text: str | None = None
         if final_rewrite_text:
-            from app.routers.es_review_explanation import generate_improvement_explanation
+            from app.services.es_review.explanation import generate_improvement_explanation
 
             try:
                 _queue_progress_event(
@@ -1277,15 +1275,20 @@ async def review_es_stream(
 
     async def _stream_with_lease() -> AsyncGenerator[str, None]:
         async with lease:
-            async for chunk in _generate_review_progress(request):
+            tenant_key = require_tenant_key(principal) if request.company_id else None
+            async for chunk in _generate_review_progress(request, tenant_key=tenant_key):
                 await lease.heartbeat_if_due()
                 yield chunk
 
     return _build_review_streaming_response(_stream_with_lease())
 
 
-def evaluate_company_review_status(company_id: str) -> CompanyReviewStatusResponse:
-    rag_status = get_company_rag_status(company_id)
+def evaluate_company_review_status(
+    company_id: str,
+    *,
+    tenant_key: str,
+) -> CompanyReviewStatusResponse:
+    rag_status = get_company_rag_status(company_id, tenant_key=tenant_key)
     strategic_chunks = (
         rag_status.get("new_grad_recruitment_chunks", 0)
         + rag_status.get("midcareer_recruitment_chunks", 0)
@@ -1321,5 +1324,17 @@ def evaluate_company_review_status(company_id: str) -> CompanyReviewStatusRespon
 
 @router.get("/company-status/{company_id}", response_model=CompanyReviewStatusResponse)
 @limiter.limit("120/minute")
-async def get_company_review_status(company_id: str, request: Request):
-    return evaluate_company_review_status(company_id)
+async def get_company_review_status(
+    company_id: str,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
+    if principal.company_id != company_id:
+        raise HTTPException(
+            status_code=403,
+            detail="career principal company_id mismatch",
+        )
+    return evaluate_company_review_status(
+        company_id,
+        tenant_key=require_tenant_key(principal),
+    )

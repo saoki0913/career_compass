@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+type CorporateInfoSourceMock = {
+  url: string;
+  kind: string;
+  status: string;
+  contentType: string;
+};
+
 const {
   getSessionMock,
   dbSelectMock,
@@ -15,7 +22,7 @@ const {
   dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
   applyCompanyRagUsageMock: vi.fn(),
-  parseCorporateInfoSourcesMock: vi.fn(() => []),
+  parseCorporateInfoSourcesMock: vi.fn((): CorporateInfoSourceMock[] => []),
   checkPublicSourceComplianceMock: vi.fn(async (url: string) => ({
     url,
     status: "allowed",
@@ -322,7 +329,7 @@ describe("api/companies/[id]/fetch-corporate", () => {
         status: "completed",
         contentType: "corporate_site",
       },
-    ] as any);
+    ]);
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(

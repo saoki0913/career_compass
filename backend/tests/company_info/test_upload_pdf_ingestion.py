@@ -1,20 +1,21 @@
 import io
 
 import pytest
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from starlette.requests import Request
 
 from app.routers import company_info
+from app.security.upload_limits import MAX_PDF_UPLOAD_BYTES
 from app.security.career_principal import CareerPrincipal
 
 
-def _minimal_request() -> Request:
+def _minimal_request(headers: list[tuple[bytes, bytes]] | None = None) -> Request:
     return Request(
         {
             "type": "http",
             "method": "POST",
             "path": "/rag/upload-pdf",
-            "headers": [],
+            "headers": headers or [],
             "query_string": b"",
             "client": ("testclient", 0),
             "server": ("test", 80),
@@ -31,6 +32,7 @@ def _company_principal(company_id: str = "company-1") -> CareerPrincipal:
         plan="standard",
         company_id=company_id,
         jti="test-jti",
+        tenant_key="a" * 32,
     )
 
 
@@ -208,7 +210,7 @@ async def test_upload_pdf_uses_high_accuracy_ocr_for_standard_ir_materials(
 
     assert result.success is True
     assert result.extraction_method == "ocr_high_accuracy"
-    assert calls == ["default", "high_accuracy"]
+    assert calls == ["high_accuracy"]
     assert result.page_routing_summary is not None
     assert result.page_routing_summary["mistral_ocr_pages"] == 10
 
@@ -272,3 +274,113 @@ async def test_upload_pdf_keeps_readable_pages_local_and_ocrs_only_hard_pages(
     assert result.page_routing_summary is not None
     assert result.page_routing_summary["local_pages"] == 2
     assert result.page_routing_summary["google_ocr_pages"] == 2
+
+
+class _ReadGuardUpload:
+    filename = "company.pdf"
+    content_type = "application/pdf"
+
+    def __init__(self, payload: bytes) -> None:
+        self._file = io.BytesIO(payload)
+
+    async def read(self, size: int | None = None) -> bytes:
+        if size is None:
+            raise AssertionError("upload route must not call unbounded read()")
+        return self._file.read(size)
+
+
+@pytest.mark.asyncio
+async def test_upload_pdf_reads_with_explicit_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, bytes] = {}
+
+    async def _fake_upload_pdf_impl(**kwargs):
+        seen["pdf_bytes"] = kwargs["pdf_bytes"]
+        return company_info.UploadCorporatePdfResponse(
+            success=True,
+            company_id=kwargs["company_id"],
+            source_url=kwargs["source_url"],
+            chunks_stored=1,
+            extracted_chars=120,
+            extraction_method="local",
+            errors=[],
+        )
+
+    monkeypatch.setattr(company_info, "_upload_pdf_impl", _fake_upload_pdf_impl)
+
+    await company_info.upload_corporate_pdf(
+        _minimal_request(headers=[(b"content-length", b"1024")]),
+        company_id="company-1",
+        company_name="テスト株式会社",
+        source_url="upload://corporate-pdf/company-1/test",
+        content_type=None,
+        content_channel=None,
+        billing_plan="free",
+        file=_ReadGuardUpload(b"%PDF-1.4 test"),
+        principal=_company_principal(),
+    )
+
+    assert seen["pdf_bytes"].startswith(b"%PDF-")
+
+
+@pytest.mark.asyncio
+async def test_upload_pdf_rejects_oversized_content_length_before_read() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        await company_info.upload_corporate_pdf(
+            _minimal_request(headers=[(b"content-length", str(MAX_PDF_UPLOAD_BYTES + 1).encode())]),
+            company_id="company-1",
+            company_name="テスト株式会社",
+            source_url="upload://corporate-pdf/company-1/test",
+            content_type=None,
+            content_channel=None,
+            billing_plan="free",
+            file=_ReadGuardUpload(b"%PDF-1.4 test"),
+            principal=_company_principal(),
+        )
+
+    assert exc_info.value.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_upload_pdf_rejects_invalid_pdf_magic() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        await company_info.upload_corporate_pdf(
+            _minimal_request(headers=[(b"content-length", b"128")]),
+            company_id="company-1",
+            company_name="テスト株式会社",
+            source_url="upload://corporate-pdf/company-1/test",
+            content_type=None,
+            content_channel=None,
+            billing_plan="free",
+            file=_ReadGuardUpload(b"not a pdf"),
+            principal=_company_principal(),
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_private_pdf_requires_explicit_consent_before_processing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _should_not_run(**_kwargs):
+        raise AssertionError("private material reached ingest without consent")
+
+    monkeypatch.setattr(company_info, "_upload_pdf_impl", _should_not_run)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await company_info.upload_corporate_pdf(
+            _minimal_request(headers=[(b"content-length", b"128")]),
+            company_id="company-1",
+            company_name="テスト株式会社",
+            source_url="upload://private/company-1/test",
+            content_type=None,
+            content_channel=None,
+            billing_plan="free",
+            source_kind="private_user_material",
+            private_material_consent=False,
+            consent_reference=None,
+            file=_ReadGuardUpload(b"%PDF-1.4 test"),
+            principal=_company_principal(),
+        )
+
+    assert exc_info.value.status_code == 400

@@ -1,27 +1,30 @@
 import { serializeSignedCookie } from "better-call";
 import { NextRequest, NextResponse } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { auth } from "@/lib/auth";
 import {
   getBetterAuthSessionCookieAttributes,
   getBetterAuthSessionCookieName,
   isCiE2EAuthEnabled,
 } from "@/lib/auth/ci-e2e";
-import { db } from "@/lib/db";
-import { sessions } from "@/lib/db/schema";
 import {
   CI_E2E_SCOPE_HEADER,
   ensureCiE2ETestUser,
   hasMatchingSecret,
   parseBearerSecret,
 } from "@/app/api/internal/test-auth/shared";
-import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   const authSecret = process.env.CI_E2E_AUTH_SECRET?.trim();
   const betterAuthSecret = process.env.BETTER_AUTH_SECRET?.trim();
+  const appUrl = request.nextUrl.origin;
 
-  if (!isCiE2EAuthEnabled() || !authSecret || !betterAuthSecret) {
+  if (!isCiE2EAuthEnabled(appUrl) || !authSecret || !betterAuthSecret) {
+    console.info(JSON.stringify({
+      context: "ci-test-auth-login",
+      outcome: "disabled",
+      host: request.nextUrl.hostname,
+    }));
     return createApiErrorResponse(request, {
       status: 404,
       code: "CI_TEST_AUTH_DISABLED",
@@ -31,6 +34,11 @@ export async function POST(request: NextRequest) {
   }
 
   if (!hasMatchingSecret(authSecret, parseBearerSecret(request.headers.get("authorization")))) {
+    console.info(JSON.stringify({
+      context: "ci-test-auth-login",
+      outcome: "unauthorized",
+      host: request.nextUrl.hostname,
+    }));
     return createApiErrorResponse(request, {
       status: 401,
       code: "CI_TEST_AUTH_UNAUTHORIZED",
@@ -41,13 +49,18 @@ export async function POST(request: NextRequest) {
 
   try {
     const ensuredUser = await ensureCiE2ETestUser(request.headers.get(CI_E2E_SCOPE_HEADER));
-    await db.delete(sessions).where(eq(sessions.userId, ensuredUser.userId));
 
     const authContext = await auth.$context;
     const session = await authContext.internalAdapter.createSession(ensuredUser.userId);
     if (!session) {
       throw new Error("Better Auth failed to create a session for the CI E2E user");
     }
+    console.info(JSON.stringify({
+      context: "ci-test-auth-login",
+      outcome: "success",
+      host: request.nextUrl.hostname,
+      scope: request.headers.get(CI_E2E_SCOPE_HEADER) ? "provided" : "default",
+    }));
 
     const response = NextResponse.json({
       success: true,

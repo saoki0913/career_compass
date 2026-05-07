@@ -2,7 +2,7 @@
 description: Codex CLI に現在の変更のコードレビューを委譲する
 ---
 
-Codex CLI (GPT-5.4) の `codex review --uncommitted` で uncommitted changes をレビューする。
+Codex CLI (GPT-5.5) の `codex review --uncommitted` で uncommitted changes をレビューする。
 
 手順:
 1. `git diff --stat` で現在の変更を確認する。変更がなければスキップ

@@ -65,6 +65,7 @@ jobs:
       STRIPE_PRICE_PRO_MONTHLY: price_pro_ci
       OPENAI_API_KEY: sk-ci-openai
       ANTHROPIC_API_KEY: sk-ant-ci-anthropic
+      INTERNAL_API_JWT_SECRET: ci-internal-api-jwt-secret-32chars
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -73,6 +74,45 @@ jobs:
           cache: npm
       - run: npm ci
       - run: bash scripts/ci/run-frontend-verify.sh
+
+  e2e-functional-scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - id: resolve
+        run: node tools/resolve-e2e-functional-scope.mjs --github-output >> "$GITHUB_OUTPUT"
+      - name: Report AI functional scope
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
+          ## AI Functional E2E Scope
+
+          - shouldRun: ${{ steps.resolve.outputs.e2e_functional_should_run }}
+          - source: ${{ steps.resolve.outputs.e2e_functional_reason }}
+          - features: ${{ steps.resolve.outputs.e2e_functional_features_json }}
+          - changedFiles: ${{ steps.resolve.outputs.e2e_functional_changed_files_json }}
+
+          Develop CI reports the scope only. Local pre-commit and main promotion remain the blocking AI Functional E2E gates.
+          SUMMARY
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: node scripts/git-hooks/check-git-hygiene.mjs --tracked
+      - run: node scripts/security/check-api-route-csrf.mjs
+      - run: bash security/scan/run-lightweight-scan.sh --fail-on=critical
 
   backend:
     runs-on: ubuntu-latest

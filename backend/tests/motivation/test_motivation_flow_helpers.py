@@ -143,14 +143,15 @@ def test_build_progress_payload_reports_current_slot_and_completion() -> None:
     assert progress["current_slot"] == "desired_work"
 
 
-def test_should_use_deepdive_mode_requires_actual_generated_draft() -> None:
+def test_should_use_deepdive_mode_allows_draft_ready_before_generated_draft() -> None:
     class Prep:
         def __init__(self, was_draft_ready: bool, has_generated_draft: bool) -> None:
             self.was_draft_ready = was_draft_ready
             self.has_generated_draft = has_generated_draft
 
-    assert _should_use_deepdive_mode(Prep(True, False)) is False
+    assert _should_use_deepdive_mode(Prep(True, False)) is True
     assert _should_use_deepdive_mode(Prep(True, True)) is True
+    assert _should_use_deepdive_mode(Prep(False, True)) is False
 
 
 def test_build_draft_primary_material_prioritizes_structured_slots() -> None:

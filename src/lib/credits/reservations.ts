@@ -3,10 +3,56 @@ import { and, eq, sql } from "drizzle-orm";
 import {
   creditTransactions,
   credits,
+  creditConsumptionAllowedSql,
   db,
+  getCreditConsumptionBlockDetails,
   getCreditRow,
+  isBillingGateUnavailableError,
+  type CreditConsumptionBlockCode,
   type TransactionType,
 } from "./shared";
+
+type CreditReservationFailureCode =
+  | CreditConsumptionBlockCode
+  | "BILLING_GATE_UNAVAILABLE"
+  | "CREDITS_NOT_INITIALIZED"
+  | "INSUFFICIENT_CREDITS";
+
+type CreditFailureBase = {
+  success: false;
+  newBalance: number;
+  error: string;
+  errorCode: CreditReservationFailureCode;
+};
+
+async function getCreditConsumptionFailure(
+  userId: string,
+): Promise<CreditFailureBase | null> {
+  try {
+    const billingBlock = await getCreditConsumptionBlockDetails(userId);
+    if (!billingBlock) {
+      return null;
+    }
+    const userCredits = await getCreditRow(userId);
+    return {
+      success: false,
+      newBalance: userCredits?.balance ?? 0,
+      error: billingBlock.message,
+      errorCode: billingBlock.code,
+    };
+  } catch (error) {
+    if (!isBillingGateUnavailableError(error)) {
+      throw error;
+    }
+    const userCredits = await getCreditRow(userId);
+    return {
+      success: false,
+      newBalance: userCredits?.balance ?? 0,
+      error: error.message,
+      errorCode: "BILLING_GATE_UNAVAILABLE",
+    };
+  }
+}
 
 export async function consumeCredits(
   userId: string,
@@ -14,44 +60,72 @@ export async function consumeCredits(
   type: TransactionType,
   referenceId?: string,
   description?: string,
-): Promise<{ success: boolean; newBalance: number; error?: string }> {
+): Promise<{ success: boolean; newBalance: number; error?: string; errorCode?: CreditReservationFailureCode }> {
   const now = new Date();
 
-  const updated = await db
-    .update(credits)
-    .set({
-      balance: sql`${credits.balance} - ${amount}`,
-      updatedAt: now,
-    })
-    .where(and(eq(credits.userId, userId), sql`${credits.balance} >= ${amount}`))
-    .returning({ newBalance: credits.balance });
-
-  if (updated.length === 0) {
-    const userCredits = await getCreditRow(userId);
-    if (!userCredits) {
-      return { success: false, newBalance: 0, error: "Credits not initialized" };
-    }
-    return {
-      success: false,
-      newBalance: userCredits.balance,
-      error: `Insufficient credits. Need ${amount}, have ${userCredits.balance}`,
-    };
+  const creditConsumptionFailure = await getCreditConsumptionFailure(userId);
+  if (creditConsumptionFailure) {
+    return creditConsumptionFailure;
   }
 
-  const newBalance = updated[0].newBalance;
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(credits)
+      .set({
+        balance: sql`${credits.balance} - ${amount}`,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(credits.userId, userId),
+        sql`${credits.balance} >= ${amount}`,
+        creditConsumptionAllowedSql(userId),
+      ))
+      .returning({ newBalance: credits.balance });
 
-  await db.insert(creditTransactions).values({
-    id: crypto.randomUUID(),
-    userId,
-    amount: -amount,
-    type,
-    referenceId: referenceId || null,
-    description: description || null,
-    balanceAfter: newBalance,
-    createdAt: now,
+    if (updated.length === 0) {
+      const [userCredits] = await tx
+        .select()
+        .from(credits)
+        .where(eq(credits.userId, userId))
+        .limit(1);
+      if (!userCredits) {
+        return {
+          success: false,
+          newBalance: 0,
+          error: "Credits not initialized",
+          errorCode: "CREDITS_NOT_INITIALIZED",
+        };
+      }
+      const transactionTimeFailure = await getCreditConsumptionFailure(userId);
+      if (transactionTimeFailure) {
+        return {
+          ...transactionTimeFailure,
+          newBalance: userCredits.balance,
+        };
+      }
+      return {
+        success: false,
+        newBalance: userCredits.balance,
+        error: `Insufficient credits. Need ${amount}, have ${userCredits.balance}`,
+        errorCode: "INSUFFICIENT_CREDITS",
+      };
+    }
+
+    const newBalance = updated[0].newBalance;
+
+    await tx.insert(creditTransactions).values({
+      id: crypto.randomUUID(),
+      userId,
+      amount: -amount,
+      type,
+      referenceId: referenceId || null,
+      description: description || null,
+      balanceAfter: newBalance,
+      createdAt: now,
+    });
+
+    return { success: true, newBalance };
   });
-
-  return { success: true, newBalance };
 }
 
 export async function reserveCredits(
@@ -60,46 +134,85 @@ export async function reserveCredits(
   type: TransactionType,
   referenceId?: string,
   description?: string,
-): Promise<{ success: boolean; reservationId: string; newBalance: number; error?: string }> {
+): Promise<{
+  success: boolean;
+  reservationId: string;
+  newBalance: number;
+  error?: string;
+  errorCode?: CreditReservationFailureCode;
+}> {
   const now = new Date();
 
-  const updated = await db
-    .update(credits)
-    .set({
-      balance: sql`${credits.balance} - ${amount}`,
-      updatedAt: now,
-    })
-    .where(and(eq(credits.userId, userId), sql`${credits.balance} >= ${amount}`))
-    .returning({ newBalance: credits.balance });
-
-  if (updated.length === 0) {
-    const userCredits = await getCreditRow(userId);
-    if (!userCredits) {
-      return { success: false, reservationId: "", newBalance: 0, error: "Credits not initialized" };
-    }
+  const creditConsumptionFailure = await getCreditConsumptionFailure(userId);
+  if (creditConsumptionFailure) {
     return {
-      success: false,
       reservationId: "",
-      newBalance: userCredits.balance,
-      error: `Insufficient credits. Need ${amount}, have ${userCredits.balance}`,
+      ...creditConsumptionFailure,
     };
   }
 
-  const newBalance = updated[0].newBalance;
-  const reservationId = crypto.randomUUID();
+  return db.transaction(async (tx) => {
+    const updated = await tx
+      .update(credits)
+      .set({
+        balance: sql`${credits.balance} - ${amount}`,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(credits.userId, userId),
+        sql`${credits.balance} >= ${amount}`,
+        creditConsumptionAllowedSql(userId),
+      ))
+      .returning({ newBalance: credits.balance });
 
-  await db.insert(creditTransactions).values({
-    id: reservationId,
-    userId,
-    amount: -amount,
-    type,
-    referenceId: referenceId || null,
-    description: description ? `[Reserved] ${description}` : "[Reserved]",
-    balanceAfter: newBalance,
-    createdAt: now,
+    if (updated.length === 0) {
+      const [userCredits] = await tx
+        .select()
+        .from(credits)
+        .where(eq(credits.userId, userId))
+        .limit(1);
+      if (!userCredits) {
+        return {
+          success: false,
+          reservationId: "",
+          newBalance: 0,
+          error: "Credits not initialized",
+          errorCode: "CREDITS_NOT_INITIALIZED",
+        };
+      }
+      const transactionTimeFailure = await getCreditConsumptionFailure(userId);
+      if (transactionTimeFailure) {
+        return {
+          reservationId: "",
+          ...transactionTimeFailure,
+          newBalance: userCredits.balance,
+        };
+      }
+      return {
+        success: false,
+        reservationId: "",
+        newBalance: userCredits.balance,
+        error: `Insufficient credits. Need ${amount}, have ${userCredits.balance}`,
+        errorCode: "INSUFFICIENT_CREDITS",
+      };
+    }
+
+    const newBalance = updated[0].newBalance;
+    const reservationId = crypto.randomUUID();
+
+    await tx.insert(creditTransactions).values({
+      id: reservationId,
+      userId,
+      amount: -amount,
+      type,
+      referenceId: referenceId || null,
+      description: description ? `[Reserved] ${description}` : "[Reserved]",
+      balanceAfter: newBalance,
+      createdAt: now,
+    });
+
+    return { success: true, reservationId, newBalance };
   });
-
-  return { success: true, reservationId, newBalance };
 }
 
 export async function confirmReservation(reservationId: string): Promise<void> {
@@ -128,23 +241,53 @@ export async function confirmReservation(reservationId: string): Promise<void> {
 }
 
 export async function cancelReservation(reservationId: string): Promise<void> {
-  const [tx] = await db.select().from(creditTransactions).where(eq(creditTransactions.id, reservationId)).limit(1);
-  if (!tx || !tx.description?.includes("[Reserved]")) return;
+  await db.transaction(async (tx) => {
+    const now = new Date();
+    const [claimedReservation] = await tx
+      .update(creditTransactions)
+      .set({
+        description: sql`replace(${creditTransactions.description}, '[Reserved]', '[Cancelling]')`,
+      })
+      .where(
+        and(
+          eq(creditTransactions.id, reservationId),
+          sql`${creditTransactions.description} like '%[Reserved]%'`,
+        ),
+      )
+      .returning({
+        userId: creditTransactions.userId,
+        amount: creditTransactions.amount,
+        description: creditTransactions.description,
+        balanceAfter: creditTransactions.balanceAfter,
+      });
 
-  const refundAmount = Math.abs(tx.amount);
+    if (!claimedReservation) {
+      return;
+    }
 
-  await db
-    .update(credits)
-    .set({
-      balance: sql`${credits.balance} + ${refundAmount}`,
-      updatedAt: new Date(),
-    })
-    .where(eq(credits.userId, tx.userId));
+    const refundAmount = Math.abs(claimedReservation.amount);
+    const [updatedCredits] = await tx
+      .update(credits)
+      .set({
+        balance: sql`${credits.balance} + ${refundAmount}`,
+        updatedAt: now,
+      })
+      .where(eq(credits.userId, claimedReservation.userId))
+      .returning({ balance: credits.balance });
 
-  await db
-    .update(creditTransactions)
-    .set({
-      description: tx.description.replace("[Reserved]", "[Cancelled/Refunded]"),
-    })
-    .where(eq(creditTransactions.id, reservationId));
+    if (!updatedCredits) {
+      throw new Error(`Cannot cancel credit reservation without credits row: ${reservationId}`);
+    }
+
+    await tx
+      .update(creditTransactions)
+      .set({
+        description: (claimedReservation.description ?? "[Cancelling]").replace(
+          "[Cancelling]",
+          "[Cancelled/Refunded]",
+        ),
+        balanceAfter: updatedCredits.balance,
+      })
+      .where(eq(creditTransactions.id, reservationId));
+  });
 }

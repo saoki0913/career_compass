@@ -68,7 +68,7 @@ EOF
     cat >&2 <<'CODEX_EOF'
 
   📋 Codex CLI によるクロスレビューも推奨:
-    /codex-post-review を実行すると、Codex (GPT-5.4) が uncommitted changes を独立レビューします。
+    /codex-post-review を実行すると、Codex (GPT-5.5) が uncommitted changes を独立レビューします。
     Claude の code-reviewer skill と併用することで multi-model review が可能です。
 
 CODEX_EOF

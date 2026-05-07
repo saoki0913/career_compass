@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
 import { eq, and, desc, isNull, count } from "drizzle-orm";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 export async function GET(request: NextRequest) {
   try {
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
         type,
         title: title.trim(),
         message: message.trim(),
-        data: data ? JSON.stringify(data) : null,
+        data: data || null,
         isRead: false,
         createdAt: now,
         expiresAt,

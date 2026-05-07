@@ -2,9 +2,12 @@
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { parseApiErrorResponse, toAppUiError, type AppUiError } from "@/lib/api-errors";
+import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { parseSSEStream } from "@/hooks/conversation/sse-stream-parser";
+import { createStreamTimeout } from "@/hooks/conversation/stream-timeout";
 import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
+import { notifyError } from "@/lib/notifications";
 import { resolveRoleSelection } from "@/hooks/conversation/role-selection";
 import {
   continueInterviewStream,
@@ -26,6 +29,8 @@ import {
 import {
   createEmptyFeedback,
   INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
+  type InterviewBillingCosts,
+  type InterviewSessionState,
   type Feedback,
   type FeedbackHistoryItem,
   type HydratedConversation,
@@ -46,6 +51,12 @@ import {
 
 type StreamKind = "start" | "send" | "feedback" | "continue";
 
+type InterviewAvailabilityIssue = {
+  code: typeof INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE;
+  title: string;
+  description: string;
+};
+
 const DEFAULT_SETUP_STATE: SetupState = {
   selectedIndustry: null,
   selectedRole: null,
@@ -59,6 +70,21 @@ const DEFAULT_SETUP_STATE: SetupState = {
   interviewStage: "early",
   interviewerType: "hr",
   strictnessMode: "standard",
+};
+
+const DEFAULT_BILLING_COSTS: InterviewBillingCosts = {
+  start: 2,
+  turn: 1,
+  continue: 1,
+  feedback: 6,
+};
+
+const DEFAULT_SESSION_STATE: InterviewSessionState = {
+  status: "setup_pending",
+  isActive: false,
+  isLegacySession: false,
+  questionCount: 0,
+  hasFeedback: false,
 };
 
 function getStreamErrorContext(kind: StreamKind) {
@@ -114,6 +140,8 @@ export function useInterviewConversationController({
   const [feedbackHistories, setFeedbackHistories] = useState<FeedbackHistoryItem[]>([]);
   const [selectedHistory, setSelectedHistory] = useState<FeedbackHistoryItem | null>(null);
   const [creditCost, setCreditCost] = useState(6);
+  const [billingCosts, setBillingCosts] = useState<InterviewBillingCosts>(DEFAULT_BILLING_COSTS);
+  const [sessionState, setSessionState] = useState<InterviewSessionState>(DEFAULT_SESSION_STATE);
   const [questionCount, setQuestionCount] = useState(0);
   const [questionStage, setQuestionStage] = useState<string | null>(null);
   const [stageStatus, setStageStatus] = useState<InterviewStageStatus | null>(null);
@@ -121,17 +149,12 @@ export function useInterviewConversationController({
   const [turnMeta, setTurnMeta] = useState<InterviewTurnMeta | null>(null);
   const [interviewPlan, setInterviewPlan] = useState<InterviewPlan | null>(null);
   const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
-  const [pendingAssistantMessage, setPendingAssistantMessage] = useState<Message | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
   const [isContinuing, setIsContinuing] = useState(false);
   const [isSavingSatisfaction, setIsSavingSatisfaction] = useState(false);
   const [questionFlowCompleted, setQuestionFlowCompleted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [errorAction, setErrorAction] = useState<string | null>(null);
-  const [persistenceUnavailable, setPersistenceUnavailable] = useState(false);
-  const [persistenceDeveloperHint, setPersistenceDeveloperHint] = useState<string | null>(null);
   const [legacySessionDetected, setLegacySessionDetected] = useState(false);
   const [setupState, setSetupState] = useState<SetupState>(DEFAULT_SETUP_STATE);
   const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionsResponse | null>(null);
@@ -139,8 +162,8 @@ export function useInterviewConversationController({
   const [customRoleName, setCustomRoleNameState] = useState("");
   const [roleSelectionSource, setRoleSelectionSource] = useState<RoleSelectionSource | null>(null);
   const [feedbackCompletionCount, setFeedbackCompletionCount] = useState(0);
-  // Phase 2 Stage 6: 最新 turn の short coaching (null = 非表示)。
-  // Stage 8 ダッシュボードが参照する。現時点では state に保持のみで UI 未表示。
+  const [availabilityIssue, setAvailabilityIssue] =
+    useState<InterviewAvailabilityIssue | null>(null);
   const [shortCoaching, setShortCoaching] =
     useState<import("@/lib/interview/conversation").InterviewShortCoaching | null>(null);
 
@@ -218,28 +241,17 @@ export function useInterviewConversationController({
   const resolvedSelectedRole = customRoleName.trim() || selectedRoleName.trim();
   const setupComplete = Boolean(resolvedSelectedRole) && (!setupState.requiresIndustrySelection || Boolean(effectiveIndustry));
   const hasStarted = !legacySessionDetected && (messages.length > 0 || feedback !== null || questionFlowCompleted);
+  const isInteractionBlocked = Boolean(availabilityIssue);
   const isBusy = isSending || isGeneratingFeedback || isContinuing;
   const isComplete = feedback !== null;
   const visibleFeedback = feedback ?? streamingFeedback;
-  const canSend = answer.trim().length > 0 && !isBusy && !isComplete && !questionFlowCompleted && hasStarted;
-  const canGenerateFeedback = questionFlowCompleted && !isComplete && !isBusy;
-  const canContinue = Boolean(feedback) && !isBusy;
+  const canSend = answer.trim().length > 0 && !isInteractionBlocked && !isBusy && !isComplete && !questionFlowCompleted && hasStarted;
+  const canGenerateFeedback = questionFlowCompleted && !isInteractionBlocked && !isComplete && !isBusy;
+  const canContinue = Boolean(feedback) && !isInteractionBlocked && !isBusy;
   const latestFeedbackHistory = feedbackHistories[0] ?? null;
   const feedbackHelperText = questionFlowCompleted
     ? `${questionCount}問の回答をもとに最終講評を作成します。成功時のみ ${creditCost} credits 消費です。`
     : "面接完了後に最終講評を作成できます。";
-
-  const applyPersistenceDiagnosticState = useCallback((uiError: AppUiError) => {
-    const isPersistenceError = uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE;
-    setPersistenceUnavailable(isPersistenceError);
-    setPersistenceDeveloperHint(
-      isPersistenceError && process.env.NODE_ENV === "development"
-        ? uiError.details ??
-            uiError.developerMessage ??
-            "Interview persistence schema or migration is missing."
-        : null,
-    );
-  }, []);
 
   const reportError = useCallback((
     errorValue: unknown,
@@ -247,11 +259,22 @@ export function useInterviewConversationController({
     source: string,
   ) => {
     const uiError = toAppUiError(errorValue, fallback, source);
-    setError(uiError.message);
-    setErrorAction(uiError.action ?? null);
-    notifyUserFacingAppError(uiError);
-    applyPersistenceDiagnosticState(uiError);
-  }, [applyPersistenceDiagnosticState]);
+    if (uiError.code === INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE) {
+      setAvailabilityIssue({
+        code: INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
+        title: uiError.message,
+        description: uiError.action ?? fallback.action,
+      });
+      notifyError({
+        title: uiError.message,
+        description: uiError.action,
+        duration: 10_000,
+        action: { label: "再試行", onClick: () => window.location.reload() },
+      });
+    } else {
+      notifyUserFacingAppError(uiError);
+    }
+  }, []);
 
   useEffect(() => {
     const classified = classifyInterviewRoleTrack(resolvedSelectedRole);
@@ -265,8 +288,7 @@ export function useInterviewConversationController({
     }
     if (!companyId) {
       setIsLoading(false);
-      setError("このURLでは企業を特定できません。");
-      setErrorAction("企業一覧から対象の企業を開き直してください。");
+      notifyError({ title: "企業を特定できません。", description: "企業一覧から対象の企業を開き直してください。" });
       return;
     }
 
@@ -274,10 +296,6 @@ export function useInterviewConversationController({
 
     const hydrate = async () => {
       setIsLoading(true);
-      setError(null);
-      setErrorAction(null);
-      setPersistenceUnavailable(false);
-      setPersistenceDeveloperHint(null);
       try {
         const [interviewResponse, roleResponse] = await Promise.all([
           fetchInterviewData(companyId),
@@ -301,16 +319,17 @@ export function useInterviewConversationController({
         const roleData = roleResponse.ok ? ((await roleResponse.json()) as RoleOptionsResponse) : null;
         if (!isMounted) return;
 
+        setAvailabilityIssue(null);
         const conversation = interviewData.conversation as HydratedConversation;
         const isLegacy = Boolean(conversation?.isLegacySession);
         setCompanyName(interviewData.company?.name || "");
         setMaterials(Array.isArray(interviewData.materials) ? interviewData.materials : []);
         setCreditCost(typeof interviewData.creditCost === "number" ? interviewData.creditCost : 6);
+        setBillingCosts(interviewData.billingCosts ?? DEFAULT_BILLING_COSTS);
+        setSessionState(interviewData.sessionState ?? DEFAULT_SESSION_STATE);
         setFeedbackHistories(Array.isArray(interviewData.feedbackHistories) ? interviewData.feedbackHistories : []);
         setRoleOptionsData(roleData);
         setSetupState(interviewData.setup);
-        setPersistenceUnavailable(false);
-        setPersistenceDeveloperHint(null);
         setLegacySessionDetected(isLegacy);
         setMessages(!isLegacy && Array.isArray(conversation?.messages) ? conversation.messages : []);
         setFeedback(!isLegacy ? conversation?.feedback ?? null : null);
@@ -356,12 +375,48 @@ export function useInterviewConversationController({
     };
   }, [companyId, enabled, reportError]);
 
+  const applyCompleteState = useCallback((nextState: InterviewControllerState, prevState: InterviewControllerState) => {
+    startTransition(() => {
+      setMessages(nextState.messages);
+      setQuestionCount(nextState.questionCount);
+      setStageStatus(nextState.stageStatus);
+      setQuestionStage(nextState.questionStage);
+      setFeedback(nextState.feedback);
+      setTurnState(nextState.turnState);
+      setTurnMeta(nextState.turnMeta);
+      setInterviewPlan(nextState.interviewPlan);
+      setQuestionFlowCompleted(nextState.questionFlowCompleted);
+      setCreditCost(nextState.creditCost);
+      setSessionState((prev) => ({
+        ...prev,
+        status: nextState.feedback
+          ? "feedback_completed"
+          : nextState.questionFlowCompleted
+            ? "question_flow_completed"
+            : nextState.messages.length > 0
+              ? "in_progress"
+              : "setup_pending",
+        isActive: nextState.messages.length > 0 || nextState.questionFlowCompleted || Boolean(nextState.feedback),
+        questionCount: nextState.questionCount,
+        hasFeedback: Boolean(nextState.feedback),
+      }));
+      if (nextState.feedbackHistories !== prevState.feedbackHistories) {
+        setFeedbackHistories(nextState.feedbackHistories);
+      }
+      if (nextState.feedbackCompletionCount !== prevState.feedbackCompletionCount) {
+        setFeedbackCompletionCount(nextState.feedbackCompletionCount);
+      }
+      if (nextState.shortCoaching !== prevState.shortCoaching) {
+        setShortCoaching(nextState.shortCoaching);
+      }
+    });
+  }, []);
+
   const runStream = useCallback(async (
     kind: StreamKind,
     body?: Record<string, string | number | boolean | null | undefined>,
   ) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90_000);
+    const { controller, clear: clearStreamTimeout } = createStreamTimeout();
     let pendingCompletePayload: InterviewCompletePayload | null = null;
 
     try {
@@ -391,121 +446,94 @@ export function useInterviewConversationController({
         );
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("ストリームが取得できませんでした。");
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = "";
       let completed = false;
       let streamedQuestionText = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      for await (const event of parseSSEStream(response)) {
+        if (event.type === "progress") {
+          setStreamingLabel((event.label as string) || null);
+          continue;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
-
-          let event;
-          try {
-            event = JSON.parse(jsonStr);
-          } catch {
-            continue;
+        if (event.type === "field_complete") {
+          if (event.path === "question_stage") {
+            setQuestionStage((event.value as string) || null);
           }
-
-          if (event.type === "progress") {
-            setStreamingLabel(event.label || null);
-            continue;
+          if (event.path === "stage_status") {
+            setStageStatus((event.value as InterviewStageStatus) || null);
           }
-
-          if (event.type === "field_complete") {
-            if (event.path === "question_stage") {
-              setQuestionStage(event.value || null);
-            }
-            if (event.path === "stage_status") {
-              setStageStatus(event.value || null);
-            }
-            if (event.path === "scores") {
-              setStreamingFeedback((prev) => ({
-                ...(prev ?? createEmptyFeedback()),
-                scores: typeof event.value === "object" && event.value ? event.value : {},
-              }));
-            }
-            if (event.path === "premise_consistency") {
-              setStreamingFeedback((prev) => ({
-                ...(prev ?? createEmptyFeedback()),
-                premise_consistency:
-                  typeof event.value === "number" ? event.value : undefined,
-              }));
-            }
-            if (event.path === "weakest_question_type") {
-              setStreamingFeedback((prev) => ({
-                ...(prev ?? createEmptyFeedback()),
-                weakest_question_type:
-                  typeof event.value === "string" ? event.value : null,
-              }));
-            }
-            continue;
+          if (event.path === "scores") {
+            setStreamingFeedback((prev) => ({
+              ...(prev ?? createEmptyFeedback()),
+              scores: typeof event.value === "object" && event.value ? event.value : {},
+            }));
           }
+          if (event.path === "premise_consistency") {
+            setStreamingFeedback((prev) => ({
+              ...(prev ?? createEmptyFeedback()),
+              premise_consistency:
+                typeof event.value === "number" ? event.value : undefined,
+            }));
+          }
+          if (event.path === "weakest_question_type") {
+            setStreamingFeedback((prev) => ({
+              ...(prev ?? createEmptyFeedback()),
+              weakest_question_type:
+                typeof event.value === "string" ? event.value : null,
+            }));
+          }
+          continue;
+        }
 
-          if (event.type === "array_item_complete") {
-            if (typeof event.path !== "string") continue;
-            const [field, indexText] = event.path.split(".");
-            const index = Number(indexText);
-            if (!Number.isFinite(index) || !isFeedbackArrayField(field)) continue;
+        if (event.type === "array_item_complete") {
+          if (typeof event.path !== "string") continue;
+          const [field, indexText] = (event.path as string).split(".");
+          const index = Number(indexText);
+          if (!Number.isFinite(index) || !isFeedbackArrayField(field)) continue;
+          setStreamingFeedback((prev) => {
+            const next = prev ?? createEmptyFeedback();
+            const key =
+              field === "preparation_points"
+                ? "next_preparation"
+                : field;
+            const currentItems = [...next[key]];
+            currentItems[index] = typeof event.value === "string" ? event.value : String(event.value ?? "");
+            return { ...next, [key]: currentItems };
+          });
+          continue;
+        }
+
+        if (event.type === "string_chunk") {
+          if (event.path === "question") {
+            streamedQuestionText += (event.text as string) || "";
+          }
+          if (event.path === "overall_comment" || event.path === "improved_answer") {
             setStreamingFeedback((prev) => {
               const next = prev ?? createEmptyFeedback();
-              const key =
-                field === "preparation_points"
-                  ? "next_preparation"
-                  : field;
-              const currentItems = [...next[key]];
-              currentItems[index] = typeof event.value === "string" ? event.value : String(event.value ?? "");
-              return { ...next, [key]: currentItems };
+              const chunk = (event.text as string) || "";
+              return {
+                ...next,
+                overall_comment:
+                  event.path === "overall_comment"
+                    ? `${next.overall_comment}${chunk}`
+                    : next.overall_comment,
+                improved_answer:
+                  event.path === "improved_answer"
+                    ? `${next.improved_answer}${chunk}`
+                    : next.improved_answer,
+              };
             });
-            continue;
           }
+          continue;
+        }
 
-          if (event.type === "string_chunk") {
-            if (event.path === "question") {
-              streamedQuestionText += event.text || "";
-            }
-            if (event.path === "overall_comment" || event.path === "improved_answer") {
-              setStreamingFeedback((prev) => {
-                const next = prev ?? createEmptyFeedback();
-                const chunk = event.text || "";
-                return {
-                  ...next,
-                  overall_comment:
-                    event.path === "overall_comment"
-                      ? `${next.overall_comment}${chunk}`
-                      : next.overall_comment,
-                  improved_answer:
-                    event.path === "improved_answer"
-                      ? `${next.improved_answer}${chunk}`
-                      : next.improved_answer,
-                };
-              });
-            }
-            continue;
-          }
+        if (event.type === "error") {
+          throw new Error((event.message as string) || "AIサービスでエラーが発生しました。");
+        }
 
-          if (event.type === "error") {
-            throw new Error(event.message || "AIサービスでエラーが発生しました。");
-          }
-
-          if (event.type === "complete") {
-            completed = true;
-            pendingCompletePayload = (event.data ?? {}) as InterviewCompletePayload;
-          }
+        if (event.type === "complete") {
+          completed = true;
+          pendingCompletePayload = (event.data ?? {}) as InterviewCompletePayload;
         }
       }
 
@@ -545,39 +573,13 @@ export function useInterviewConversationController({
         applyCompleteState(nextState, prevState);
       }
     } finally {
-      clearTimeout(timeoutId);
+      clearStreamTimeout();
       setStreamingLabel(null);
-      setPendingAssistantMessage(null);
       if (kind !== "feedback") {
         setStreamingFeedback(null);
       }
     }
-  }, [companyId]);
-
-  const applyCompleteState = useCallback((nextState: InterviewControllerState, prevState: InterviewControllerState) => {
-    startTransition(() => {
-      setMessages(nextState.messages);
-      setQuestionCount(nextState.questionCount);
-      setStageStatus(nextState.stageStatus);
-      setQuestionStage(nextState.questionStage);
-      setFeedback(nextState.feedback);
-      setTurnState(nextState.turnState);
-      setTurnMeta(nextState.turnMeta);
-      setInterviewPlan(nextState.interviewPlan);
-      setQuestionFlowCompleted(nextState.questionFlowCompleted);
-      setCreditCost(nextState.creditCost);
-      if (nextState.feedbackHistories !== prevState.feedbackHistories) {
-        setFeedbackHistories(nextState.feedbackHistories);
-      }
-      if (nextState.feedbackCompletionCount !== prevState.feedbackCompletionCount) {
-        setFeedbackCompletionCount(nextState.feedbackCompletionCount);
-      }
-      if (nextState.shortCoaching !== prevState.shortCoaching) {
-        setShortCoaching(nextState.shortCoaching);
-      }
-      setPendingAssistantMessage(null);
-    });
-  }, []);
+  }, [applyCompleteState, companyId]);
 
   useEffect(() => {
     if (!pendingCompleteState || !isTextStreaming || !isPlaybackComplete) return;
@@ -592,10 +594,8 @@ export function useInterviewConversationController({
   }, [applyCompleteState, isPlaybackComplete, isTextStreaming, pendingCompleteState]);
 
   const handleStart = useCallback(async () => {
-    if (!setupComplete || isBusy || hasStarted || persistenceUnavailable) return;
+    if (!setupComplete || isInteractionBlocked || isBusy || hasStarted) return;
     setIsSending(true);
-    setError(null);
-    setErrorAction(null);
     try {
       await runStream("start", {
         selectedIndustry: effectiveIndustry || null,
@@ -615,7 +615,7 @@ export function useInterviewConversationController({
     } finally {
       setIsSending(false);
     }
-  }, [effectiveIndustry, hasStarted, isBusy, persistenceUnavailable, reportError, resolvedSelectedRole, roleSelectionSource, runStream, setupComplete, setupState]);
+  }, [effectiveIndustry, hasStarted, isBusy, isInteractionBlocked, reportError, resolvedSelectedRole, roleSelectionSource, runStream, setupComplete, setupState]);
 
   const handleSend = useCallback(async () => {
     if (!canSend) return;
@@ -623,8 +623,6 @@ export function useInterviewConversationController({
     setMessages(optimisticMessages);
     setAnswer("");
     setIsSending(true);
-    setError(null);
-    setErrorAction(null);
 
     try {
       await runStream("send", { answer: optimisticMessages.at(-1)?.content });
@@ -641,8 +639,6 @@ export function useInterviewConversationController({
     if (!canGenerateFeedback) return;
     setIsGeneratingFeedback(true);
     setStreamingFeedback(createEmptyFeedback());
-    setError(null);
-    setErrorAction(null);
     shouldAnnounceFeedbackSuccessRef.current = true;
     try {
       await runStream("feedback");
@@ -657,11 +653,9 @@ export function useInterviewConversationController({
   }, [canGenerateFeedback, reportError, runStream]);
 
   const handleContinue = useCallback(async () => {
-    if (!canContinue || persistenceUnavailable) return;
+    if (!canContinue) return;
     const previousFeedback = feedback;
     setIsContinuing(true);
-    setError(null);
-    setErrorAction(null);
     setFeedback(null);
     setStreamingFeedback(null);
     setQuestionFlowCompleted(false);
@@ -674,12 +668,10 @@ export function useInterviewConversationController({
     } finally {
       setIsContinuing(false);
     }
-  }, [canContinue, feedback, persistenceUnavailable, reportError, runStream]);
+  }, [canContinue, feedback, reportError, runStream]);
 
   const handleReset = useCallback(async () => {
-    if (!companyId || isBusy || persistenceUnavailable) return;
-    setError(null);
-    setErrorAction(null);
+    if (!companyId || isInteractionBlocked || isBusy) return;
     try {
       const response = await resetInterviewConversation(companyId);
 
@@ -707,6 +699,7 @@ export function useInterviewConversationController({
       setInterviewPlan(data.conversation?.plan ?? null);
       setQuestionFlowCompleted(false);
       setLegacySessionDetected(false);
+      setSessionState(DEFAULT_SESSION_STATE);
       setFeedbackHistories(Array.isArray(data.feedbackHistories) ? data.feedbackHistories : []);
     } catch (resetError) {
       reportError(
@@ -719,13 +712,11 @@ export function useInterviewConversationController({
         "interview:reset",
       );
     }
-  }, [companyId, isBusy, persistenceUnavailable, reportError]);
+  }, [companyId, isBusy, isInteractionBlocked, reportError]);
 
   const handleSaveSatisfaction = useCallback(async (score: number) => {
-    if (!companyId || !latestFeedbackHistory || isSavingSatisfaction) return;
+    if (!companyId || isInteractionBlocked || !latestFeedbackHistory || isSavingSatisfaction) return;
     setIsSavingSatisfaction(true);
-    setError(null);
-    setErrorAction(null);
     try {
       const response = await saveInterviewFeedbackSatisfaction(companyId, {
         historyId: latestFeedbackHistory.id,
@@ -761,7 +752,7 @@ export function useInterviewConversationController({
     } finally {
       setIsSavingSatisfaction(false);
     }
-  }, [companyId, isSavingSatisfaction, latestFeedbackHistory, reportError]);
+  }, [companyId, isInteractionBlocked, isSavingSatisfaction, latestFeedbackHistory, reportError]);
 
   const handleSelectRole = useCallback((value: string, unsetValue: string) => {
     if (value === unsetValue) {
@@ -794,6 +785,8 @@ export function useInterviewConversationController({
       feedbackHistories,
       selectedHistory,
       creditCost,
+      billingCosts,
+      sessionState,
       questionCount,
       questionStage,
       stageStatus,
@@ -801,7 +794,6 @@ export function useInterviewConversationController({
       turnMeta,
       interviewPlan,
       streamingLabel,
-      pendingAssistantMessage,
       streamingText,
       isTextStreaming,
       isLoading,
@@ -810,10 +802,6 @@ export function useInterviewConversationController({
       isContinuing,
       isSavingSatisfaction,
       questionFlowCompleted,
-      error,
-      errorAction,
-      persistenceUnavailable,
-      persistenceDeveloperHint,
       legacySessionDetected,
       setupState,
       roleOptionsData,
@@ -834,6 +822,9 @@ export function useInterviewConversationController({
       latestFeedbackHistory,
       feedbackHelperText,
       feedbackCompletionCount,
+      availabilityIssue,
+      isInteractionBlocked,
+      shortCoaching,
     },
     actions: {
       setAnswer,

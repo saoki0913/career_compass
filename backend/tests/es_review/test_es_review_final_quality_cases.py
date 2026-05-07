@@ -48,7 +48,7 @@ async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pyt
     async def fake_text_caller(*args, **kwargs):
         captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
         return FakeTextResult(
-            "三菱商事を志望するのは、成長領域への投資を通じて社会課題を動かす現場で価値創出に挑みたいからだ。研究で仮説を立て検証を回した経験を土台に、若手から挑戦機会を得て事業理解を深め、具体的な成果へ着実につなげたい。"
+            "三菱商事を志望するのは、成長領域への投資を通じて社会課題を動かす現場で価値創出に挑みたいからだ。研究で仮説を立て検証を回した経験を土台に、若手から挑戦機会を得られる環境で事業理解を深め、具体的な成果へ着実につなげていきたい。"
         )
 
 
@@ -62,7 +62,7 @@ async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pyt
                 answer="研究で仮説検証を重ねた。",
                 company_name="三菱商事",
                 role_name="総合職",
-                char_min=90,
+                char_min=110,
                 char_max=120,
             ),
         ),
@@ -94,7 +94,7 @@ async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pyt
     )
 
     rewrite = result.rewrites[0]
-    assert 90 <= len(rewrite) <= 120
+    assert 110 <= len(rewrite) <= 120
     _assert_dearu_style(rewrite)
     assert "志望" in rewrite
     assert "価値創出" in rewrite
@@ -127,7 +127,7 @@ async def test_final_quality_company_motivation_weak_evidence_safe_generalizatio
     async def fake_text_caller(*args, **kwargs):
         captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
         return FakeTextResult(
-            "貴社を志望するのは、多様な事業に向き合う姿勢に引かれたからだ。研究で課題を構造化してきた経験を土台に、まずは事業理解を深めながら価値提供の幅を広げたい。現場に近い視点で学び、着実に貢献の解像度を高めたい。"
+            "貴社を志望するのは、多様な事業に向き合う姿勢に強く引かれたからだ。研究で課題を構造化してきた経験を土台に、まずは事業の現場で深く理解を積みながら価値提供の幅を着実に広げたい。現場に近い視点で学び、貢献の解像度を高めたい。"
         )
 
 
@@ -141,7 +141,7 @@ async def test_final_quality_company_motivation_weak_evidence_safe_generalizatio
                 answer="幅広い事業に関わりたい。",
                 company_name="三菱商事",
                 role_name="総合職",
-                char_min=90,
+                char_min=110,
                 char_max=120,
             ),
         ),
@@ -161,7 +161,7 @@ async def test_final_quality_company_motivation_weak_evidence_safe_generalizatio
     )
 
     rewrite = result.rewrites[0]
-    assert 90 <= len(rewrite) <= 120
+    assert 110 <= len(rewrite) <= 120
     _assert_dearu_style(rewrite)
     assert "制度" not in rewrite
     assert "配属" not in rewrite
@@ -184,7 +184,7 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
         user = kwargs.get("user_message", "") or ""
         captured_prompts.append(f"{system}\n{user}")
         return FakeTextResult(
-            "研究室で進捗管理の型を見直し、共有の遅れを減らした経験から、課題を構造化し周囲を巻き込んで改善を進める力を磨いた。状況を整理して役割分担を見直し、チーム全体の動きを前に進めたことが学びである。"
+            "研究室で進捗管理の型を見直し、共有の遅れを減らした経験から、課題を構造化し周囲を巻き込んで改善を前に進める力を磨いた。具体的には状況を整理して役割分担を見直し、チーム全体の意思決定と動きを前に進めたことが最大の学びである。"
         )
 
 
@@ -197,7 +197,7 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
                 question="学生時代に力を入れたことを教えてください。",
                 answer="研究室で進捗管理の型を見直した。",
                 company_name="三菱商事",
-                char_min=90,
+                char_min=110,
                 char_max=120,
             ),
         ),
@@ -217,7 +217,7 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
     )
 
     rewrite = result.rewrites[0]
-    assert 90 <= len(rewrite) <= 120
+    assert 110 <= len(rewrite) <= 120
     _assert_dearu_style(rewrite)
     assert not hasattr(result, "top3")
     assert any(
@@ -404,7 +404,7 @@ async def test_final_quality_self_pr_uses_assistive_company_fit(monkeypatch: pyt
                 question="あなたの強みを教えてください。",
                 answer="課題を整理し周囲を巻き込みながら改善を前に進める点が強みだ。",
                 company_name="三菱商事",
-                char_min=100,
+                char_min=110,
                 char_max=120,
             ),
         ),
@@ -424,7 +424,7 @@ async def test_final_quality_self_pr_uses_assistive_company_fit(monkeypatch: pyt
     )
 
     rewrite = result.rewrites[0]
-    assert 100 <= len(rewrite) <= 120
+    assert 110 <= len(rewrite) <= 120
     _assert_dearu_style(rewrite)
     assert "顧客起点" in rewrite
     assert any("企業理解は 0〜1 文だけ補助的に使い" in prompt for prompt in captured_prompts)
@@ -456,7 +456,7 @@ async def test_final_quality_role_course_reason_uses_role_and_company_axes(
     async def fake_text_caller(*args, **kwargs):
         captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
         return FakeTextResult(
-            "デジタル企画コースを志望するのは、事業理解と技術理解をつなぎながら価値を形にしたいからだ。研究で関係者の意図を整理し前進させた経験を土台に、現場の論点を明確化してきた点を活かし、成長領域へ挑む貴社で事業と開発をつなぐ役割を担いたい。"
+            "デジタル企画コースを志望するのは、事業理解と技術理解をつなぎながら価値を形にしたいからだ。研究で関係者の意図を整理し前進させた経験を土台に、現場の論点を明確化してきた点を活かし、成長領域へ挑む貴社でデータ活用と現場知見を組み合わせ、事業と開発をつなぐ役割を担いたい。"
         )
 
 
@@ -470,7 +470,7 @@ async def test_final_quality_role_course_reason_uses_role_and_company_axes(
                 answer="事業理解と技術理解をつなぐ仕事に関心があります。",
                 company_name="三菱商事",
                 role_name="デジタル企画",
-                char_min=100,
+                char_min=130,
                 char_max=140,
             ),
         ),
@@ -502,7 +502,7 @@ async def test_final_quality_role_course_reason_uses_role_and_company_axes(
     )
 
     rewrite = result.rewrites[0]
-    assert 100 <= len(rewrite) <= 140
+    assert 130 <= len(rewrite) <= 140
     _assert_dearu_style(rewrite)
     assert "デジタル企画" in rewrite
     assert "成長領域" in rewrite
@@ -534,7 +534,7 @@ async def test_final_quality_intern_goals_anchors_program_and_growth(
     async def fake_text_caller(*args, **kwargs):
         captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
         return FakeTextResult(
-            "Business Intelligence Internshipでは、分析結果を事業判断へつなげる視点を学びたい。研究で示し方を改善してきた経験を土台に、実務に近いテーマを通じて仮説を価値へ変える力を磨きたい。"
+            "Business Intelligence Internshipでは、分析結果を事業判断へつなげる視点を学びたい。研究で仮説に基づく分析の示し方を改善してきた経験を土台に、実務に近いテーマを通じて仮説を価値へ変える力を磨き、分析が意思決定にどう届くかを確かめたい。"
         )
 
 
@@ -549,7 +549,7 @@ async def test_final_quality_intern_goals_anchors_program_and_growth(
                 company_name="三井物産",
                 role_name="Business Intelligence",
                 intern_name="Business Intelligence Internship",
-                char_min=100,
+                char_min=130,
                 char_max=140,
             ),
         ),
@@ -581,7 +581,7 @@ async def test_final_quality_intern_goals_anchors_program_and_growth(
     )
 
     rewrite = result.rewrites[0]
-    assert 100 <= len(rewrite) <= 140
+    assert 130 <= len(rewrite) <= 140
     _assert_dearu_style(rewrite)
     assert "Business Intelligence Internship" in rewrite
     assert "実務に近いテーマ" in rewrite

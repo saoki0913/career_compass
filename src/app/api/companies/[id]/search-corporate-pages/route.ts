@@ -6,7 +6,9 @@ import { readGuestDeviceToken } from "@/lib/auth/guest-cookie";
 import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
 import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
-import { getRequestIdentity } from "@/app/api/_shared/request-identity";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { logError } from "@/lib/logger";
 
 interface SearchCandidate {
   url: string;
@@ -96,7 +98,15 @@ export async function POST(
     const { id } = await params;
     const identity = await getRequestIdentity(request);
     if (!identity) {
-      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "COMPANY_CORPORATE_SEARCH_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Authentication required",
+        logContext: "company-corporate-search-auth",
+      });
     }
     let company;
     let graduationYear: number | null = null;
@@ -122,7 +132,14 @@ export async function POST(
     }
 
     if (!company) {
-      return NextResponse.json({ error: "Company not found" }, { status: 404 });
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_CORPORATE_SEARCH_NOT_FOUND",
+        userMessage: "企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company not found",
+        logContext: "company-corporate-search-not-found",
+      });
     }
 
     const rateLimited = await enforceRateLimitLayers(
@@ -189,13 +206,21 @@ export async function POST(
         });
         return NextResponse.json({ candidates } as SearchCorporateResponse);
       }
-    } catch {
-      console.log("FastAPI not available for corporate search");
+    } catch (error) {
+      logError("company-corporate-search-fastapi-fallback", error);
     }
 
     return NextResponse.json({ candidates: [] } as SearchCorporateResponse);
   } catch (error) {
-    console.error("Error searching corporate pages:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANY_CORPORATE_SEARCH_FAILED",
+      userMessage: "企業サイト候補を検索できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Failed to search corporate pages",
+      logContext: "company-search-corporate-pages",
+    });
   }
 }

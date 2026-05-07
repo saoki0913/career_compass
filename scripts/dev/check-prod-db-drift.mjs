@@ -35,7 +35,11 @@ if (placeholderUrl(url)) {
 
 const journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
 const expectedMigrations = journal.entries?.length ?? 0;
-const requiredInterviewTables = ["interview_conversations", "interview_feedback_histories"];
+const requiredInterviewTables = [
+  "interview_conversations",
+  "interview_feedback_histories",
+  "interview_turn_events",
+];
 const requiredInterviewColumns = {
   interview_conversations: [
     "role_track",
@@ -47,8 +51,27 @@ const requiredInterviewColumns = {
     "interview_plan_json",
     "turn_state_json",
     "turn_meta_json",
+    "active_feedback_draft",
+    "current_feedback_id",
   ],
-  interview_feedback_histories: ["consistency_risks", "weakest_question_type"],
+  interview_feedback_histories: [
+    "consistency_risks",
+    "weakest_question_type",
+    "weakest_turn_id",
+    "weakest_question_snapshot",
+    "weakest_answer_snapshot",
+    "satisfaction_score",
+    "score_evidence_by_axis",
+    "score_rationale_by_axis",
+    "confidence_by_axis",
+    "source_messages_snapshot",
+  ],
+  interview_turn_events: [
+    "turn_id",
+    "coverage_checklist_snapshot",
+    "deterministic_coverage_passed",
+    "format_phase",
+  ],
 };
 
 const sql = postgres(url, { max: 1, ssl: "require" });
@@ -69,7 +92,7 @@ try {
     SELECT table_name
     FROM information_schema.tables
     WHERE table_schema = 'public'
-      AND table_name IN ('interview_conversations', 'interview_feedback_histories')
+      AND table_name IN ('interview_conversations', 'interview_feedback_histories', 'interview_turn_events')
   `;
   const presentInterviewTables = new Set(interviewTables.map((row) => row.table_name));
   const missingInterviewTables = requiredInterviewTables.filter(
@@ -84,24 +107,7 @@ try {
     SELECT table_name, column_name
     FROM information_schema.columns
     WHERE table_schema = 'public'
-      AND (
-        (table_name = 'interview_conversations' AND column_name IN (
-          'role_track',
-          'interview_format',
-          'selection_type',
-          'interview_stage',
-          'interviewer_type',
-          'strictness_mode',
-          'interview_plan_json',
-          'turn_state_json',
-          'turn_meta_json'
-        ))
-        OR
-        (table_name = 'interview_feedback_histories' AND column_name IN (
-          'consistency_risks',
-          'weakest_question_type'
-        ))
-      )
+      AND table_name IN ('interview_conversations', 'interview_feedback_histories', 'interview_turn_events')
   `;
   const presentInterviewColumns = new Set(
     interviewColumns.map((row) => `${row.table_name}.${row.column_name}`),

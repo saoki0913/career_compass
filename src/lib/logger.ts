@@ -3,23 +3,7 @@
  * Prevents API keys, tokens, and stack traces from leaking into production logs.
  */
 
-const SENSITIVE_PATTERNS = [
-  /sk-[a-zA-Z0-9]{20,}/g, // OpenAI API keys
-  /sk-ant-[a-zA-Z0-9-]{20,}/g, // Anthropic API keys
-  /whsec_[a-zA-Z0-9]{20,}/g, // Stripe webhook secrets
-  /Bearer\s+[a-zA-Z0-9._-]{20,}/g, // Bearer tokens
-  /(?:better-auth\.session_token|csrf_token|x-device-token|stripe-signature)=?["\s:]*[a-zA-Z0-9._:-]{12,}/gi,
-  /(?:access|refresh|session|device|api|secret|token)["'\s:=]+[a-zA-Z0-9._-]{12,}/gi,
-  /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
-];
-
-function redactSensitive(text: string): string {
-  let result = text;
-  for (const pattern of SENSITIVE_PATTERNS) {
-    result = result.replace(pattern, "[REDACTED]");
-  }
-  return result;
-}
+import { redactSensitive, scrubObject } from "@/lib/sanitize";
 
 interface SanitizedError {
   message: string;
@@ -59,10 +43,7 @@ export function logError(context: string, error: unknown, extra?: Record<string,
     ...sanitized,
   };
   if (extra) {
-    // Redact string values in extra data
-    for (const [key, value] of Object.entries(extra)) {
-      payload[key] = typeof value === "string" ? redactSensitive(value) : value;
-    }
+    Object.assign(payload, scrubObject(extra));
   }
   console.error(JSON.stringify(payload));
 }

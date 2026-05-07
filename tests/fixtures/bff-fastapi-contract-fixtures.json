@@ -1,0 +1,119 @@
+{
+  "streamEvents": {
+    "progress": {
+      "type": "progress",
+      "message": "企業情報を確認しています",
+      "step": "retrieval",
+      "progress": 35
+    },
+    "stringChunk": {
+      "type": "string_chunk",
+      "path": "question",
+      "text": "その経験で最も工夫した点は"
+    },
+    "gakuchikaFieldComplete": {
+      "type": "field_complete",
+      "path": "remaining_questions_estimate",
+      "value": 0
+    },
+    "gakuchikaUnknownFieldComplete": {
+      "type": "field_complete",
+      "path": "future_field",
+      "value": "ignored"
+    },
+    "gakuchikaComplete": {
+      "type": "complete",
+      "data": {
+        "question": "次に、その工夫を周囲にどう伝えたか教えてください。",
+        "conversation_state": {
+          "stage": "es_building",
+          "focus_key": "action",
+          "coach_progress_message": "あと1問で材料が揃いそうです。",
+          "remaining_questions_estimate": 0,
+          "ready_for_draft": true
+        },
+        "next_action": "show_generate_draft_cta"
+      }
+    },
+    "motivationComplete": {
+      "type": "complete",
+      "data": {
+        "question": "その企業で実現したいことを、もう少し具体的に教えてください。",
+        "stage": "desired_work",
+        "confirmedFacts": {
+          "industry_reason_confirmed": true,
+          "company_reason_confirmed": true,
+          "self_connection_confirmed": false,
+          "desired_work_confirmed": false,
+          "value_contribution_confirmed": false,
+          "differentiation_confirmed": false
+        },
+        "nextAction": "ask"
+      }
+    },
+    "esReviewComplete": {
+      "type": "complete",
+      "result": {
+        "rewrites": [
+          {
+            "id": "rewrite-1",
+            "text": "私はチームの課題を整理し、改善施策を実行しました。"
+          }
+        ],
+        "review_meta": {
+          "template": "self_pr",
+          "grounding_mode": "assistive"
+        }
+      }
+    },
+    "interviewComplete": {
+      "type": "complete",
+      "data": {
+        "turn_state": {
+          "turn_id": "turn-1",
+          "question": "学生時代に最も力を入れたことを教えてください。"
+        },
+        "turn_meta": {
+          "question_stage": "gakuchika",
+          "strictness": "standard"
+        },
+        "interview_plan": {
+          "role": "engineer",
+          "company_name": "テスト株式会社"
+        },
+        "question_stage": "gakuchika"
+      }
+    },
+    "error": {
+      "type": "error",
+      "message": "AIサービスに接続できませんでした。"
+    }
+  },
+  "principals": {
+    "companyUser": {
+      "scope": "company",
+      "actor": { "kind": "user", "id": "user-1" },
+      "plan": "standard",
+      "company_id": "company-1",
+      "iat": 1800000000,
+      "nbf": 1799999995,
+      "exp": 1800000060,
+      "jti": "jti-company-user"
+    },
+    "aiStreamGuest": {
+      "scope": "ai-stream",
+      "actor": { "kind": "guest", "id": "guest-1" },
+      "plan": "guest",
+      "company_id": null,
+      "iat": 1800000000,
+      "nbf": 1799999995,
+      "exp": 1800000060,
+      "jti": "jti-ai-guest"
+    }
+  },
+  "billingPolicies": [
+    { "kind": "post_success", "creditsPerSuccess": 1 },
+    { "kind": "three_phase", "reserveBeforeStream": true },
+    { "kind": "free" }
+  ]
+}

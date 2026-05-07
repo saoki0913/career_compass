@@ -26,6 +26,8 @@ test("claude settings define shared policy and new hook events", () => {
   assert.ok(settings.hooks?.PostToolUseFailure);
   assert.equal(settings.env?.BASH_DEFAULT_TIMEOUT_MS, "3600000");
   assert.equal(settings.env?.BASH_MAX_TIMEOUT_MS, "7200000");
+  assert.match(JSON.stringify(settings.hooks.PreToolUse), /apply_patch/);
+  assert.match(JSON.stringify(settings.hooks.PostToolUse), /apply_patch/);
 });
 
 test("claude harness scripts and docs exist", () => {
@@ -66,6 +68,306 @@ test("permission-request-guard denies force push", () => {
   const output = JSON.parse(result.stdout);
   assert.equal(output.hookSpecificOutput.decision.behavior, "deny");
   assert.match(output.hookSpecificOutput.decision.message, /force/i);
+});
+
+test("pre-tool dispatcher keeps harmless bash commands quiet", () => {
+  const result = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      tool_name: "Bash",
+      tool_input: { command: "git status" },
+    }),
+  );
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+});
+
+test("pre-tool dispatcher still blocks force push", () => {
+  const result = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      tool_name: "Bash",
+      tool_input: { command: "git push --force origin main" },
+    }),
+  );
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /force/i);
+});
+
+test("pre-tool dispatcher blocks env reads, normal push, and provider CLI", () => {
+  const envRead = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      session_id: "sess-env",
+      tool_name: "Bash",
+      tool_input: { command: "cat .env.local" },
+    }),
+  );
+  assert.equal(envRead.status, 2);
+  assert.match(envRead.stderr, /env|key|secrets/i);
+
+  const push = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      session_id: "sess-push",
+      tool_name: "Bash",
+      tool_input: { command: "git push origin develop" },
+    }),
+  );
+  assert.equal(push.status, 2);
+  assert.match(push.stderr, /push/i);
+
+  const provider = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      session_id: "sess-release",
+      tool_name: "Bash",
+      tool_input: { command: "railway redeploy" },
+    }),
+  );
+  assert.equal(provider.status, 2);
+  assert.match(provider.stderr, /release|provider|deploy/i);
+});
+
+test("pre-tool dispatcher routes wrapped E2E and quality commands to test-category gate", () => {
+  for (const [index, command] of [
+    "AI_LIVE_LOCAL_FEATURES=gakuchika bash scripts/dev/run-ai-live-local.sh",
+    "npm run test:e2e:functional:local:gakuchika",
+    "npm run test:quality:all",
+    "npm run test:security:light",
+    "npm run test:static",
+    "make test-e2e-functional-gakuchika",
+    "make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES=motivation",
+    "make AI_LIVE_LOCAL_FEATURES=motivation test-e2e-functional-local",
+    "bash scripts/ci/run-e2e-functional.sh --features gakuchika",
+  ].entries()) {
+    const result = runHook(
+      ".claude/hooks/pre-tool-dispatcher.sh",
+      JSON.stringify({
+        session_id: `sess-test-category-${index}`,
+        tool_name: "Bash",
+        tool_input: { command },
+      }),
+    );
+    assert.equal(result.status, 2, command);
+    assert.match(result.stderr, /test-category-gate|カテゴリ選択|Test command blocked/i, command);
+  }
+});
+
+test("claude test-category gate rejects uncovered command feature", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-test-category-"));
+  mkdirSync(path.join(homeDir, ".claude/sessions/career_compass"), { recursive: true });
+  const checkpointPath = path.join(homeDir, ".claude/sessions/career_compass/test-categories-sess-feature");
+  const checkpoint = spawnSync("node", [
+    path.join(repoRoot, "scripts/harness/diff-snapshot.mjs"),
+    "checkpoint",
+    "--kind",
+    "test-categories",
+    "--project",
+    repoRoot,
+    "--categories",
+    "e2e-functional=run:gakuchika,quality=skip,static=run,security=run",
+  ], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(checkpoint.status, 0);
+  writeFileSync(checkpointPath, checkpoint.stdout, "utf8");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/test-category-gate.sh")], {
+    cwd: repoRoot,
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: repoRoot },
+    input: JSON.stringify({
+      session_id: "sess-feature",
+      tool_name: "Bash",
+      tool_input: { command: "make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES=motivation" },
+    }),
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /does not cover command feature: motivation/);
+});
+
+test("claude test-category gate rejects uncovered quality feature", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-test-quality-"));
+  mkdirSync(path.join(homeDir, ".claude/sessions/career_compass"), { recursive: true });
+  const checkpointPath = path.join(homeDir, ".claude/sessions/career_compass/test-categories-sess-quality");
+  const checkpoint = spawnSync("node", [
+    path.join(repoRoot, "scripts/harness/diff-snapshot.mjs"),
+    "checkpoint",
+    "--kind",
+    "test-categories",
+    "--project",
+    repoRoot,
+    "--categories",
+    "e2e-functional=skip,quality=run:gakuchika,static=run,security=run",
+  ], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(checkpoint.status, 0);
+  writeFileSync(checkpointPath, checkpoint.stdout, "utf8");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/test-category-gate.sh")], {
+    cwd: repoRoot,
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: repoRoot },
+    input: JSON.stringify({
+      session_id: "sess-quality",
+      tool_name: "Bash",
+      tool_input: { command: "AI_LIVE_TEST_CATEGORY=quality bash scripts/ci/run-ai-live.sh --feature motivation" },
+    }),
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /quality checkpoint .* does not cover command feature: motivation/);
+});
+
+test("claude test-category gate validates features per category", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-test-category-mixed-"));
+  mkdirSync(path.join(homeDir, ".claude/sessions/career_compass"), { recursive: true });
+  const checkpointPath = path.join(homeDir, ".claude/sessions/career_compass/test-categories-sess-mixed");
+  const checkpoint = spawnSync("node", [
+    path.join(repoRoot, "scripts/harness/diff-snapshot.mjs"),
+    "checkpoint",
+    "--kind",
+    "test-categories",
+    "--project",
+    repoRoot,
+    "--categories",
+    "e2e-functional=run:motivation,quality=run:gakuchika,static=run,security=run",
+  ], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(checkpoint.status, 0);
+  writeFileSync(checkpointPath, checkpoint.stdout, "utf8");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/test-category-gate.sh")], {
+    cwd: repoRoot,
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: repoRoot },
+    input: JSON.stringify({
+      session_id: "sess-mixed",
+      tool_name: "Bash",
+      tool_input: {
+        command:
+          "AI_LIVE_LOCAL_FEATURES=motivation bash scripts/dev/run-ai-live-local.sh && AI_LIVE_TEST_CATEGORY=quality bash scripts/ci/run-ai-live.sh --feature gakuchika",
+      },
+    }),
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0);
+});
+
+test("pre-tool dispatcher allows non-secret private project files", () => {
+  const result = runHook(
+    ".claude/hooks/pre-tool-dispatcher.sh",
+    JSON.stringify({
+      session_id: "sess-private",
+      tool_name: "Bash",
+      tool_input: { command: "sed -n '1,20p' private/agent-pipeline/skills/grill-me.md" },
+    }),
+  );
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, "");
+});
+
+test("claude bandaid guard handles apply_patch edits", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-hook-home-"));
+  const riskyLine = "+const value = input as " + "any;";
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/bandaid-guard.sh")], {
+    cwd: repoRoot,
+    input: JSON.stringify({
+      session_id: "sess-apply-patch",
+      tool_name: "apply_patch",
+      tool_input: {
+        command: [
+          "*** Begin Patch",
+          "*** Update File: src/lib/example.ts",
+          "@@",
+          riskyLine,
+          "*** End Patch",
+        ].join("\n"),
+      },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: repoRoot },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Band-aid/i);
+});
+
+test("tdd guard records test edits before implementation edits", () => {
+  const projectDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-project-"));
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-home-"));
+  const sourceDir = path.join(projectDir, "src/lib/stripe");
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(path.join(sourceDir, "config.test.ts"), "export {};\n");
+  writeFileSync(path.join(sourceDir, "config.ts"), "export {};\n");
+
+  const env = { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: projectDir };
+  const testEdit = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/tdd-enforcement-guard.sh")], {
+    cwd: projectDir,
+    input: JSON.stringify({
+      session_id: "sess-tdd",
+      tool_input: { file_path: path.join(sourceDir, "config.test.ts") },
+    }),
+    encoding: "utf8",
+    env,
+  });
+  const implementationEdit = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/tdd-enforcement-guard.sh")], {
+    cwd: projectDir,
+    input: JSON.stringify({
+      session_id: "sess-tdd",
+      tool_input: { file_path: path.join(sourceDir, "config.ts") },
+    }),
+    encoding: "utf8",
+    env,
+  });
+
+  assert.equal(testEdit.status, 0);
+  assert.equal(implementationEdit.status, 0);
+});
+
+test("tdd guard blocks implementation edits without a prior test edit", () => {
+  const projectDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-project-"));
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-home-"));
+  const sourceDir = path.join(projectDir, "src/lib/stripe");
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(path.join(sourceDir, "config.test.ts"), "export {};\n");
+  writeFileSync(path.join(sourceDir, "config.ts"), "export {};\n");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/tdd-enforcement-guard.sh")], {
+    cwd: projectDir,
+    input: JSON.stringify({
+      session_id: "sess-tdd",
+      tool_input: { file_path: path.join(sourceDir, "config.ts") },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: projectDir },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /未更新/);
+});
+
+test("tdd guard blocks implementation edits when the test file is missing", () => {
+  const projectDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-project-"));
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-tdd-home-"));
+  const sourceDir = path.join(projectDir, "src/lib/stripe");
+  mkdirSync(sourceDir, { recursive: true });
+  writeFileSync(path.join(sourceDir, "config.ts"), "export {};\n");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/tdd-enforcement-guard.sh")], {
+    cwd: projectDir,
+    input: JSON.stringify({
+      session_id: "sess-tdd",
+      tool_input: { file_path: path.join(sourceDir, "config.ts") },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: projectDir },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /テストファイルが見つかりません/);
 });
 
 test("post-tool-failure-triage suggests escalation for sandbox failures", () => {
@@ -245,6 +547,20 @@ test("user-prompt-submit-router suggests codex delegation for codex keywords", (
   assert.equal(result.status, 0);
   const output = JSON.parse(result.stdout);
   assert.match(output.hookSpecificOutput.additionalContext, /codex-delegation-workflow/);
+});
+
+test("user-prompt-submit-router treats hook stalls as harness diagnostics", () => {
+  const result = runHook(
+    ".claude/hooks/user-prompt-submit-router.sh",
+    JSON.stringify({
+      prompt: "Running PreToolUse hook: Checking git push が続いて進まない。ハーネス設計がおかしいはず。改善して。",
+    }),
+  );
+
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout);
+  assert.match(output.hookSpecificOutput.additionalContext, /Harness Diagnostic|Hook \/ harness diagnostic/i);
+  assert.doesNotMatch(output.hookSpecificOutput.additionalContext, /実装規模のタスク|Implementation-sized task/);
 });
 
 test("codex delegation timeout guidance stays aligned at default 3600 / max 7200 seconds", () => {

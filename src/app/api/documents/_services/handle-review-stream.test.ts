@@ -15,7 +15,6 @@ const {
   cancelMock,
   confirmMock,
   fetchFastApiWithPrincipalMock,
-  createSSEProxyStreamMock,
   getViewerPlanMock,
   incrementDailyTokenCountMock,
 } = vi.hoisted(() => ({
@@ -34,7 +33,6 @@ const {
   cancelMock: vi.fn(),
   confirmMock: vi.fn(),
   fetchFastApiWithPrincipalMock: vi.fn(),
-  createSSEProxyStreamMock: vi.fn(),
   getViewerPlanMock: vi.fn(),
   incrementDailyTokenCountMock: vi.fn(),
 }));
@@ -45,20 +43,20 @@ vi.mock("@/lib/ai/user-context", () => ({
   fetchGakuchikaContext: fetchGakuchikaContextMock,
   extractOtherDocumentSections: extractOtherDocumentSectionsMock,
 }));
-vi.mock("@/app/api/_shared/request-identity", () => ({
+vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
-vi.mock("@/app/api/_shared/owner-access", () => ({
+vi.mock("@/bff/identity/owner-access", () => ({
   getOwnedDocument: getOwnedDocumentMock,
 }));
-vi.mock("@/app/api/_shared/llm-cost-guard", () => ({
+vi.mock("@/bff/identity/llm-cost-guard", () => ({
   guardDailyTokenLimit: guardDailyTokenLimitMock,
 }));
 vi.mock("@/lib/rate-limit-spike", () => ({
   REVIEW_RATE_LAYERS: [],
   enforceRateLimitLayers: enforceRateLimitLayersMock,
 }));
-vi.mock("@/lib/api-route/billing/es-review-stream-policy", () => ({
+vi.mock("@/bff/billing/es-review-stream-policy", () => ({
   esReviewStreamPolicy: {
     precheck: precheckMock,
     reserve: reserveMock,
@@ -68,9 +66,6 @@ vi.mock("@/lib/api-route/billing/es-review-stream-policy", () => ({
 }));
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiWithPrincipal: fetchFastApiWithPrincipalMock,
-}));
-vi.mock("@/lib/fastapi/sse-proxy", () => ({
-  createSSEProxyStream: createSSEProxyStreamMock,
 }));
 vi.mock("@/lib/server/loader-helpers", () => ({
   getViewerPlan: getViewerPlanMock,
@@ -103,7 +98,6 @@ describe("handleReviewStream", () => {
     cancelMock.mockReset();
     confirmMock.mockReset();
     fetchFastApiWithPrincipalMock.mockReset();
-    createSSEProxyStreamMock.mockReset();
     getViewerPlanMock.mockReset();
     incrementDailyTokenCountMock.mockReset();
 
@@ -137,13 +131,6 @@ describe("handleReviewStream", () => {
         { status: 200 },
       ),
     );
-    createSSEProxyStreamMock.mockReturnValue(
-      new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.close();
-        },
-      }),
-    );
   });
 
   it("calls FastAPI review stream with ai-stream principal", async () => {
@@ -155,6 +142,7 @@ describe("handleReviewStream", () => {
         content: "志望理由です",
         sectionTitle: "志望動機",
         sectionCharLimit: 400,
+        hasCompanyRag: true,
       }),
       headers: { "content-type": "application/json" },
     });
@@ -175,7 +163,209 @@ describe("handleReviewStream", () => {
           companyId: null,
           plan: "free",
         },
+        body: expect.not.stringContaining("hasCompanyRag"),
       }),
     );
+  });
+
+  it("rejects invalid content before reserving credits", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "短い",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    expect(response.status).toBe(400);
+    expect(precheckMock).not.toHaveBeenCalled();
+    expect(reserveMock).not.toHaveBeenCalled();
+    expect(fetchFastApiWithPrincipalMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects out-of-range section char limit before reserving credits", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 1501,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    expect(response.status).toBe(400);
+    expect(reserveMock).not.toHaveBeenCalled();
+    expect(fetchFastApiWithPrincipalMock).not.toHaveBeenCalled();
+  });
+
+  it("confirms the reservation only after the stream completes", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"type":"complete","result":{"rewrites":["改善後の本文"]}}\n\n'));
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    await response.text();
+
+    expect(confirmMock).toHaveBeenCalledOnce();
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: "doc-1" }),
+      expect.objectContaining({ kind: "billable_success" }),
+      "res-1",
+    );
+    expect(cancelMock).not.toHaveBeenCalled();
+  });
+
+  it("cancels the reservation when credit confirmation fails after a valid complete event", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    confirmMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"type":"complete","result":{"rewrites":["改善後の本文"]}}\n\n'));
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    const text = await response.text();
+
+    expect(confirmMock).toHaveBeenCalledOnce();
+    expect(cancelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: "doc-1" }),
+      "res-1",
+      "stream_ended_without_complete",
+    );
+    expect(text).toContain("ストリーミング処理中にエラーが発生しました");
+  });
+
+  it("cancels the reservation when the complete event has no valid result payload", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('data: {"type":"complete","data":{"ok":true}}\n\n'));
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    const text = await response.text();
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(cancelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: "doc-1" }),
+      "res-1",
+      "stream_ended_without_complete",
+    );
+    expect(text).toContain("添削結果の形式が不正です");
+  });
+
+  it("cancels the reservation and strips telemetry when upstream is not ok", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      Response.json(
+        {
+          detail: { error: "backend failed", error_type: "provider_failure" },
+          internal_telemetry: { model: "gpt", input_tokens: 10 },
+        },
+        { status: 503 },
+      ),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+    const text = await response.text();
+
+    expect(response.status).toBe(503);
+    expect(cancelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: "doc-1" }),
+      "res-1",
+      "fastapi_not_ok",
+    );
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(text).toContain("backend failed");
+    expect(text).not.toContain("internal_telemetry");
   });
 });

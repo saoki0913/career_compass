@@ -22,6 +22,7 @@ interface CompletionSummaryProps {
   resumeFromInterviewLabel?: string;
   /** Refetch summary from API (e.g. when structured JSON was empty or parse failed). */
   onRetrySummary?: () => void | Promise<void>;
+  summaryRequested?: boolean;
   hideGenerateAction?: boolean;
 }
 
@@ -52,16 +53,18 @@ export function CompletionSummary({
   onResumeSession,
   resumeFromInterviewLabel = "更に深掘りする",
   onRetrySummary,
+  summaryRequested = false,
   hideGenerateAction = false,
 }: CompletionSummaryProps) {
   const structured = summary && isStructuredSummary(summary) ? summary : null;
   const legacy = summary && !isStructuredSummary(summary) ? summary : null;
   const structuredVisible = Boolean(structured && structuredSummaryHasVisibleContent(structured));
   const legacyVisible = Boolean(legacy && legacySummaryHasVisibleContent(legacy));
-  const hasVisibleBody = isLoading || structuredVisible || legacyVisible;
+  const hasGeneratedBody = structuredVisible || legacyVisible;
+  const hasVisibleBody = isLoading || (summaryRequested && hasGeneratedBody);
   const leadText = isLoading
-    ? "ここまでで面接で話せる材料はかなり揃いました。要点を整理しています。"
-    : "ここまでで面接で話せる材料はかなり揃いました。まずはそのまま話せる核と2分骨子を前に出して整理します。";
+    ? "面接フィードバックを生成しています。"
+    : "ここまでで面接で話せる材料はかなり揃いました。必要なタイミングでフィードバックを表示できます。";
   const starSections: Array<{
     key: "situation_text" | "task_text" | "action_text" | "result_text";
     shortLabel: "S" | "T" | "A" | "R";
@@ -75,11 +78,11 @@ export function CompletionSummary({
 
   return (
     <div className="space-y-4">
-      <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-3 text-sm text-foreground/90">
+      <div className="w-full rounded-xl border border-success/20 bg-success/5 px-4 py-3 text-sm leading-6 text-foreground/90">
         {leadText}
       </div>
 
-      <Card className="border-border/60 bg-background shadow-sm">
+      <Card className="overflow-hidden border-border/60 bg-background shadow-sm">
         <CardContent className="space-y-6 p-5 sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-2">
@@ -100,7 +103,7 @@ export function CompletionSummary({
                 <p className="text-sm text-muted-foreground">
                   {hasVisibleBody
                     ? "ES の本文に加えて、面接でそのまま話す核と次に備える論点まで見やすく整理しています。"
-                    : "要点の表示に必要な情報がまだ取り込めていない可能性があります。再取得するか、会話を続けてから再度お試しください。"}
+                    : "ボタンを押すと、ここまでの会話をもとに面接用フィードバックを生成します。"}
                 </p>
               </div>
             </div>
@@ -127,18 +130,18 @@ export function CompletionSummary({
                 ))}
               </div>
             </div>
-          ) : structuredVisible && structured ? (
+          ) : summaryRequested && structuredVisible && structured ? (
             <>
               {(structured.one_line_core_answer ||
                 structured.two_minute_version_outline?.length ||
                 structured.likely_followup_questions?.length ||
                 structured.weak_points_to_prepare?.length) && (
                 <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-                  <section className="space-y-4 rounded-2xl border border-border bg-background p-4 sm:p-5">
+                  <section className="min-w-0 space-y-4 rounded-xl border border-border bg-background p-4 sm:p-5">
                     <div className="space-y-2">
                       <SectionTitle>まず話す核</SectionTitle>
                       {structured.one_line_core_answer ? (
-                        <p className="rounded-2xl border border-primary/15 bg-primary/5 px-4 py-4 text-sm font-medium leading-7 text-foreground">
+                        <p className="break-words rounded-xl border border-primary/15 bg-primary/5 px-4 py-4 text-sm font-medium leading-7 text-foreground">
                           {structured.one_line_core_answer}
                         </p>
                       ) : null}
@@ -151,12 +154,12 @@ export function CompletionSummary({
                           {structured.two_minute_version_outline.map((item, index) => (
                             <li
                               key={`${item}-${index}`}
-                              className="flex gap-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-3 text-sm leading-6 text-foreground/90"
+                              className="flex min-w-0 gap-3 rounded-xl border border-border/70 bg-muted/20 px-3 py-3 text-sm leading-6 text-foreground/90"
                             >
                               <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
                                 {index + 1}
                               </span>
-                              <span>{item}</span>
+                              <span className="min-w-0 break-words">{item}</span>
                             </li>
                           ))}
                         </ol>
@@ -200,14 +203,14 @@ export function CompletionSummary({
                   if (!text) return null;
 
                   return (
-                    <section key={element.key} className="rounded-2xl border border-border bg-muted/20 p-4">
+                      <section key={element.key} className="min-w-0 rounded-xl border border-border bg-muted/20 p-4">
                       <div className="mb-2 flex items-center gap-2">
                         <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-foreground text-xs font-semibold text-background">
                           {element.shortLabel}
                         </span>
                         <SectionTitle>{element.label}</SectionTitle>
                       </div>
-                      <p className="text-sm leading-6 text-foreground/90">{text}</p>
+                      <p className="break-words text-sm leading-6 text-foreground/90">{text}</p>
                     </section>
                   );
                 })}
@@ -215,7 +218,7 @@ export function CompletionSummary({
 
               <div className="grid gap-4 lg:grid-cols-2">
                 {structured.strengths.length > 0 && (
-                  <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                  <section className="min-w-0 space-y-3 rounded-xl border border-border bg-background p-4">
                     <SectionTitle>強み</SectionTitle>
                     <div className="space-y-2">
                       {structured.strengths.map((item, index) => (
@@ -223,9 +226,9 @@ export function CompletionSummary({
                           key={`${item.title}-${index}`}
                           className="rounded-xl border border-success/15 bg-success/5 p-3"
                         >
-                          <p className="text-sm font-medium text-foreground">{item.title}</p>
+                          <p className="break-words text-sm font-medium text-foreground">{item.title}</p>
                           {item.description && (
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p>
+                            <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.description}</p>
                           )}
                         </div>
                       ))}
@@ -234,7 +237,7 @@ export function CompletionSummary({
                 )}
 
                 {structured.learnings.length > 0 && (
-                  <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                  <section className="min-w-0 space-y-3 rounded-xl border border-border bg-background p-4">
                     <SectionTitle>学び</SectionTitle>
                     <div className="space-y-2">
                       {structured.learnings.map((item, index) => (
@@ -242,9 +245,9 @@ export function CompletionSummary({
                           key={`${item.title}-${index}`}
                           className="rounded-xl border border-info/15 bg-info/5 p-3"
                         >
-                          <p className="text-sm font-medium text-foreground">{item.title}</p>
+                          <p className="break-words text-sm font-medium text-foreground">{item.title}</p>
                           {item.description && (
-                            <p className="mt-1 text-xs leading-5 text-muted-foreground">{item.description}</p>
+                            <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{item.description}</p>
                           )}
                         </div>
                       ))}
@@ -253,39 +256,39 @@ export function CompletionSummary({
                 )}
               </div>
 
-              <div className="grid gap-4 lg:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {structured.numbers.length > 0 && (
-                  <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                  <section className="min-w-0 max-w-full space-y-3 rounded-2xl border border-border bg-background p-4">
                     <SectionTitle>数字・成果</SectionTitle>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="space-y-2">
                       {structured.numbers.map((numberText, index) => (
-                        <Badge key={`${numberText}-${index}`} variant="soft-info" className="text-xs">
+                        <div key={`${numberText}-${index}`} className="min-w-0 max-w-full rounded-xl border border-info/15 bg-info/5 px-3 py-2 text-xs leading-5 text-foreground/90 break-words">
                           {numberText}
-                        </Badge>
+                        </div>
                       ))}
                     </div>
                   </section>
                 )}
 
                 {structured.interviewer_hooks && structured.interviewer_hooks.length > 0 && (
-                  <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                  <section className="min-w-0 max-w-full space-y-3 rounded-2xl border border-border bg-background p-4">
                     <SectionTitle>面接で広げやすい論点</SectionTitle>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="space-y-2">
                       {structured.interviewer_hooks.slice(0, 3).map((hook, index) => (
-                        <Badge key={`${hook}-${index}`} variant="soft-info" className="text-xs">
+                        <div key={`${hook}-${index}`} className="min-w-0 max-w-full rounded-xl border border-info/15 bg-info/5 px-3 py-2 text-xs leading-5 text-foreground/90 break-words">
                           {hook}
-                        </Badge>
+                        </div>
                       ))}
                     </div>
                   </section>
                 )}
 
                 {structured.reusable_principles && structured.reusable_principles.length > 0 && (
-                  <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                  <section className="min-w-0 max-w-full space-y-3 rounded-2xl border border-border bg-background p-4">
                     <SectionTitle>再現できる行動原則</SectionTitle>
-                    <ul className="space-y-2">
+                    <ul className="min-w-0 space-y-2">
                       {structured.reusable_principles.slice(0, 3).map((principle, index) => (
-                        <li key={`${principle}-${index}`} className="text-sm leading-6 text-foreground/90">
+                        <li key={`${principle}-${index}`} className="break-words text-sm leading-6 text-foreground/90">
                           {principle}
                         </li>
                       ))}
@@ -299,11 +302,11 @@ export function CompletionSummary({
                 structured.backstory_notes?.length) && (
                 <div className="grid gap-4 lg:grid-cols-3">
                   {structured.interview_supporting_details && structured.interview_supporting_details.length > 0 && (
-                    <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                    <section className="min-w-0 max-w-full space-y-3 rounded-2xl border border-border bg-background p-4">
                       <SectionTitle>面接で補足しやすい事実</SectionTitle>
-                      <ul className="space-y-2">
+                      <ul className="min-w-0 space-y-2">
                         {structured.interview_supporting_details.map((item, index) => (
-                          <li key={`${item}-${index}`} className="text-sm leading-6 text-foreground/90">
+                          <li key={`${item}-${index}`} className="break-words text-sm leading-6 text-foreground/90">
                             {item}
                           </li>
                         ))}
@@ -312,11 +315,11 @@ export function CompletionSummary({
                   )}
 
                   {structured.future_outlook_notes && structured.future_outlook_notes.length > 0 && (
-                    <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                    <section className="min-w-0 max-w-full space-y-3 rounded-2xl border border-border bg-background p-4">
                       <SectionTitle>将来展望の補足</SectionTitle>
-                      <ul className="space-y-2">
+                      <ul className="min-w-0 space-y-2">
                         {structured.future_outlook_notes.map((item, index) => (
-                          <li key={`${item}-${index}`} className="text-sm leading-6 text-foreground/90">
+                          <li key={`${item}-${index}`} className="break-words text-sm leading-6 text-foreground/90">
                             {item}
                           </li>
                         ))}
@@ -325,11 +328,11 @@ export function CompletionSummary({
                   )}
 
                   {structured.backstory_notes && structured.backstory_notes.length > 0 && (
-                    <section className="space-y-3 rounded-2xl border border-border bg-background p-4">
+                    <section className="min-w-0 max-w-full space-y-3 rounded-2xl border border-border bg-background p-4">
                       <SectionTitle>背景・原体験の補足</SectionTitle>
-                      <ul className="space-y-2">
+                      <ul className="min-w-0 space-y-2">
                         {structured.backstory_notes.map((item, index) => (
-                          <li key={`${item}-${index}`} className="text-sm leading-6 text-foreground/90">
+                          <li key={`${item}-${index}`} className="break-words text-sm leading-6 text-foreground/90">
                             {item}
                           </li>
                         ))}
@@ -339,7 +342,7 @@ export function CompletionSummary({
                 </div>
               )}
             </>
-          ) : legacyVisible && legacy ? (
+          ) : summaryRequested && legacyVisible && legacy ? (
             <section className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4">
               <SectionTitle>要約</SectionTitle>
               <p className="text-sm leading-6 text-foreground/90">{legacy.summary}</p>
@@ -356,10 +359,10 @@ export function CompletionSummary({
             </section>
           ) : !isLoading ? (
             <div className="rounded-2xl border border-dashed border-border/80 bg-muted/15 px-4 py-6 text-center text-sm text-muted-foreground">
-              <p>要点の本文を表示できませんでした。保存済みの要約が空か、まだ反映されていない可能性があります。</p>
+              <p>面接準備は完了しています。必要なタイミングでフィードバックを生成できます。</p>
               {onRetrySummary ? (
                 <Button variant="outline" className="mt-4 h-10" type="button" onClick={() => void onRetrySummary()}>
-                  要約を再取得
+                  フィードバックを表示
                 </Button>
               ) : null}
             </div>

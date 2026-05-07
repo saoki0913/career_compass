@@ -1,19 +1,7 @@
-## UI Preflight
-
-- [ ] `ui:preflight` を実行した
-- [ ] `visual thesis`
-- [ ] `content plan`
-- [ ] `interaction thesis`
-- [ ] `design tokens`
-- [ ] `desktop first view`
-- [ ] `mobile first view`
-- [ ] `existing visual language / constraints`
-
 ## UI Review
 
-- [ ] `test:ui:review` を実行した
-- [ ] 対象 route を確認した
-- [ ] desktop / mobile の両方を確認した
+- [ ] `lint:ui:guardrails` / `test:ui:review` を該当 route で実行した（推奨）
+- [ ] desktop / mobile 両方の見え方を確認した（該当する場合）
 
 ## UI Review Routes
 

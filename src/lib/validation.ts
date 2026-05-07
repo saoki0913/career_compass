@@ -10,7 +10,7 @@
 
 import { z } from "zod";
 import { NextResponse, type NextRequest } from "next/server";
-import { createApiErrorResponse } from "@/app/api/_shared/error-response";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { esDocumentCategorySchema } from "@/lib/es-document-category";
 
 // ---------------------------------------------------------------------------

@@ -33,7 +33,7 @@ const comparisonRows: {
   { label: "月次クレジット", free: "50", standard: "350", pro: "750" },
   { label: "企業登録", free: "5社まで", standard: "無制限", pro: "無制限" },
   { label: "ES添削スタイル", free: "3種", standard: "全8種", pro: "全8種" },
-  { label: "面接対策", free: "GPT-5.4 mini・最終講評成功時 6CR", standard: "GPT-5.4 mini・最終講評成功時 6CR", pro: "GPT-5.4 mini・最終講評成功時 6CR" },
+  { label: "面接対策", free: "開始2CR・回答/続き各1CR・講評6CR", standard: "開始2CR・回答/続き各1CR・講評6CR", pro: "開始2CR・回答/続き各1CR・講評6CR" },
   { label: "ガクチカ素材", free: "5件", standard: "15件", pro: "30件" },
   { label: "企業情報取得（日次無料枠）", free: "1回", standard: "5回", pro: "20回" },
   { label: "選考スケジュール（月次無料）", free: "10回", standard: "100回", pro: "200回" },
@@ -62,7 +62,7 @@ const faqItems: readonly MarketingFaq[] = [
   {
     question: "面接対策は何回できますか？",
     answer:
-      "企業特化の模擬面接は GPT-5.4 mini 固定で、最終講評が成功した時に 6 クレジット消費します。月次無料枠はありません。",
+      "企業特化の模擬面接は、開始時に 2 クレジット、回答送信と講評後の続きは各 1 クレジット、最終講評は成功時に 6 クレジット消費します。モデルは計画 GPT-5.4、質問 Claude Haiku 4.5、講評 Claude Sonnet 4.6 です。月次無料枠はありません。",
   },
   {
     question: "解約はいつでもできますか？",
@@ -196,7 +196,7 @@ export default function PricingPage() {
                 迷ったら Free で始めて、必要になった時に切り替えてください。
               </h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-300">
-                Free は月50クレジット・企業5社まで・ES添削3種・ガクチカ5件・面接対策は GPT-5.4 mini 固定で最終講評成功時 6 クレジット。Standard（¥1,490/月・350CR）は1クレジット約4円、Pro（¥2,980/月・750CR）は約4円の目安です。
+                Free は月50クレジット・企業5社まで・ES添削3種・ガクチカ5件・面接対策は開始2CR、回答/続き各1CR、最終講評6CR。Standard（¥1,490/月・350CR）は1クレジット約4円、Pro（¥2,980/月・750CR）は約4円の目安です。
               </p>
             </div>
             <Button

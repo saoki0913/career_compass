@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { FileText, Loader2, Sparkles } from "lucide-react";
+import { FileText, Loader2, Sparkles, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,8 +33,8 @@ import {
   TEMPLATE_LABELS,
   TEMPLATE_OPTIONS,
   useESReview,
-} from "@/hooks/useESReview";
-import type { ReviewMode, TemplateType } from "@/hooks/useESReview";
+} from "@/features/es-review";
+import type { ReviewMode, TemplateType } from "@/features/es-review";
 import {
   DEFAULT_STANDARD_ES_REVIEW_MODEL,
   FREE_PLAN_ES_REVIEW_MODEL,
@@ -50,6 +50,10 @@ import { calculateESReviewCost } from "@/lib/credits/cost";
 import type { Industry } from "@/lib/constants/industries";
 import { COMPANYLESS_EXPLICIT_TEMPLATE_TYPES } from "@/lib/es-review/companyless-templates";
 import { inferTemplateTypeDetailsFromQuestion } from "@/lib/es-review/infer-template-type";
+import {
+  requiresIndustryForESReviewTemplate,
+  requiresRoleForESReviewTemplate,
+} from "@/lib/es-review/template-requirements";
 import {
   notifyOperationLocked,
   notifyReviewError,
@@ -69,8 +73,13 @@ import { CompanyStatusBanner, type CompanyReviewStatus } from "./review-panel-co
 export type { CompanyReviewStatus };
 
 interface SectionReviewRequest {
+  sectionId?: string;
   sectionTitle: string;
   sectionContent: string;
+  originalTextHash?: string;
+  templateType?: TemplateType;
+  companyId?: string | null;
+  roleName?: string | null;
   sectionCharLimit?: number;
 }
 
@@ -83,6 +92,7 @@ interface ReviewPanelProps {
   onUndo?: () => void;
   className?: string;
   sectionReviewRequest?: SectionReviewRequest | null;
+  isSectionSnapshotStale?: boolean;
   onClearSectionReview?: () => void;
   supplementalContent?: ReactNode;
 }
@@ -246,6 +256,9 @@ function ReviewActionFooter({
   disabled,
   onClick,
   loginHref,
+  isLoading,
+  isCancelling,
+  onCancel,
 }: {
   charCount: number;
   creditCost: number;
@@ -254,8 +267,22 @@ function ReviewActionFooter({
   disabled: boolean;
   onClick: () => void;
   loginHref?: string | null;
+  isLoading: boolean;
+  isCancelling: boolean;
+  onCancel: () => void;
 }) {
-  const primary = loginHref ? (
+  const primary = isLoading ? (
+    <Button
+      className="h-11 self-stretch rounded-full px-5 sm:min-w-[180px] sm:self-auto sm:px-6"
+      variant="outline"
+      disabled={isCancelling}
+      onClick={onCancel}
+      aria-label="添削を中止"
+    >
+      {isCancelling ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
+      {isCancelling ? "中止しています" : "中止"}
+    </Button>
+  ) : loginHref ? (
     <Button className="h-11 self-stretch rounded-full px-5 sm:min-w-[220px] sm:self-auto sm:px-6" asChild>
       <Link href={loginHref}>
         <Sparkles className="size-4" />
@@ -278,7 +305,7 @@ function ReviewActionFooter({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium text-foreground">消費クレジット</p>
+            <p className="text-sm font-medium text-foreground">成功時のみ消費</p>
             <Badge variant="outline" className="bg-background/80 px-2 py-0.5 text-[11px] text-foreground">
               {creditCost} クレジット
             </Badge>
@@ -314,6 +341,7 @@ export function ReviewPanel({
   onUndo,
   className,
   sectionReviewRequest,
+  isSectionSnapshotStale = false,
   onClearSectionReview,
   supplementalContent,
 }: ReviewPanelProps) {
@@ -344,6 +372,11 @@ export function ReviewPanel({
   const isFreeEsPlan = Boolean(isAuthenticated && !isGuest && credits?.plan === "free");
   const [showReflectModal, setShowReflectModal] = useState(false);
   const [pendingRewrite, setPendingRewrite] = useState<string | null>(null);
+  const [generationSnapshot, setGenerationSnapshot] = useState<{
+    templateType: TemplateType;
+    companyId?: string | null;
+    roleName?: string | null;
+  } | null>(null);
   const [responseInstanceKey, setResponseInstanceKey] = useState(0);
   const [hasShownCompletionToast, setHasShownCompletionToast] = useState(false);
   /** True only after user taps「この設問をAI添削」while setup is incomplete (red frames + footer hint). */
@@ -373,6 +406,8 @@ export function ReviewPanel({
     error,
     errorAction,
     currentSection,
+    cancelReview,
+    isCancelling,
     elapsedTime,
     sseProgress,
     requestSectionReview,
@@ -415,7 +450,9 @@ export function ReviewPanel({
   const selectedTemplateFields = TEMPLATE_EXTRA_FIELDS[effectiveTemplate] ?? [];
   const requiresInternName = selectedTemplateFields.includes("intern_name");
   const requiresIndustrySelection =
-    hasSelectedCompany && Boolean(roleOptionsData?.requiresIndustrySelection);
+    hasSelectedCompany && requiresIndustryForESReviewTemplate(effectiveTemplate);
+  const requiresRoleSelection =
+    hasSelectedCompany && requiresRoleForESReviewTemplate(effectiveTemplate);
   const currentCharLimit = currentSection?.charLimit ?? sectionReviewRequest?.sectionCharLimit;
   const selectedRoleName = roleName.trim();
   const selectedTemplateValue = selectedTemplate ?? "auto";
@@ -467,6 +504,7 @@ export function ReviewPanel({
     internName,
     hasSelectedCompany,
     requiresIndustrySelection,
+    requiresRoleSelection,
     selectedIndustry,
     selectedRoleName,
   });
@@ -491,7 +529,7 @@ export function ReviewPanel({
   const isFooterLocked = isLoading || (hasResponse && !isPlaybackComplete);
   const reviewActionHint =
     sectionBodyTrimLen < MIN_REVIEW_SECTION_BODY_CHARS
-      ? "本文を5文字以上入力してください。"
+      ? "本文を6文字以上入力してください。"
       : authPending
         ? "AI添削の利用条件を確認しています。"
         : requiresLoginForReview
@@ -508,7 +546,7 @@ export function ReviewPanel({
               ? "職種候補を取得できていません。再読み込みしてからお試しください。"
               : requiresIndustrySelection && !selectedIndustry
                 ? "先に業界を選択してください。"
-                : hasSelectedCompany && !selectedRoleName
+                : requiresRoleSelection && !selectedRoleName
                   ? "先に職種を選択してください。"
                   : insufficientCredits
                     ? `クレジットが不足しています（残高 ${balance} / 必要 ${creditCost}）`
@@ -522,12 +560,14 @@ export function ReviewPanel({
     !isRoleOptionsLoading &&
     !roleOptionsError &&
     (!requiresIndustrySelection || Boolean(selectedIndustry)) &&
-    (!hasSelectedCompany || Boolean(selectedRoleName)) &&
+    (!requiresRoleSelection || Boolean(selectedRoleName)) &&
     !insufficientCredits;
   const footerHelperText = error
     ? "添削結果を表示できませんでした。もう一度お試しください。"
     : isFooterLocked
-      ? "添削中です。完了までお待ちください。"
+      ? isCancelling
+        ? "添削を中止しています。結果は反映されず、クレジットは消費されません。"
+        : "添削中です。必要なら中止できます。"
       : hasCompletedReview
         ? "前回の条件を保持したまま、設定を見直して再添削できます。"
         : canStartReview
@@ -549,7 +589,7 @@ export function ReviewPanel({
   const footerButtonLabel = error
     ? "この設問を再試行"
     : isFooterLocked
-      ? "添削中..."
+      ? isCancelling ? "中止しています" : "中止"
       : authPending
         ? "確認中"
       : requiresLoginForReview
@@ -564,7 +604,7 @@ export function ReviewPanel({
           ? "条件を見直して再添削"
           : "この設問をAI添削";
   const footerActionDisabled =
-    isFooterLocked ||
+    (isFooterLocked && !isLoading) ||
     authPending ||
     (!footerLoginHref && requiresLoginForReview) ||
     creditsUnavailable ||
@@ -751,11 +791,16 @@ export function ReviewPanel({
     try {
       setResponseInstanceKey((prev) => prev + 1);
       setHasShownCompletionToast(false);
+      setGenerationSnapshot({
+        templateType: effectiveTemplate,
+        companyId: companyId ?? null,
+        roleName: selectedRoleName || null,
+      });
       return await requestSectionReview({
         sectionTitle: sectionReviewRequest.sectionTitle,
+        sectionId: sectionReviewRequest.sectionId,
         sectionContent: sectionReviewRequest.sectionContent,
         sectionCharLimit: sectionReviewRequest.sectionCharLimit,
-        hasCompanyRag: companyReviewStatus === "ready_for_es_review",
         companyId,
         templateType: selectedTemplate ?? undefined,
         internName: requiresInternName ? internName || undefined : undefined,
@@ -772,6 +817,7 @@ export function ReviewPanel({
     acquireLock,
     companyId,
     companyReviewStatus,
+    effectiveTemplate,
     internName,
     isFreeEsPlan,
     roleSelectionSource,
@@ -821,6 +867,15 @@ export function ReviewPanel({
     setShowReflectModal(true);
   }, []);
 
+  const isReflectSnapshotStale = Boolean(
+    isSectionSnapshotStale ||
+    (generationSnapshot && (
+      generationSnapshot.templateType !== effectiveTemplate ||
+      (generationSnapshot.companyId ?? null) !== (companyId ?? null) ||
+      (generationSnapshot.roleName ?? null) !== (selectedRoleName || null)
+    )),
+  );
+
   const handleConfirmReflect = useCallback(() => {
     if (pendingRewrite && onApplyRewrite) {
       onApplyRewrite(pendingRewrite, currentSection ? currentSection.title : null);
@@ -831,6 +886,7 @@ export function ReviewPanel({
 
   const handleReset = useCallback(() => {
     setSetupErrorHighlight(false);
+    setGenerationSnapshot(null);
     clearReview();
     onClearSectionReview?.();
   }, [clearReview, onClearSectionReview]);
@@ -914,7 +970,7 @@ export function ReviewPanel({
                       role="alert"
                     >
                       {validationIssues.find((i) => i.field === "section_content")?.message ??
-                        "本文を5文字以上入力してください。"}
+                        "本文を6文字以上入力してください。"}
                     </p>
                   ) : null}
                 </div>
@@ -1095,7 +1151,7 @@ export function ReviewPanel({
                         <p className="text-sm font-semibold text-foreground">業界を選択してください</p>
                         <p className="text-xs leading-5 text-muted-foreground">
                           {requiresIndustrySelection
-                            ? "企業情報だけでは業界が広いため、添削前に選択が必要です。"
+                            ? "この設問タイプでは、添削前に業界の確認が必要です。"
                             : selectedIndustry
                               ? `「${selectedIndustry}」を初期選択しています。必要なら変更してください。`
                               : "企業情報に合わせて業界を選択してください。"}
@@ -1142,10 +1198,14 @@ export function ReviewPanel({
                           ref={roleFieldRef}
                           className="rounded-2xl transition-colors"
                         >
-                        <p className="text-sm font-semibold text-foreground">職種を選択してください</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {requiresRoleSelection ? "職種を選択してください" : "職種を選択できます"}
+                        </p>
                         <p className="text-xs leading-5 text-muted-foreground">
-                          {selectedIndustry
+                          {requiresRoleSelection && selectedIndustry
                             ? "候補から選び、見つからない場合だけ自由入力を使ってください。"
+                            : selectedIndustry
+                              ? "企業接続を強めたい場合は職種も指定できます。"
                             : hasSelectedCompany
                               ? "先に業界を選ぶと、この企業向けの職種候補を表示します。"
                               : "先に業界を選ぶと、職種候補を表示します。"}
@@ -1316,6 +1376,9 @@ export function ReviewPanel({
           disabled={footerActionDisabled}
           onClick={handleReviewFooterAction}
           loginHref={footerLoginHref}
+          isLoading={isLoading}
+          isCancelling={isCancelling}
+          onCancel={cancelReview}
         />
       ) : null}
 
@@ -1330,6 +1393,7 @@ export function ReviewPanel({
         originalText={sectionReviewRequest?.sectionContent || ""}
         newText={pendingRewrite || ""}
         isFullDocument={false}
+        isStale={isReflectSnapshotStale}
       />
     </div>
   );

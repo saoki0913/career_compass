@@ -1,0 +1,1885 @@
+"""
+Vector Store Utility Module
+
+Provides vector storage and retrieval using ChromaDB for company RAG.
+
+Supports:
+- Structured data storage (deadlines, recruitment info, etc.)
+- Full text storage from recruitment pages
+- Corporate site content storage (IR, business info)
+- Content type filtering for retrieval
+"""
+
+import chromadb
+from chromadb.config import Settings as ChromaSettings
+from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional
+from datetime import datetime
+from urllib.parse import urlparse
+from uuid import uuid4
+
+from app.config import settings
+from app.utils.secure_logger import get_logger
+from app.utils.embeddings import (
+    EmbeddingBackend,
+    generate_embedding,
+    generate_embeddings_batch,
+    resolve_embedding_backend,
+    get_available_backends,
+    get_configured_backends,
+)
+from app.utils.content_types import CONTENT_TYPES, content_type_label, normalize_content_type
+from app.utils.content_classifier import classify_chunks
+from app.utils.cache import get_rag_cache, build_cache_key
+from app.utils.text_chunker import get_chunk_settings
+from app.rag.ids import collection_name_for_backend, make_source_document_id, make_source_hash
+from app.rag.document_summarizer import MetadataDocumentSummarizer
+from app.rag.security import assess_rag_injection_risk, is_rag_chunk_quarantined, sanitize_rag_context
+
+logger = get_logger(__name__)
+
+# ChromaDB persistent storage path
+CHROMA_PERSIST_DIR = Path(__file__).parent.parent.parent / "data" / "chroma"
+
+# Collection names
+COMPANY_COLLECTION = "company_info"
+
+# Singleton client
+_chroma_client: Optional[chromadb.PersistentClient] = None
+
+# Content type display names (Japanese)
+CONTENT_TYPE_JA = {
+    "new_grad_recruitment": "新卒採用ホームページ",
+    "midcareer_recruitment": "中途採用ホームページ",
+    "recruitment_homepage": "採用ホームページ",  # Legacy
+    "corporate_site": "企業HP",
+    "ir_materials": "IR資料",
+    "ceo_message": "社長メッセージ",
+    "employee_interviews": "社員インタビュー",
+    "press_release": "プレスリリース",
+    "csr_sustainability": "CSR/サステナビリティ",
+    "midterm_plan": "中期経営計画",
+    "recruitment": "採用情報",
+    "corporate_ir": "IR情報",
+    "corporate_business": "事業情報",
+    "corporate_general": "企業情報",
+    "full_text": "フルテキスト",
+}
+
+RAG_SOURCE_KINDS = {"corporate_public", "private_user_material"}
+PUBLIC_LEGACY_RAG_SOURCE_KINDS = {"crawl", "schedule", "upload"}
+
+
+@dataclass(frozen=True)
+class RagDeletionVerification:
+    complete: bool
+    residuals: dict[str, int]
+
+
+def _make_ingest_session_id() -> str:
+    return uuid4().hex
+
+
+def _make_source_hash(source_url: str) -> str:
+    return make_source_hash(source_url)
+
+
+def validate_rag_source_metadata(
+    *,
+    source_kind: str,
+    tenant_key: str,
+    company_id: str,
+    source_id: str,
+    consent_reference: str | None = None,
+) -> dict[str, str]:
+    raw_kind = (source_kind or "corporate_public").strip()
+    normalized_kind = (
+        "corporate_public" if raw_kind in PUBLIC_LEGACY_RAG_SOURCE_KINDS else raw_kind
+    )
+    if normalized_kind not in RAG_SOURCE_KINDS:
+        raise ValueError("invalid RAG source_kind")
+    if not tenant_key:
+        raise ValueError("tenant_key is required for RAG source metadata")
+    if not company_id:
+        raise ValueError("company_id is required for RAG source metadata")
+    if not source_id:
+        raise ValueError("source_id is required for RAG source metadata")
+    consent = (consent_reference or "").strip()
+    if normalized_kind == "private_user_material" and not consent:
+        raise ValueError("private user material requires explicit consent")
+    return {
+        "source_kind": normalized_kind,
+        "tenant_key": tenant_key,
+        "company_id": company_id,
+        "source_id": source_id,
+        "consent_reference": consent,
+    }
+
+
+def verify_rag_deletion_complete(
+    *,
+    chroma_remaining: int,
+    bm25_remaining: int,
+    redis_remaining: int,
+    supabase_object_remaining: int,
+    ingest_job_remaining: int,
+) -> RagDeletionVerification:
+    residuals = {
+        name: int(value)
+        for name, value in {
+            "chroma": chroma_remaining,
+            "bm25": bm25_remaining,
+            "redis": redis_remaining,
+            "supabase_object": supabase_object_remaining,
+            "ingest_job": ingest_job_remaining,
+        }.items()
+        if int(value) > 0
+    }
+    return RagDeletionVerification(complete=not residuals, residuals=residuals)
+
+
+def _make_source_document_id(
+    tenant_key: str,
+    company_id: str,
+    source_url: str,
+    content_type: str,
+    chunk_index: int,
+    ingest_session_id: str,
+) -> str:
+    return make_source_document_id(
+        tenant_key,
+        company_id,
+        source_url,
+        content_type,
+        chunk_index,
+        ingest_session_id,
+    )
+
+
+def _extract_ids_to_delete_for_source(
+    results: dict,
+    current_ingest_session_id: Optional[str] = None,
+) -> list[str]:
+    ids = results.get("ids") or []
+    metadatas = results.get("metadatas") or []
+    deletable_ids: list[str] = []
+
+    for doc_id, metadata in zip(ids, metadatas):
+        ingest_session_id = (
+            metadata.get("ingest_session_id")
+            if isinstance(metadata, dict)
+            else None
+        )
+        if current_ingest_session_id and ingest_session_id == current_ingest_session_id:
+            continue
+        deletable_ids.append(doc_id)
+
+    if len(ids) > len(metadatas):
+        deletable_ids.extend(ids[len(metadatas):])
+
+    return deletable_ids
+
+
+def _delete_source_records_for_backends(
+    company_id: str,
+    source_url: str,
+    backend: EmbeddingBackend,
+    *,
+    current_ingest_session_id: Optional[str] = None,
+    tenant_key: str,
+) -> int:
+    deleted_total = 0
+    for name in _collection_names_for_backend(backend):
+        collection = _get_collection(name)
+        existing = collection.get(
+            where=_company_where(company_id, tenant_key, {"source_url": source_url}),
+            include=["metadatas"],
+        )
+        ids_to_delete = _extract_ids_to_delete_for_source(
+            existing,
+            current_ingest_session_id=current_ingest_session_id,
+        )
+        if ids_to_delete:
+            collection.delete(ids=ids_to_delete)
+            deleted_total += len(ids_to_delete)
+    return deleted_total
+
+
+def _delete_current_ingest_session_records(
+    company_id: str,
+    source_url: str,
+    backend: EmbeddingBackend,
+    ingest_session_id: str,
+    tenant_key: str,
+) -> int:
+    deleted_total = 0
+    for name in _collection_names_for_backend(backend):
+        collection = _get_collection(name)
+        existing = collection.get(
+            where=_company_where(company_id, tenant_key, {"source_url": source_url}),
+            include=["metadatas"],
+        )
+        ids = existing.get("ids") or []
+        metadatas = existing.get("metadatas") or []
+        ids_to_delete = [
+            doc_id
+            for doc_id, metadata in zip(ids, metadatas)
+            if isinstance(metadata, dict)
+            and metadata.get("ingest_session_id") == ingest_session_id
+        ]
+        if ids_to_delete:
+            collection.delete(ids=ids_to_delete)
+            deleted_total += len(ids_to_delete)
+    return deleted_total
+
+
+def get_chroma_client() -> chromadb.PersistentClient:
+    """Get or create ChromaDB client."""
+    global _chroma_client
+    if _chroma_client is None:
+        # Ensure directory exists
+        CHROMA_PERSIST_DIR.mkdir(parents=True, exist_ok=True)
+
+        _chroma_client = chromadb.PersistentClient(
+            path=str(CHROMA_PERSIST_DIR),
+            settings=ChromaSettings(
+                anonymized_telemetry=False,
+                allow_reset=True,
+            ),
+        )
+        logger.info("ChromaDB initialized (%s)", CHROMA_PERSIST_DIR)
+
+    return _chroma_client
+
+
+def _collection_name_for_backend(backend: EmbeddingBackend) -> str:
+    return collection_name_for_backend(COMPANY_COLLECTION, provider=backend.provider, model=backend.model)
+
+
+def _contextual_collection_name_for_backend(backend: EmbeddingBackend) -> str:
+    return collection_name_for_backend(
+        COMPANY_COLLECTION,
+        provider=backend.provider,
+        model=backend.model,
+        contextual=True,
+    )
+
+
+def _collection_names_for_backend(backend: EmbeddingBackend) -> list[str]:
+    names = []
+    if settings.contextual_retrieval_enabled:
+        names.append(_contextual_collection_name_for_backend(backend))
+    names.append(_collection_name_for_backend(backend))
+    if settings.contextual_retrieval_dual_write and not settings.contextual_retrieval_enabled:
+        names.append(_contextual_collection_name_for_backend(backend))
+    return names
+
+
+def _get_collection(name: str, metadata: Optional[dict] = None) -> chromadb.Collection:
+    client = get_chroma_client()
+    return client.get_or_create_collection(
+        name=name,
+        metadata=metadata or {"description": "Company recruitment information for RAG"},
+    )
+
+
+def get_company_collection(backend: EmbeddingBackend) -> chromadb.Collection:
+    """Get or create company info collection for a specific embedding backend."""
+    return _get_collection(
+        name=_collection_name_for_backend(backend),
+        metadata={
+            "description": "Company recruitment information for RAG",
+            "embedding_provider": backend.provider,
+            "embedding_model": backend.model,
+        },
+    )
+
+
+def get_company_contextual_collection(backend: EmbeddingBackend) -> chromadb.Collection:
+    """Get or create contextual shadow collection for company info."""
+    return _get_collection(
+        name=_contextual_collection_name_for_backend(backend),
+        metadata={
+            "description": "Contextual company recruitment information for RAG",
+            "embedding_provider": backend.provider,
+            "embedding_model": backend.model,
+            "contextual_retrieval": True,
+        },
+    )
+
+
+def _resolve_write_backend(
+    backend: Optional[EmbeddingBackend],
+) -> Optional[EmbeddingBackend]:
+    return backend or resolve_embedding_backend()
+
+
+def _resolve_read_backends(
+    backends: Optional[list[EmbeddingBackend]],
+) -> list[EmbeddingBackend]:
+    if backends is not None:
+        return [b for b in backends if b]
+    available = get_available_backends()
+    return available if available else []
+
+
+def _context_dedupe_key(context: dict) -> tuple:
+    meta = context.get("metadata") or {}
+    secondary = meta.get("secondary_content_types") or []
+    if isinstance(secondary, str):
+        secondary = [s.strip() for s in secondary.split(",") if s.strip()]
+    return (
+        meta.get("source_url"),
+        meta.get("chunk_index"),
+        meta.get("content_type") or meta.get("chunk_type"),
+        tuple(secondary),
+        context.get("text"),
+    )
+
+
+def _search_options_signature(search_options: Optional[dict]) -> str:
+    if not search_options:
+        return "default"
+    try:
+        return str(sorted(search_options.items()))
+    except Exception:
+        return "custom"
+
+
+# _fallback_local_backend removed - only OpenAI embeddings are supported
+
+
+def get_dynamic_context_length(es_content: str) -> int:
+    """Adjust RAG context length based on ES length."""
+    char_count = len(es_content or "")
+    short_threshold = max(1, settings.rag_context_threshold_short)
+    medium_threshold = max(short_threshold + 1, settings.rag_context_threshold_medium)
+
+    if char_count < short_threshold:
+        return max(500, settings.rag_context_short)
+    if char_count < medium_threshold:
+        return max(800, settings.rag_context_medium)
+    return max(1200, settings.rag_context_long)
+
+
+def _company_where(
+    company_id: str,
+    tenant_key: str,
+    *extra_clauses: dict,
+) -> dict:
+    if not tenant_key:
+        raise ValueError("tenant_key is required for RAG storage access")
+    clauses = [{"company_id": company_id}, {"tenant_key": tenant_key}]
+    clauses.extend(extra_clauses)
+    return {"$and": clauses}
+
+
+async def store_company_info(
+    company_id: str,
+    company_name: str,
+    content_chunks: list[dict],
+    source_url: str,
+    *,
+    tenant_key: str,
+    backend: Optional[EmbeddingBackend] = None,
+) -> bool:
+    """
+    Store company information in vector database.
+
+    Args:
+        company_id: Unique company identifier
+        company_name: Company name
+        content_chunks: List of content chunks with text and metadata
+            Each chunk: {"text": str, "type": str, "metadata": dict}
+        source_url: Source URL of the information
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        backend = _resolve_write_backend(backend)
+        if backend is None:
+            logger.error("No embedding backend available for store_company_info")
+            return False
+
+        # Delete existing entries for this company across related collections
+        deletion_errors = []
+        for name in _collection_names_for_backend(backend):
+            try:
+                _get_collection(name).delete(where=_company_where(company_id, tenant_key))
+            except Exception as e:
+                # Log but continue - deletion failure shouldn't block insert
+                deletion_errors.append(f"{name}: {e}")
+
+        if deletion_errors:
+            logger.warning(
+                "Deletion errors before insert (company_id: %s...): %s",
+                company_id[:8],
+                "; ".join(deletion_errors),
+            )
+
+        collection = get_company_collection(backend)
+
+        # Prepare documents and metadata
+        documents = []
+        metadatas = []
+        ids = []
+
+        for idx, chunk in enumerate(content_chunks):
+            text = chunk.get("text", "")
+            if not text or len(text.strip()) < 10:
+                continue
+
+            doc_id = f"{tenant_key}_{company_id}_{idx}"
+            metadata = {
+                "company_id": company_id,
+                "company_name": company_name,
+                "source_url": source_url,
+                "chunk_type": chunk.get("type", "general"),
+                "chunk_index": idx,
+                "embedding_provider": backend.provider,
+                "embedding_model": backend.model,
+            }
+            metadata["tenant_key"] = tenant_key
+            # Add any additional metadata from the chunk
+            if chunk.get("metadata"):
+                for key, value in chunk["metadata"].items():
+                    if isinstance(value, (str, int, float, bool)):
+                        metadata[key] = value
+                    elif key == "secondary_content_types":
+                        # Store as comma-separated string (ChromaDB can't filter on list metadata)
+                        if isinstance(value, list):
+                            metadata[key] = ",".join(v for v in value if isinstance(v, str))
+                        elif isinstance(value, str):
+                            metadata[key] = value
+                        else:
+                            metadata[key] = ""
+
+            documents.append(text)
+            metadatas.append(metadata)
+            ids.append(doc_id)
+
+        if not documents:
+            logger.warning("No valid chunks to store (company_id: %s...)", company_id[:8])
+            return False
+
+        # Generate embeddings
+        embeddings = await generate_embeddings_batch(documents, backend=backend)
+
+        # Filter out failed embeddings
+        valid_items = [
+            (doc, meta, doc_id, emb)
+            for doc, meta, doc_id, emb in zip(
+                documents,
+                metadatas,
+                ids,
+                embeddings,
+            )
+            if emb is not None
+        ]
+
+        if not valid_items:
+            logger.error("Embedding generation failed (company_id: %s...)", company_id[:8])
+            return False
+
+        # Unpack valid items
+        valid_docs, valid_metas, valid_ids, valid_embs = zip(*valid_items)
+
+        # Add to collection
+        collection.add(
+            documents=list(valid_docs),
+            metadatas=list(valid_metas),
+            ids=list(valid_ids),
+            embeddings=list(valid_embs),
+        )
+
+        logger.info(
+            "Stored %d chunks (company_id: %s...)", len(valid_docs), company_id[:8]
+        )
+        schedule_bm25_update(company_id, tenant_key=tenant_key)
+        cache = get_rag_cache()
+        if cache:
+            await cache.invalidate_company(company_id, tenant_key=tenant_key)
+        return True
+
+    except Exception as e:
+        logger.error("store_company_info error: %s", e, exc_info=True)
+        return False
+
+
+async def search_company_context(
+    company_id: str,
+    query: str,
+    n_results: int = 5,
+    backend: Optional[EmbeddingBackend] = None,
+    *,
+    tenant_key: str,
+) -> list[dict]:
+    """
+    Search for relevant company context based on query.
+
+    Args:
+        company_id: Company identifier to search within
+        query: Search query (e.g., ES content)
+        n_results: Maximum number of results to return
+
+    Returns:
+        List of relevant context chunks with metadata
+    """
+    try:
+        backends = None if backend is None else [backend]
+        return await search_company_context_by_type(
+            company_id=company_id,
+            query=query,
+            n_results=n_results,
+            content_types=None,
+            backends=backends,
+            tenant_key=tenant_key,
+        )
+    except Exception as e:
+        logger.error("search_company_context error: %s", e, exc_info=True)
+        return []
+
+
+async def get_company_context_for_review(
+    company_id: str,
+    es_content: str,
+    max_context_length: int = 2000,
+    *,
+    tenant_key: str,
+) -> str:
+    """
+    Get formatted company context for ES review.
+
+    Args:
+        company_id: Company identifier
+        es_content: ES content to find relevant context for
+        max_context_length: Maximum length of returned context
+
+    Returns:
+        Formatted context string for LLM prompt
+    """
+    contexts = await search_company_context_by_type(
+        company_id,
+        es_content,
+        content_types=CONTENT_TYPES,
+        tenant_key=tenant_key,
+    )
+
+    if not contexts:
+        return ""
+
+    # Format context
+    context_parts = []
+    total_length = 0
+
+    for ctx in contexts:
+        metadata = ctx["metadata"]
+        if is_rag_chunk_quarantined(metadata):
+            continue
+        text = sanitize_rag_context(str(ctx["text"]))
+        if not text:
+            continue
+        chunk_type = metadata.get("chunk_type", "general")
+
+        # Add type label
+        type_labels = {
+            "deadline": "締切情報",
+            "recruitment_type": "募集区分",
+            "required_documents": "提出物",
+            "application_method": "応募方法",
+            "selection_process": "選考プロセス",
+            "general": "企業情報",
+        }
+        label = type_labels.get(chunk_type, "企業情報")
+
+        formatted = f"【{label}】\n{text}"
+
+        if total_length + len(formatted) > max_context_length:
+            break
+
+        context_parts.append(formatted)
+        total_length += len(formatted)
+
+    return "\n\n".join(context_parts)
+
+
+def has_company_rag(
+    company_id: str,
+    backends: Optional[list[EmbeddingBackend]] = None,
+    *,
+    tenant_key: str,
+) -> bool:
+    """
+    Check if company has RAG data stored.
+
+    Args:
+        company_id: Company identifier
+
+    Returns:
+        True if company has RAG data
+    """
+    try:
+        read_backends = backends or get_configured_backends()
+        for backend in read_backends:
+            for name in _collection_names_for_backend(backend):
+                collection = _get_collection(name)
+                results = collection.get(
+                    where=_company_where(company_id, tenant_key),
+                    limit=1,
+                )
+                if results["ids"]:
+                    return True
+        return False
+    except Exception:
+        return False
+
+
+def delete_company_rag(
+    company_id: str,
+    backends: Optional[list[EmbeddingBackend]] = None,
+    *,
+    tenant_key: str,
+) -> bool:
+    """
+    Delete company RAG data.
+
+    Args:
+        company_id: Company identifier
+
+    Returns:
+        True if successful
+    """
+    try:
+        read_backends = backends or get_configured_backends()
+        deleted_any = False
+        for backend in read_backends:
+            for name in _collection_names_for_backend(backend):
+                collection = _get_collection(name)
+                collection.delete(where=_company_where(company_id, tenant_key))
+                deleted_any = True
+        logger.info("RAG data deleted (company_id: %s...)", company_id[:8])
+        schedule_bm25_update(company_id, tenant_key=tenant_key)
+        return deleted_any
+    except Exception as e:
+        logger.error("delete_company_rag error: %s", e, exc_info=True)
+        return False
+
+
+# ============================================================
+# Enhanced RAG Functions (Full Text & Content Type Support)
+# ============================================================
+
+
+async def store_full_text_content(
+    company_id: str,
+    company_name: str,
+    raw_text: str,
+    source_url: str,
+    *,
+    tenant_key: str,
+    content_type: Optional[str] = None,
+    content_channel: Optional[str] = None,
+    backend: Optional[EmbeddingBackend] = None,
+    raw_format: str = "text",
+    source_kind: str = "corporate_public",
+    source_id: str | None = None,
+    consent_reference: str | None = None,
+) -> dict:
+    """
+    Store full text content from a web page in vector database.
+
+    This chunks the text and stores it alongside structured data.
+
+    Args:
+        company_id: Unique company identifier
+        company_name: Company name
+        raw_text: Raw content (text or HTML)
+        source_url: Source URL of the content
+        content_type: New content classification (optional)
+        content_channel: Legacy content channel (recruitment/corporate_ir/etc.)
+        raw_format: "text" or "html"
+
+    Returns:
+        dict with keys:
+            - "success" (bool): True if any chunks were stored
+            - "dominant_content_type" (str | None): Majority content_type from classified chunks
+            - "secondary_content_types" (list[str]): Observed secondary types across chunks
+    """
+    from app.utils.text_chunker import (
+        JapaneseTextChunker,
+        extract_sections_from_html,
+        chunk_sections_with_metadata,
+        chunk_html_content,
+    )
+
+    _fail = {"success": False, "dominant_content_type": None, "secondary_content_types": []}
+
+    if content_type and content_type not in CONTENT_TYPES:
+        logger.warning("Invalid content_type: %s", content_type)
+        return _fail
+
+    try:
+        raw_format = (raw_format or "text").lower()
+        if raw_format not in ("text", "html"):
+            raw_format = "text"
+        backend = _resolve_write_backend(backend)
+        if backend is None:
+            logger.error("No embedding backend available for store_full_text_content")
+            return _fail
+        source_metadata = validate_rag_source_metadata(
+            source_kind=source_kind,
+            tenant_key=tenant_key,
+            company_id=company_id,
+            source_id=source_id or _make_source_hash(source_url),
+            consent_reference=consent_reference,
+        )
+        effective_type = content_type or content_channel or "corporate_site"
+        chunk_size, chunk_overlap = get_chunk_settings(effective_type)
+
+        # Chunk the content (HTML-aware when possible)
+        chunks = []
+        if raw_format == "html":
+            sections = extract_sections_from_html(raw_text)
+            if sections:
+                chunks = chunk_sections_with_metadata(
+                    sections, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+                )
+            if not chunks:
+                chunks = chunk_html_content(
+                    raw_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+                )
+        else:
+            chunker = JapaneseTextChunker(
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            )
+            chunks = chunker.chunk_with_metadata(raw_text)
+
+        if not chunks:
+            logger.warning("No chunks generated (company_id: %s...)", company_id[:8])
+            return _fail
+
+        # Add content_type and timestamp to each chunk's metadata
+        now = datetime.utcnow().isoformat()
+        for chunk in chunks:
+            if "metadata" not in chunk or chunk["metadata"] is None:
+                chunk["metadata"] = {}
+            chunk["metadata"]["source_url"] = source_url
+            chunk["metadata"]["content_type"] = content_type
+            chunk["metadata"]["fetched_at"] = now
+            chunk["metadata"].update(source_metadata)
+
+        # Classify chunks (rule + LLM fallback)
+        classified = await classify_chunks(
+            chunks, source_channel=content_channel, fallback_type=content_type
+        )
+
+        secondary_content_types: set[str] = set()
+        for chunk in classified:
+            meta = chunk.get("metadata") or {}
+            risk = assess_rag_injection_risk(str(chunk.get("text") or ""))
+            meta["injection_risk_level"] = risk.level
+            meta["injection_risk_reasons"] = ",".join(risk.reasons[:5])
+            meta["quarantine"] = risk.quarantine
+            ct = meta.get("content_type") or content_type or "corporate_site"
+            meta["content_type"] = ct
+            for secondary in meta.get("secondary_content_types") or []:
+                if isinstance(secondary, str):
+                    secondary_content_types.add(secondary)
+
+        # Determine dominant content_type by chunk count (majority vote)
+        content_type_counts: dict[str, int] = {}
+        for chunk in classified:
+            meta = chunk.get("metadata") or {}
+            ct = meta.get("content_type") or content_type or "corporate_site"
+            content_type_counts[ct] = content_type_counts.get(ct, 0) + 1
+        dominant_content_type = (
+            max(content_type_counts, key=content_type_counts.get)
+            if content_type_counts
+            else None
+        )
+
+        success = await _store_content_by_source_url(
+            company_id=company_id,
+            company_name=company_name,
+            content_chunks=classified,
+            source_url=source_url,
+            backend=backend,
+            tenant_key=tenant_key,
+        )
+
+        if success:
+            schedule_bm25_update(company_id, tenant_key=tenant_key)
+            cache = get_rag_cache()
+            if cache:
+                await cache.invalidate_company(company_id, tenant_key=tenant_key)
+
+        return {
+            "success": success,
+            "dominant_content_type": dominant_content_type,
+            "secondary_content_types": sorted(secondary_content_types),
+        }
+
+    except Exception as e:
+        logger.error("store_full_text_content error: %s", e, exc_info=True)
+        return _fail
+
+
+async def _store_content_by_source_url(
+    company_id: str,
+    company_name: str,
+    content_chunks: list[dict],
+    source_url: str,
+    backend: EmbeddingBackend,
+    tenant_key: str,
+) -> bool:
+    """
+    Store content chunks for a single source URL.
+
+    New chunks are added first, then older chunks for the same company_id +
+    source_url are removed. This preserves the previous successful RAG data
+    when re-ingest fails midway.
+
+    Args:
+        company_id: Company identifier
+        company_name: Company name
+        content_chunks: List of content chunks
+        source_url: Source URL
+
+    Returns:
+        True if successful
+    """
+    ingest_session_id = _make_ingest_session_id()
+    try:
+        collection = get_company_collection(backend)
+
+        # Prepare documents
+        documents = []
+        contextual_documents = []
+        metadatas = []
+        ids = []
+        summarizer = MetadataDocumentSummarizer()
+
+        for idx, chunk in enumerate(content_chunks):
+            text = sanitize_rag_context(str(chunk.get("text", "")))
+            if not text or len(text.strip()) < 10:
+                continue
+
+            content_type = (
+                (chunk.get("metadata") or {}).get("content_type")
+                or "corporate_site"
+            )
+            doc_id = _make_source_document_id(
+                tenant_key=tenant_key,
+                company_id=company_id,
+                source_url=source_url,
+                content_type=content_type,
+                chunk_index=idx,
+                ingest_session_id=ingest_session_id,
+            )
+
+            metadata = {
+                "company_id": company_id,
+                "company_name": company_name,
+                "source_url": source_url,
+                "chunk_type": chunk.get("type", "full_text"),
+                "content_type": content_type,
+                "chunk_index": idx,
+                "ingest_session_id": ingest_session_id,
+                "embedding_provider": backend.provider,
+                "embedding_model": backend.model,
+            }
+            metadata["tenant_key"] = tenant_key
+
+            # Add any additional metadata from the chunk
+            if chunk.get("metadata"):
+                for key, value in chunk["metadata"].items():
+                    if isinstance(value, (str, int, float, bool)):
+                        metadata[key] = value
+
+            contextual_prefix = str(metadata.get("contextual_prefix") or "").strip()
+            if not contextual_prefix:
+                contextual_prefix = summarizer.summarize(text, meta=metadata)
+                metadata["contextual_prefix"] = contextual_prefix
+
+            documents.append(text)
+            contextual_documents.append(str(chunk.get("embedding_text") or f"{contextual_prefix}\n\n{text}").strip())
+            metadatas.append(metadata)
+            ids.append(doc_id)
+
+        if not documents:
+            ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
+            logger.warning(
+                "No valid chunks for %s (company_id: %s...)", ct_ja, company_id[:8]
+            )
+            return False
+
+        # Generate embeddings
+        embeddings = await generate_embeddings_batch(documents, backend=backend)
+
+        # Filter out failed embeddings
+        valid_items = [
+            (doc, contextual_doc, meta, doc_id, emb)
+            for doc, contextual_doc, meta, doc_id, emb in zip(
+                documents,
+                contextual_documents,
+                metadatas,
+                ids,
+                embeddings,
+            )
+            if emb is not None
+        ]
+
+        if not valid_items:
+            logger.error("Embedding generation failed (company_id: %s...)", company_id[:8])
+            return False
+
+        valid_docs, valid_contextual_docs, valid_metas, valid_ids, valid_embs = zip(*valid_items)
+
+        # Add to collection
+        collection.add(
+            documents=list(valid_docs),
+            metadatas=list(valid_metas),
+            ids=list(valid_ids),
+            embeddings=list(valid_embs),
+        )
+
+        if settings.contextual_retrieval_dual_write:
+            contextual_embeddings = await generate_embeddings_batch(list(valid_contextual_docs), backend=backend)
+            contextual_items = [
+                (doc, meta, doc_id, emb)
+                for doc, meta, doc_id, emb in zip(
+                    valid_contextual_docs,
+                    valid_metas,
+                    valid_ids,
+                    contextual_embeddings,
+                )
+                if emb is not None
+            ]
+            if contextual_items:
+                ctx_docs, ctx_metas, ctx_ids, ctx_embs = zip(*contextual_items)
+                get_company_contextual_collection(backend).add(
+                    documents=list(ctx_docs),
+                    metadatas=list(ctx_metas),
+                    ids=list(ctx_ids),
+                    embeddings=list(ctx_embs),
+                )
+
+        deleted_old = _delete_source_records_for_backends(
+            company_id=company_id,
+            source_url=source_url,
+            backend=backend,
+            current_ingest_session_id=ingest_session_id,
+            tenant_key=tenant_key,
+        )
+        logger.info(
+            "URL-level update complete: %d chunks stored / %d old chunks deleted (company_id: %s...)",
+            len(valid_docs),
+            deleted_old,
+            company_id[:8],
+        )
+
+        return True
+
+    except Exception as e:
+        try:
+            cleanup_deleted = _delete_current_ingest_session_records(
+                company_id=company_id,
+                source_url=source_url,
+                backend=backend,
+                ingest_session_id=ingest_session_id,
+                tenant_key=tenant_key,
+            )
+            if cleanup_deleted:
+                logger.warning(
+                    "Post-failure URL cleanup: %d chunks deleted (company_id: %s...)",
+                    cleanup_deleted,
+                    company_id[:8],
+                )
+        except Exception:
+            pass
+        logger.error("_store_content_by_source_url error: %s", e, exc_info=True)
+        return False
+
+
+async def search_company_context_by_type(
+    company_id: str,
+    query: str,
+    n_results: int = 5,
+    content_types: Optional[list[str]] = None,
+    backends: Optional[list[EmbeddingBackend]] = None,
+    include_embeddings: bool = False,
+    precomputed_query_embedding: Optional[list[float]] = None,
+    *,
+    tenant_key: str,
+) -> list[dict]:
+    """
+    Search for relevant company context with content type filtering.
+
+    Args:
+        company_id: Company identifier
+        query: Search query
+        n_results: Maximum results to return
+        content_types: List of content types to include (None = all)
+        include_embeddings: Include embeddings in results (for MMR)
+        precomputed_query_embedding: Pre-computed query embedding to avoid
+            duplicate API calls when the same query is embedded elsewhere.
+
+    Returns:
+        List of relevant context chunks with metadata
+    """
+    try:
+        search_backends = _resolve_read_backends(backends)
+        if not search_backends:
+            logger.warning("No embedding backend available for search")
+            return []
+
+        # Single wide query by company_id, then Python-side filter for both
+        # primary and secondary content types.  This avoids a redundant second
+        # ChromaDB round-trip that was previously needed for secondary types.
+        content_type_set = set(content_types) if content_types else set()
+        # Fetch 3x when filtering by type to ensure enough candidates survive
+        fetch_n = n_results * 3 if content_type_set else n_results
+        where_clause = _company_where(company_id, tenant_key)
+
+        all_contexts: list[dict] = []
+
+        def _parse_secondary_types(meta: dict) -> list[str]:
+            secondary = meta.get("secondary_content_types") or []
+            if isinstance(secondary, str):
+                return [s.strip() for s in secondary.split(",") if s.strip()]
+            return [s for s in secondary if isinstance(s, str)]
+
+        def _matches_type_filter(meta: dict) -> bool:
+            if not content_type_set:
+                return True
+            primary = meta.get("content_type") or meta.get("chunk_type") or ""
+            if primary in content_type_set:
+                return True
+            return any(s in content_type_set for s in _parse_secondary_types(meta))
+
+        def _build_context(doc, meta, distance, doc_id, embedding, backend_obj, coll_name):
+            return {
+                "text": doc,
+                "metadata": meta,
+                "distance": distance,
+                "id": doc_id,
+                "embedding": embedding,
+                "embedding_provider": backend_obj.provider,
+                "embedding_model": backend_obj.model,
+                "collection": coll_name,
+            }
+
+        for backend in search_backends:
+            if precomputed_query_embedding is not None:
+                query_embedding = precomputed_query_embedding
+            else:
+                query_embedding = await generate_embedding(query, backend=backend)
+            if query_embedding is None:
+                continue
+
+            for name in _collection_names_for_backend(backend):
+                collection = _get_collection(name)
+                include = ["documents", "metadatas", "distances"]
+                if include_embeddings:
+                    include.append("embeddings")
+
+                try:
+                    results = collection.query(
+                        query_embeddings=[query_embedding],
+                        where=where_clause,
+                        n_results=fetch_n,
+                        include=include,
+                    )
+                except Exception as e:
+                    logger.warning("Collection query failed: %s", e)
+                    continue
+
+                if results["documents"] and results["documents"][0]:
+                    for idx, doc in enumerate(results["documents"][0]):
+                        meta = results["metadatas"][0][idx] if results["metadatas"] else {}
+                        if not _matches_type_filter(meta):
+                            continue
+                        if is_rag_chunk_quarantined(meta):
+                            continue
+                        embedding = None
+                        if include_embeddings and results.get("embeddings"):
+                            try:
+                                embedding = results["embeddings"][0][idx]
+                            except Exception:
+                                embedding = None
+                        distance = results["distances"][0][idx] if results["distances"] else None
+                        doc_id = results["ids"][0][idx] if results["ids"] else None
+                        all_contexts.append(
+                            _build_context(doc, meta, distance, doc_id, embedding, backend, name)
+                        )
+
+        if not all_contexts:
+            return []
+
+        def distance_score(ctx: dict) -> float:
+            return (
+                ctx.get("distance") if ctx.get("distance") is not None else float("inf")
+            )
+
+        deduped: dict[tuple, dict] = {}
+        for ctx in all_contexts:
+            key = _context_dedupe_key(ctx)
+            existing = deduped.get(key)
+            if existing is None or distance_score(ctx) < distance_score(existing):
+                deduped[key] = ctx
+
+        ordered = sorted(deduped.values(), key=distance_score)
+        return ordered[:n_results]
+
+    except Exception as e:
+        logger.error("search_company_context_by_type error: %s", e, exc_info=True)
+        return []
+
+
+def get_company_rag_status(
+    company_id: str,
+    backends: Optional[list[EmbeddingBackend]] = None,
+    *,
+    tenant_key: str,
+) -> dict:
+    """
+    Get detailed RAG status for a company.
+
+    Args:
+        company_id: Company identifier
+
+    Returns:
+        Dict with RAG status details
+    """
+    try:
+        read_backends = backends or get_configured_backends()
+        counts = {key: 0 for key in CONTENT_TYPES}
+
+        last_updated = None
+        total_chunks = 0
+
+        for backend in read_backends:
+            for name in _collection_names_for_backend(backend):
+                collection = _get_collection(name)
+                results = collection.get(
+                    where=_company_where(company_id, tenant_key),
+                    include=["metadatas"],
+                )
+
+                ids = results.get("ids") or []
+                total_chunks += len(ids)
+
+                for meta in results.get("metadatas") or []:
+                    content_type = meta.get("content_type", "corporate_site")
+                    if content_type in counts:
+                        counts[content_type] += 1
+                    else:
+                        # Fallback to corporate_site for unknown types
+                        counts["corporate_site"] += 1
+
+                    secondary_types = meta.get("secondary_content_types") or []
+                    if isinstance(secondary_types, str):
+                        secondary_types = [s.strip() for s in secondary_types.split(",") if s.strip()]
+                    for secondary in secondary_types:
+                        if secondary in counts:
+                            counts[secondary] += 1
+
+                    fetched_at = meta.get("fetched_at")
+                    if fetched_at:
+                        if last_updated is None or fetched_at > last_updated:
+                            last_updated = fetched_at
+
+        if total_chunks == 0:
+            return {
+                "has_rag": False,
+                "total_chunks": 0,
+                "new_grad_recruitment_chunks": 0,
+                "midcareer_recruitment_chunks": 0,
+                "corporate_site_chunks": 0,
+                "ir_materials_chunks": 0,
+                "ceo_message_chunks": 0,
+                "employee_interviews_chunks": 0,
+                "press_release_chunks": 0,
+                "csr_sustainability_chunks": 0,
+                "midterm_plan_chunks": 0,
+                "last_updated": None,
+            }
+
+        return {
+            "has_rag": True,
+            "total_chunks": total_chunks,
+            "new_grad_recruitment_chunks": counts.get("new_grad_recruitment", 0),
+            "midcareer_recruitment_chunks": counts.get("midcareer_recruitment", 0),
+            "corporate_site_chunks": counts.get("corporate_site", 0),
+            "ir_materials_chunks": counts.get("ir_materials", 0),
+            "ceo_message_chunks": counts.get("ceo_message", 0),
+            "employee_interviews_chunks": counts.get("employee_interviews", 0),
+            "press_release_chunks": counts.get("press_release", 0),
+            "csr_sustainability_chunks": counts.get("csr_sustainability", 0),
+            "midterm_plan_chunks": counts.get("midterm_plan", 0),
+            "last_updated": last_updated,
+        }
+
+    except Exception as e:
+        logger.error("get_company_rag_status error: %s", e, exc_info=True)
+        return {
+            "has_rag": False,
+            "total_chunks": 0,
+            "new_grad_recruitment_chunks": 0,
+            "midcareer_recruitment_chunks": 0,
+            "corporate_site_chunks": 0,
+            "ir_materials_chunks": 0,
+            "ceo_message_chunks": 0,
+            "employee_interviews_chunks": 0,
+            "press_release_chunks": 0,
+            "csr_sustainability_chunks": 0,
+            "midterm_plan_chunks": 0,
+            "last_updated": None,
+        }
+
+
+def delete_company_rag_by_type(
+    company_id: str,
+    content_type: str,
+    backends: Optional[list[EmbeddingBackend]] = None,
+    *,
+    tenant_key: str,
+) -> bool:
+    """
+    Delete company RAG data for a specific content type.
+
+    Args:
+        company_id: Company identifier
+        content_type: Content type to delete
+
+    Returns:
+        True if successful
+    """
+    try:
+        read_backends = backends or get_configured_backends()
+        deleted_any = False
+        for backend in read_backends:
+            for name in _collection_names_for_backend(backend):
+                collection = _get_collection(name)
+                collection.delete(
+                    where=_company_where(
+                        company_id,
+                        tenant_key,
+                        {"content_type": content_type},
+                    )
+                )
+                deleted_any = True
+        ct_ja = CONTENT_TYPE_JA.get(content_type, content_type)
+        logger.info(
+            "RAG data deleted by type %s (company_id: %s...)", ct_ja, company_id[:8]
+        )
+        schedule_bm25_update(company_id, tenant_key=tenant_key)
+        return deleted_any
+    except Exception as e:
+        logger.error("delete_company_rag_by_type error: %s", e, exc_info=True)
+        return False
+
+
+def delete_company_rag_by_urls(
+    company_id: str,
+    source_urls: list[str],
+    backends: Optional[list[EmbeddingBackend]] = None,
+    *,
+    tenant_key: str,
+) -> dict[str, int]:
+    """
+    Delete company RAG data for specific source URLs.
+
+    Args:
+        company_id: Company identifier
+        source_urls: List of source URLs to delete
+
+    Returns:
+        Dict with:
+        - total_deleted: Total chunks deleted
+        - per_url: Dict mapping URL to deleted count
+    """
+    result = {"total_deleted": 0, "per_url": {}}
+
+    if not source_urls:
+        return result
+
+    try:
+        read_backends = backends or get_configured_backends()
+
+        for url in source_urls:
+            url_deleted = 0
+
+            for backend in read_backends:
+                for name in _collection_names_for_backend(backend):
+                    collection = _get_collection(name)
+
+                    # Get count before deletion
+                    existing = collection.get(
+                        where=_company_where(company_id, tenant_key, {"source_url": url}),
+                        include=[],
+                    )
+                    count_before = len(existing.get("ids") or [])
+
+                    if count_before > 0:
+                        # Delete chunks for this URL
+                        collection.delete(
+                            where=_company_where(
+                                company_id,
+                                tenant_key,
+                                {"source_url": url},
+                            )
+                        )
+                        url_deleted += count_before
+
+            result["per_url"][url] = url_deleted
+            result["total_deleted"] += url_deleted
+
+        logger.info(
+            "RAG data deleted by URL: %d chunks (company_id: %s...)",
+            result["total_deleted"],
+            company_id[:8],
+        )
+        schedule_bm25_update(company_id, tenant_key=tenant_key)
+        return result
+
+    except Exception as e:
+        logger.error("delete_company_rag_by_urls error: %s", e, exc_info=True)
+        return result
+
+
+# ============================================================
+# BM25 Index Integration
+# ============================================================
+
+
+def schedule_bm25_update(company_id: str, tenant_key: str) -> None:
+    """Schedule BM25 index update in the background (fire-and-forget).
+
+    If no event loop is running, falls back to synchronous update.
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(asyncio.to_thread(update_bm25_index, company_id, tenant_key))
+    except RuntimeError:
+        update_bm25_index(company_id, tenant_key)
+
+
+def update_bm25_index(company_id: str, tenant_key: str) -> bool:
+    """
+    Update BM25 index from ChromaDB data.
+
+    This rebuilds the BM25 index for a company using all documents
+    stored in ChromaDB.
+
+    Args:
+        company_id: Company identifier
+        tenant_key: Tenant key for data isolation
+
+    Returns:
+        True if successful
+    """
+    try:
+        from app.utils.bm25_store import (
+            get_or_create_index,
+            clear_index_cache,
+            BM25Index,
+        )
+    except Exception as e:
+        logger.warning("bm25s not configured, skipping BM25 update: %s", e)
+        return False
+
+    try:
+        read_backends = get_configured_backends()
+        documents: list[dict] = []
+
+        where = _company_where(company_id, tenant_key)
+
+        for backend in read_backends:
+            for name in _collection_names_for_backend(backend):
+                collection = _get_collection(name)
+                results = collection.get(
+                    where=where,
+                    include=[
+                        "documents",
+                        "metadatas",
+                    ],  # "ids" is always returned by ChromaDB
+                )
+
+                docs = results.get("documents") or []
+                metas = results.get("metadatas") or []
+                ids = results.get("ids") or []
+
+                for doc, meta, doc_id in zip(docs, metas, ids):
+                    if not doc:
+                        continue
+                    metadata = meta or {}
+                    documents.append({"id": doc_id, "text": doc, "metadata": metadata})
+
+        if not documents:
+            BM25Index.delete(company_id, tenant_key=tenant_key)
+            clear_index_cache(company_id, tenant_key=tenant_key)
+            logger.debug("BM25 index deleted for company_id: %s...", company_id[:8])
+            return False
+
+        # Deduplicate
+        deduped: dict[tuple, dict] = {}
+        for doc in documents:
+            key = _context_dedupe_key(
+                {"text": doc.get("text"), "metadata": doc.get("metadata")}
+            )
+            if key not in deduped:
+                deduped[key] = doc
+
+        index = get_or_create_index(company_id, tenant_key=tenant_key)
+        index.clear()
+        index.add_documents(list(deduped.values()))
+        index.save()
+        clear_index_cache(company_id, tenant_key=tenant_key)
+        logger.info(
+            "BM25 index updated for company_id: %s... (%d docs)", company_id[:8], len(deduped)
+        )
+        return True
+
+    except Exception as e:
+        logger.error("update_bm25_index error: %s", e, exc_info=True)
+        return False
+
+
+async def hybrid_search_company_context(
+    company_id: str,
+    query: str,
+    n_results: int = 10,
+    content_types: Optional[list[str]] = None,
+    semantic_weight: float = 0.6,
+    keyword_weight: float = 0.4,
+    backends: Optional[list[EmbeddingBackend]] = None,
+    *,
+    tenant_key: str,
+) -> list[dict]:
+    """
+    Perform hybrid search combining semantic and keyword search.
+
+    Args:
+        company_id: Company to search within
+        query: Search query (e.g., ES content)
+        n_results: Maximum number of results
+        content_types: Filter by content types
+        semantic_weight: Weight for semantic search (default 0.6)
+        keyword_weight: Weight for keyword search (default 0.4)
+
+    Returns:
+        List of context dicts with text, metadata, and scores
+    """
+    from app.rag.hybrid_search import hybrid_search
+
+    return await hybrid_search(
+        company_id=company_id,
+        query=query,
+        n_results=n_results,
+        content_types=content_types,
+        semantic_weight=semantic_weight,
+        keyword_weight=keyword_weight,
+        use_rrf=True,  # Use RRF for combining
+        backends=backends,
+        tenant_key=tenant_key,
+    )
+
+
+async def hybrid_search_company_context_enhanced(
+    company_id: str,
+    query: str,
+    n_results: int = 10,
+    content_types: Optional[list[str]] = None,
+    backends: Optional[list[EmbeddingBackend]] = None,
+    expand_queries: bool = True,
+    rerank: bool = True,
+    use_bm25: Optional[bool] = None,
+    profile_overrides: Optional[dict] = None,
+    content_type_boosts: Optional[dict[str, float]] = None,
+    priority_source_urls: Optional[list[str]] = None,
+    short_circuit: bool = True,
+    *,
+    tenant_key: str,
+) -> list[dict]:
+    """
+    Enhanced dense search with query expansion, HyDE, MMR, and cross-encoder reranking.
+    """
+    from app.rag.hybrid_search import (
+        dense_hybrid_search,
+        infer_retrieval_profile,
+        select_boost_profile,
+    )
+
+    profile = infer_retrieval_profile(query, base_fetch_k=settings.rag_fetch_k)
+    if profile_overrides:
+        profile.update(profile_overrides)
+    semantic_weight = float(profile.get("semantic_weight", settings.rag_semantic_weight))
+    keyword_weight = float(profile.get("keyword_weight", settings.rag_keyword_weight))
+    fetch_k = int(profile.get("fetch_k", settings.rag_fetch_k))
+    max_queries = min(
+        settings.rag_max_queries,
+        int(profile.get("max_queries", settings.rag_max_queries)),
+    )
+    max_total_queries = min(
+        settings.rag_max_total_queries,
+        int(profile.get("max_total_queries", settings.rag_max_total_queries)),
+    )
+    rerank_threshold = float(
+        profile.get("rerank_threshold", settings.rag_rerank_threshold)
+    )
+    mmr_lambda = float(profile.get("mmr_lambda", settings.rag_mmr_lambda))
+    use_hyde = settings.rag_use_hyde and bool(profile.get("use_hyde", True))
+    effective_bm25 = settings.rag_keyword_weight > 0 if use_bm25 is None else use_bm25
+
+    return await dense_hybrid_search(
+        company_id=company_id,
+        query=query,
+        n_results=n_results,
+        content_types=content_types,
+        backends=backends,
+        expand_queries=expand_queries,
+        use_hyde=use_hyde,
+        rerank=rerank,
+        use_mmr=settings.rag_use_mmr,
+        semantic_weight=semantic_weight,
+        keyword_weight=keyword_weight,
+        rerank_threshold=rerank_threshold,
+        fetch_k=fetch_k,
+        max_queries=max_queries,
+        max_total_queries=max_total_queries,
+        mmr_lambda=mmr_lambda,
+        content_type_boosts=content_type_boosts or select_boost_profile(query),
+        priority_source_urls=priority_source_urls,
+        use_bm25=effective_bm25,
+        short_circuit=short_circuit,
+        tenant_key=tenant_key,
+    )
+
+
+async def get_enhanced_context_for_review(
+    company_id: str,
+    es_content: str,
+    max_context_length: Optional[int] = None,
+    search_options: Optional[dict] = None,
+    *,
+    tenant_key: str,
+) -> str:
+    """
+    Get enhanced context for ES review using hybrid search.
+
+    This provides richer context by:
+    1. Using dense-only search with query expansion and HyDE
+    2. Applying MMR for diversity and cross-encoder reranking
+    3. Including both structured data and full text content
+    4. Organizing context by content type
+
+    Args:
+        company_id: Company identifier
+        es_content: ES content to find relevant context for
+        max_context_length: Maximum context length
+
+    Returns:
+        Formatted context string for LLM prompt
+    """
+    from app.rag.hybrid_search import get_context_for_review_hybrid
+
+    if max_context_length is None:
+        max_context_length = get_dynamic_context_length(es_content)
+
+    cache = get_rag_cache()
+    cache_key = build_cache_key(
+        "enhanced_context",
+        company_id,
+        tenant_key,
+        es_content,
+        str(max_context_length),
+        _search_options_signature(search_options),
+    )
+    if cache:
+        cached = await cache.get_context(company_id, cache_key, tenant_key=tenant_key)
+        if isinstance(cached, dict) and isinstance(cached.get("context"), str):
+            return cached["context"]
+
+    # Get enhanced dense search results (multi-query + HyDE + rerank)
+    results = await hybrid_search_company_context_enhanced(
+        company_id=company_id,
+        query=es_content,
+        n_results=15,  # Get more for better coverage
+        content_types=None,  # Include all types
+        expand_queries=(search_options or {}).get(
+            "expand_queries", settings.rag_use_query_expansion
+        ),
+        rerank=(search_options or {}).get("rerank", settings.rag_use_rerank),
+        use_bm25=(search_options or {}).get("use_bm25"),
+        profile_overrides=(search_options or {}).get("profile_overrides"),
+        content_type_boosts=(search_options or {}).get("content_type_boosts"),
+        priority_source_urls=(search_options or {}).get("priority_source_urls"),
+        short_circuit=(search_options or {}).get("short_circuit", True),
+        tenant_key=tenant_key,
+    )
+
+    if not results:
+        # Fallback to original function
+        context = await get_company_context_for_review(
+            company_id=company_id,
+            es_content=es_content,
+            max_context_length=max_context_length,
+            tenant_key=tenant_key,
+        )
+        if cache:
+            await cache.set_context(
+                company_id,
+                cache_key,
+                {"context": context},
+                tenant_key=tenant_key,
+            )
+        return context
+
+    context = get_context_for_review_hybrid(results, max_context_length)
+    if cache:
+        await cache.set_context(
+            company_id,
+            cache_key,
+            {"context": context},
+            tenant_key=tenant_key,
+        )
+    return context
+
+
+async def get_enhanced_context_for_review_with_sources(
+    company_id: str,
+    es_content: str,
+    max_context_length: Optional[int] = None,
+    search_options: Optional[dict] = None,
+    *,
+    tenant_key: str,
+) -> tuple[str, list[dict]]:
+    """
+    Get enhanced context for ES review using dense search, with source tracking.
+
+    This provides richer context by:
+    1. Using dense-only search with query expansion and HyDE
+    2. Applying MMR for diversity and cross-encoder reranking
+    3. Including both structured data and full text content
+    4. Organizing context by content type
+    5. Returning source URLs for attribution
+
+    Args:
+        company_id: Company identifier
+        es_content: ES content to find relevant context for
+        max_context_length: Maximum context length
+
+    Returns:
+        Tuple of:
+        - context_text: Formatted context string for LLM prompt
+        - sources: List of source dicts with source_id, source_url, content_type, excerpt
+    """
+    from app.rag.hybrid_search import get_context_and_sources_for_review_hybrid
+
+    if max_context_length is None:
+        max_context_length = get_dynamic_context_length(es_content)
+
+    cache = get_rag_cache()
+    cache_key = build_cache_key(
+        "enhanced_context_sources",
+        company_id,
+        tenant_key,
+        es_content,
+        str(max_context_length),
+        _search_options_signature(search_options),
+    )
+    if cache:
+        cached = await cache.get_context(company_id, cache_key, tenant_key=tenant_key)
+        if (
+            isinstance(cached, dict)
+            and isinstance(cached.get("context"), str)
+            and isinstance(cached.get("sources"), list)
+        ):
+            return cached["context"], cached["sources"]
+
+    # Get enhanced dense search results (multi-query + HyDE + rerank)
+    results = await hybrid_search_company_context_enhanced(
+        company_id=company_id,
+        query=es_content,
+        n_results=15,  # Get more for better coverage
+        content_types=None,  # Include all types
+        expand_queries=(search_options or {}).get(
+            "expand_queries", settings.rag_use_query_expansion
+        ),
+        rerank=(search_options or {}).get("rerank", settings.rag_use_rerank),
+        use_bm25=(search_options or {}).get("use_bm25"),
+        profile_overrides=(search_options or {}).get("profile_overrides"),
+        content_type_boosts=(search_options or {}).get("content_type_boosts"),
+        short_circuit=(search_options or {}).get("short_circuit", True),
+        tenant_key=tenant_key,
+    )
+
+    if not results:
+        # Fallback: return empty sources
+        context = await get_company_context_for_review(
+            company_id=company_id,
+            es_content=es_content,
+            max_context_length=max_context_length,
+            tenant_key=tenant_key,
+        )
+        if cache:
+            await cache.set_context(
+                company_id,
+                cache_key,
+                {"context": context, "sources": []},
+                tenant_key=tenant_key,
+            )
+        return context, []
+
+    context, sources = get_context_and_sources_for_review_hybrid(
+        results, max_context_length
+    )
+    if cache:
+        await cache.set_context(
+            company_id,
+            cache_key,
+            {"context": context, "sources": sources},
+            tenant_key=tenant_key,
+        )
+    return context, sources
+
+
+def _clean_direct_context_text(text: str) -> str:
+    return " ".join((text or "").replace("\u3000", " ").split())
+
+
+async def get_context_for_source_urls_with_sources(
+    company_id: str,
+    source_urls: list[str],
+    max_context_length: Optional[int] = None,
+    max_chunks_per_url: int = 3,
+    *,
+    tenant_key: str,
+) -> tuple[str, list[dict]]:
+    """Fetch current-run context directly from specific source URLs without search."""
+    if not source_urls:
+        return "", []
+
+    if max_context_length is None:
+        max_context_length = 1200
+
+    ordered_urls = [url for url in source_urls if isinstance(url, str) and url.strip()]
+    if not ordered_urls:
+        return "", []
+
+    url_order = {url: index for index, url in enumerate(ordered_urls)}
+    deduped_chunks: dict[tuple, dict] = {}
+
+    for backend in get_configured_backends():
+        for url in ordered_urls:
+            for name in _collection_names_for_backend(backend):
+                collection = _get_collection(name)
+                results = collection.get(
+                    where=_company_where(company_id, tenant_key, {"source_url": url}),
+                    include=["documents", "metadatas"],
+                )
+                documents = results.get("documents") or []
+                metadatas = results.get("metadatas") or []
+                ids = results.get("ids") or []
+                for doc, metadata, doc_id in zip(documents, metadatas, ids):
+                    text = _clean_direct_context_text(str(doc or ""))
+                    if not text:
+                        continue
+                    meta = metadata or {}
+                    context = {
+                        "id": doc_id,
+                        "text": text,
+                        "metadata": meta,
+                    }
+                    dedupe_key = _context_dedupe_key(context)
+                    if dedupe_key not in deduped_chunks:
+                        deduped_chunks[dedupe_key] = context
+
+    if not deduped_chunks:
+        return "", []
+
+    sorted_chunks = sorted(
+        deduped_chunks.values(),
+        key=lambda item: (
+            url_order.get(str((item.get("metadata") or {}).get("source_url") or ""), len(url_order)),
+            int((item.get("metadata") or {}).get("chunk_index") or 0),
+        ),
+    )
+
+    per_url_counts: dict[str, int] = {}
+    selected_chunks: list[dict] = []
+    for chunk in sorted_chunks:
+        metadata = chunk.get("metadata") or {}
+        source_url = str(metadata.get("source_url") or "")
+        if not source_url:
+            continue
+        count = per_url_counts.get(source_url, 0)
+        if count >= max_chunks_per_url:
+            continue
+        per_url_counts[source_url] = count + 1
+        selected_chunks.append(chunk)
+
+    sources: list[dict] = []
+    seen_urls: set[str] = set()
+    for chunk in selected_chunks:
+        metadata = chunk.get("metadata") or {}
+        if is_rag_chunk_quarantined(metadata):
+            continue
+        source_url = str(metadata.get("source_url") or "")
+        if not source_url or source_url in seen_urls:
+            continue
+        seen_urls.add(source_url)
+        normalized_type = normalize_content_type(str(metadata.get("content_type") or "corporate_site"))
+        heading = _clean_direct_context_text(str(metadata.get("heading_path") or metadata.get("heading") or ""))
+        title = heading or content_type_label(normalized_type)
+        excerpt = chunk.get("text", "")[:150].strip()
+        try:
+            domain = urlparse(source_url).netloc.replace("www.", "")
+        except Exception:
+            domain = ""
+        sources.append(
+            {
+                "source_id": f"S{len(sources) + 1}",
+                "source_url": source_url,
+                "content_type": normalized_type,
+                "content_type_label": content_type_label(normalized_type),
+                "chunk_type": str(metadata.get("chunk_type") or "full_text"),
+                "title": title,
+                "domain": domain,
+                "excerpt": excerpt,
+            }
+        )
+
+    context_parts: list[str] = []
+    total_length = 0
+    for chunk in selected_chunks:
+        metadata = chunk.get("metadata") or {}
+        if is_rag_chunk_quarantined(metadata):
+            continue
+        source_url = str(metadata.get("source_url") or "")
+        normalized_type = normalize_content_type(str(metadata.get("content_type") or "corporate_site"))
+        heading = _clean_direct_context_text(str(metadata.get("heading_path") or metadata.get("heading") or ""))
+        text = sanitize_rag_context(str(chunk.get("text") or ""))
+        if not text:
+            continue
+        source_id = ""
+        for source in sources:
+            if source["source_url"] == source_url:
+                source_id = str(source["source_id"])
+                break
+        heading_line = f"見出し: {heading}\n" if heading else ""
+        formatted = f"【企業情報】（{content_type_label(normalized_type)}）[{source_id}]\n{heading_line}{text}".strip()
+        if total_length + len(formatted) > max_context_length:
+            remaining = max_context_length - total_length - 10
+            if remaining > 100:
+                context_parts.append(formatted[:remaining].rstrip() + "...")
+            break
+        context_parts.append(formatted)
+        total_length += len(formatted)
+
+    return "\n\n".join(context_parts).strip(), sources
