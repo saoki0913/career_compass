@@ -25,7 +25,8 @@ describe("LandingFooter source drift guard", () => {
   it("uses single couple character asset", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
     expect(source).toContain("footer/couple.png");
-    expect(source).toContain('height: "340px"');
+    expect(source).toContain('height: "260px"');
+    expect(source).toContain("bottom-[-58px]");
     expect(source).toContain('right: "max(24px, calc((100vw - 1500px) / 2 + 24px))"');
     expect(source).not.toContain("08_male_character.png");
     expect(source).not.toContain("09_female_character.png");
@@ -35,7 +36,9 @@ describe("LandingFooter source drift guard", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
     expect(source).toContain("footer/cityscape.png");
     expect(source).toContain("/marketing/logo/logo_text_clean.png");
-    expect(source).toContain("min-h-[430px]");
+    expect(source).toContain("min-h-[390px]");
+    expect(source).toContain('height: "190px"');
+    expect(source).toContain("opacity: 0.18");
     expect(source).not.toContain("footer/compass-icon-navy.png");
     expect(source).not.toContain("star-sparkle-1.png");
     expect(source).not.toContain("wave-corner.png");
@@ -57,5 +60,12 @@ describe("LandingFooter source drift guard", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
     expect(source).toContain("footer-legal-column");
     expect(source).toContain("特定商取引法に基づく表記");
+  });
+
+  it("uses wider page gutters and reserves less space for the illustration", () => {
+    const source = readSource("src/components/landing/LandingFooter.tsx");
+    expect(source).toContain("px-6 pb-6 pt-14 sm:px-10 lg:px-12 xl:px-14");
+    expect(source).toContain("padding-right: 300px");
+    expect(source).not.toContain("padding-right: 380px");
   });
 });

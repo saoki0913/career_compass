@@ -461,7 +461,7 @@
 
 ## 4. LP の現状
 
-最終更新: 2026-04-30（`sections/**` 正本化とトップLP Header 追加）
+最終更新: 2026-05-07（HowToカード内余白最小化、機能カード白背景、Before/After単色矢印）
 
 LP の詳細な構成・デザインシステム・ファイル一覧は [`docs/marketing/LP.md`](./LP.md) を参照。
 
@@ -475,16 +475,16 @@ LP の**ビジュアル正本**（ハイブリッド DESIGN、トークン、`--
 
 ## LP 構成
 
-現在の表示順は以下です（2026-04-27 `LP.png` 準拠刷新後）。
+現在の表示順は以下です（2026-05-07 `section_image` 準拠刷新後）。
 
 1. HeroSection — ロゴ、H1、CTA、信頼バッジ、PC/スマホモック
 2. PainPointsSection — 4つの悩みカード
 3. FeaturesSection — 作成/対策/管理フロー + 6機能カード
-4. BeforeAfterSection — Before / After 比較
-5. HowToUseSection — 4ステップ
+4. HowToUseSection — 4ステップ
+5. BeforeAfterSection — Before / After 比較
 6. PricingSection — Free / Standard / Pro 3カラム
 7. LPFAQSection — 2列 x 5行のFAQカード（10項目）
-8. LandingFooter — ブランド説明 + 4列リンクグリッド + 人物イラスト
+8. LandingFooter — ブランド説明 + 4列リンクグリッド + 下寄せの人物イラスト
 
 ## 現在のブランド表記
 
@@ -528,26 +528,28 @@ LP 上で明示・示唆されている対象像は以下です。
 
 ### 2. PainPointsSection
 
-- 4つの悩みを `sections/worries/card-*.png` の合成カードで提示
-- 装飾は `sections/worries/decoration-*.png`
+- 4つの悩みを `sections/worries/processed/image4_nobg.png`〜`image7_nobg.png` の人物カードで提示
+- 背景装飾はHTML/SVGで構成し、存在しない `decoration-*` 参照は使わない
 - セクション見出しは `こんな悩み、ありませんか？`
 
 ### 3. FeaturesSection
 
 - `作成` `対策` `管理` のフローをHTMLコンポーネントで表示
 - 6つの主要機能カードを `2 x 3` / desktop `3 x 2` で表示
+- フロー図カードと各機能カードの画像面は白背景にする
 - `LP.png` / `section_image` を本番DOMに描画せず、UIカード素材を部品として使う
 
 ### 4. BeforeAfterSection / HowToUseSection
 
-- Before / After の変化を中央矢印付きで提示
-- 4ステップの使い方は `HowToUseSection.tsx` 内の `STEPS` と `sections/how-to/step-*.png` で管理する
-- 参照LPの固定幅構図は `2xl` 以上でのみ適用し、tablet幅では2列/縦積みに落とす
+- Before / After の変化を `var(--lp-cta)` 単色の中央矢印付きで提示。バッジは小さめにし、After 側の人物とリストが被らないようにする
+- 4ステップの使い方は `HowToUseSection.tsx` 内の `steps` と `sections/how-to/processed/step-*-nobg.png` で管理する
+- 使い方カードは画像を大きく見せ、カード内部の本文・画像・補足ボックス間の余白をほぼなくす。未処理・生成元の HowTo 素材は再加工用に残し、本番DOMは `processed/step-*-nobg.png` のみを参照する
+- Before / After の固定幅ステージは `1360px` 以上だけで使い、それ未満は縦積みにして本文の縮小を避ける。Before / After 矢印は横版・縦版とも `BeforeAfterArrow` の SVG で統一する。HowTo の横向きカード間矢印は `xl` 以上だけ表示する
 
 ### 5. PricingSection
 
 - 見出し: `シンプルで始めやすい料金プラン`
-- trust pills で `無料プランあり` `30秒で簡単スタート` `あとから変更OK` を整理する
+- trust pills で `無料プランあり` `必要な分だけ使える` `あとから変更OK` を整理する
 - LP 上では `Standard` を主役にしつつ、`Free` と `Pro` も同じカードで並べる
 - 価格と機能は `src/lib/marketing/pricing-plans.ts` をSSOTとする。参照画像と差があってもコード上の課金SSOTを優先する
 - 年額プランや細かい比較は `/pricing` に寄せる
@@ -563,7 +565,8 @@ LP 上で明示・示唆されている対象像は以下です。
 - 見出し: `よくある質問`
 - 表示は2列 x 5行のFAQカード（10項目）。クリックで回答を開閉するアコーディオン
 - FAQ データは `src/lib/marketing/landing-faqs.ts` をSSOTとし、`FaqJsonLd` と共有する
-- カバーする論点は無料プラン、クレカ不要、ES添削、面接対策、企業/締切管理、Googleカレンダー連携
+- カバーする論点は無料プラン、有料変更時の支払い情報、成功時のみ消費、ES添削、面接対策、企業/締切管理、Googleカレンダー連携
+- 右側イラストはFAQグリッド右下に固定し、FAQカード側に右余白を確保して開閉で動かさない
 
 ### 7. LandingFooter
 
@@ -596,7 +599,8 @@ LP 上で明示・示唆されている対象像は以下です。
 - `周りに相談できる人がいなくても進められる`
 - `大学3年生・院1年生の就活準備`
 - `無料で始められる`
-- `クレジットカード不要`
+- `Freeプランあり`
+- `有料プランへ変更する場合は決済画面で支払い情報を入力`
 - `成功時のみ消費`
 - `無料の公開ページからも入れる`
 - `落ち着いた寒色とプロダクト画面で信頼感を作る`
@@ -674,16 +678,18 @@ LP 上で明示・示唆されている対象像は以下です。
 
 ## 5. ランディングメディア
 
-root LP の画像素材は `public/marketing/LP/sections/**` を正本とする。`public/marketing/LP/LP.png` と `public/marketing/LP/section_image/**` は視覚参照であり、本番DOMには描画しない。セクション別カテゴリと元素材の対応は [`asset-inventory.md`](./asset-inventory.md) を正本にする。
+root LP の画像素材は `public/marketing/LP/sections/**` を正本とする。`public/marketing/LP/LP.png` と `public/marketing/LP/section_image/**` は視覚参照であり、本番DOMには描画しない。セクション別カテゴリと元素材の対応は `docs/marketing/LP.md` と各 section test の asset existence gate を正本にする。
+
+root LP の主要ラッパーは `px-6 sm:px-10 lg:px-12 xl:px-14` を基本にし、Header は高さ 78px、Footer の人物イラストは小さめ・下寄せ配置を基準にする。
 
 ## 主要素材
 
 | 用途 | 主なファイル | 主な利用箇所 |
 |------|--------------|--------------|
 | Hero mockup | `sections/hero/product-mockup-pc-phone.png` | `HeroSection` |
-| 悩みカード | `sections/worries/card-*.png` | `PainPointsSection` |
+| 悩みカード | `sections/worries/processed/image4_nobg.png`〜`image7_nobg.png` | `PainPointsSection` |
 | 機能カードUI | `sections/features/card-*.png`, `sections/features/google-calendar-integration.png` | `FeaturesSection` |
-| 使い方ステップ | `sections/how-to/step-*.png` | `HowToUseSection` |
+| 使い方ステップ | `sections/how-to/processed/step-*-nobg.png` | `HowToUseSection` |
 | Before/After | `sections/before-after/*` | `BeforeAfterSection` |
 | 料金/FAQ/背景装飾 | `sections/pricing/*`, `sections/faq/*`, `sections/footer/*` | `PricingSection`, `LPFAQSection`, `LandingFooter` |
 

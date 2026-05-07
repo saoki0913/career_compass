@@ -52,7 +52,10 @@ describe("getMarketingDescription", () => {
   it("returns LP-specific copy for '/'", () => {
     const desc = getMarketingDescription("/");
     expect(desc).toContain("企業別AI模擬面接");
-    expect(desc).toContain("カード登録不要");
+    expect(desc).toContain("月0円のFreeプラン");
+    expect(desc).toContain("有料プランへ変更する場合は決済画面で支払い情報を入力します。");
+    expect(desc).not.toContain("カード登録不要");
+    expect(desc).not.toContain("クレカ登録不要");
     expect(desc).not.toBe(siteDescription);
   });
 

@@ -1,370 +1,177 @@
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Check, MonitorSmartphone, ShieldCheck, Sparkles } from "lucide-react";
 import { lpSectionAsset } from "@/lib/marketing/lp-assets";
+import { LpSparkleDecorations } from "@/components/landing/shared/LpSparkleDecorations";
 
 const trustBadges = [
-  {
-    icon: Sparkles,
-    text: "無料プランあり",
-  },
-  {
-    icon: MonitorSmartphone,
-    text: "スマホ・PC対応",
-  },
-  {
-    icon: ShieldCheck,
-    text: "安心のセキュリティ",
-  },
+  { icon: Sparkles, label: "無料プランあり" },
+  { icon: MonitorSmartphone, label: "スマホ・PC対応" },
+  { icon: ShieldCheck, label: "安心のセキュリティ" },
+] as const;
+
+const heroSparkles = [
+  { x: 8, y: 15, size: 14, opacity: 0.3, color: "#b9d8ff" },
+  { x: 22, y: 70, size: 10, opacity: 0.25, color: "#78b5ff", type: "dot" as const },
+  { x: 65, y: 8, size: 12, opacity: 0.35, color: "#d3e5ff" },
+  { x: 85, y: 55, size: 16, opacity: 0.25, color: "#b9d8ff" },
+  { x: 45, y: 88, size: 8, opacity: 0.3, color: "#78b5ff", type: "dot" as const },
 ] as const;
 
 export function HeroSection() {
   return (
     <section
+      data-section="hero"
       className="relative overflow-hidden bg-white"
       style={{
         fontFamily:
           "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
         fontFeatureSettings: '"palt"',
-        padding: "112px 0 80px",
+        padding: "90px 0 42px",
       }}
     >
-      {/* Scoped responsive + hover rules (keyframes in globals.css) */}
-      <style
-        dangerouslySetInnerHTML={{
-          __html: `
-.hero__grid{display:grid;grid-template-columns:1fr;gap:30px;align-items:center}
-@media(min-width:901px){.hero__grid{grid-template-columns:minmax(420px,500px) minmax(0,1fr)}}
-@media(min-width:901px) and (max-width:1100px){.hero__grid{grid-template-columns:minmax(360px,440px) 1fr;gap:16px}}
-@media(max-width:1100px){.hero__title-text{font-size:44px!important}}
-@media(max-width:640px){.hero__title-text{font-size:36px!important}}
-@media(max-width:900px){.hero__mockup-wrap{margin-right:0!important}}
-.hero__btn-primary:hover{transform:translateY(-2px);box-shadow:0 14px 28px rgba(38,128,255,0.45),inset 0 1px 0 rgba(255,255,255,0.25)!important}
-.hero__btn-ghost:hover{transform:translateY(-2px);background:#e8f1ff!important}
-.hero__btn-primary:hover .hero__arrow,.hero__btn-ghost:hover .hero__arrow{transform:translateX(4px)}
-.hero__arrow{transition:transform 0.2s ease}
-.hero__trust-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;max-width:500px}
-.hero__trust-pill{transition:transform 0.2s ease,box-shadow 0.2s ease}
-.hero__trust-pill:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(38,128,255,0.13)!important}
-.hero__trust-pill__label{white-space:nowrap}
-@media(max-width:640px){.hero__trust-grid{gap:5px}.hero__trust-pill{gap:5px!important;padding:7px 5px!important}.hero__trust-pill__icon{height:24px!important;width:24px!important}.hero__trust-pill__label{font-size:10px!important;line-height:1.1!important}.hero__trust-pill__check{display:none!important}}
-`,
-        }}
-      />
-
-      {/* ---- Background gradient blobs ---- */}
-      <div
-        className="pointer-events-none absolute"
-        aria-hidden="true"
-        style={{
-          top: -160,
-          right: -200,
-          width: 720,
-          height: 720,
-          borderRadius: "50%",
-          background: "rgba(106,169,255,0.18)",
-          filter: "blur(80px)",
-        }}
-      />
-      <div
-        className="pointer-events-none absolute"
-        aria-hidden="true"
-        style={{
-          top: 220,
-          left: -200,
-          width: 540,
-          height: 540,
-          borderRadius: "50%",
-          background: "rgba(38,128,255,0.10)",
-          filter: "blur(80px)",
-        }}
-      />
-
-      {/* ---- Decorative SVG squiggles + dots ---- */}
       <svg
         className="pointer-events-none absolute inset-0 h-full w-full"
-        viewBox="0 0 1440 800"
+        viewBox="0 0 1672 941"
         preserveAspectRatio="none"
         aria-hidden="true"
       >
         <path
-          d="M 50 320 C 120 290, 180 380, 240 340 S 360 290, 420 330"
-          stroke="#bcd4ff"
-          strokeWidth="2"
+          d="M960 128 C1070 42 1220 128 1350 74 C1448 34 1542 58 1630 18"
           fill="none"
-          strokeLinecap="round"
-          opacity="0.55"
+          stroke="#b9d8ff"
+          strokeDasharray="8 12"
+          strokeWidth="2"
         />
         <path
-          d="M 30 540 C 90 510, 150 590, 210 560 S 320 520, 380 550"
-          stroke="#bcd4ff"
-          strokeWidth="2"
+          d="M0 824 C215 735 315 890 528 800 C740 714 842 844 1010 794 C1230 728 1396 832 1672 724"
           fill="none"
-          strokeLinecap="round"
-          opacity="0.5"
+          stroke="#b9d8ff"
+          strokeWidth="2"
         />
         <path
-          d="M 850 90 C 940 60, 1020 130, 1110 100 S 1280 70, 1360 100"
-          stroke="#bcd4ff"
-          strokeWidth="2"
+          d="M0 886 C230 792 390 918 615 836 C820 760 1030 900 1235 824 C1420 754 1505 814 1672 762"
           fill="none"
-          strokeLinecap="round"
-          strokeDasharray="2 6"
-          opacity="0.7"
+          stroke="#d3e5ff"
+          strokeWidth="1.5"
         />
-        <path
-          d="M 60 720 C 150 700, 230 760, 320 740"
-          stroke="#bcd4ff"
-          strokeWidth="2"
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray="2 6"
-          opacity="0.55"
-        />
-        <circle cx="400" cy="120" r="3" fill="#bcd4ff" opacity="0.7" />
-        <circle cx="780" cy="60" r="3" fill="#bcd4ff" opacity="0.6" />
-        <circle cx="1180" cy="220" r="3" fill="#bcd4ff" opacity="0.6" />
-        <circle cx="1330" cy="380" r="3" fill="#bcd4ff" opacity="0.6" />
-        <circle cx="540" cy="700" r="3" fill="#bcd4ff" opacity="0.6" />
+        <circle cx="208" cy="828" r="14" fill="#78b5ff" />
+        <circle cx="560" cy="816" r="10" fill="#78b5ff" />
+        <circle cx="1412" cy="745" r="10" fill="#78b5ff" />
+        <circle cx="1480" cy="802" r="7" fill="#78b5ff" />
+        <circle cx="1458" cy="254" r="8" fill="#78b5ff" />
+        <circle cx="640" cy="650" r="180" fill="#eaf3ff" opacity="0.72" />
+        <circle cx="1508" cy="180" r="185" fill="#eaf3ff" opacity="0.86" />
       </svg>
 
-      {/* ---- Floating decorative icons ---- */}
+      <LpSparkleDecorations sparkles={heroSparkles} />
+
       <img
         src={lpSectionAsset("hero/icon-growth-chart.png")}
         alt=""
         role="presentation"
         className="pointer-events-none absolute hidden lg:block"
-        style={{
-          top: 30,
-          left: "56%",
-          width: 64,
-          animation: "lp-floaty 7s ease-in-out infinite",
-        }}
+        style={{ right: "34%", top: 138, width: 76, opacity: 0.72 }}
       />
       <img
         src={lpSectionAsset("hero/icon-star.png")}
         alt=""
         role="presentation"
         className="pointer-events-none absolute hidden lg:block"
-        style={{
-          top: 90,
-          left: "70%",
-          width: 56,
-          animation: "lp-floaty 6s ease-in-out infinite 1s",
-        }}
+        style={{ right: "16%", top: 154, width: 86, opacity: 0.72 }}
       />
       <img
         src={lpSectionAsset("hero/icon-document-check.png")}
         alt=""
         role="presentation"
         className="pointer-events-none absolute hidden lg:block"
-        style={{
-          top: 30,
-          left: "86%",
-          width: 70,
-          animation: "lp-floaty 8s ease-in-out infinite 0.5s",
-        }}
+        style={{ right: 62, top: 148, width: 92, opacity: 0.72 }}
       />
 
-      {/* ---- Main content ---- */}
-      <div
-        className="relative z-10 mx-auto max-w-[1200px] px-5 sm:px-8"
-        style={{ paddingTop: 30 }}
-      >
-        <div className="hero__grid">
-          {/* ---- Left column: copy + CTA ---- */}
-          <div className="text-center lg:text-left">
-            <h1
-              className="hero__title-text mx-auto lg:mx-0"
-              style={{
-                fontSize: 56,
-                fontWeight: 800,
-                lineHeight: 1.3,
-                letterSpacing: "-0.01em",
-                color: "var(--lp-navy)",
-                margin: "0 0 24px",
-              }}
-            >
-              {"就活の不安を、"}
-              <br />
+      <div className="relative z-10 mx-auto grid max-w-[1572px] items-center gap-6 px-6 sm:px-10 lg:grid-cols-[600px_minmax(0,1fr)] lg:px-12 xl:px-14">
+        <div className="pt-8 text-center lg:pt-14 lg:text-left">
+          <h1
+            className="mx-auto max-w-[600px] text-[40px] font-black leading-[1.22] sm:text-[54px] lg:mx-0 lg:text-[64px]"
+            style={{
+              color: "var(--lp-navy)",
+              letterSpacing: "0",
+            }}
+          >
+            就活の不安を、
+            <br />
+            <span className="relative inline-block" style={{ color: "var(--lp-cta)" }}>
+              AIで一つずつ
               <span
+                aria-hidden="true"
+                className="absolute left-0 right-0"
                 style={{
-                  color: "var(--lp-cta)",
-                  display: "inline-block",
-                  position: "relative",
+                  bottom: 4,
+                  height: 5,
+                  borderRadius: 999,
+                  background: "var(--lp-cta)",
+                  opacity: 0.9,
                 }}
-              >
-                AI
-                {/* Blue underline bar (pseudo-element equivalent) */}
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    bottom: 2,
-                    left: 0,
-                    width: "1.6em",
-                    height: 4,
-                    background: "#2680ff",
-                    borderRadius: 2,
-                  }}
-                />
-              </span>
-              {"で一つずつ解決。"}
-            </h1>
+              />
+            </span>
+            解決。
+          </h1>
 
-            <p
-              className="mx-auto lg:mx-0"
+          <p
+            className="mx-auto mt-6 max-w-[540px] text-[16px] font-medium leading-[1.85] lg:mx-0 lg:text-[18px]"
+            style={{ color: "var(--lp-navy)" }}
+          >
+            ES添削・志望動機作成・面接対策・締切管理まで。
+            <br className="hidden sm:block" />
+            就活に必要なすべてを、就活Passでひとつに。
+          </p>
+
+          <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row lg:justify-start">
+            <Link
+              href="/login"
+              className="group inline-flex min-h-[60px] w-full max-w-[248px] items-center justify-center gap-3 rounded-[12px] text-[17px] font-bold text-white transition-transform duration-200 hover:-translate-y-0.5 sm:w-[248px]"
               style={{
-                fontSize: 16,
-                lineHeight: 1.95,
-                color: "#4b5563",
-                margin: "0 0 36px",
-                fontWeight: 500,
-                maxWidth: 520,
+                background: "linear-gradient(180deg, #0c82ff 0%, #0069e6 100%)",
+                boxShadow: "0 14px 28px rgba(38,128,255,0.34)",
               }}
             >
-              ES添削・志望動機作成・面接対策・締切管理まで。
-              <br className="hidden sm:block" />
-              就活の主要な準備を、就活Passでひとつに。
-            </p>
-
-            {/* ---- CTA buttons ---- */}
-            <div
-              className="flex flex-col items-center gap-4 sm:flex-row lg:justify-start"
-              style={{ gap: 16, marginBottom: 44 }}
+              無料で始める
+              <ArrowRight className="h-6 w-6 transition-transform group-hover:translate-x-1" aria-hidden />
+            </Link>
+            <Link
+              href="#features"
+              className="group inline-flex min-h-[60px] w-full max-w-[248px] items-center justify-center gap-3 rounded-[12px] border-2 bg-white text-[17px] font-bold transition-transform duration-200 hover:-translate-y-0.5 sm:w-[248px]"
+              style={{ borderColor: "var(--lp-cta)", color: "var(--lp-cta)" }}
             >
-              {/* Primary CTA */}
-              <Link
-                href="/login"
-                className="hero__btn-primary inline-flex items-center justify-center transition-all duration-200 focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2"
-                style={{
-                  gap: 18,
-                  padding: "20px 28px 20px 36px",
-                  borderRadius: 12,
-                  fontSize: 18,
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  minWidth: 240,
-                  background:
-                    "linear-gradient(180deg, #3a91ff 0%, #1f78ec 100%)",
-                  color: "#fff",
-                  boxShadow:
-                    "0 10px 22px rgba(38,128,255,0.35), inset 0 1px 0 rgba(255,255,255,0.25)",
-                  outlineColor: "rgba(38,128,255,0.45)",
-                }}
-              >
-                <span>無料で始める</span>
-                <span
-                  className="hero__arrow flex items-center justify-center"
-                  aria-hidden="true"
-                >
-                  <ArrowRight className="h-5 w-5" strokeWidth={2.4} />
-                </span>
-              </Link>
-
-              {/* Ghost CTA */}
-              <Link
-                href="#features"
-                className="hero__btn-ghost inline-flex items-center justify-center transition-all duration-200 focus-visible:outline-none focus-visible:outline-2 focus-visible:outline-offset-2"
-                style={{
-                  gap: 18,
-                  padding: "20px 28px 20px 36px",
-                  borderRadius: 12,
-                  fontSize: 18,
-                  fontWeight: 700,
-                  letterSpacing: "0.04em",
-                  minWidth: 240,
-                  background: "#fff",
-                  color: "#2680ff",
-                  border: "2px solid #2680ff",
-                  boxShadow: "0 6px 14px rgba(38,128,255,0.12)",
-                  outlineColor: "rgba(38,128,255,0.45)",
-                }}
-              >
-                <span>機能を見る</span>
-                <span
-                  className="hero__arrow flex items-center justify-center"
-                  aria-hidden="true"
-                >
-                  <ArrowRight className="h-5 w-5" strokeWidth={2.4} />
-                </span>
-              </Link>
-            </div>
-
-            {/* ---- Trust badges ---- */}
-            <div
-              className="hero__trust-grid mx-auto lg:mx-0"
-            >
-              {trustBadges.map((badge) => {
-                const Icon = badge.icon;
-                return (
-                <span
-                  key={badge.text}
-                  className="hero__trust-pill inline-flex items-center"
-                  style={{
-                    gap: 8,
-                    minWidth: 0,
-                    minHeight: 38,
-                    padding: "4px 12px 4px 5px",
-                    borderRadius: 999,
-                    background: "#fff",
-                    border: "1px solid #dce9ff",
-                    boxShadow: "0 6px 16px rgba(38,128,255,0.07)",
-                  }}
-                >
-                  <span
-                    aria-hidden="true"
-                    className="hero__trust-pill__icon inline-flex shrink-0 items-center justify-center"
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 999,
-                      background: "linear-gradient(180deg, #4a98ff 0%, #2680ff 100%)",
-                      color: "#fff",
-                      boxShadow: "0 4px 10px rgba(38,128,255,0.22)",
-                    }}
-                  >
-                    <Icon className="h-[17px] w-[17px]" strokeWidth={2.2} />
-                  </span>
-                  <span
-                    className="hero__trust-pill__label"
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 800,
-                      color: "#1d2c4d",
-                      letterSpacing: "0.01em",
-                      lineHeight: 1.2,
-                      minWidth: 0,
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    {badge.text}
-                  </span>
-                  <Check className="hero__trust-pill__check h-3.5 w-3.5 shrink-0 text-[#2680ff]" strokeWidth={2.4} aria-hidden />
-                </span>
-                );
-              })}
-            </div>
+              機能を見る
+              <ArrowRight className="h-6 w-6 transition-transform group-hover:translate-x-1" aria-hidden />
+            </Link>
           </div>
 
-          {/* ---- Right column: mockup ---- */}
-          <div className="hero__mockup-wrap relative mx-auto w-full lg:mx-0" style={{ marginRight: -30 }}>
-            <Image
-              src={lpSectionAsset("hero/product-mockup-pc-phone.png")}
-              alt="就活PassのPCとスマートフォン画面"
-              width={1448}
-              height={1086}
-              className="h-auto w-full object-contain"
-              sizes="(max-width: 900px) 92vw, 720px"
-              preload
-              style={{
-                maxWidth: 720,
-                filter:
-                  "drop-shadow(0 20px 50px rgba(20,50,110,0.18))",
-                animation: "lp-hero-float 6s ease-in-out infinite",
-              }}
-            />
+          <div className="mt-9 grid max-w-[520px] grid-cols-3 gap-3">
+            {trustBadges.map(({ icon: Icon, label }) => (
+              <div key={label} className="hero__trust-pill flex min-h-[64px] flex-col items-center justify-center gap-1.5 rounded-full bg-white px-2 sm:min-h-[56px] sm:flex-row sm:gap-2 sm:px-3">
+                <span
+                  className="flex h-[34px] w-[34px] items-center justify-center rounded-full border sm:h-[42px] sm:w-[42px]"
+                  style={{ borderColor: "#d7e8ff", color: "var(--lp-cta)" }}
+                >
+                  <Icon className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden />
+                </span>
+                <span className="text-center text-[10px] font-bold leading-tight sm:text-[12px]" style={{ color: "var(--lp-navy)" }}>
+                  {label}
+                </span>
+                <Check className="hidden h-4 w-4 sm:block" style={{ color: "var(--lp-cta)" }} aria-hidden />
+              </div>
+            ))}
           </div>
+        </div>
+
+        <div className="relative min-h-[340px] sm:min-h-[440px] lg:min-h-[600px]">
+          <img
+            src={lpSectionAsset("hero/product-mockup-pc-phone.png")}
+            alt="就活Passのダッシュボード画面"
+            className="absolute bottom-0 left-1/2 w-[112%] max-w-[920px] -translate-x-1/2 object-contain lg:left-[45%] lg:w-[106%]"
+            loading="eager"
+            decoding="async"
+          />
         </div>
       </div>
     </section>

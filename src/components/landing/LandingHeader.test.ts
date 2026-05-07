@@ -30,7 +30,23 @@ describe("LandingHeader — design-system guard", () => {
   });
 
   it("logo is at least 40px", () => {
-    expect(SRC).toMatch(/height[=:]\s*(?:4[0-9]|5[0-6]|[6-9][0-9])/);
-    expect(SRC).toMatch(/className="[^"]*h-12/);
+    expect(SRC).toContain("height={84}");
+    expect(SRC).toMatch(/className="[^"]*h-10/);
+  });
+
+  it("uses compact header dimensions and aligned page gutters", () => {
+    expect(SRC).toContain("height: 78");
+    expect(SRC).toContain("top-[78px]");
+    expect(SRC).toContain("px-6 sm:px-10 lg:px-12 xl:px-14");
+    expect(SRC).toContain("h-10 w-36");
+    expect(SRC).toContain("sm:w-40");
+  });
+
+  it("keeps desktop navigation and CTA compact", () => {
+    expect(SRC).toContain("gap-7 md:flex");
+    expect(SRC).toContain("text-[15px]");
+    expect(SRC).toContain("px-5 py-2.5");
+    expect(SRC).not.toContain("gap-10");
+    expect(SRC).not.toContain("text-[18px]");
   });
 });

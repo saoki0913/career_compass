@@ -36,7 +36,8 @@ const FOOTER_COLUMNS = [
 export function LandingFooter() {
   return (
     <footer
-      className="relative min-h-[430px] overflow-hidden"
+      data-section="landing-footer"
+      className="relative min-h-[390px] overflow-hidden"
       style={{
         background: "var(--lp-footer-bg)",
         fontFamily: "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
@@ -46,12 +47,12 @@ export function LandingFooter() {
         src={lpSectionAsset("footer/cityscape.png")}
         alt=""
         role="presentation"
-        className="pointer-events-none absolute bottom-0 left-0 w-full select-none object-cover object-bottom opacity-[0.2]"
-        style={{ height: "210px", maxHeight: "none", objectPosition: "left bottom" }}
+        className="pointer-events-none absolute bottom-0 left-0 w-full select-none object-cover object-bottom"
+        style={{ height: "190px", maxHeight: "none", objectPosition: "left bottom", opacity: 0.18 }}
       />
 
 
-      <div className="footer-content relative z-10 mx-auto max-w-[1500px] px-5 pb-6 pt-14 sm:px-8">
+      <div className="footer-content relative z-10 mx-auto max-w-[1560px] px-6 pb-6 pt-14 sm:px-10 lg:px-12 xl:px-14">
         <div className="grid gap-12 xl:grid-cols-[330px_minmax(760px,1fr)] xl:items-start">
           <div>
             <div className="mb-7 flex items-center gap-4">
@@ -126,9 +127,9 @@ export function LandingFooter() {
         src={lpSectionAsset("footer/couple.png")}
         alt=""
         role="presentation"
-        className="pointer-events-none absolute bottom-[-18px] z-10 hidden select-none object-contain xl:block"
+        className="pointer-events-none absolute bottom-[-58px] z-10 hidden select-none object-contain xl:block"
         style={{
-          height: "340px",
+          height: "260px",
           right: "max(24px, calc((100vw - 1500px) / 2 + 24px))",
         }}
       />
@@ -138,7 +139,7 @@ export function LandingFooter() {
           __html: `
             @media (min-width: 1280px) {
               .footer-content {
-                padding-right: 380px;
+                padding-right: 300px;
               }
               .footer-nav-grid {
                 grid-template-columns: repeat(4, max-content);

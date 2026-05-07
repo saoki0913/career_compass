@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -22,17 +22,17 @@ describe("PainPointsSection design-system guard", () => {
   });
 
   it("renders full-image worry cards from the normalized sections folder", () => {
-    expect(source).toContain("card-es-writing.png");
-    expect(source).toContain("card-deadline-management.png");
-    expect(source).toContain("card-interview-anxiety.png");
-    expect(source).toContain("card-info-collection.png");
-  });
-
-  it("includes decorative deco assets", () => {
-    expect(source).toContain("decoration-dots-circle.png");
-    expect(source).toContain("decoration-swirl.png");
-    expect(source).toContain("decoration-bar-chart.png");
-    expect(source).toContain("decoration-star.png");
+    for (const file of [
+      "processed/image4_nobg.png",
+      "processed/image5_nobg.png",
+      "processed/image6_nobg.png",
+      "processed/image7_nobg.png",
+    ]) {
+      expect(source).toContain(file);
+      expect(existsSync(path.join(repoRoot, "public/marketing/LP/sections/worries", file))).toBe(true);
+    }
+    expect(source).not.toContain("card-es-writing.png");
+    expect(source).not.toContain("decoration-dots-circle.png");
   });
 
   it("uses Noto Sans JP without Inter for font family", () => {
@@ -40,18 +40,18 @@ describe("PainPointsSection design-system guard", () => {
     expect(source).not.toContain("'Inter'");
   });
 
-  it("includes sr-only spans for accessibility", () => {
-    expect(source).toContain("sr-only");
-    expect(source).toContain("ESがうまく書けない — 何を書けばいいか分からず");
-    expect(source).toContain(
-      "締切や選考の管理が大変 — 企業ごとの予定がバラバラで",
-    );
-    expect(source).toContain(
-      "面接に自信が持てない — 何を聞かれるか分からず",
-    );
-    expect(source).toContain(
-      "情報収集に時間がかかる — 企業情報や応募状況を整理できず",
-    );
+  it("keeps image illustrations presentational and copy in HTML", () => {
+    expect(source).toContain('alt=""');
+    expect(source).toContain('role="presentation"');
+    expect(source).not.toContain("sr-only");
+    expect(source).toContain("ESがうまく書けない");
+    expect(source).toContain("何を書けばいいか分からず");
+    expect(source).toContain("締切や選考の管理が大変");
+    expect(source).toContain("企業ごとの予定がバラバラで");
+    expect(source).toContain("面接に自信が持てない");
+    expect(source).toContain("本番でうまく話せるか不安");
+    expect(source).toContain("情報収集に時間がかかる");
+    expect(source).toContain("企業情報や応募状況を整理できず");
   });
 
   it("uses plain img tags instead of next/image", () => {
@@ -61,24 +61,22 @@ describe("PainPointsSection design-system guard", () => {
   });
 
   it("has correct card styling from reference CSS", () => {
-    expect(source).toContain("borderRadius: 22");
-    expect(source).toContain("rgba(20,50,110,0.06)");
-    expect(source).toContain("#eaf0fa");
+    expect(source).toContain("rounded-2xl");
+    expect(source).toContain("rgba(20,50,110,0.14)");
+    expect(source).toContain("#e5f0ff");
     expect(source).toContain("transition");
   });
 
   it("has hover transform effect", () => {
-    expect(source).toContain("translateY(-6px)");
-    expect(source).toContain("rgba(20,50,110,0.12)");
+    expect(source).toContain("hover:-translate-y-1");
   });
 
   it("has 4-column grid layout", () => {
-    expect(source).toContain("repeat(4, 1fr)");
+    expect(source).toContain("xl:grid-cols-4");
   });
 
   it("has responsive breakpoint at 900px for 2-column grid", () => {
-    expect(source).toContain("max-width: 900px");
-    expect(source).toContain("repeat(2, 1fr)");
+    expect(source).toContain("md:grid-cols-2");
   });
 
   it("uses palt font feature settings", () => {
@@ -93,14 +91,12 @@ describe("PainPointsSection design-system guard", () => {
     expect(source).toContain('id="worries"');
   });
 
-  it("uses #f5f9ff background color from reference", () => {
-    expect(source).toContain("#f5f9ff");
+  it("uses #f7fbff background color from reference", () => {
+    expect(source).toContain("#f7fbff");
   });
 
-  it("includes sparkle SVG decorations in footer", () => {
-    expect(source).toContain("#6aa9ff");
-    expect(source).toContain('strokeWidth="2.2"');
-    expect(source).toContain('strokeLinecap="round"');
+  it("marks the section for Playwright section screenshots", () => {
+    expect(source).toContain('data-section="worries"');
   });
 
   it("does not use old character image assets", () => {
@@ -112,5 +108,9 @@ describe("PainPointsSection design-system guard", () => {
 
   it("does not use old icon assets", () => {
     expect(source).not.toContain("icons-line/");
+  });
+
+  it("includes sparkle decorations", () => {
+    expect(source).toContain("LpSparkleDecorations");
   });
 });
