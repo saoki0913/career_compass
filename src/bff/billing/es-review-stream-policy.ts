@@ -14,6 +14,7 @@ import {
   confirmReservation,
   cancelReservation,
 } from "@/lib/credits";
+import { logError } from "@/lib/logger";
 import type {
   BillingOutcome,
   BillingPolicy,
@@ -91,12 +92,20 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
   },
 
   async cancel(
-    _ctx: EsReviewStreamBillingContext,
+    ctx: EsReviewStreamBillingContext,
     reservationId: string | null,
+    reason: string,
   ): Promise<void> {
     if (!reservationId) {
       return;
     }
-    await cancelReservation(reservationId).catch(console.error);
+    await cancelReservation(reservationId).catch((error: unknown) => {
+      logError("es-review-reservation-cancel", error, {
+        reservationId,
+        documentId: ctx.documentId,
+        userId: ctx.userId,
+        reason,
+      });
+    });
   },
 };
