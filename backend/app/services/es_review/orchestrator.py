@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import re as _re
+from importlib import import_module
 from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
@@ -118,6 +119,10 @@ logger = get_logger(__name__)
 # Type aliases matching es_review.py
 ReviewJSONCaller = Callable[..., Awaitable[Any]]
 ReviewTextCaller = Callable[..., Awaitable[Any]]
+
+
+def _lazy_es_review():
+    return import_module("app.routers.es_review")
 
 
 def _get_default_grounding_level(template_type: str) -> str:
