@@ -57,7 +57,7 @@ export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
                 <Link
                   key={dl.id}
                   href={`/companies/${dl.companyId}`}
-                  className="group flex min-h-8 items-center gap-2.5 rounded-lg px-3 py-1.5 transition-colors hover:bg-muted/40"
+                  className="group flex min-h-11 items-center gap-2.5 rounded-lg px-3 py-1.5 transition-colors hover:bg-muted/40 lg:min-h-8"
                 >
                   <span className="w-10 shrink-0 text-center text-xs font-medium tabular-nums text-muted-foreground">
                     {due.getMonth() + 1}/{due.getDate()}
@@ -68,7 +68,7 @@ export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
                   </div>
                   <span
                     className={cn(
-                      "shrink-0 text-[11px]",
+                      "shrink-0 text-xs lg:text-[11px]",
                       isUrgent ? "font-medium text-destructive" : "text-muted-foreground",
                     )}
                   >

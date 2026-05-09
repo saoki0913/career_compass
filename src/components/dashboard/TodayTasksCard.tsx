@@ -81,7 +81,7 @@ function ItemRow({
   const canToggle = Boolean(onToggle);
 
   return (
-    <div className="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted/40">
+    <div className="group flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/40 lg:min-h-0 lg:py-2">
       <button
         type="button"
         onClick={(e) => {
@@ -92,14 +92,17 @@ function ItemRow({
         }}
         disabled={!canToggle}
         className={cn(
-          "h-[18px] w-[18px] shrink-0 rounded border transition-colors",
-          canToggle
-            ? "border-border hover:border-foreground/40 cursor-pointer"
-            : "border-border/60 cursor-default"
+          "flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center lg:min-h-0 lg:min-w-0",
+          canToggle ? "cursor-pointer" : "cursor-default"
         )}
         title={canToggle ? "完了にする" : undefined}
         aria-label={`${title}を完了にする`}
-      />
+      >
+        <span className={cn(
+          "h-[18px] w-[18px] rounded border transition-colors",
+          canToggle ? "border-border hover:border-foreground/40" : "border-border/60"
+        )} />
+      </button>
 
       <div className="min-w-0 flex-1">
         <Link
@@ -114,13 +117,13 @@ function ItemRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <span className="hidden text-[11px] text-muted-foreground sm:inline">
+        <span className="hidden text-xs text-muted-foreground sm:inline lg:text-[11px]">
           {TASK_TYPE_LABELS[type]}
         </span>
         {deadlineText && (
           <span
             className={cn(
-              "text-[11px]",
+              "text-xs lg:text-[11px]",
               urgent ? "font-medium text-destructive" : "text-muted-foreground"
             )}
           >
@@ -243,15 +246,17 @@ export function TodayTasksCard({
             {hasTodayTask && todayTask.task && (
               <>
                 <SectionHeader label="最優先" count={1} />
-                <div className="rounded-lg bg-muted/30 px-3 py-2.5">
+                <div className="rounded-lg bg-muted/30 px-3 py-3 lg:py-2.5">
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
                       onClick={() => void completeTodayTask()}
-                      className="h-[18px] w-[18px] shrink-0 rounded border border-border transition-colors hover:border-foreground/40"
+                      className="flex min-h-[44px] min-w-[44px] shrink-0 cursor-pointer items-center justify-center lg:min-h-0 lg:min-w-0"
                       title="完了にする"
                       aria-label={`${todayTask.task.title}を完了にする`}
-                    />
+                    >
+                      <span className="h-[18px] w-[18px] rounded border border-border transition-colors hover:border-foreground/40" />
+                    </button>
 
                     <div className="min-w-0 flex-1">
                       <Link
@@ -269,13 +274,13 @@ export function TodayTasksCard({
                     </div>
 
                     <div className="flex shrink-0 items-center gap-2">
-                      <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                      <span className="hidden text-xs text-muted-foreground sm:inline lg:text-[11px]">
                         {TASK_TYPE_LABELS[todayTask.task.type]}
                       </span>
                       {todayTaskDeadlineText && (
                         <span
                           className={cn(
-                            "text-[11px]",
+                            "text-xs lg:text-[11px]",
                             todayTaskUrgent ? "font-medium text-destructive" : "text-muted-foreground"
                           )}
                         >

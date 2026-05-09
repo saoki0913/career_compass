@@ -29,7 +29,7 @@ function MobileSidebarToggle() {
   return (
     <button
       type="button"
-      className="fixed top-3 left-3 z-20 flex h-9 w-9 items-center justify-center rounded-lg border border-border/40 bg-background/80 shadow-sm backdrop-blur-sm transition-colors hover:bg-muted lg:hidden"
+      className="fixed top-[max(0.75rem,env(safe-area-inset-top,0.75rem))] left-3 z-20 flex h-11 w-11 items-center justify-center rounded-lg border border-border/40 bg-background/80 shadow-sm backdrop-blur-sm transition-colors hover:bg-muted lg:hidden"
       onClick={() => setOpen(true)}
       aria-label="サイドバーを開く"
     >

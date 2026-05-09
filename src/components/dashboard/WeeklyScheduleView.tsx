@@ -180,13 +180,13 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
           <CardTitle className="text-lg">スケジュール・選考管理</CardTitle>
           {!isGuest && (
             isConnected ? (
-              <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+              <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-600 lg:text-[10px]">
                 <GoogleCalendarIcon className="h-3.5 w-3.5" />
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 連携中
               </span>
             ) : (
-              <Link href="/calendar" className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-primary transition-colors">
+              <Link href="/calendar" className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-primary transition-colors lg:text-[10px]">
                 <GoogleCalendarIcon className="h-3.5 w-3.5" />
                 カレンダー連携
               </Link>
@@ -195,18 +195,18 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
         </div>
         <CardAction className="w-full self-auto justify-self-auto sm:w-auto">
           <div className="flex items-center gap-1 sm:justify-end">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onPrevWeek}>
+            <Button variant="ghost" size="icon" className="h-9 w-9 lg:h-7 lg:w-7" onClick={onPrevWeek}>
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </Button>
             <Button
               variant={weekOffset === 0 ? "default" : "outline"}
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-9 px-2 text-xs lg:h-7"
               onClick={onToday}
             >
               今日
             </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onNextWeek}>
+            <Button variant="ghost" size="icon" className="h-9 w-9 lg:h-7 lg:w-7" onClick={onNextWeek}>
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </Button>
             <Button variant="outline" size="sm" className="hidden h-7 sm:inline-flex" asChild>

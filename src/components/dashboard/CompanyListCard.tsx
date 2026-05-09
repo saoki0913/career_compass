@@ -84,7 +84,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
           />
         ) : (
           <div className="h-full overflow-x-auto lg:overflow-hidden">
-            <div className="grid h-full min-w-[600px] grid-cols-5 gap-2 lg:min-w-0">
+            <div className="grid h-full min-w-[520px] grid-cols-5 gap-1.5 lg:min-w-0 lg:gap-2">
               {pipeline.columns.map((col) => {
                 const count = col.companies.length;
                 return (
@@ -117,12 +117,12 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
                           >
                             <CompanyFavicon urls={faviconUrls} name={company.name} />
                             <div className="min-w-0 flex-1">
-                              <p className="line-clamp-2 break-words text-xs font-medium leading-4" title={company.name}>
+                              <p className="line-clamp-2 break-words text-sm font-medium leading-4 lg:text-xs" title={company.name}>
                                 {company.name}
                               </p>
                               <span
                                 className={cn(
-                                  "text-[9px] font-medium rounded px-1 py-px",
+                                  "text-[10px] font-medium rounded px-1 py-px lg:text-[9px]",
                                   status.color,
                                 )}
                               >
@@ -135,7 +135,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
                       {col.companies.length > 3 && (
                         <Link
                           href="/companies"
-                          className="block text-center text-[10px] font-medium text-muted-foreground hover:text-primary transition-colors"
+                          className="block text-center text-xs font-medium text-muted-foreground hover:text-primary transition-colors lg:text-[10px]"
                         >
                           +{col.companies.length - 3}社
                         </Link>

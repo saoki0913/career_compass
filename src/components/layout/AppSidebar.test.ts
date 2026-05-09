@@ -35,6 +35,27 @@ describe("AppSidebar", () => {
     expect(source).toContain('!isCol && "w-full"');
   });
 
+  it("mobile nav items have h-11 touch target with lg:h-9 desktop override", async () => {
+    const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain('"h-11 px-3 lg:h-9"');
+  });
+
+  it("mobile sidebar close button has h-11 w-11 touch target", async () => {
+    const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain("h-11 w-11 items-center justify-center rounded-lg text-muted-foreground");
+  });
+
+  it("mobile sidebar uses w-56 on small screens with sm:w-64 breakpoint", async () => {
+    const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain("w-56");
+    expect(source).toContain("sm:w-64");
+  });
+
+  it("mobile sidebar has safe-area-inset-bottom padding", async () => {
+    const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain("pb-[env(safe-area-inset-bottom,0px)]");
+  });
+
   it("provides aria-label on collapsed nav items for accessibility", async () => {
     const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
     expect(source).toContain('aria-label={isCol ? item.label : undefined}');

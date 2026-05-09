@@ -277,7 +277,7 @@ export function AppSidebar() {
               <button
                 type="button"
                 onClick={isMobile ? () => setOpen(false) : collapse}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 aria-label={isMobile ? "サイドバーを閉じる" : "サイドバーを閉じる"}
               >
                 {isMobile ? <CloseIcon /> : <SidebarToggleIcon />}
@@ -314,7 +314,7 @@ export function AppSidebar() {
 
                 const itemClassName = cn(
                   "group relative flex items-center gap-3 rounded-lg transition-colors duration-150",
-                  isCol ? "h-9 w-9 justify-center mx-auto" : "h-9 px-3",
+                  isCol ? "h-9 w-9 justify-center mx-auto" : "h-11 px-3 lg:h-9",
                   active ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
                 );
@@ -385,7 +385,7 @@ export function AppSidebar() {
       {/* Mobile sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-sidebar shadow-xl transition-transform duration-200 ease-in-out lg:hidden",
+          "fixed inset-y-0 left-0 z-40 flex w-56 flex-col bg-sidebar pb-[env(safe-area-inset-bottom,0px)] shadow-xl transition-transform duration-200 ease-in-out sm:w-64 lg:hidden",
           isOpen ? "translate-x-0" : "-translate-x-full",
         )}
         aria-label="サイドバーナビゲーション"
