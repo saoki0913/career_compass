@@ -18,7 +18,7 @@
     "docs/plan/execution-order.md is updated last with the actual release-readiness result.",
     "Focused verification and git diff checks pass before commit."
   ],
-  "lastUpdated": "2026-05-09",
+  "lastUpdated": "2026-05-10",
   "tasks": [
     {
       "id": "MRR-001",
@@ -130,6 +130,22 @@
       "acceptanceCriteria": "Focused tests, static checks, dead-code check, and git diff checks pass or failures are documented with a blocking reason.",
       "updatedAt": "2026-05-09",
       "notes": "Focused tests, backend sanitizer/health tests, lint, security scan, and git diff --check completed. npx tsc --noEmit is blocked by existing unrelated dirty worktree errors in src/bff/billing/es-review-stream-policy.test.ts and src/lib/stripe/config.test.ts."
+    },
+    {
+      "id": "MRR-009",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Docs",
+      "task": "Align release monitoring docs to Sentry-first policy",
+      "evidence": [
+        "docs/ops/MONITORING_SETUP.md",
+        "docs/release/PRODUCTION.md",
+        "docs/release/EXTERNAL_SERVICES.md",
+        "docs/plan/execution-order.md"
+      ],
+      "acceptanceCriteria": "Docs make Sentry the primary release monitoring tool, remove comprehensive UptimeRobot setup as a release blocker, and keep UptimeRobot only as optional redundancy.",
+      "updatedAt": "2026-05-10",
+      "notes": "Docs aligned to the user-approved Sentry-first monitoring policy; UptimeRobot is optional redundancy only."
     }
   ]
 }
