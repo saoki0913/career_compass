@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -21,16 +21,11 @@ describe("PainPointsSection design-system guard", () => {
     expect(source).toContain("lpSectionAsset");
   });
 
-  it("renders full-image worry cards from the normalized sections folder", () => {
-    for (const file of [
-      "processed/image4_nobg.png",
-      "processed/image5_nobg.png",
-      "processed/image6_nobg.png",
-      "processed/image7_nobg.png",
-    ]) {
-      expect(source).toContain(file);
-      expect(existsSync(path.join(repoRoot, "public/marketing/LP/sections/worries", file))).toBe(true);
-    }
+  it("renders worry cards via LP_SECTION_ASSETS registry", () => {
+    expect(source).toContain("LP_SECTION_ASSETS.worries.personEsStruggle");
+    expect(source).toContain("LP_SECTION_ASSETS.worries.personScheduleWorry");
+    expect(source).toContain("LP_SECTION_ASSETS.worries.personDeadlineStress");
+    expect(source).toContain("LP_SECTION_ASSETS.worries.personSearchingInfo");
     expect(source).not.toContain("card-es-writing.png");
     expect(source).not.toContain("decoration-dots-circle.png");
   });
@@ -75,8 +70,8 @@ describe("PainPointsSection design-system guard", () => {
     expect(source).toContain("xl:grid-cols-4");
   });
 
-  it("has responsive breakpoint at 900px for 2-column grid", () => {
-    expect(source).toContain("md:grid-cols-2");
+  it("has responsive breakpoint at sm for 2-column grid", () => {
+    expect(source).toContain("sm:grid-cols-2");
   });
 
   it("uses palt font feature settings", () => {

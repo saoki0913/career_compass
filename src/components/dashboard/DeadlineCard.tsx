@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
+import { DASHBOARD_ASSETS } from "@/lib/assets/image-registry";
 import type { Deadline } from "@/hooks/useDeadlines";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +40,7 @@ export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
         {visible.length === 0 ? (
           <div className="flex h-full min-h-[120px] flex-col items-center justify-center px-4 py-2 text-center">
             <Image
-              src="/dashboard/assets/image_05.png"
+              src={DASHBOARD_ASSETS.emptyDeadline}
               alt=""
               width={1254}
               height={1254}

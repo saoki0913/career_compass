@@ -40,8 +40,8 @@ describe("LPFAQSection design-system guard", () => {
     expect(source).toContain("LANDING_PAGE_FAQS");
   });
 
-  it("uses new FAQ character image with absolute positioning", () => {
-    expect(source).toContain("faq/person-pc.png");
+  it("uses FAQ character image via LP_SECTION_ASSETS registry with absolute positioning", () => {
+    expect(source).toContain("LP_SECTION_ASSETS.faq.personPc");
     expect(source).toContain("xl:mr-[260px]");
     expect(source).toContain("w-[220px]");
     expect(source).not.toContain("xl:items-end");
@@ -79,10 +79,17 @@ describe("LPFAQSection design-system guard", () => {
     expect(source).not.toContain("curved-lines-dot.png");
   });
 
-  it("uses available FAQ decoration assets", () => {
-    expect(source).toContain("faq/01_dots_grid_large.png");
-    expect(source).toContain("faq/06_document_check.png");
-    expect(source).toContain("faq/08_curve_simple.png");
+  it("uses FAQ decoration assets via LP_SECTION_ASSETS registry", () => {
+    expect(source).toContain("LP_SECTION_ASSETS.faq.decoDotsGrid");
+    expect(source).toContain("LP_SECTION_ASSETS.faq.decoDocumentCheck");
+    expect(source).toContain("LP_SECTION_ASSETS.faq.decoCurve");
+  });
+
+  it("uses responsive section padding instead of inline padding", () => {
+    expect(source).toContain("py-10");
+    expect(source).toContain("lg:pt-[62px]");
+    expect(source).toContain("lg:pb-[54px]");
+    expect(source).not.toContain('padding: "62px 0 54px"');
   });
 
   it("marks the section for Playwright section screenshots", () => {

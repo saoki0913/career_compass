@@ -17,13 +17,13 @@ describe("FeaturesSection design-system guard", () => {
     expect(source).toContain("var(--lp-cta)");
   });
 
-  it("renders all six feature cards including Google Calendar", () => {
+  it("renders all six feature cards via LP_SECTION_ASSETS registry", () => {
     expect(source).toContain("Googleカレンダー連携");
-    expect(source).toContain("card-es-review.png");
-    expect(source).toContain("card-motivation-gakuchika.png");
-    expect(source).toContain("card-interview-prep.png");
-    expect(source).toContain("card-schedule-deadline.png");
-    expect(source).toContain("card-company-application-management.png");
+    expect(source).toContain("LP_SECTION_ASSETS.features.cardEsReview");
+    expect(source).toContain("LP_SECTION_ASSETS.features.cardMotivationGakuchika");
+    expect(source).toContain("LP_SECTION_ASSETS.features.cardInterviewPrep");
+    expect(source).toContain("LP_SECTION_ASSETS.features.cardScheduleDeadline");
+    expect(source).toContain("LP_SECTION_ASSETS.features.cardCompanyManagement");
   });
 
   it("uses the reference gradient background", () => {
@@ -55,8 +55,8 @@ describe("FeaturesSection design-system guard", () => {
     expect(source).not.toContain("shupass-v2/");
   });
 
-  it("uses lpSectionAsset helper for all images", () => {
-    expect(source).toContain('from "@/lib/marketing/lp-assets"');
+  it("uses lpSectionAsset helper from image-registry for all images", () => {
+    expect(source).toContain('from "@/lib/assets/image-registry"');
     const imgSrcMatches = source.match(/src=\{lpSectionAsset\(/g);
     expect(imgSrcMatches).not.toBeNull();
     expect(imgSrcMatches!.length).toBeGreaterThanOrEqual(1);
@@ -75,12 +75,17 @@ describe("FeaturesSection design-system guard", () => {
   });
 
   it("uses reference card visuals with stable aspect ratio", () => {
-    expect(source).toContain("h-[240px]");
-    expect(source).toContain("sm:h-[260px]");
+    expect(source).toContain("h-[180px]");
+    expect(source).toContain("sm:h-[240px]");
+    expect(source).toContain("lg:h-[260px]");
     expect(source).toContain("object-contain");
     expect(source).toContain("items-center justify-center bg-white p-3");
     expect(source).not.toContain("bg-[#f7fbff] p-3");
     expect(source).not.toContain("bg-white/80 px-5 py-6");
+  });
+
+  it("uses 2-column grid at sm breakpoint for feature cards", () => {
+    expect(source).toContain("sm:grid-cols-2");
   });
 
   it("uses responsive breakpoints for grid fallback", () => {

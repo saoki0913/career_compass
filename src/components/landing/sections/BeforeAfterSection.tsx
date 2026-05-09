@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { BarChart3, CheckCircle2, Clock3, FileCheck2, FileText, Smile, UserRoundCheck, Workflow } from "lucide-react";
-import { lpSectionAsset } from "@/lib/marketing/lp-assets";
+import { lpSectionAsset, LP_SECTION_ASSETS } from "@/lib/assets/image-registry";
 import { LpSparkleDecorations } from "@/components/landing/shared/LpSparkleDecorations";
 
 const STAGE_W = 1440;
@@ -57,7 +57,7 @@ function BeforeAfterArrow({ orientation }: { orientation: "horizontal" | "vertic
 
   if (isVertical) {
     return (
-      <span className="flex h-[118px] items-center justify-center" aria-hidden>
+      <span className="flex h-[80px] items-center justify-center sm:h-[118px]" aria-hidden>
         <svg width="92" height="118" viewBox="0 0 92 168" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <filter id="ba-arrow-shadow-vertical" x="0" y="0" width="92" height="168" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
@@ -97,9 +97,8 @@ export function BeforeAfterSection() {
     <section
       id="before-after"
       data-section="before-after"
-      className="relative overflow-hidden"
+      className="relative overflow-hidden py-10 sm:py-[52px] lg:pt-[62px] lg:pb-[54px]"
       style={{
-        padding: "62px 0 54px",
         background: "linear-gradient(180deg, #fff 0%, #f4f8ff 100%)",
         fontFamily:
           "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
@@ -135,7 +134,7 @@ export function BeforeAfterSection() {
                 <span className="absolute left-10 top-8 z-20 rounded-full px-3.5 py-1 text-[14px] font-black text-white" style={{ background: "#8a8f96" }}>
                   Before
                 </span>
-                <img src={lpSectionAsset("before-after/person-worried.png")} alt="" role="presentation" className="absolute bottom-[-10px] left-[-38px] z-10 h-[400px] w-auto" loading="eager" decoding="async" />
+                <img src={lpSectionAsset(LP_SECTION_ASSETS.beforeAfter.personWorried)} alt="" role="presentation" className="absolute bottom-[-10px] left-[-38px] z-10 h-[400px] w-auto" loading="eager" decoding="async" />
                 <div className="absolute right-7 top-16 z-20 w-[310px] rounded-[18px] bg-white/88 p-5">
                   {beforeItems.map(({ icon: Icon, text }) => (
                     <div key={text} className="flex min-h-[78px] items-center gap-4 border-b last:border-b-0" style={{ borderColor: "#dedede" }}>
@@ -161,7 +160,7 @@ export function BeforeAfterSection() {
                 <span className="absolute left-10 top-8 z-20 rounded-full px-3.5 py-1 text-[14px] font-black text-white" style={{ background: "var(--lp-cta)" }}>
                   After
                 </span>
-                <img src={lpSectionAsset("before-after/person-cheerful.png")} alt="" role="presentation" className="absolute bottom-[-20px] left-[-6px] z-10 h-[370px] w-auto opacity-95" loading="eager" decoding="async" />
+                <img src={lpSectionAsset(LP_SECTION_ASSETS.beforeAfter.personCheerful)} alt="" role="presentation" className="absolute bottom-[-20px] left-[-6px] z-10 h-[370px] w-auto opacity-95" loading="eager" decoding="async" />
                 <div className="absolute right-7 top-20 z-20 w-[330px] rounded-[18px] bg-white/90 p-5">
                   {afterItems.map(({ icon: Icon, text }) => (
                     <div key={text} className="flex min-h-[78px] items-center gap-4 border-b last:border-b-0" style={{ borderColor: "#b9d8ff" }}>
@@ -181,8 +180,8 @@ export function BeforeAfterSection() {
 
         <div className="mt-8 grid gap-6 min-[1360px]:hidden">
           {[
-            { label: "Before", tone: "#8a8f96", textColor: "#3a3f47", src: "before-after/person-worried.png", items: beforeItems },
-            { label: "After", tone: "var(--lp-cta)", textColor: "var(--lp-navy)", src: "before-after/person-cheerful.png", items: afterItems },
+            { label: "Before", tone: "#8a8f96", textColor: "#3a3f47", src: LP_SECTION_ASSETS.beforeAfter.personWorried, items: beforeItems },
+            { label: "After", tone: "var(--lp-cta)", textColor: "var(--lp-navy)", src: LP_SECTION_ASSETS.beforeAfter.personCheerful, items: afterItems },
           ].map((panel, index) => (
             <Fragment key={panel.label}>
               <article className="overflow-hidden rounded-[22px] border bg-white" style={{ borderColor: "#d8eaff" }}>
@@ -191,7 +190,7 @@ export function BeforeAfterSection() {
                     {panel.label}
                   </span>
                 </div>
-                <img src={lpSectionAsset(panel.src)} alt="" role="presentation" className="mx-auto mt-4 h-[280px] w-auto object-contain" loading="eager" decoding="async" />
+                <img src={lpSectionAsset(panel.src)} alt="" role="presentation" className="mx-auto mt-4 h-[200px] w-auto object-contain sm:h-[280px]" loading="lazy" decoding="async" />
                 <div className="px-6 pb-6">
                   {panel.items.map(({ icon: Icon, text }) => (
                     <div key={text} className="flex items-center gap-4 border-b py-4 last:border-b-0" style={{ borderColor: "#d8eaff" }}>

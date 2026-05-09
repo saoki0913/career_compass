@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DASHBOARD_ASSETS } from "@/lib/assets/image-registry";
 import { TASK_TYPE_LABELS, type Task, type TaskType, type TodayTask } from "@/hooks/useTasks";
 import { cn } from "@/lib/utils";
 import { Plus } from "lucide-react";
@@ -228,7 +229,7 @@ export function TodayTasksCard({
         {!hasAnyContent ? (
           <div className="flex h-full min-h-[160px] flex-col items-center justify-center px-4 py-3 text-center">
             <Image
-              src="/dashboard/assets/image_09.png"
+              src={DASHBOARD_ASSETS.emptyTodayTasks}
               alt=""
               width={1254}
               height={1254}

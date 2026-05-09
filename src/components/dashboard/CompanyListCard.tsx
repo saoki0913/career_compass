@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardAction } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/dashboard/EmptyState";
+import { DASHBOARD_ASSETS } from "@/lib/assets/image-registry";
 import { getCompanyLogoSources, getCompanyAvatarColor, groupCompaniesByPipeline } from "@/lib/dashboard-utils";
 import { getStatusConfig, type CompanyStatus } from "@/lib/constants/status";
 import type { Company } from "@/hooks/useCompanies";
@@ -75,13 +76,20 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
       </CardHeader>
       <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
         {pipeline.totalActive === 0 ? (
-          <EmptyState
-            icon={<Plus className="h-8 w-8 text-muted-foreground/60" />}
-            title="企業が未登録です"
-            description="企業を追加して、選考を管理しましょう"
-            action={{ label: "企業を追加", href: "/companies/new" }}
-            className="py-2"
-          />
+          <div className="flex h-full min-h-[160px] flex-col items-center justify-center px-4 py-2 text-center">
+            <Image
+              src={DASHBOARD_ASSETS.emptyCompanies}
+              alt=""
+              width={640}
+              height={640}
+              className="h-24 w-24 object-contain"
+            />
+            <p className="mt-1 text-sm font-semibold">企業が未登録です</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">企業を追加して、選考を管理しましょう</p>
+            <Button asChild className="mt-2" size="sm">
+              <Link href="/companies/new">企業を追加</Link>
+            </Button>
+          </div>
         ) : (
           <div className="h-full overflow-x-auto lg:overflow-hidden">
             <div className="grid h-full min-w-[520px] grid-cols-5 gap-1.5 lg:min-w-0 lg:gap-2">

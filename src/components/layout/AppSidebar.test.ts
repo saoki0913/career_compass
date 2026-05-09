@@ -68,4 +68,11 @@ describe("AppSidebar", () => {
     expect(source).toContain("TooltipContent");
     expect(source).toContain("{item.label}");
   });
+
+  it("uses LOGO_ASSETS from image registry for sidebar logo", async () => {
+    const source = await readFile(new URL("./AppSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain("LOGO_ASSETS");
+    expect(source).toContain("LOGO_ASSETS.textClean");
+    expect(source).not.toContain('src="/marketing/logo/logo_text_clean.png"');
+  });
 });

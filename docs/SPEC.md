@@ -288,7 +288,7 @@
 
 ### 7.2 表示要素
 - 画面構成は `DashboardPageClient` の 2 カラム product UI。左カラムに週間スケジュールと選考企業管理、右カラムに今日のタスクと独立した締切カードを配置する
-- ダッシュボードの空状態・補助イラストは `public/dashboard/assets/image_*.png` を使い、実データ（企業ロゴ、締切、タスク）は固定画像では置き換えない
+- ダッシュボードの空状態イラストは `src/lib/assets/image-registry.ts` の `DASHBOARD_ASSETS`（`empty-state-hourglass.png`, `empty-state-clipboard.png`）で管理し、実データ（企業ロゴ、締切、タスク）は固定画像では置き換えない
 - 今日の最重要1タスク（ワンタップで開始）
 - 通知欄（最大5件＋「他◯件」）
 - クレジット残高（残量・次回付与日。`DashboardHeader` は `/api/credits` 経由）

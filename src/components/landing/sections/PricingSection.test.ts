@@ -13,9 +13,9 @@ describe("PricingSection design-system guard", () => {
     "src/components/landing/sections/PricingSection.tsx",
   );
 
-  it("includes available decorative pricing illustrations for desktop", () => {
-    expect(source).toContain("pricing/image_01_nobg.png");
-    expect(source).toContain("pricing/image_09_nobg.png");
+  it("includes decorative pricing illustrations via LP_SECTION_ASSETS registry", () => {
+    expect(source).toContain("LP_SECTION_ASSETS.pricing.decoDotsCircle");
+    expect(source).toContain("LP_SECTION_ASSETS.pricing.decoCardFree");
   });
 
   it("uses lucide shield and check icons as HTML components", () => {
@@ -74,6 +74,12 @@ describe("PricingSection design-system guard", () => {
   it("uses enhanced card shadows for professional depth", () => {
     expect(source).toContain("rgba(38,128,255,0.22)");
     expect(source).toContain("rgba(20,50,110,0.13)");
+  });
+
+  it("uses responsive section padding instead of inline padding", () => {
+    expect(source).toContain("py-10");
+    expect(source).toContain("lg:py-16");
+    expect(source).not.toContain('padding: "62px 0 64px"');
   });
 
   it("marks the section for Playwright section screenshots", () => {

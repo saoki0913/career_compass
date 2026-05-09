@@ -9,6 +9,7 @@ import { Suspense, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
+import { LOGO_ASSETS } from "@/lib/assets/image-registry";
 import {
   Sparkles,
   Calendar,
@@ -49,7 +50,7 @@ function LoginFallback() {
     <main className="flex flex-col items-center justify-center">
       <div className="mb-8 flex items-center justify-center">
         <Image
-          src="/marketing/logo/logo_text_clean.png"
+          src={LOGO_ASSETS.textClean}
           alt="就活Pass"
           width={260}
           height={80}
@@ -94,7 +95,7 @@ function LoginPageContent() {
         className="mb-6 flex items-center justify-center"
       >
         <Image
-          src="/marketing/logo/logo_text_clean.png"
+          src={LOGO_ASSETS.textClean}
           alt="就活Pass"
           width={260}
           height={80}

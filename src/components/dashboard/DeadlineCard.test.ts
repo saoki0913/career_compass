@@ -47,11 +47,12 @@ describe("DeadlineCard", () => {
     expect(source).toContain("filter((deadline) => deadline.isConfirmed).slice(0, maxVisible)");
   });
 
-  it("uses dashboard asset illustration for empty deadlines", async () => {
+  it("uses dashboard asset illustration for empty deadlines via image registry", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./DeadlineCard.tsx", import.meta.url), "utf8");
     expect(source).toContain("next/image");
-    expect(source).toContain("/dashboard/assets/image_05.png");
+    expect(source).toContain("DASHBOARD_ASSETS");
+    expect(source).toContain("DASHBOARD_ASSETS.emptyDeadline");
     expect(source).toContain('data-testid="dashboard-deadline-card"');
   });
 

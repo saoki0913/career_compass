@@ -7,6 +7,8 @@ const SRC = fs.readFileSync(
   "utf-8"
 );
 
+// image-registry migration guard
+
 describe("LandingHeader — design-system guard", () => {
   it("renders nav links for features, how-it-works, pricing, faq", () => {
     expect(SRC).toContain("/#features");
@@ -27,6 +29,12 @@ describe("LandingHeader — design-system guard", () => {
 
   it("uses var(--lp-cta) for CTA buttons", () => {
     expect(SRC).toContain("var(--lp-cta)");
+  });
+
+  it("logo uses LOGO_ASSETS from image registry", () => {
+    expect(SRC).toContain("LOGO_ASSETS");
+    expect(SRC).toContain("LOGO_ASSETS.textClean");
+    expect(SRC).not.toContain('src="/marketing/logo/logo_text_clean.png"');
   });
 
   it("logo is at least 40px", () => {

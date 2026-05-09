@@ -55,10 +55,17 @@ describe("CompanyProgressCard", () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./CompanyListCard.tsx", import.meta.url), "utf8");
     expect(source).not.toContain("EMPTY_COLUMN_ILLUSTRATIONS");
-    expect(source).not.toContain("next/image");
     expect(source).toContain("COLUMN_DOT_COLORS");
     expect(source).toContain("col.companies.length === 0");
     expect(source).toContain("--");
+  });
+
+  it("uses DASHBOARD_ASSETS illustration for company-level empty state", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./CompanyListCard.tsx", import.meta.url), "utf8");
+    expect(source).toContain("DASHBOARD_ASSETS");
+    expect(source).toContain("DASHBOARD_ASSETS.emptyCompanies");
+    expect(source).toContain("next/image");
   });
 
   it("does not render inert column menu buttons", async () => {

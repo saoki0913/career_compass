@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, Check, MonitorSmartphone, ShieldCheck, Sparkles } from "lucide-react";
-import { lpSectionAsset } from "@/lib/marketing/lp-assets";
+import { lpSectionAsset, LP_SECTION_ASSETS } from "@/lib/assets/image-registry";
 import { LpSparkleDecorations } from "@/components/landing/shared/LpSparkleDecorations";
 
 const trustBadges = [
@@ -21,12 +21,11 @@ export function HeroSection() {
   return (
     <section
       data-section="hero"
-      className="relative overflow-hidden bg-white"
+      className="relative overflow-hidden bg-white pt-[72px] pb-8 sm:pt-[80px] sm:pb-10 lg:pt-[90px] lg:pb-[42px]"
       style={{
         fontFamily:
           "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
         fontFeatureSettings: '"palt"',
-        padding: "90px 0 42px",
       }}
     >
       <svg
@@ -66,21 +65,21 @@ export function HeroSection() {
       <LpSparkleDecorations sparkles={heroSparkles} />
 
       <img
-        src={lpSectionAsset("hero/icon-growth-chart.png")}
+        src={lpSectionAsset(LP_SECTION_ASSETS.hero.iconGrowthChart)}
         alt=""
         role="presentation"
         className="pointer-events-none absolute hidden lg:block"
         style={{ right: "34%", top: 138, width: 76, opacity: 0.72 }}
       />
       <img
-        src={lpSectionAsset("hero/icon-star.png")}
+        src={lpSectionAsset(LP_SECTION_ASSETS.hero.iconStar)}
         alt=""
         role="presentation"
         className="pointer-events-none absolute hidden lg:block"
         style={{ right: "16%", top: 154, width: 86, opacity: 0.72 }}
       />
       <img
-        src={lpSectionAsset("hero/icon-document-check.png")}
+        src={lpSectionAsset(LP_SECTION_ASSETS.hero.iconDocumentCheck)}
         alt=""
         role="presentation"
         className="pointer-events-none absolute hidden lg:block"
@@ -127,6 +126,7 @@ export function HeroSection() {
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row lg:justify-start">
             <Link
               href="/login"
+              data-hero-cta
               className="group inline-flex min-h-[60px] w-full max-w-[248px] items-center justify-center gap-3 rounded-[12px] text-[17px] font-bold text-white transition-transform duration-200 hover:-translate-y-0.5 sm:w-[248px]"
               style={{
                 background: "linear-gradient(180deg, #0c82ff 0%, #0069e6 100%)",
@@ -138,7 +138,7 @@ export function HeroSection() {
             </Link>
             <Link
               href="#features"
-              className="group inline-flex min-h-[60px] w-full max-w-[248px] items-center justify-center gap-3 rounded-[12px] border-2 bg-white text-[17px] font-bold transition-transform duration-200 hover:-translate-y-0.5 sm:w-[248px]"
+              className="group inline-flex min-h-0 w-full max-w-[248px] items-center justify-center gap-3 rounded-none border-0 bg-transparent py-2 text-[15px] font-bold transition-transform duration-200 hover:-translate-y-0.5 sm:min-h-[60px] sm:rounded-[12px] sm:border-2 sm:bg-white sm:py-0 sm:text-[17px] sm:w-[248px]"
               style={{ borderColor: "var(--lp-cta)", color: "var(--lp-cta)" }}
             >
               機能を見る
@@ -148,9 +148,9 @@ export function HeroSection() {
 
           <div className="mt-9 grid max-w-[520px] grid-cols-3 gap-3">
             {trustBadges.map(({ icon: Icon, label }) => (
-              <div key={label} className="hero__trust-pill flex min-h-[64px] flex-col items-center justify-center gap-1.5 rounded-full bg-white px-2 sm:min-h-[56px] sm:flex-row sm:gap-2 sm:px-3">
+              <div key={label} className="hero__trust-pill flex min-h-[52px] flex-col items-center justify-center gap-1.5 rounded-full bg-white px-2 sm:min-h-[56px] sm:flex-row sm:gap-2 sm:px-3">
                 <span
-                  className="flex h-[34px] w-[34px] items-center justify-center rounded-full border sm:h-[42px] sm:w-[42px]"
+                  className="flex h-7 w-7 items-center justify-center rounded-full border sm:h-[34px] sm:w-[34px] md:h-[42px] md:w-[42px]"
                   style={{ borderColor: "#d7e8ff", color: "var(--lp-cta)" }}
                 >
                   <Icon className="h-4 w-4 sm:h-5 sm:w-5" aria-hidden />
@@ -164,11 +164,11 @@ export function HeroSection() {
           </div>
         </div>
 
-        <div className="relative min-h-[340px] sm:min-h-[440px] lg:min-h-[600px]">
+        <div className="relative min-h-[260px] sm:min-h-[440px] lg:min-h-[600px]">
           <img
-            src={lpSectionAsset("hero/product-mockup-pc-phone.png")}
+            src={lpSectionAsset(LP_SECTION_ASSETS.hero.productMockup)}
             alt="就活Passのダッシュボード画面"
-            className="absolute bottom-0 left-1/2 w-[112%] max-w-[920px] -translate-x-1/2 object-contain lg:left-[45%] lg:w-[106%]"
+            className="absolute bottom-0 left-1/2 w-full max-w-[920px] -translate-x-1/2 object-contain sm:w-[112%] lg:left-[45%] lg:w-[106%]"
             loading="eager"
             decoding="async"
           />

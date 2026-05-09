@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { cn } from "@/lib/utils";
+import { LOGO_ASSETS } from "@/lib/assets/image-registry";
 import { useSidebar } from "@/components/layout/SidebarContext";
 import {
   Tooltip,
@@ -267,7 +268,7 @@ export function AppSidebar() {
                 aria-label="就活Pass - ホーム"
               >
                 <img
-                  src="/marketing/logo/logo_text_clean.png"
+                  src={LOGO_ASSETS.textClean}
                   alt="就活Pass"
                   width={112}
                   height={56}

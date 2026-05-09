@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, ShieldCheck, Star } from "lucide-react";
-import { lpSectionAsset } from "@/lib/marketing/lp-assets";
+import { lpSectionAsset, LP_SECTION_ASSETS } from "@/lib/assets/image-registry";
 import { getMarketingPricingPlans } from "@/lib/marketing/pricing-plans";
 import { LpSparkleDecorations } from "@/components/landing/shared/LpSparkleDecorations";
 
@@ -25,9 +25,8 @@ export function PricingSection() {
     <section
       id="pricing"
       data-section="pricing"
-      className="relative scroll-mt-[92px] overflow-hidden"
+      className="relative scroll-mt-[92px] overflow-hidden py-10 sm:py-[52px] lg:py-16"
       style={{
-        padding: "62px 0 64px",
         background: "linear-gradient(180deg, #f8fbff 0%, #eef5ff 100%)",
         fontFamily:
           "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
@@ -42,9 +41,9 @@ export function PricingSection() {
         <path d="M0 842 C260 930 360 832 520 886 C720 956 884 824 1090 890 C1300 956 1475 878 1672 820" fill="none" stroke="#d1e4ff" strokeWidth="1.5" />
       </svg>
 
-      <img src={lpSectionAsset("pricing/image_01_nobg.png")} alt="" role="presentation" className="pointer-events-none absolute left-[112px] top-[132px] hidden w-[120px] lg:block" />
-      <img src={lpSectionAsset("pricing/image_09_nobg.png")} alt="" role="presentation" className="pointer-events-none absolute right-[80px] top-[120px] hidden w-[150px] lg:block" />
-      <img src={lpSectionAsset("pricing/image_04_nobg.png")} alt="" role="presentation" className="pointer-events-none absolute left-[54px] top-[260px] hidden w-[48px] lg:block" />
+      <img src={lpSectionAsset(LP_SECTION_ASSETS.pricing.decoDotsCircle)} alt="" role="presentation" className="pointer-events-none absolute left-[112px] top-[132px] hidden w-[120px] lg:block" />
+      <img src={lpSectionAsset(LP_SECTION_ASSETS.pricing.decoCardFree)} alt="" role="presentation" className="pointer-events-none absolute right-[80px] top-[120px] hidden w-[150px] lg:block" />
+      <img src={lpSectionAsset(LP_SECTION_ASSETS.pricing.decoPlusMark)} alt="" role="presentation" className="pointer-events-none absolute left-[54px] top-[260px] hidden w-[48px] lg:block" />
 
       <LpSparkleDecorations sparkles={pricingSparkles} />
 

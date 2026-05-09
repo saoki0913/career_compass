@@ -35,14 +35,14 @@ describe("BeforeAfterSection design-system guard", () => {
     expect(source).not.toContain("lg:hidden");
   });
 
-  it("uses lpSectionAsset helper for all images", () => {
-    expect(source).toContain('from "@/lib/marketing/lp-assets"');
+  it("uses lpSectionAsset helper from image-registry", () => {
+    expect(source).toContain('from "@/lib/assets/image-registry"');
     expect(source).toContain("lpSectionAsset");
   });
 
-  it("uses new before-after character and mockup assets", () => {
-    expect(source).toContain("before-after/person-worried.png");
-    expect(source).toContain("before-after/person-cheerful.png");
+  it("uses before-after character assets via LP_SECTION_ASSETS registry", () => {
+    expect(source).toContain("LP_SECTION_ASSETS.beforeAfter.personWorried");
+    expect(source).toContain("LP_SECTION_ASSETS.beforeAfter.personCheerful");
     expect(source).not.toContain("before-after/product-mockup.png");
     expect(source).not.toContain("shupass-v2/ba/illust-worried");
     expect(source).not.toContain("shupass-v2/ba/illust-cheerful");
@@ -70,6 +70,23 @@ describe("BeforeAfterSection design-system guard", () => {
     expect(source).not.toContain("#d7efff");
     expect(source).not.toContain("linearGradient");
     expect(source).not.toContain("border-l-[16px]");
+  });
+
+  it("uses responsive vertical arrow height for mobile", () => {
+    expect(source).toContain("h-[80px]");
+    expect(source).toContain("sm:h-[118px]");
+  });
+
+  it("uses responsive mobile person image with compact height", () => {
+    expect(source).toContain("h-[200px]");
+    expect(source).toContain("sm:h-[280px]");
+  });
+
+  it("uses responsive section padding instead of inline padding", () => {
+    expect(source).toContain("py-10");
+    expect(source).toContain("lg:pt-[62px]");
+    expect(source).toContain("lg:pb-[54px]");
+    expect(source).not.toContain('padding: "62px 0 54px"');
   });
 
   it("includes sparkle decorations", () => {

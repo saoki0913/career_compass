@@ -22,9 +22,9 @@ describe("LandingFooter source drift guard", () => {
     expect(source).not.toMatch(/['"]Inter['"]/);
   });
 
-  it("uses single couple character asset", () => {
+  it("uses couple character asset via LP_SECTION_ASSETS registry", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
-    expect(source).toContain("footer/couple.png");
+    expect(source).toContain("LP_SECTION_ASSETS.footer.couple");
     expect(source).toContain('height: "260px"');
     expect(source).toContain("bottom-[-58px]");
     expect(source).toContain('right: "max(24px, calc((100vw - 1500px) / 2 + 24px))"');
@@ -32,10 +32,10 @@ describe("LandingFooter source drift guard", () => {
     expect(source).not.toContain("09_female_character.png");
   });
 
-  it("uses new cityscape and branding assets", () => {
+  it("uses cityscape and branding assets via registries", () => {
     const source = readSource("src/components/landing/LandingFooter.tsx");
-    expect(source).toContain("footer/cityscape.png");
-    expect(source).toContain("/marketing/logo/logo_text_clean.png");
+    expect(source).toContain("LP_SECTION_ASSETS.footer.cityscape");
+    expect(source).toContain("LOGO_ASSETS.textClean");
     expect(source).toContain("min-h-[390px]");
     expect(source).toContain('height: "190px"');
     expect(source).toContain("opacity: 0.18");

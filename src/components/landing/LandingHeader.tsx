@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LOGO_ASSETS } from "@/lib/assets/image-registry";
 
 const navLinks = [
   { label: "機能紹介", href: "/#features" },
@@ -64,7 +65,7 @@ export function LandingHeader() {
       >
         <Link href="/" className="flex items-center">
           <Image
-            src="/marketing/logo/logo_text_clean.png"
+            src={LOGO_ASSETS.textClean}
             alt="就活Pass"
             width={168}
             height={84}
