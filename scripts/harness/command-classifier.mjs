@@ -241,7 +241,7 @@ function classifyGit(tokens, actions) {
     actions.gitBranchCreate = true;
   }
   if (subcommand === "branch") {
-    const nonCreateFlags = new Set(["-d", "-D", "--delete", "-m", "-M", "--move", "-l", "--list", "-a", "--all", "-r", "--remotes"]);
+    const nonCreateFlags = new Set(["-d", "-D", "--delete", "-m", "-M", "--move", "-l", "--list", "-a", "--all", "-r", "--remotes", "-v", "--verbose"]);
     if (!rest.some((t) => nonCreateFlags.has(t)) && rest.some((t) => !t.startsWith("-"))) {
       actions.gitBranchCreate = true;
     }
