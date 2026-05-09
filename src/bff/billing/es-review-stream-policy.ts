@@ -6,7 +6,6 @@
  * - Logged-in users: credits are reserved up-front (subtracted from balance)
  *   via `reserveCredits`, confirmed via `confirmReservation` on successful
  *   completion, or refunded via `cancelReservation` on failure/cancel.
- * - Billing gate schema drift fails closed as a retryable 503 before AI execution.
  * - Credit cost is computed by the route before invoking `reserve`.
  */
 
@@ -14,7 +13,6 @@ import {
   reserveCredits,
   confirmReservation,
   cancelReservation,
-  isBillingGateUnavailableError,
 } from "@/lib/credits";
 import { logError } from "@/lib/logger";
 import type {
@@ -29,37 +27,6 @@ export interface EsReviewStreamBillingContext {
   guestId: string | null;
   documentId: string;
   creditCost: number;
-  requestId?: string;
-}
-
-function jsonErrorResponse(
-  status: number,
-  code: string,
-  userMessage: string,
-  action: string,
-  retryable: boolean,
-  requestId?: string,
-  extra?: Record<string, unknown>,
-): Response {
-  return new Response(
-    JSON.stringify({
-      error: {
-        code,
-        userMessage,
-        action,
-        retryable,
-        ...(extra ? { extra } : {}),
-      },
-      ...(requestId ? { requestId } : {}),
-    }),
-    {
-      status,
-      headers: {
-        "Content-Type": "application/json",
-        ...(requestId ? { "X-Request-Id": requestId } : {}),
-      },
-    },
-  );
 }
 
 export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> = {
@@ -91,68 +58,14 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
       };
     }
 
-    let reservation: Awaited<ReturnType<typeof reserveCredits>>;
-    try {
-      reservation = await reserveCredits(
-        ctx.userId,
-        creditCost,
-        "es_review",
-        ctx.documentId,
-        `ES添削: ${ctx.documentId}`,
-      );
-    } catch (error) {
-      if (!isBillingGateUnavailableError(error)) {
-        throw error;
-      }
-      logError("es-review-billing-gate-unavailable", error, {
-        documentId: ctx.documentId,
-        userId: ctx.userId,
-      });
-      return {
-        reservationId: null,
-        errorResponse: jsonErrorResponse(
-          503,
-          "BILLING_GATE_UNAVAILABLE",
-          "課金状態の確認に失敗しました。",
-          "時間をおいて再度お試しください。解消しない場合はサポートへお問い合わせください。",
-          true,
-          ctx.requestId,
-          { creditCost },
-        ),
-      };
-    }
+    const reservation = await reserveCredits(
+      ctx.userId,
+      creditCost,
+      "es_review",
+      ctx.documentId,
+      `ES添削: ${ctx.documentId}`,
+    );
     if (!reservation.success) {
-      if (reservation.errorCode === "BILLING_GATE_UNAVAILABLE") {
-        return {
-          reservationId: null,
-          errorResponse: jsonErrorResponse(
-            503,
-            "BILLING_GATE_UNAVAILABLE",
-            "課金状態の確認に失敗しました。",
-            "時間をおいて再度お試しください。解消しない場合はサポートへお問い合わせください。",
-            true,
-            ctx.requestId,
-            { creditCost },
-          ),
-        };
-      }
-      if (
-        reservation.errorCode === "BILLING_HOLD" ||
-        reservation.errorCode === "SUBSCRIPTION_BLOCKED"
-      ) {
-        return {
-          reservationId: null,
-          errorResponse: jsonErrorResponse(
-            402,
-            reservation.errorCode,
-            "お支払い状態の確認が必要です。",
-            "支払い状況を確認してから、もう一度お試しください。",
-            false,
-            ctx.requestId,
-            { creditCost },
-          ),
-        };
-      }
       return {
         reservationId: null,
         errorResponse: new Response(
@@ -186,15 +99,13 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
     if (!reservationId) {
       return;
     }
-    try {
-      await cancelReservation(reservationId);
-    } catch (error) {
+    await cancelReservation(reservationId).catch((error: unknown) => {
       logError("es-review-reservation-cancel", error, {
         reservationId,
         documentId: ctx.documentId,
         userId: ctx.userId,
         reason,
       });
-    }
+    });
   },
 };

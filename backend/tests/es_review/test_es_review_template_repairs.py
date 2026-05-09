@@ -1028,7 +1028,7 @@ def test_parse_issues_enriches_minimal_schema() -> None:
 def test_build_allowed_user_facts_uses_raw_gakuchika_material() -> None:
     request = ReviewRequest(
         content="課題を見つけ、改善案を出した経験がある。",
-        section_title="自己PRを教えてください。",
+        section_title="学生時代に力を入れたことを教えてください。",
         profile_context=ProfileContext(
             university="東京大学",
             faculty="工学部",
