@@ -135,3 +135,4 @@ quality/reports/
 docs/ops/agent-usage.log
 scripts/marketing_video/.venv/
 scripts/marketing_video/output/
+.release-worktrees/

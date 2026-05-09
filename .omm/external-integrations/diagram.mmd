@@ -1,16 +1,18 @@
 graph LR
-    better-auth-google["Better Auth And Google OAuth\nsrc/lib/auth/ + src/app/api/auth/"]
-    supabase-postgres-storage["Supabase Postgres And Storage\nsrc/lib/db/ + src/lib/storage/"]
-    stripe-billing["Stripe Billing\nsrc/lib/stripe/ + src/app/api/webhooks/stripe/"]
-    google-calendar["Google Calendar\nsrc/lib/calendar/ + src/app/api/calendar/"]
-    firecrawl-web["Web Scraping And Search\nbackend/app/utils/firecrawl.py + web_search.py"]
-    llm-runtime["LLM And Embedding Runtime\nbackend/app/utils/llm.py + embeddings.py"]
+    better-auth-google["Better Auth / Google OAuth\nsrc/lib/auth"]
+    stripe-billing["Stripe Billing\nsrc/lib/stripe, webhooks"]
+    google-calendar["Google Calendar\nsrc/lib/calendar, api/calendar"]
+    supabase-postgres-storage["Supabase Postgres / Storage\nDrizzle, storage adapters"]
+    llm-runtime["LLM Runtime\nbackend/app/utils/llm*, providers"]
+    firecrawl-web["Web / Search / Crawl\ncompany info, source compliance"]
+    next-api["Next API/BFF\nsrc/app/api, src/bff"]
+    fastapi-ai["FastAPI AI\nbackend/app"]
 
-    better-auth-google -->|"creates sessions and account links stored in"| supabase-postgres-storage
-    stripe-billing -->|"updates subscriptions and plan state in"| supabase-postgres-storage
-    google-calendar -->|"reads and writes synced calendar records in"| supabase-postgres-storage
-    firecrawl-web -->|"acquires source material for"| llm-runtime
-    llm-runtime -->|"persists RAG and generation metadata in"| supabase-postgres-storage
-
-    classDef external fill:#585b70,stroke:#585b70,color:#cdd6f4
-    class better-auth-google,supabase-postgres-storage,stripe-billing,google-calendar,firecrawl-web,llm-runtime external
+    next-api -->|auth session, guest migration| better-auth-google
+    next-api -->|checkout, portal, webhooks, plan state| stripe-billing
+    next-api -->|calendar settings and sync| google-calendar
+    next-api -->|transactional persistence| supabase-postgres-storage
+    next-api -->|public source validation and proxy| firecrawl-web
+    fastapi-ai -->|generation, embeddings, reranking| llm-runtime
+    fastapi-ai -->|crawl/search enrichment| firecrawl-web
+    fastapi-ai -->|RAG persistence backend| supabase-postgres-storage

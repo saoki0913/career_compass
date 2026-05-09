@@ -1,0 +1,15 @@
+graph LR
+    deadline-state["Deadline State\ndeadlines, tasks, approvals"]
+    billing-state["Billing State\ncredits, subscriptions, Stripe events"]
+    conversation-state["Conversation State\nmotivation, gakuchika, interview"]
+    rag-ingest-state["RAG Ingest State\ncorporateInfoUrls, PDF jobs, Chroma/BM25"]
+    ui-transient-state["UI Transient State\nmodals, streaming playback, optimistic messages"]
+    provider-state["Provider State\nStripe, Google, LLM, search/crawl"]
+
+    ui-transient-state -->|user action / optimistic update| conversation-state
+    ui-transient-state -->|manual approval and filters| deadline-state
+    conversation-state -->|success only consume or save draft| billing-state
+    provider-state -->|webhook / callback / external result| billing-state
+    provider-state -->|crawl/search/LLM result| rag-ingest-state
+    rag-ingest-state -->|available context for review| conversation-state
+    deadline-state -->|notifications and calendar side effects| provider-state

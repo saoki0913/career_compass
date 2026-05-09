@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { documents, documentVersions } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 async function verifyDocumentAccess(
@@ -135,9 +135,9 @@ export async function POST(
 
     if (allVersions.length > 5) {
       const toDelete = allVersions.slice(5);
-      for (const v of toDelete) {
-        await db.delete(documentVersions).where(eq(documentVersions.id, v.id));
-      }
+      await db.delete(documentVersions).where(
+        inArray(documentVersions.id, toDelete.map((v) => v.id))
+      );
     }
 
     return NextResponse.json({ version: newVersion[0] });

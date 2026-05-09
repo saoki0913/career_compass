@@ -39,6 +39,9 @@ case "$TOOL" in
     fi
 
     if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit'; then
+      if [ -f "$PROJECT_DIR/.claude/hooks/quality-gate-commit-check.sh" ]; then
+        run_hook "quality-gate-commit-check.sh"
+      fi
       run_hook "commit-codex-gate.sh"
     fi
 

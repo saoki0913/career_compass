@@ -25,6 +25,10 @@ class TemplateRequest(BaseModel):
     secondary_template_types: list[str] = Field(default_factory=list)
     classification_rationale: Optional[str] = None
     recommended_grounding_level: Optional[str] = None
+    is_compound: bool = False
+    compound_secondary_types: list[str] = Field(default_factory=list)
+    compound_variant: Optional[str] = None
+    compound_pattern_id: Optional[str] = None
 
 
 class TemplateVariant(BaseModel):
@@ -108,6 +112,8 @@ class ReviewMeta(BaseModel):
     reference_hint_count: int = 0
     reference_conditional_hints_applied: bool = False
     reference_profile_variance: Optional[str] = None
+    logic_patterns_used: bool = False
+    logic_patterns_confidence: Optional[str] = None
     company_grounding_policy: str = "assistive"
     effective_company_grounding_policy: str = "assistive"
     recommended_grounding_level: str = "none"
@@ -121,8 +127,12 @@ class ReviewMeta(BaseModel):
     selected_company_evidence_themes: list[str] = Field(default_factory=list)
     injection_risk: Optional[str] = None
     user_context_sources: list[str] = Field(default_factory=list)
-    hallucination_guard_mode: str = "strict"
+    hallucination_guard_mode: str = "advisory"
     rewrite_generation_mode: str = "normal"
+    repair_dispatch_count: int = 0
+    repair_dispatches: list[str] = Field(default_factory=list)
+    composite_retry_modes: list[str] = Field(default_factory=list)
+    final_acceptance_source: str = "rewrite"
     classification_confidence: str = "low"
     classification_secondary_candidates: list[str] = Field(default_factory=list)
     classification_rationale: Optional[str] = None
@@ -139,7 +149,15 @@ class ReviewMeta(BaseModel):
     rewrite_validation_user_hint: Optional[str] = None
     fallback_triggered: bool = False
     fallback_reason: Optional[str] = None
+    safe_rewrite_triggered: bool = False
+    safe_rewrite_reason: Optional[str] = None
     grounding_repair_applied: bool = False
+    is_compound: bool = False
+    compound_secondary_types: list[str] = Field(default_factory=list)
+    compound_variant: Optional[str] = None
+    compound_pattern_id: Optional[str] = None
+    deep_grounding_proper_noun_found: bool = False
+    deep_grounding_connection_found: bool = False
     length_profile_id: Optional[str] = None
     target_window_lower: Optional[int] = None
     target_window_upper: Optional[int] = None
@@ -152,6 +170,8 @@ class ReviewMeta(BaseModel):
     priority_source_match_count: int = 0
     ai_smell_tier: int = 0
     hallucination_tier: int = 0
+    validation_profile_name: str = "strict"
+    information_density: dict[str, Any] = Field(default_factory=dict)
     concrete_marker_count: int = 0
     opening_conclusion_chars: int = 0
     rewrite_sentence_count: int = 0
@@ -233,6 +253,7 @@ class ReviewContext:
     template_type: str
     template_request: Any  # TemplateRequest
     request: Any  # ReviewRequest
+    json_caller: Any
     text_caller: Any
     review_feature: str
     llm_provider: str
@@ -248,6 +269,7 @@ class ReviewContext:
     classification_hints: list[str] = field(default_factory=list)
     misclassification_recovery_applied: bool = False
     recommended_grounding_level: str = "none"
+    effective_template_ctx: Any = None
 
     # Grounding & Evidence
     company_grounding: str = "assistive"
@@ -277,6 +299,8 @@ class ReviewContext:
     reference_quality_block: str = ""
     reference_outline_used: bool = False
     reference_es_mode: str = "quality_profile_only"
+    logic_patterns_used: bool = False
+    logic_patterns_confidence: str | None = None
 
     # Misc
     generic_role_mode: bool = False
@@ -292,6 +316,8 @@ class ReviewContext:
     # Retrieval
     retrieval_profile_name: str | None = None
     priority_source_match_count: int = 0
+    validation_profile: Any = None
+    information_density: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -328,6 +354,11 @@ class RewriteLoopResult:
     executed_rewrite_attempts: int = 0
     retry_code: str = "generic"
     retry_failure_codes: list[str] = field(default_factory=list)
+    repair_dispatches: list[str] = field(default_factory=list)
+    composite_retry_modes: list[str] = field(default_factory=list)
+    composite_retry_attempted: bool = False
+    safe_rewrite_triggered: bool = False
+    safe_rewrite_reason: str | None = None
 
 
 @dataclass
@@ -343,6 +374,9 @@ class RecoveryResult:
     rewrite_validation_status: str = "strict_ok"
     rewrite_validation_codes: list[str] = field(default_factory=list)
     rewrite_validation_user_hint: str | None = None
+    repair_dispatches: list[str] = field(default_factory=list)
+    composite_retry_modes: list[str] = field(default_factory=list)
+    final_acceptance_source: str = "rewrite"
     accepted_attempt: int = 0
     accepted_length_policy: str = "strict"
     accepted_length_shortfall: int = 0

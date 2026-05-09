@@ -3,9 +3,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useOperationLock } from "@/hooks/useOperationLock";
-import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
-import { appendOptimisticUserMessage, rollbackOptimisticMessageById } from "@/hooks/conversation/optimistic-message";
-import { parseSSEStream } from "@/hooks/conversation/sse-stream-parser";
+import { useConversationRuntime } from "@/hooks/conversation";
 import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 import { notifyGakuchikaDraftGenerated, notifyGakuchikaInterviewReady } from "@/lib/notifications";
@@ -17,7 +15,6 @@ import {
   generateGakuchikaInterviewSummary,
   resumeGakuchikaConversation,
   startGakuchikaConversation,
-  streamGakuchikaConversation,
 } from "@/features/gakuchika/application/client-api";
 import {
   getDefaultConversationState,
@@ -29,17 +26,16 @@ import {
 } from "@/features/gakuchika/domain/conversation-state";
 import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
 import {
-  getProcessingPhase,
   normalizeGakuchikaMessages,
   PROCESSING_LABELS,
   parseGakuchikaCharLimitType,
   type AssistantProcessingPhase,
   type ConversationUpdate,
   type GakuchikaDraftCharLimit,
-  type PendingGakuchikaCompleteData,
   type Session,
   type Message,
 } from "@/features/gakuchika/domain/ui";
+import { createGakuchikaStreamAdapter } from "./gakuchika-stream-adapter";
 
 type GakuchikaSummary = ReturnType<typeof parseGakuchikaSummary>;
 
@@ -68,8 +64,6 @@ export function useGakuchikaConversationController({
   const [isCompleted, setIsCompleted] = useState(false);
   const [isInterviewReadyState, setIsInterviewReadyState] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSending, setIsSending] = useState(false);
-  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [answer, setAnswer] = useState("");
   const [isAIPowered, setIsAIPowered] = useState(true);
   const [conversationState, setConversationState] = useState<ConversationState | null>(null);
@@ -84,10 +78,6 @@ export function useGakuchikaConversationController({
   const [summaryRequested, setSummaryRequested] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [assistantPhase, setAssistantPhase] = useState<AssistantProcessingPhase>("idle");
-  const [streamingTargetText, setStreamingTargetText] = useState("");
-  const [isTextStreaming, setIsTextStreaming] = useState(false);
-  const [streamingSessionId, setStreamingSessionId] = useState(0);
-  const [pendingCompleteData, setPendingCompleteData] = useState<PendingGakuchikaCompleteData | null>(null);
   const [isBufferingQuestionChunks, setIsBufferingQuestionChunks] = useState(false);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
@@ -97,11 +87,6 @@ export function useGakuchikaConversationController({
   const [generatedDraftText, setGeneratedDraftText] = useState<string | null>(null);
   const [generatedDocumentId, setGeneratedDocumentId] = useState<string | null>(null);
   const [generatedDraftQuality, setGeneratedDraftQuality] = useState<GakuchikaDraftQuality>(null);
-
-  const { displayedText: streamingText, isPlaybackComplete } = useStreamingTextPlayback(
-    streamingTargetText,
-    { isActive: isTextStreaming, resetKey: streamingSessionId },
-  );
 
   const clearDraftModalState = useCallback(() => {
     setIsDraftModalOpen(false);
@@ -133,22 +118,37 @@ export function useGakuchikaConversationController({
     });
   }, []);
 
-  useEffect(() => {
-    if (!pendingCompleteData || !isTextStreaming) return;
-    if (!isPlaybackComplete) return;
+  const adapter = useMemo(() => createGakuchikaStreamAdapter({
+    gakuchikaId,
+    currentSessionId,
+    commitState: (state) => {
+      applyConversationUpdate(state);
+      setIsBufferingQuestionChunks(false);
+      setAssistantPhase("idle");
+    },
+    onSideEffect: (context) => {
+      setAssistantPhase(context.assistantPhase);
+      setIsBufferingQuestionChunks(context.isBufferingQuestionChunks);
+    },
+    onError: (_err, originalAnswer) => {
+      setAnswer(originalAnswer);
+      setNextQuestion(null);
+      setIsBufferingQuestionChunks(false);
+      setAssistantPhase("idle");
+    },
+  }), [applyConversationUpdate, currentSessionId, gakuchikaId]);
 
-    const timer = window.setTimeout(() => {
-      startTransition(() => {
-        applyConversationUpdate(pendingCompleteData);
-        setPendingCompleteData(null);
-        setIsTextStreaming(false);
-        setStreamingTargetText("");
-        setIsBufferingQuestionChunks(false);
-      });
-    }, 180);
-
-    return () => window.clearTimeout(timer);
-  }, [applyConversationUpdate, isPlaybackComplete, isTextStreaming, pendingCompleteData]);
+  const {
+    send: runtimeSend,
+    isSending,
+    isWaitingForResponse,
+    streamingText,
+    isTextStreaming,
+  } = useConversationRuntime({
+    adapter,
+    messages,
+    setMessages,
+  });
 
   const fetchConversation = useCallback(async (sessionId?: string) => {
     try {
@@ -300,143 +300,13 @@ export function useGakuchikaConversationController({
   }, [clearDraftModalState, fetchConversation, gakuchikaId]);
 
   const send = useCallback(async () => {
-    if (!answer.trim() || isSending) return;
-    if (!acquireLock("AIに送信中")) return;
-
     const trimmedAnswer = answer.trim();
-    const optimisticUpdate = appendOptimisticUserMessage(messages, "optimistic", (optimisticId) => ({
-      id: optimisticId,
-      role: "user" as const,
-      content: trimmedAnswer,
-      isOptimistic: true,
-    }));
-    const optimisticId = optimisticUpdate.optimisticId;
-
-    setMessages(optimisticUpdate.messages);
+    if (!trimmedAnswer) return;
     setAnswer("");
-    setIsSending(true);
-    setIsWaitingForResponse(true);
     setAssistantPhase("organizing_intent");
-    setPendingCompleteData(null);
-    setStreamingTargetText("");
-    setIsTextStreaming(false);
-    setStreamingSessionId((prev) => prev + 1);
-    setIsBufferingQuestionChunks(false);
     setNextQuestion(null);
-
-    let receivedComplete = false;
-    let hasReceivedQuestionStream = false;
-    let streamedQuestionText = "";
-    let startedQuestionPlayback = false;
-
-    try {
-      const response = await streamGakuchikaConversation(gakuchikaId, {
-        answer: trimmedAnswer,
-        sessionId: currentSessionId,
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "GAKUCHIKA_CONVERSATION_STREAM_FAILED",
-            userMessage: "送信に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleSend",
-        );
-      }
-
-      for await (const event of parseSSEStream(response)) {
-        if (event.type === "field_complete" && event.path === "coach_progress_message") {
-          // Keep progress state aligned with the visible assistant question.
-          // The complete payload is applied after question playback finishes.
-        } else if (event.type === "progress" && !hasReceivedQuestionStream) {
-          setAssistantPhase(getProcessingPhase(event.step as string));
-        } else if (
-          event.type === "string_chunk" &&
-          event.path === "question" &&
-          typeof event.text === "string"
-        ) {
-          hasReceivedQuestionStream = true;
-          streamedQuestionText += event.text;
-          setIsBufferingQuestionChunks(true);
-        } else if (event.type === "complete") {
-          const data = event.data as Record<string, unknown>;
-          receivedComplete = true;
-          const nextData: PendingGakuchikaCompleteData = {
-            messages: normalizeGakuchikaMessages(data.messages),
-            nextQuestion: (data.nextQuestion as string) ?? null,
-            questionCount: (data.questionCount as number) || 0,
-            isCompleted: (data.isCompleted as boolean) || false,
-            isInterviewReady: Boolean(data.isInterviewReady),
-            conversationState: (data.conversationState as ConversationState) || getDefaultConversationState(),
-            isAIPowered: (data.isAIPowered as boolean) ?? true,
-          };
-          const fromComplete =
-            typeof nextData.nextQuestion === "string" ? nextData.nextQuestion.trim() : "";
-          const questionForPlayback = fromComplete || streamedQuestionText.trim();
-
-          if (startedQuestionPlayback) {
-            if (questionForPlayback) {
-              setStreamingTargetText(questionForPlayback);
-            }
-            setPendingCompleteData(nextData);
-          } else if (questionForPlayback) {
-            setStreamingTargetText(questionForPlayback);
-            setIsTextStreaming(true);
-            setIsWaitingForResponse(false);
-            setIsBufferingQuestionChunks(false);
-            setPendingCompleteData(nextData);
-            setAssistantPhase("idle");
-            startedQuestionPlayback = true;
-          } else {
-            applyConversationUpdate(nextData);
-            setIsWaitingForResponse(false);
-            setIsBufferingQuestionChunks(false);
-            setAssistantPhase("idle");
-          }
-        } else if (event.type === "error") {
-          throw new Error((event.message as string) || "AIエラーが発生しました");
-        }
-      }
-
-      if (!receivedComplete) {
-        throw new Error("ストリームが途中で切断されました");
-      }
-    } catch (err) {
-      setMessages((prev) => rollbackOptimisticMessageById(prev, optimisticId));
-      setAnswer(trimmedAnswer);
-      setNextQuestion(null);
-      setPendingCompleteData(null);
-      setStreamingTargetText("");
-      setIsTextStreaming(false);
-      setIsBufferingQuestionChunks(false);
-      setAssistantPhase("idle");
-      setIsWaitingForResponse(false);
-      reportUserFacingError(
-        err,
-        {
-          code: "GAKUCHIKA_CONVERSATION_STREAM_FAILED",
-          userMessage: "送信に失敗しました。",
-          action: "時間を置いて、もう一度お試しください。",
-          retryable: true,
-        },
-        "GakuchikaPage.handleSend",
-      );
-    } finally {
-      setIsSending(false);
-      setIsWaitingForResponse(false);
-      if (!startedQuestionPlayback) {
-        setStreamingTargetText("");
-        setIsTextStreaming(false);
-        setIsBufferingQuestionChunks(false);
-        setAssistantPhase("idle");
-      }
-      releaseLock();
-    }
-  }, [acquireLock, answer, applyConversationUpdate, currentSessionId, gakuchikaId, isSending, messages, releaseLock]);
+    await runtimeSend(trimmedAnswer);
+  }, [answer, runtimeSend]);
 
   const selectSession = useCallback(async (sessionId: string) => {
     setCurrentSessionId(sessionId);

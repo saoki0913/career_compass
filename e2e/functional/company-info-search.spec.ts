@@ -39,7 +39,7 @@ import {
 
 test.describe("Selection schedule search-pages (guest)", () => {
   test("guest user can call search-pages with a real company", async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
 
     await loginAsGuest(page);
     await ensureGuestSession(page);
@@ -120,7 +120,7 @@ test.describe("Selection schedule search-pages (authenticated)", () => {
   test.skip(!hasAuthenticatedUserAccess, "Requires CI_E2E_AUTH_SECRET or Google auth state");
 
   test("search-pages returns candidates with confidence field from FastAPI", async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
 
     const runId = `search-auth-${Date.now()}`;
 

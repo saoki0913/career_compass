@@ -82,7 +82,7 @@ export interface ConversationState {
   lastQuestionSignature: string | null;
   /** 面接準備完了後の「もっと深掘る」回数（サーバー・FastAPI と同期） */
   extendedDeepDiveRound: number;
-  /** サーバーサイドで計算されたコーチ進捗メッセージ (NaturalProgressStatus で表示) */
+  /** サーバーサイドで計算されたコーチ進捗メッセージ */
   coachProgressMessage: string | null;
   /**
    * サーバー側 readiness gate と整合した残り質問数推定 (int ≥ 0)。

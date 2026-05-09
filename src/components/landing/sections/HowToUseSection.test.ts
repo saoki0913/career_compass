@@ -15,35 +15,41 @@ describe("HowToUseSection composite card guard", () => {
 
   it("has section id how-it-works", () => {
     expect(source).toContain('id="how-it-works"');
+    expect(source).toContain("scroll-mt-[92px]");
   });
 
   it("uses composite card images instead of individual person/screen assets", () => {
-    expect(source).toContain("step-register-company.png");
-    expect(source).toContain("step-ai-es-review.png");
-    expect(source).toContain("step-interview-prep.png");
-    expect(source).toContain("step-deadline-schedule.png");
+    expect(source).toContain("step-register-company-nobg.png");
+    expect(source).toContain("step-ai-es-review-nobg.png");
+    expect(source).toContain("step-interview-prep-nobg.png");
+    expect(source).toContain("step-deadline-schedule-nobg.png");
     expect(source).not.toContain("person-1");
     expect(source).not.toContain("screen-company-form");
     expect(source).not.toContain("shupass-v2/howto/");
   });
 
-  it("provides sr-only text for accessibility", () => {
-    expect(source).toContain("sr-only");
+  it("keeps step illustrations presentational and copy in HTML", () => {
+    expect(source).toContain('alt=""');
+    expect(source).toContain('role="presentation"');
+    expect(source).not.toContain("sr-only");
   });
 
   it("embeds step data directly", () => {
-    expect(source).toContain("const STEPS");
+    expect(source).toContain("const steps");
   });
 
-  it("does not use lucide icons", () => {
-    expect(source).not.toContain("lucide");
+  it("uses HTML icons and cards instead of icon images", () => {
+    expect(source).toContain("lucide-react");
+    expect(source).toContain("Building2");
   });
 
-  it("uses a 4-column grid layout for desktop", () => {
-    expect(source).toContain("minmax(0, 1fr) 54px minmax(0, 1fr)");
-    expect(source).toContain("gap: 0");
-    expect(source).toContain("height: 350");
-    expect(source).toContain('objectFit: "contain"');
+  it("uses responsive card columns at xl breakpoint for desktop horizontal row", () => {
+    expect(source).not.toContain("lg:grid-cols-2");
+    expect(source).toContain("xl:grid-cols-4");
+    expect(source).toContain("h-[270px]");
+    expect(source).toContain("sm:h-[300px]");
+    expect(source).toContain("xl:h-[270px]");
+    expect(source).toContain("object-contain");
   });
 
   it("uses lpSectionAsset for card images", () => {
@@ -61,13 +67,11 @@ describe("HowToUseSection composite card guard", () => {
     expect(source).toContain("#7aa3ef");
   });
 
-  it("has responsive breakpoints at 1279px, 1100px and 640px", () => {
-    expect(source).toContain("max-width: 1279px");
-    expect(source).toContain("max-width: 1100px");
-    expect(source).toContain("max-width: 640px");
+  it("uses responsive Tailwind grid fallback", () => {
+    expect(source).toContain("grid gap-3 xl:grid-cols-4 xl:gap-5");
   });
 
-  it("contains all four step titles in sr-only or alt text", () => {
+  it("contains all four step titles in HTML text", () => {
     expect(source).toContain("企業を登録");
     expect(source).toContain("AIでESを作成・添削");
     expect(source).toContain("面接対策を進める");
@@ -77,17 +81,48 @@ describe("HowToUseSection composite card guard", () => {
   it("has section title with sparkle decoration", () => {
     expect(source).toContain("使い方は、");
     expect(source).toContain("シンプル。");
-    expect(source).toContain('rotate(-30deg)');
-    expect(source).toContain('rotate(-70deg)');
-    expect(source).toContain('rotate(20deg)');
+    expect(source).toContain("lg:text-[56px]");
+  });
+
+  it("keeps the image visually larger while tightening vertical spacing", () => {
+    expect(source).toContain('padding: "60px 0 56px"');
+    expect(source).toContain("mb-7 text-center sm:mb-8");
+    expect(source).toContain("px-4 pb-0 pt-0");
+    expect(source).toContain("leading-[1.45]");
+    expect(source).toContain("right-[-20px]");
+    expect(source).toContain("h-8 w-8");
+    expect(source).toContain("xl:flex");
+    expect(source).not.toContain("right-[-28px]");
+    expect(source).toContain("max-h-[292px]");
+    expect(source).toContain("sm:max-h-[322px]");
+    expect(source).toContain("xl:max-h-[292px]");
+    expect(source).toContain("max-w-[112%]");
+    expect(source).toContain("mt-0");
+    expect(source).toContain("mb-2");
+    expect(source).toContain("py-1.5");
+    expect(source).toContain("leading-[1.5]");
+  });
+
+  it("lazy-loads below-the-fold step illustrations", () => {
+    expect(source).toContain('loading="lazy"');
+    expect(source).not.toContain('loading="eager"');
   });
 
   it("has footer text", () => {
-    expect(source).toContain("準備・対策・管理まで、就活Passでまとめて進められます。");
+    expect(source).toContain("準備・対策・管理");
+    expect(source).toContain("就活Passひとつで完結");
   });
 
   it("does not contain deleted HowtoIcon function", () => {
     expect(source).not.toContain("function HowtoIcon");
     expect(source).not.toContain("HowtoGridItem");
+  });
+
+  it("marks the section for Playwright section screenshots", () => {
+    expect(source).toContain('data-section="how-it-works"');
+  });
+
+  it("includes sparkle decorations", () => {
+    expect(source).toContain("LpSparkleDecorations");
   });
 });

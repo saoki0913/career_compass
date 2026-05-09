@@ -63,5 +63,10 @@ export function createConfiguredSSEProxyResponse({
     }),
   );
 
-  return new Response(stream, { headers: SSE_RESPONSE_HEADERS });
+  return new Response(stream, {
+    headers: {
+      ...SSE_RESPONSE_HEADERS,
+      "X-Request-Id": options.requestId,
+    },
+  });
 }

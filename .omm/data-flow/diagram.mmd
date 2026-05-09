@@ -1,15 +1,17 @@
 graph LR
-    user-input["User Input\nforms, conversations, uploads, settings"]
-    transactional-records["Transactional Records\ncompanies, documents, deadlines, tasks"]
-    ai-enrichment["AI Enrichment\nFastAPI retrieval and generation"]
-    rag-corpus["RAG Corpus\ncompany context, chunks, ingest jobs"]
-    provider-sync["Provider Sync\nGoogle Calendar, Stripe, scraping/search"]
-    user-feedback["User Feedback\nUI state, notifications, summaries"]
+    user-input["User Input\nforms, conversations, uploads, URLs"]
+    browser-state["Browser/UI State\nReact hooks, modals, playback"]
+    transactional-records["Transactional Records\ncompanies, documents, deadlines, conversations"]
+    ai-enrichment["AI Enrichment\nFastAPI services and prompts"]
+    rag-corpus["RAG Corpus\nChroma/BM25/source metadata"]
+    provider-sync["Provider Sync\nStripe, Google Calendar, webhooks"]
+    user-feedback["User-visible Output\nreviews, drafts, notifications, approvals"]
 
-    user-input -->|"creates or updates canonical product data"| transactional-records
-    transactional-records -->|"supply context and prompts for AI tasks"| ai-enrichment
-    ai-enrichment -->|"stores retrieved context and ingest metadata"| rag-corpus
-    rag-corpus -->|"feeds better retrieval into later requests"| ai-enrichment
-    transactional-records -->|"drive external synchronization and billing"| provider-sync
-    ai-enrichment -->|"returns drafts, review output, and extracted suggestions"| user-feedback
-    provider-sync -->|"writes confirmations and sync status back to records"| transactional-records
+    user-input -->|validated and submitted| browser-state
+    browser-state -->|API payload/SSE request| transactional-records
+    transactional-records -->|context and owner scope| ai-enrichment
+    ai-enrichment -->|retrieve source context| rag-corpus
+    ai-enrichment -->|generated output, telemetry| transactional-records
+    transactional-records -->|side effects and external state| provider-sync
+    transactional-records -->|read models and approvals| user-feedback
+    user-feedback -->|manual confirmation for deadlines/reflection| transactional-records

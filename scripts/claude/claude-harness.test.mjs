@@ -55,6 +55,17 @@ test("user-prompt-submit-router returns prompt-engineer hint", () => {
   assert.match(output.hookSpecificOutput.additionalContext, /prompt-engineer/);
 });
 
+test("user-prompt-submit-router allows questions about secret file procedures", () => {
+  const result = runHook(
+    ".claude/hooks/user-prompt-submit-router.sh",
+    JSON.stringify({ prompt: "codex-company/.secrets/career_compass の確認手順を教えて" }),
+  );
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+});
+
 test("permission-request-guard denies force push", () => {
   const result = runHook(
     ".claude/hooks/permission-request-guard.sh",

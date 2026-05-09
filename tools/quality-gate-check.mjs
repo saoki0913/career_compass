@@ -13,6 +13,7 @@ function parseArgs(argv) {
   const result = {
     mode: "standard",
     stagedOnly: false,
+    allFiles: false,
     rolloutPhase: "",
   };
 
@@ -23,6 +24,10 @@ function parseArgs(argv) {
     }
     if (arg === "--staged-only") {
       result.stagedOnly = true;
+      continue;
+    }
+    if (arg === "--all-files") {
+      result.allFiles = true;
       continue;
     }
     if (arg.startsWith("--rollout-phase=")) {
@@ -81,6 +86,18 @@ function getStagedFiles() {
     .filter(Boolean);
 }
 
+function getAllTrackedFiles() {
+  const result = spawnSync("git", ["-C", PROJECT_DIR, "ls-files"], {
+    encoding: "utf8",
+    maxBuffer: 50 * 1024 * 1024,
+  });
+  if (result.status !== 0) return [];
+  return result.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function getStagedFileContent(filePath) {
   const result = spawnSync("git", ["-C", PROJECT_DIR, "show", `:0:${filePath}`], {
     encoding: "utf8",
@@ -88,6 +105,14 @@ function getStagedFileContent(filePath) {
   });
   if (result.status !== 0) return "";
   return result.stdout;
+}
+
+function getWorkingFileContent(filePath) {
+  try {
+    return readFileSync(join(PROJECT_DIR, filePath), "utf8");
+  } catch {
+    return "";
+  }
 }
 
 function classifyFileToCategories(filePath) {
@@ -130,6 +155,11 @@ function classifyFileToCategories(filePath) {
     if (!categories.includes("maintainability")) categories.push("maintainability");
   }
 
+  // Path-only security rules (secrets, env files, credentials)
+  if (/(?:\.env|credentials|secrets|\.pem|\.key)(?:\.|$)/i.test(filePath)) {
+    if (!categories.includes("security")) categories.push("security");
+  }
+
   return categories;
 }
 
@@ -170,7 +200,8 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const rolloutPhase = args.rolloutPhase || readConfigPhase();
 
-  const files = args.stagedOnly ? getStagedFiles() : getStagedFiles();
+  const files = args.allFiles ? getAllTrackedFiles() : getStagedFiles();
+  const getContent = args.allFiles ? getWorkingFileContent : getStagedFileContent;
   if (files.length === 0) {
     const report = {
       gate_verdict: "PASS",
@@ -255,7 +286,7 @@ async function main() {
         const fileCats = fileCategories.get(file) || [];
         if (!itemCats.some((cat) => fileCats.includes(cat))) continue;
 
-        const content = getStagedFileContent(file);
+        const content = getContent(file);
         if (!content) continue;
 
         const matches = content.match(regex);

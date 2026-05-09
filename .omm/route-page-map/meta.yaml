@@ -1,10 +1,20 @@
 created: 2026-04-05T11:28:16.762Z
-updated: 2026-04-05T11:28:27.851Z
-update_count: 2
-last_field: todo
-git_commit: b4fbb9f
+updated: 2026-05-06T22:20:05.338Z
+update_count: 5
+last_field: concern
+git_commit: 469e29e9
 git_branch: develop
 children:
   - marketing-routes
   - product-routes
   - utility-routes
+prev_diagram: >
+  graph TD
+      marketing-routes["Marketing Routes\nsrc/app/(marketing)/"]
+      auth-routes["Auth Routes\nsrc/app/(auth)/"]
+      product-routes["Product Routes\nsrc/app/(product)/"]
+      utility-routes["Utility Routes\nsrc/app/checklists/"]
+
+      marketing-routes -->|"funnels visitors into account creation or product exploration"| auth-routes
+      auth-routes -->|"lands authenticated users in the core workspace"| product-routes
+      marketing-routes -->|"offers standalone learning content and checklists"| utility-routes

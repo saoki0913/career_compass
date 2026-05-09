@@ -23,9 +23,16 @@ describe("BeforeAfterSection design-system guard", () => {
     expect(source).toContain("useEffect");
   });
 
-  it("uses fixed stage dimensions of 1200x600", () => {
-    expect(source).toContain("STAGE_W = 1200");
-    expect(source).toContain("STAGE_H = 600");
+  it("uses fixed stage dimensions of 1440x540", () => {
+    expect(source).toContain("STAGE_W = 1440");
+    expect(source).toContain("STAGE_H = 540");
+  });
+
+  it("keeps the scaled comparison stage for wide desktop only", () => {
+    expect(source).toContain("min-[1360px]:block");
+    expect(source).toContain("min-[1360px]:hidden");
+    expect(source).not.toContain("lg:block");
+    expect(source).not.toContain("lg:hidden");
   });
 
   it("uses lpSectionAsset helper for all images", () => {
@@ -36,34 +43,50 @@ describe("BeforeAfterSection design-system guard", () => {
   it("uses new before-after character and mockup assets", () => {
     expect(source).toContain("before-after/person-worried.png");
     expect(source).toContain("before-after/person-cheerful.png");
-    expect(source).toContain("before-after/product-mockup.png");
+    expect(source).not.toContain("before-after/product-mockup.png");
     expect(source).not.toContain("shupass-v2/ba/illust-worried");
     expect(source).not.toContain("shupass-v2/ba/illust-cheerful");
     expect(source).not.toContain("shupass-v2/ba/arrow.png");
   });
 
   it("uses HTML headings instead of heading images", () => {
-    expect(source).toContain("就活Passで、ここまで");
+    expect(source).toContain("就活Passで、");
     expect(source).toContain("変わる。");
     expect(source).toContain("迷わず・着実に進める");
     expect(source).not.toContain("heading-kawaru.png");
     expect(source).not.toContain("heading-junbi.png");
   });
 
-  it("uses inline SVG arrow instead of PNG", () => {
-    expect(source).toContain("ba-arrow-grad");
+  it("uses solid inline SVG arrow between panels instead of image", () => {
     expect(source).not.toContain("before-after/arrow.png");
+    expect(source).toContain("function BeforeAfterArrow");
+    expect(source).toContain('orientation: "horizontal" | "vertical"');
+    expect(source).toContain("left-[586px]");
+    expect(source).toContain("w-[168px]");
+    expect(source).toContain("ba-arrow-shadow");
+    expect(source).toContain('fill="var(--lp-cta)"');
+    expect(source).not.toContain("ba-arrow-grad");
+    expect(source).not.toContain("ba-arrow-shine");
+    expect(source).not.toContain("#d7efff");
+    expect(source).not.toContain("linearGradient");
+    expect(source).not.toContain("border-l-[16px]");
+  });
+
+  it("includes sparkle decorations", () => {
+    expect(source).toContain("LpSparkleDecorations");
   });
 
   it("uses reference panel dimensions with correct border-radius", () => {
-    expect(source).toContain("width: 530");
-    expect(source).toContain("height: 510");
-    expect(source).toContain("borderRadius: 22");
+    expect(source).toContain("w-[580px]");
+    expect(source).toContain("w-[650px]");
+    expect(source).toContain("h-[500px]");
+    expect(source).toContain("rounded-[22px]");
   });
 
   it("uses correct badge colors: gray for Before, blue for After", () => {
     expect(source).toContain("#8a8f96");
-    expect(source).toContain("#2d6eff");
+    expect(source).toContain("var(--lp-cta)");
+    expect(source).toContain("px-3.5 py-1 text-[14px]");
   });
 
   it("uses reference gradient background for section", () => {
@@ -76,40 +99,50 @@ describe("BeforeAfterSection design-system guard", () => {
     expect(source).toContain("Noto Sans JP");
   });
 
-  it("renders all 8 inline SVG icon components", () => {
-    expect(source).toContain("IconTangle");
-    expect(source).toContain("IconPapers");
-    expect(source).toContain("IconClock");
-    expect(source).toContain("IconSad");
-    expect(source).toContain("IconCheckSparkle");
-    expect(source).toContain("IconDocCheck");
-    expect(source).toContain("IconChartUp");
-    expect(source).toContain("IconSmile");
+  it("renders before/after icon data with 8 items total", () => {
+    expect(source).toContain("beforeItems");
+    expect(source).toContain("afterItems");
+    expect(source).toContain("CheckCircle2");
+    expect(source).toContain("FileCheck2");
   });
 
   it("uses correct before icon stroke color #3a3f47", () => {
-    expect(source).toContain('"#3a3f47"');
+    expect(source).toContain("#3a3f47");
   });
 
-  it("uses correct after icon stroke/fill color #2d6eff", () => {
-    // Already asserted above, but verify it appears in SVG context
-    const matches = source.match(/#2d6eff/g);
+  it("uses correct after icon color token", () => {
+    const matches = source.match(/var\(--lp-cta\)/g);
     expect(matches).not.toBeNull();
     expect(matches!.length).toBeGreaterThan(5);
   });
 
   it("has enlarged list icon circle sizes (44px)", () => {
-    expect(source).toContain("width: 44");
-    expect(source).toContain("height: 44");
+    expect(source).toContain("h-12 w-12");
+  });
+
+  it("keeps panels, arrow, and text boxes from overlapping", () => {
+    expect(source).toContain("left-[586px]");
+    expect(source).toContain("top-[204px]");
+    expect(source).toContain("w-[168px]");
+    expect(source).toContain("w-[310px]");
+    expect(source).toContain("w-[330px]");
+    expect(source).toContain("min-h-[78px]");
+    expect(source).toContain("text-[18px] font-black");
+    expect(source).toContain("h-[400px]");
+    expect(source).toContain("h-[370px]");
+    expect(source).toContain("bottom-[-20px] left-[-6px]");
+    expect(source).toContain("right-7 top-20");
+    expect(source).not.toContain("w-[610px]");
+    expect(source).not.toContain("w-[690px]");
   });
 
   it("keeps the footer copy close to the comparison stage", () => {
-    expect(source).toContain("marginTop: -12");
+    expect(source).toContain("mt-8 text-center");
   });
 
-  it("renders sparkle characters", () => {
-    // Unicode sparkle &#10022; = ✦
-    expect(source).toContain("&#10022;");
+  it("does not duplicate confidence copy that already exists in the visual asset", () => {
+    expect(source).not.toContain("もう迷わない！");
+    expect(source).not.toContain("もう迷わない");
   });
 
   it("includes wave SVG decoration at bottom", () => {
@@ -124,5 +157,9 @@ describe("BeforeAfterSection design-system guard", () => {
 
   it("exports BeforeAfterSection", () => {
     expect(source).toContain("export function BeforeAfterSection");
+  });
+
+  it("marks the section for Playwright section screenshots", () => {
+    expect(source).toContain('data-section="before-after"');
   });
 });

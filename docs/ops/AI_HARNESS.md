@@ -48,7 +48,8 @@ AGENTS.md / CLAUDE.md  (Subagent Routing 正本)
 .mcp.json               (Claude Code 用 project scope MCP: playwright + notion)
 .cursor/mcp.json        (Cursor 用 project scope MCP: playwright + notion)
 .codex/config.toml      (Codex 用 setup / verification / MCP)
-~/.claude/settings.json (user scope MCP: context7、リポジトリ外)
+~/.claude/settings.json (Claude Code user scope MCP: context7、リポジトリ外)
+~/.codex/config.toml    (Codex user scope MCP / plugins、リポジトリ外)
 .claude/commands/*.md   (3 command: workflow 一括実行)
 ```
 
@@ -98,7 +99,8 @@ AGENTS.md / CLAUDE.md  (Subagent Routing 正本)
 | project scope | `.cursor/mcp.json` | Cursor 用 MCP（playwright, notion） | yes |
 | project scope | `.codex/config.toml` | Codex 用 setup / verification / MCP | yes |
 | project scope | `.claude/settings.json` | hooks 配線 | yes |
-| user scope | `~/.claude/settings.json` | context7 MCP | no（個人環境が正本） |
+| user scope | `~/.claude/settings.json` | Claude Code 用 context7 MCP | no（個人環境が正本） |
+| user scope | `~/.codex/config.toml` | Codex 用 context7 MCP / plugins | no（個人環境が正本） |
 
 MCP 設定はツールごとの設定ファイルがそれぞれ正本であり、`.mcp.json` から自動生成はしない。本ドキュメントは差分管理のために「存在と用途」を一覧化する。user scope の設定はリポジトリには記録しない。
 
@@ -389,7 +391,7 @@ Codex 側も 2026-04 時点では lifecycle hooks を使う。`.codex/config.tom
 Claude と Codex の差分:
 
 - Codex の file edit は `apply_patch` として届くため、`.codex/hooks/lib/codex-hook-utils.sh` が `tool_input.command` から変更ファイルと追加行を抽出する。
-- Codex には `FileChanged`, `SubagentStart`, `SessionEnd`, `PostToolUseFailure`, `ExitPlanMode` 相当を直接配線しない。代替として `PostToolUse`, `UserPromptSubmit`, `Stop` へ寄せる。
+- Codex には `FileChanged`, `SubagentStart`, `SessionEnd`, `PostToolUseFailure`, `ExitPlanMode` 相当を直接配線しない。Bash 失敗時ヒントを `PostToolUse` に寄せると成功コマンドでも毎回 hook runner が表示されるため、Codex の `PostToolUse` は編集後リマインダに限定する。
 - Codex では TDD enforcement を強制しない。PreToolUse は通常の lint / typecheck / test を止めず、secrets / rm / push / release-provider / prompt / band-aid を優先する。commit review / test category は direct hook として残し、Claude 起点の commit workflow と互換にする。
 - Claude / Codex とも `PreToolUse` は dispatcher entrypoint に集約する。dispatcher が command / path を先に軽量判定し、該当する個別 guard だけを呼び出す。通常の Bash 実行で複数の no-op guard status が直列表示される構成は禁止。
 
@@ -484,7 +486,7 @@ Codex hook 配線の正本は [`docs/ops/CODEX_HARNESS.md`](./CODEX_HARNESS.md) 
   - Bash tool で `cat|head|tail|less|more|bat|sed|awk|grep|rg` 系が sensitive path を読もうとする場合
 - **PreToolUse 系との役割分担**: `secrets-guard.sh` / `git-push-guard.sh`（PreToolUse, exit 2 で block）を抜けた後に user へ確認プロンプトが出る導線を、`PermissionRequest` イベントで更に 1 段 deny する defense-in-depth。user が誤って allow を押すリスクを減らす
 
-#### 5.3.10 `post-tool-failure-triage.sh`（PostToolUseFailure, Bash|Read|WebFetch）
+#### 5.3.10 `post-tool-failure-triage.sh`（Claude: PostToolUseFailure, Bash|Read|WebFetch）
 
 - **入力**: `tool_name`, `tool_input`, `error`（公式 `PostToolUseFailureHookInput` 準拠）
 - **出力**: `hookSpecificOutput.additionalContext` に次アクションのヒントを JSON で stdout 返却（LLM が次ターンで参照）
@@ -495,6 +497,7 @@ Codex hook 配線の正本は [`docs/ops/CODEX_HARNESS.md`](./CODEX_HARNESS.md) 
   - Read × `no such file / not found` → path typo / ファイル移動を疑い `rg --files` での再確認
   - WebFetch × `403 / 401 / forbidden / unauthorized` → 認証付き URL / bot block の可能性。Playwright / MCP / shareable URL へのフォールバック
 - **動作**: 該当ルールにヒットしない場合は exit 0 で silent pass
+- **Codex 差分**: Codex 側では Bash の `PostToolUse` へ代替配線しない。成功した `Bash` の後にも `Running PostToolUse hook` が表示されるため、ノイズ低減を優先する。Bash の secrets / push / rm / release-provider / commit / test-category の safety gate は `PreToolUse` と `PermissionRequest` で維持する。
 
 #### 5.3.11 `user-prompt-submit-router.sh`（UserPromptSubmit）
 
@@ -619,13 +622,14 @@ Codex 側では `[mcp_servers.playwright]` と `[mcp_servers.notion]` を `confi
 - **認証**: 初回接続時に Notion OAuth フローが走る。個人の Notion アカウントで承認する
 - **相互参照**: [`docs/setup/MCP_SETUP.md`](../setup/MCP_SETUP.md) の「Notion 参考 ES の取り込み」「Notion Prompt Registry の同期」節
 
-### 6.2 user scope: `~/.claude/settings.json`（リポジトリ外）
+### 6.2 user scope MCP（リポジトリ外）
 
 **設定内容**: context7 MCP（`mcp__context7__*` ツール群）。
 
 - **用途**: 全プロジェクト共通で Claude / OpenAI / FastAPI / Next.js / Drizzle などライブラリドキュメントの注入
-- **管理**: 個人環境が正本。リポジトリでは設定 JSON を管理しない
-- **導入・再設定**: 個別の環境で `~/.claude/settings.json` を編集する。リポジトリへ commit しない
+- **Claude Code**: `~/.claude/settings.json` が正本
+- **Codex**: `~/.codex/config.toml` が正本。起動安定性を優先し、通常起動では `context7` を `enabled = false` にする。必要時は親セッションで docs を取得し、Codex worker へは取得済み docs を context file に含める。worker / subagent 内では context7 MCP を起動しない
+- **管理**: 個人環境が正本。リポジトリでは user scope 設定を管理しない
 - **外部参照**: https://code.claude.com/docs/en/mcp
 
 ### 6.3 導入しない MCP と理由

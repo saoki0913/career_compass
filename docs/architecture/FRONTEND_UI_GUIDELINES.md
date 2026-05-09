@@ -178,9 +178,15 @@ preflight では、最低限次の 7 点を言語化する。
 - `draftQuality` — ガクチカのみ品質警告表示
 - `preBodyNotice` — ガクチカのみ削除注意バナー
 
+### 進捗表示: `ConversationProgressBar` / `ConversationPhaseBar`
+
+`src/components/chat/ConversationProgressBar.tsx` はスロット進捗をピルバッジで表示する共通コンポーネント。ガクチカ（4要素: 状況/課題/行動/結果）と志望動機（6スロット）で共用する。`stages` 配列でデータ駆動、`variant: "stacked" | "inline"` でサイドバー/モバイル切替、`children` でカスタムコンテンツ（深掘りモードの CausalGapStep 等）を注入。配色: emerald (done), sky (current), muted (pending)。
+
+`src/components/chat/ConversationPhaseBar.tsx` はライフサイクルフェーズを表示する共通コンポーネント。`phases` 配列でデータ駆動。各機能が独自のフェーズラベルを注入する。
+
 ### サイドバー
 
-サイドバーの中身は各機能が Fragment (`<>...</>`) で返す。`ConversationSidebarCard` をカード単位で使い、外側のラッパーは Shell が提供する。
+サイドバーの中身は各機能が Fragment (`<>...</>`) で返す。`ConversationSidebarCard` をカード単位で使い、外側のラッパーは Shell が提供する。進捗表示には上記の `ConversationProgressBar` + `ConversationPhaseBar` を使う。
 
 ## 10. Codex 向け運用メモ
 

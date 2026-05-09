@@ -1,4 +1,4 @@
-"""Local-only reference ES loader for quality profiling."""
+"""Reference ES loader for quality profiling."""
 
 from __future__ import annotations
 
@@ -8,13 +8,22 @@ from typing import Optional
 import json
 import re
 
-REFERENCE_ES_PATH = (
+DEFAULT_REFERENCE_ES_PATH = (
     Path(__file__).resolve().parents[3] / "private" / "reference_es" / "es_references.json"
+)
+REFERENCE_ES_PATH = DEFAULT_REFERENCE_ES_PATH
+REFERENCE_ES_CORPUS_DIR = Path(__file__).resolve().parents[1] / "reference" / "es_review"
+REFERENCE_ES_TEXT_ARTIFACT_PATTERNS = (
+    "【内容・詳細】",
+    "文字以上",
+    "文字以下",
+    "お聞かせください",
+    "教えてください",
 )
 
 QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
     "basic": [
-        "冒頭1文で設問への答えを20〜45字で明確に言い切る",
+        "冒頭1文で設問への答えを結論として明確に言い切る",
         "1文目では新情報として結論だけを言い切り、設問文の言い換えから入らない",
         "全体は3〜4文を目安にし、各文に役割を持たせて冗長な導入を置かない",
         "1文の中で結論と根拠を抱え込みすぎず、役割を分ける",
@@ -26,7 +35,7 @@ QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
         "自己評価には必ず行動または結果の裏付けを1文内に同居させる",
     ],
     "company_motivation": [
-        "1文目でその企業を志望する理由の核を20〜45字で言い切る",
+        "1文目でその企業を志望する理由の核を結論として言い切る",
         "1文目で志望理由の核を言い切り、設問の復唱や前置きから始めない",
         "全体は4文前後で、結論→企業理解→自分との接点→貢献の順に畳む",
         "企業理解と自分の経験は別の文で整理し、1文に詰め込みすぎない",
@@ -39,7 +48,7 @@ QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
         "企業固有情報は1軸（事業 or 価値観 or 制度のいずれか）に絞り、1文で完結させる",
     ],
     "intern_reason": [
-        "1文目で参加理由の核を20〜45字で言い切る",
+        "1文目で参加理由の核を結論として言い切る",
         "1文目で参加理由を言い切り、説明の前置きを入れない",
         "全体は3文前後に収め、課題感と参加目的を重複させない",
         "現状課題と学びたいことを同じ文で反復せず、役割を分ける",
@@ -52,7 +61,7 @@ QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
         "学びたいことは最重要の1点に絞り、それが参加理由の核と直結するように書く",
     ],
     "intern_goals": [
-        "1文目で達成したいことを20〜45字で言い切る",
+        "1文目で達成したいことを結論として言い切る",
         "1文目で達成したいことを明示し、抽象的な導入を置かない",
         "全体は3文前後で、学びたいことを増やしすぎず焦点を保つ",
         "学びたいことと活かしたい強みを1文に詰め込みすぎない",
@@ -65,7 +74,7 @@ QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
         "学びと貢献は別文に分け、学びたい内容を具体的に1つ挙げる",
     ],
     "gakuchika": [
-        "1文目で取り組みの核を20〜45字で言い切り、役割も短く添える",
+        "1文目で取り組みの核を結論として言い切り、役割も短く添える",
         "1文目で何に取り組み、どんな役割を担ったかを置く",
         "全体は4文前後で、課題説明を長くしすぎず行動と成果に字数を使う",
         "課題説明と行動説明を同じ文で混線させず、読み手が追える順に並べる",
@@ -78,7 +87,7 @@ QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
         "成果の数字は文の主語か目的語の位置に置き、読み手の目に入る配置にする",
     ],
     "self_pr": [
-        "1文目で強みの核を20〜45字で言い切る",
+        "1文目で強みの核を結論として言い切る",
         "1文目で強みを言い切り、自己紹介的な前置きを置かない",
         "全体は3〜4文を目安にし、強みの説明と活かし方を重複させない",
         "強みの定義と裏付け経験を別の文で整理し、同一文に詰め込みすぎない",
@@ -90,7 +99,7 @@ QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
         "強みの名前は1回だけ出し、2回目以降は具体行動で示す",
     ],
     "post_join_goals": [
-        "1文目で入社後に実現したいことを20〜45字で言い切る",
+        "1文目で入社後に実現したいことを結論として言い切る",
         "1文目で入社後に実現したいことを言い切る",
         "全体は4文前後で、将来像の説明を広げすぎず事業理解と接続する",
         "実現したいこととその背景理由を別の文で整理する",
@@ -102,7 +111,7 @@ QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
         "短期目標と中長期ビジョンは文を分け、時間軸ごとに役割を分担する",
     ],
     "role_course_reason": [
-        "1文目でその職種・コースを選ぶ理由を20〜45字で言い切る",
+        "1文目でその職種・コースを選ぶ理由を結論として言い切る",
         "1文目でその職種を選ぶ理由を言い切り、一般論から入らない",
         "全体は4文前後で、職種理解と自分の適性を別々の文で整理する",
         "職種理解と企業理解を同じ文に押し込まず、役割の理由を先に立てる",
@@ -115,7 +124,7 @@ QUESTION_TYPE_QUALITY_HINTS: dict[str, list[str]] = {
         "適性・業務理解・将来像は文ごとに役割を分け、1文1論点で積む",
     ],
     "work_values": [
-        "1文目で大切にしている価値観の核を20〜45字で言い切る",
+        "1文目で大切にしている価値観の核を結論として言い切る",
         "価値観を抽象語で終わらせず、人数・期間・件数・比率などの数値か複数場面の具体例で裏付ける",
         "全体は3文前後で、価値観の説明と行動例を混線させない",
         "価値観とその背景体験を1文に詰め込まず、抽象→具体の順で並べる",
@@ -242,13 +251,76 @@ QUESTION_TYPE_SKELETONS: dict[str, list[str]] = {
 }
 
 
-def _load_reference_payload() -> dict:
+def _load_legacy_reference_payload() -> dict:
     if not REFERENCE_ES_PATH.exists():
         return {"references": []}
     try:
         return json.loads(REFERENCE_ES_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {"references": []}
+
+
+def _load_reference_jsonl(path: Path, question_type: str) -> list[dict]:
+    references: list[dict] = []
+    if not path.exists():
+        return references
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return references
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            record = json.loads(stripped)
+        except Exception:
+            continue
+        if not isinstance(record, dict):
+            continue
+        if record.get("question_type") != question_type:
+            continue
+        if record.get("capture_kind") != "full_text":
+            continue
+        if record.get("usage_consent") is not True or record.get("anonymized") is not True:
+            continue
+        if not record.get("source_provenance"):
+            continue
+        text = (record.get("text") or "").strip()
+        if not _is_reference_text_usable(text, record.get("char_max")):
+            continue
+        references.append(record)
+    return references
+
+
+def _load_reference_payload(question_type: str | None = None) -> dict:
+    if REFERENCE_ES_PATH != DEFAULT_REFERENCE_ES_PATH:
+        return _load_legacy_reference_payload()
+    if question_type:
+        jsonl_path = REFERENCE_ES_CORPUS_DIR / question_type / "references.jsonl"
+        return {"references": _load_reference_jsonl(jsonl_path, question_type)}
+    return {"references": []}
+
+
+def _safe_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_reference_text_usable(text: str, char_max: object) -> bool:
+    stripped = text.strip()
+    if len(stripped) < 20:
+        return False
+    if any(pattern in stripped for pattern in REFERENCE_ES_TEXT_ARTIFACT_PATTERNS):
+        return False
+    limit = _safe_int(char_max)
+    if limit is not None and len(stripped) > max(limit + 80, int(limit * 1.35)):
+        return False
+    return True
 
 
 def _reference_sort_key(
@@ -261,10 +333,11 @@ def _reference_sort_key(
     reference_company = (reference.get("company_name") or "").strip().lower()
     target_company = (company_name or "").strip().lower()
     company_penalty = 0 if reference_company and target_company and reference_company == target_company else 1
-    if char_max is None or reference.get("char_max") is None:
+    reference_char_max = _safe_int(reference.get("char_max"))
+    if char_max is None or reference_char_max is None:
         char_penalty = 999
     else:
-        char_penalty = abs(int(reference["char_max"]) - int(char_max))
+        char_penalty = abs(reference_char_max - int(char_max))
     return (type_penalty, company_penalty, char_penalty)
 
 
@@ -275,7 +348,7 @@ def load_reference_examples(
     company_name: Optional[str] = None,
     max_items: int = 2,
 ) -> list[dict]:
-    payload = _load_reference_payload()
+    payload = _load_reference_payload(question_type)
     references = payload.get("references", [])
     matched = [
         ref
@@ -283,6 +356,7 @@ def load_reference_examples(
         if isinstance(ref, dict)
         and ref.get("question_type") == question_type
         and ref.get("capture_kind") != "summary"
+        and len((ref.get("text") or "").strip()) >= 20
     ]
     matched.sort(
         key=lambda ref: _reference_sort_key(
@@ -401,76 +475,6 @@ def _build_conditional_quality_hints(
     return hints
 
 
-_STRUCTURAL_V2_SUPPORTED_TYPES = frozenset({
-    "gakuchika",
-    "intern_reason",
-    "role_course_reason",
-    "company_motivation",
-    "self_pr",
-    "work_values",
-})
-
-_CHALLENGE_RE = re.compile(r"(課題|問題|に対し)")
-_RESULT_RE = re.compile(r"(結果|成果)")
-_NUMBERED_RE = re.compile(r"(第一に|第二に|理由は二つ|理由は二点|二つある|二点ある)")
-
-
-def _extract_structural_patterns_v2(
-    texts: list[str], question_type: str
-) -> dict | None:
-    if len(texts) < 3:
-        return None
-    if question_type not in _STRUCTURAL_V2_SUPPORTED_TYPES:
-        return None
-
-    star_count = sum(
-        1
-        for t in texts
-        if _CHALLENGE_RE.search(t) and _RESULT_RE.search(t)
-    )
-    numbered_count = sum(1 for t in texts if _NUMBERED_RE.search(t))
-
-    half = len(texts) / 2
-    if star_count >= half:
-        composition_type = "star_sequential"
-    elif numbered_count >= half:
-        composition_type = "numbered_reasons"
-    else:
-        composition_type = "single_thread"
-
-    all_first: list[float] = []
-    all_mid: list[float] = []
-    all_last: list[float] = []
-    for t in texts:
-        sents = _split_sentences(t)
-        if len(sents) < 2:
-            continue
-        total = sum(len(s) for s in sents)
-        if total == 0:
-            continue
-        all_first.append(len(sents[0]) / total)
-        all_last.append(len(sents[-1]) / total)
-        mid_chars = sum(len(s) for s in sents[1:-1]) if len(sents) > 2 else 0
-        all_mid.append(mid_chars / total)
-
-    if all_first:
-        avg_first = sum(all_first) / len(all_first)
-        avg_mid = sum(all_mid) / len(all_mid)
-        avg_last = sum(all_last) / len(all_last)
-    else:
-        avg_first = avg_mid = avg_last = 0.0
-
-    first_label = "冒頭短め" if avg_first < 0.25 else "冒頭長め"
-    mid_label = "中盤厚め" if avg_mid > 0.40 else "中盤薄め"
-    last_label = "締め短め" if avg_last < 0.25 else "締め長め"
-    section_balance_label = f"{first_label}・{mid_label}・{last_label}"
-
-    return {
-        "composition_type": composition_type,
-        "section_balance_label": section_balance_label,
-    }
-
-
 def build_reference_quality_profile(
     question_type: str,
     *,
@@ -485,7 +489,26 @@ def build_reference_quality_profile(
         max_items=3,
     )
     if not references:
-        return None
+        return {
+            "reference_count": 0,
+            "average_chars": 0,
+            "average_sentences": 0.0,
+            "char_stddev": 0.0,
+            "sentence_stddev": 0.0,
+            "digit_rate": 0,
+            "concrete_marker_average": 0.0,
+            "concrete_marker_stddev": 0.0,
+            "conclusion_first_rate": 0,
+            "variance_band": "none",
+            "quality_hints": QUESTION_TYPE_QUALITY_HINTS.get(
+                question_type, QUESTION_TYPE_QUALITY_HINTS["basic"]
+            ),
+            "skeleton": QUESTION_TYPE_SKELETONS.get(
+                question_type, QUESTION_TYPE_SKELETONS["basic"]
+            ),
+            "conditional_hints": [],
+            "conditional_hints_applied": False,
+        }
 
     texts = [(ref.get("text") or "").strip() for ref in references]
     texts = [text for text in texts if text]
@@ -554,7 +577,6 @@ def build_reference_quality_profile(
         ),
         "conditional_hints": conditional_hints,
         "conditional_hints_applied": bool(conditional_hints),
-        "structural_patterns_v2": _extract_structural_patterns_v2(texts, question_type),
     }
 
 
@@ -588,42 +610,9 @@ def build_reference_quality_block(
         else ""
     )
 
-    structural_block = ""
-    sp_v2 = profile.get("structural_patterns_v2")
-    if sp_v2 is not None:
-        comp = sp_v2["composition_type"]
-        bal = sp_v2["section_balance_label"]
-        _SP_DESCRIPTIONS: dict[str, tuple[str, str, str, str]] = {
-            "star_sequential": (
-                "結論から入り課題を提示",
-                "成果・学びで締める",
-                "課題→行動→結果の順序が多い",
-                "STAR順に沿い、行動(A)と成果(R)に字数を割く",
-            ),
-            "numbered_reasons": (
-                "理由の数を先に提示",
-                "最後の理由で締める",
-                "理由を並列に展開",
-                "冒頭で理由の数を宣言し、各理由を均等に展開する",
-            ),
-            "single_thread": (
-                "結論を端的に提示",
-                "将来展望で締める",
-                "一つの論理で貫く",
-                "一貫した論理で結論→根拠→展望をつなぐ",
-            ),
-        }
-        opening, closing, action, guide = _SP_DESCRIPTIONS.get(
-            comp, _SP_DESCRIPTIONS["single_thread"]
-        )
-        structural_block = f"""
+    from app.prompts.logic_patterns import build_logic_patterns_block
 
-【参考ESから抽出した構成パターン】
-- 冒頭パターン: {opening}
-- 締めパターン: {closing}
-- 行動・成果: {action}
-- 構成ガイド: {guide}
-- 骨子と構成パターンの両方がある場合、骨子の論点順を基本とし、構成パターンは文の配分や比重の参考に使う"""
+    structural_block = build_logic_patterns_block(question_type, char_max=char_max)
 
     sentence_flow = QUESTION_TYPE_SENTENCE_FLOWS.get(question_type)
     if sentence_flow:
@@ -649,10 +638,7 @@ def build_reference_quality_block(
 - 骨子は論点の順序の参考にだけ使い、型文や言い回しをコピーしない
 
 【この設問で意識する品質】
-{hint_lines}
-- 1文目は結論だけに集中し、2文目以降で根拠や企業接続を補う
-- 1文ごとの役割を明確にし、同じ内容を言い換えて引き延ばさない
-- 文末表現（〜したい/〜と考える/〜である）を3回以上連続させず、語尾に変化をつける{conclusion_first_guidance}{conditional_hint_block}
+{hint_lines}{conclusion_first_guidance}{conditional_hint_block}
 
 【参考ESから抽出した骨子】
 {skeleton_lines}

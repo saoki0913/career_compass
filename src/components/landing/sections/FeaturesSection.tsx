@@ -1,417 +1,115 @@
+import { FilePenLine, MessageCircle, PanelsTopLeft } from "lucide-react";
 import { lpSectionAsset } from "@/lib/marketing/lp-assets";
+import { LpSparkleDecorations } from "@/components/landing/shared/LpSparkleDecorations";
 
-/* ------------------------------------------------------------------ */
-/*  Data                                                               */
-/* ------------------------------------------------------------------ */
-
-type FeatureCard = {
-  readonly src: string;
-  readonly alt: string;
-};
-
-const features: readonly FeatureCard[] = [
-  { src: "features/card-es-review.png", alt: "ES添削" },
-  { src: "features/card-motivation-gakuchika.png", alt: "志望動機・ガクチカ" },
-  { src: "features/card-interview-prep.png", alt: "AI模擬面接" },
-  { src: "features/card-schedule-deadline.png", alt: "スケジュール管理" },
-  { src: "features/card-company-application-management.png", alt: "企業管理" },
-  {
-    src: "features/google-calendar-integration.png",
-    alt: "Googleカレンダー連携",
-  },
+const featureSparkles = [
+  { x: 6, y: 12, size: 14, opacity: 0.3, color: "#78b5ff" },
+  { x: 92, y: 8, size: 10, opacity: 0.35, color: "#b9d8ff" },
+  { x: 15, y: 60, size: 12, opacity: 0.25, color: "#d3e5ff", type: "dot" as const },
+  { x: 88, y: 72, size: 16, opacity: 0.3, color: "#b9d8ff" },
+  { x: 50, y: 90, size: 8, opacity: 0.25, color: "#78b5ff", type: "dot" as const },
 ] as const;
 
 const flowSteps = [
-  { icon: "hero/icon-document-check.png", title: "作成", desc: "AIで効率的に作成" },
-  { icon: "hero/icon-star.png", title: "対策", desc: "AIで万全の準備" },
-  {
-    icon: "hero/icon-growth-chart.png",
-    title: "管理",
-    desc: "スケジュールを一元管理",
-  },
+  { icon: FilePenLine, title: "作成", text: "AIで効率的に作成" },
+  { icon: MessageCircle, title: "対策", text: "AIで万全の準備" },
+  { icon: PanelsTopLeft, title: "管理", text: "スケジュールを一元管理" },
 ] as const;
 
-/* ------------------------------------------------------------------ */
-/*  Shared style constants                                             */
-/* ------------------------------------------------------------------ */
-
-const FONT: React.CSSProperties = {
-  fontFamily:
-    "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
-  fontFeatureSettings: '"palt"',
-};
-
-/* ------------------------------------------------------------------ */
-/*  Scoped CSS for hover + responsive (cannot do :hover in inline)     */
-/* ------------------------------------------------------------------ */
-
-const SCOPED_CSS = `
-.feat-card-v2:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 30px 60px rgba(0,34,104,0.12);
-}
-@media (max-width: 1099px) {
-  .feat-top-v2 {
-    grid-template-columns: 1fr !important;
-    gap: 32px !important;
-  }
-  .feat-heading-v2 {
-    text-align: center !important;
-  }
-  .feat-lead-v2 {
-    margin-left: auto !important;
-    margin-right: auto !important;
-  }
-  .feat-flow-v2 {
-    justify-content: center !important;
-  }
-}
-@media (max-width: 1099px) and (min-width: 769px) {
-  .feat-grid-v2 {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-  .feat-grid-v2 > * {
-    grid-column: auto !important;
-  }
-  .feat-card-visual-v2 {
-    height: 230px !important;
-  }
-}
-@media (max-width: 768px) {
-  .feat-grid-v2 {
-    grid-template-columns: 1fr !important;
-  }
-  .feat-grid-v2 > * {
-    grid-column: auto !important;
-  }
-  .feat-section-v2 {
-    padding: 64px 0 80px !important;
-  }
-  .feat-flow-inner-v2 {
-    flex-direction: column !important;
-    gap: 24px !important;
-  }
-  .feat-connector-v2 {
-    display: none !important;
-  }
-  .feat-flow-v2 {
-    height: auto !important;
-    padding: 20px 0 !important;
-  }
-  .feat-card-v2 {
-    padding: 14px !important;
-  }
-  .feat-card-visual-v2 {
-    height: 220px !important;
-  }
-}
-`;
-
-/* ------------------------------------------------------------------ */
-/*  FlowConnector (dotted line + CSS arrowhead)                        */
-/* ------------------------------------------------------------------ */
-
-function FlowConnector() {
-  return (
-    <div
-      className="feat-connector-v2"
-      style={{
-        position: "relative",
-        width: 38,
-        borderTop: "4px dotted rgba(38,128,255,0.5)",
-        marginTop: -22,
-        flexShrink: 0,
-      }}
-      aria-hidden="true"
-    >
-      <span
-        style={{
-          position: "absolute",
-          right: -6,
-          top: -8,
-          width: 0,
-          height: 0,
-          borderTop: "6px solid transparent",
-          borderBottom: "6px solid transparent",
-          borderLeft: "8px solid rgba(38,128,255,0.7)",
-        }}
-      />
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  FlowDiagram                                                        */
-/* ------------------------------------------------------------------ */
-
-function FlowDiagram() {
-  return (
-    <div
-      className="feat-flow-v2"
-      style={{
-        position: "relative",
-        height: 180,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      {/* Decorative dot patterns inside the flow area */}
-      <img
-        src={lpSectionAsset("worries/decoration-dots-circle.png")}
-        alt=""
-        role="presentation"
-        style={{
-          position: "absolute",
-          left: 12,
-          top: 8,
-          width: 56,
-          opacity: 0.5,
-          pointerEvents: "none",
-        }}
-      />
-      <img
-        src={lpSectionAsset("worries/decoration-dots-circle.png")}
-        alt=""
-        role="presentation"
-        style={{
-          position: "absolute",
-          right: 12,
-          bottom: 8,
-          width: 56,
-          opacity: 0.5,
-          pointerEvents: "none",
-        }}
-      />
-
-      <div
-        className="feat-flow-inner-v2"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 18,
-          position: "relative",
-          zIndex: 1,
-        }}
-      >
-        {flowSteps.map((step, i) => (
-          <div key={step.title} style={{ display: "contents" }}>
-            <div
-              style={{
-                width: 110,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                textAlign: "center",
-              }}
-            >
-              <div
-                style={{
-                  width: 78,
-                  height: 78,
-                  borderRadius: "50%",
-                  background: "#fff",
-                  border: "1.5px solid rgba(38,128,255,0.18)",
-                  boxShadow: "0 14px 30px rgba(0,102,255,0.10)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <img
-                  src={lpSectionAsset(step.icon)}
-                  alt=""
-                  role="presentation"
-                  style={{ width: 44, height: 44, objectFit: "contain" }}
-                />
-              </div>
-              <div
-                style={{
-                  marginTop: 10,
-                  fontSize: 17,
-                  fontWeight: 800,
-                  color: "#0a2540",
-                  lineHeight: 1,
-                }}
-              >
-                {step.title}
-              </div>
-              <div
-                style={{
-                  marginTop: 4,
-                  color: "#6b7280",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  lineHeight: 1.4,
-                }}
-              >
-                {step.desc}
-              </div>
-            </div>
-            {i < flowSteps.length - 1 && <FlowConnector />}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  FeatureCardItem                                                    */
-/* ------------------------------------------------------------------ */
-
-function FeatureCardItem({
-  feature,
-  index,
-}: {
-  feature: FeatureCard;
-  index: number;
-}) {
-  const colStart = (index % 3) * 2 + 1;
-
-  return (
-    <article
-      className="feat-card-v2"
-      style={{
-        gridColumn: `${colStart} / span 2`,
-        borderRadius: 22,
-        border: "1px solid #e1ebfa",
-        background: "#fff",
-        padding: "14px",
-        boxShadow:
-          "0 22px 50px rgba(0,34,104,0.07), 0 4px 12px rgba(0,34,104,0.04)",
-        transition: "transform 0.28s ease, box-shadow 0.28s ease",
-        cursor: "default",
-      }}
-    >
-      <div className="feat-card-visual-v2" style={{ borderRadius: 14, height: 238, overflow: "hidden" }}>
-        <img
-          src={lpSectionAsset(feature.src)}
-          alt={feature.alt}
-          loading="lazy"
-          decoding="async"
-          style={{ width: "100%", height: "100%", display: "block", objectFit: "contain" }}
-        />
-      </div>
-    </article>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  FeaturesSection (exported)                                         */
-/* ------------------------------------------------------------------ */
+const features = [
+  { src: "features/card-es-review.png", alt: "01 ES添削AI" },
+  { src: "features/card-motivation-gakuchika.png", alt: "02 志望動機・ガクチカ作成" },
+  { src: "features/card-interview-prep.png", alt: "03 AI模擬面接" },
+  { src: "features/card-schedule-deadline.png", alt: "04 締切・選考管理" },
+  { src: "features/card-company-application-management.png", alt: "05 企業管理・応募管理" },
+  { src: "features/google-calendar-integration.png", alt: "06 Googleカレンダー連携" },
+] as const;
 
 export function FeaturesSection() {
   return (
     <section
       id="features"
-      className="feat-section-v2"
+      data-section="features"
+      className="relative scroll-mt-[92px] overflow-hidden"
       style={{
-        ...FONT,
-        position: "relative",
-        overflow: "hidden",
-        padding: "110px 0 130px",
+        padding: "62px 0 60px",
         background: "linear-gradient(180deg, #fff 0%, #f4f8ff 100%)",
+        fontFamily:
+          "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+        fontFeatureSettings: '"palt"',
       }}
     >
-      {/* Scoped responsive + hover CSS */}
-      <style dangerouslySetInnerHTML={{ __html: SCOPED_CSS }} />
+      <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 1672 941" preserveAspectRatio="none" aria-hidden>
+        <path d="M1230 136 C1372 72 1488 160 1672 92" fill="none" stroke="#c9e0ff" strokeWidth="2" />
+        <path d="M1260 316 H1370 M1260 338 H1370 M1260 360 H1370" stroke="#b8d8ff" strokeDasharray="1 14" strokeLinecap="round" strokeWidth="5" />
+        <circle cx="1536" cy="206" r="50" fill="#e8f2ff" />
+      </svg>
 
-      {/* Decorative dot patterns (section-level) */}
-      <img
-        src={lpSectionAsset("worries/decoration-dots-circle.png")}
-        alt=""
-        role="presentation"
-        style={{
-          position: "absolute",
-          left: 24,
-          top: 60,
-          width: 90,
-          opacity: 0.55,
-          pointerEvents: "none",
-        }}
-      />
-      <img
-        src={lpSectionAsset("worries/decoration-dots-circle.png")}
-        alt=""
-        role="presentation"
-        style={{
-          position: "absolute",
-          right: 32,
-          top: 60,
-          width: 56,
-          opacity: 0.65,
-          pointerEvents: "none",
-        }}
-      />
+      <LpSparkleDecorations sparkles={featureSparkles} />
 
-      {/* Content container */}
-      <div
-        style={{
-          position: "relative",
-          maxWidth: 1200,
-          margin: "0 auto",
-          padding: "0 20px",
-        }}
-      >
-        {/* Top area: 2-column grid (heading | flow diagram) */}
-        <div
-          className="feat-top-v2"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "460px 1fr",
-            gap: 60,
-            alignItems: "center",
-            marginBottom: 56,
-          }}
-        >
-          {/* Left column: heading + lead */}
-          <div className="feat-heading-v2">
-            <h2
-              style={{
-                fontSize: "clamp(34px, 3.4vw, 44px)",
-                fontWeight: 800,
-                lineHeight: 1.3,
-                color: "#0a2540",
-                margin: 0,
-              }}
-            >
+      <div className="relative z-10 mx-auto max-w-[1590px] px-6 sm:px-10 lg:px-12 xl:px-14">
+        <div className="grid items-center gap-7 lg:grid-cols-[500px_minmax(0,1fr)]">
+          <div>
+            <h2 className="text-[32px] font-black leading-[1.18] sm:text-[44px] lg:text-[52px]" style={{ color: "var(--lp-navy)", letterSpacing: "0" }}>
               就活を加速させる、
               <br />
-              <span style={{ color: "var(--lp-cta)", fontSize: "1.1em" }}>
-                6つ
-              </span>
-              の主要機能
+              <span className="text-[1.18em]" style={{ color: "var(--lp-cta)" }}>6つ</span>の主要機能
             </h2>
-            <p
-              className="feat-lead-v2"
-              style={{
-                margin: "18px 0 0",
-                color: "#4b5563",
-                fontSize: 16,
-                lineHeight: 1.7,
-                maxWidth: 460,
-              }}
-            >
+            <p className="mt-4 text-[16px] font-medium leading-[1.75]" style={{ color: "var(--lp-muted-text)" }}>
               書類作成から面接対策、管理まで。必要な準備をひとつにつなぐ。
             </p>
           </div>
 
-          {/* Right column: flow diagram */}
-          <FlowDiagram />
+          <div
+            className="rounded-2xl border bg-white px-5 py-6"
+            style={{ borderColor: "#d8eaff", boxShadow: "0 12px 34px rgba(20,50,110,0.12)" }}
+          >
+            <div className="grid gap-4 md:grid-cols-[1fr_48px_1fr_48px_1fr] md:items-center">
+              {flowSteps.map((step, index) => (
+                <div key={step.title} className="contents">
+                  <div className="flex flex-col items-center text-center">
+                    <span
+                      className="flex h-[76px] w-[76px] items-center justify-center rounded-full border bg-white"
+                      style={{ borderColor: "#d8eaff", boxShadow: "0 14px 28px rgba(38,128,255,0.16)", color: "var(--lp-cta)" }}
+                    >
+                      <step.icon className="h-9 w-9" aria-hidden />
+                    </span>
+                    <span className="mt-3 text-[20px] font-black" style={{ color: "var(--lp-cta)" }}>
+                      {step.title}
+                    </span>
+                    <span className="mt-1 text-[15px] font-medium" style={{ color: "var(--lp-navy)" }}>
+                      {step.text}
+                    </span>
+                  </div>
+                  {index < flowSteps.length - 1 ? (
+                    <div className="hidden items-center md:flex" aria-hidden>
+                      <span className="h-1 flex-1 rounded-full border-t-4 border-dotted" style={{ borderColor: "#78b5ff" }} />
+                      <span className="ml-1 h-0 w-0 border-y-[8px] border-l-[12px] border-y-transparent" style={{ borderLeftColor: "#78b5ff" }} />
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Card grid: 6 columns, each card spans 2 cols */}
-        <div
-          className="feat-grid-v2"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(6, 1fr)",
-            gap: 24,
-          }}
-        >
-          {features.map((feature, i) => (
-            <FeatureCardItem key={feature.src} feature={feature} index={i} />
+        <div className="mt-8 grid gap-5 lg:grid-cols-3">
+          {features.map((feature) => (
+            <article
+              key={feature.alt}
+              className="overflow-hidden rounded-2xl border bg-white"
+              style={{ borderColor: "#d8eaff", boxShadow: "0 10px 30px rgba(20,50,110,0.13)" }}
+            >
+              <div className="flex h-[240px] items-center justify-center bg-white p-3 sm:h-[260px]">
+                <img
+                  src={lpSectionAsset(feature.src)}
+                  alt={feature.alt}
+                  className="h-full w-full object-contain"
+                  loading="eager"
+                  decoding="async"
+                />
+              </div>
+            </article>
           ))}
         </div>
       </div>

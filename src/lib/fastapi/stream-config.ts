@@ -46,7 +46,7 @@ export const STREAM_FEATURE_CONFIGS = {
   },
   es_review: {
     feature: "es_review",
-    fastApiEndpointPath: "/api/review/stream",
+    fastApiEndpointPath: "/api/es/review/stream",
     timeoutMs: 120_000,
     billingPolicy: { kind: "three_phase", reserveBeforeStream: true },
     requiresCareerPrincipal: true,

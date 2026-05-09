@@ -42,17 +42,6 @@ export function mergeStreamedItems<T>(streamedItems: T[], finalItems: T[]): T[] 
   return nextItems;
 }
 
-export function upsertStreamItem<T>(items: T[], path: string, value: T): T[] {
-  const index = Number.parseInt(path.split(".").at(-1) ?? "", 10);
-  if (!Number.isFinite(index) || index < 0) {
-    return [...items, value];
-  }
-
-  const nextItems = [...items];
-  nextItems[index] = value;
-  return nextItems.filter((item): item is T => item !== undefined);
-}
-
 export function getRewriteCadence(targetText: string, currentLength: number) {
   const remaining = targetText.length - currentLength;
   const nextChunk = targetText.slice(currentLength, currentLength + 6);

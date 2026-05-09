@@ -39,7 +39,7 @@ user-invocable: true
 
 | ドキュメント | 関連コード |
 |-------------|-----------|
-| `docs/features/ES_REVIEW.md` | `backend/app/routers/es_review.py`, `backend/app/prompts/es_templates.py` |
+| `docs/features/ES_REVIEW.md` | `backend/app/routers/es_review.py`, `backend/app/prompts/es_templates/` |
 | `docs/features/MOTIVATION.md` | `backend/app/routers/motivation.py` |
 | `docs/features/GAKUCHIKA_DEEP_DIVE.md` | `backend/app/routers/gakuchika.py` |
 | `docs/features/COMPANY_RAG.md` | `backend/app/utils/hybrid_search.py`, `backend/app/utils/vector_store.py` |

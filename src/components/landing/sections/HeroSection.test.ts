@@ -30,10 +30,9 @@ describe("HeroSection design-system guard", () => {
     expect(source).toContain('href="#features"');
   });
 
-  it("uses reference design heading at 56px with rounded-12px buttons", () => {
-    // Reference design: 56px hero title, 12px border-radius buttons
-    expect(source).toContain("fontSize: 56");
-    expect(source).toContain("borderRadius: 12");
+  it("uses reference design heading scale with component CTAs", () => {
+    expect(source).toContain("lg:text-[64px]");
+    expect(source).toContain("rounded-[12px]");
   });
 
   it("does not render an inline logo (handled by LandingHeader)", () => {
@@ -45,23 +44,25 @@ describe("HeroSection design-system guard", () => {
     expect(source).not.toContain("'Inter'");
   });
 
-  it("has floating icon animations", () => {
-    expect(source).toContain("lp-floaty");
-    expect(source).toContain("lp-hero-float");
+  it("uses material decoration assets instead of blurred orbs", () => {
+    expect(source).toContain("hero/icon-growth-chart.png");
+    expect(source).toContain("hero/icon-star.png");
+    expect(source).toContain("hero/icon-document-check.png");
+    expect(source).not.toContain("filter: \"blur");
   });
 
   it("uses gradient primary button", () => {
-    expect(source).toContain("linear-gradient(180deg, #3a91ff 0%, #1f78ec 100%)");
+    expect(source).toContain("linear-gradient(180deg, #0c82ff 0%, #0069e6 100%)");
   });
 
   it("implements trust badges as HTML pills", () => {
-    expect(source).toContain("hero__trust-grid");
-    expect(source).toContain("repeat(3,minmax(0,1fr))");
-    expect(source).toContain("white-space:nowrap");
-    expect(source).toContain("minHeight: 38");
-    expect(source).toContain("width: 30");
-    expect(source).toContain("height: 30");
-    expect(source).toContain("fontSize: 13");
+    expect(source).toContain("grid-cols-3");
+    expect(source).toContain("min-h-[64px]");
+    expect(source).toContain("sm:min-h-[56px]");
+    expect(source).toContain("sm:h-[42px]");
+    expect(source).toContain("sm:w-[42px]");
+    expect(source).toContain("text-[10px]");
+    expect(source).not.toContain("hidden text-[12px]");
   });
 
   it("uses card-not-required trust copy", () => {
@@ -72,7 +73,15 @@ describe("HeroSection design-system guard", () => {
 
   it("includes AI accent underline bar", () => {
     // The blue underline bar below AI text
-    expect(source).toContain('width: "1.6em"');
-    expect(source).toContain("background: \"#2680ff\"");
+    expect(source).toContain("AIで一つずつ");
+    expect(source).toContain("background: \"var(--lp-cta)\"");
+  });
+
+  it("marks the section for Playwright section screenshots", () => {
+    expect(source).toContain('data-section="hero"');
+  });
+
+  it("includes sparkle decorations", () => {
+    expect(source).toContain("LpSparkleDecorations");
   });
 });

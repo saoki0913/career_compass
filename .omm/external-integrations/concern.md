@@ -1,1 +1,1 @@
-Integration load is concentrated around a few critical workflows: auth, billing, calendar sync, and AI enrichment. Provider outages or API changes can break user-visible flows even when core app logic is unchanged.
+外部依存は散在し始めている。Stripe plan state は webhook 主体である一方、settings UI 側に plan 変更の直接 API 呼び出しが残る疑いがある。Company info は Next route と FastAPI の両方で public source / crawl / compliance / RAG metadata を扱う。LLM provider routing は分割済みだが `backend/app/utils/llm.py` と provider utilities が広い compatibility surface を維持している。外部依存を adapter に閉じ込めないと、機能追加時に業務ルールと provider 都合が絡みやすい。

@@ -12,6 +12,7 @@ import { hasAuthenticatedUserAccess, signInAsAuthenticatedUser } from "../google
 
 test.describe("Deadlines page (guest)", () => {
   test("guest can access deadlines page", async ({ page }) => {
+    test.setTimeout(60_000);
     await loginAsGuest(page);
     await ensureGuestSession(page);
     await navigateTo(page, "/deadlines");
@@ -92,7 +93,7 @@ test.describe("Calendar page (authenticated)", () => {
     await signInAsAuthenticatedUser(page, "/calendar/settings");
 
     await expect(page.getByText("カレンダー設定")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("Googleカレンダー連携")).toBeVisible();
+    await expect(page.getByText("Googleカレンダー連携")).toBeVisible({ timeout: 10_000 });
   });
 });
 

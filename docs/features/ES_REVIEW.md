@@ -1,422 +1,607 @@
-# ES添削機能
+# ES添削機能 (ES Review)
 
-ES添削は、設問ごとに改善案と出典を段階的に流し、最後の `complete` で `review_meta` を返すストリーミング機能である。  
-標準UIでは `Claude / GPT / Gemini / クレジット消費を抑えて添削` を選べる。内部の実モデルは `Claude Sonnet 4.6 / GPT-5.4 / GPT-5.4-mini / Gemini 3.1 Pro Preview` を使う。
+## 1. 概要
 
-## 入口
+ES添削は、ユーザーが書いたエントリーシートの設問回答を AI が添削し、改善案・出典・解説をリアルタイムに返すストリーミング機能。設問ごとにテンプレート（志望動機・ガクチカ等）を判定し、企業情報 RAG・参考ES・ユーザー文脈を組み合わせて質の高いリライトを生成する。
 
+- **対応モデル**: Claude Sonnet 4.6 / GPT-5.4 / Gemini 3.1 Pro Preview / GPT-5.4-mini (low-cost)
+- **プロトコル**: SSE (Server-Sent Events) によるリアルタイムストリーミング
+- **認証**: ログインユーザー専用（ゲストは利用不可）
+- **課金**: 成功時のみクレジット消費（Reserve → Confirm/Cancel パターン）
 
-| 項目          | 内容                                                      |
-| ----------- | ------------------------------------------------------- |
-| UI          | `src/components/es/ReviewPanel.tsx`                     |
-| Next.js API | `POST /api/documents/[id]/review/stream`                |
-| FastAPI API | `POST /api/es/review/stream`                            |
-| 出力          | `progress`, `string_chunk`, `array_item_complete`, `complete`（`review_meta` を含む） |
-| 集客 LP     | `src/app/(marketing)/es-tensaku-ai/page.tsx`（ES添削 AI）、`src/app/(marketing)/entry-sheet-ai/page.tsx`（エントリーシート AI ロングテール）、`src/app/(marketing)/es-ai-guide/page.tsx`（ES AI 選び方） |
+---
 
-## 品質基盤
+## 2. アーキテクチャ
 
-| 設計方針 | 内容 |
-|---------|------|
-| **設問知識の集約** | `TEMPLATE_DEFS`（`es_templates.py`）に全 9 テンプレートの `purpose / required_elements / anti_patterns / evaluation_checks / retry_guidance` 等を集約。prompt・validator・retry hint が同じ定義を参照する |
-| **下書き生成の共通化** | ガクチカ・志望動機の ES 下書きも `build_template_draft_generation_prompt` 経由で同じ `TEMPLATE_DEFS` を使用（→ [GAKUCHIKA_DEEP_DIVE.md](./GAKUCHIKA_DEEP_DIVE.md), [MOTIVATION.md](./MOTIVATION.md)） |
-| **設問タイプ分類** | 単一ラベルに加え `confidence / secondary_candidates / rationale / recommended_grounding_level` を返す |
-| **企業接地（grounding）** | `none / light / standard / deep` の 4 段階。互換のため `company_grounding_policy` も `review_meta` に残すが、prompt 制御は grounding level が主 |
-| **エビデンスカード** | raw claim をそのまま使わず `value_orientation / business_characteristics / work_environment / role_expectation` に正規化 |
-| **fallback rewrite** | 非 length 主因の複合失敗でのみ発動する safety path。`fallback_triggered / fallback_reason` を `review_meta` に記録 |
-| **個別性保持** | `self_pr / gakuchika / work_values` では事実保持に加え個別性保持を prompt 制約として明示 |
-| **spec 化の範囲** | `prompt + validator + retry hint` まで。`classifier` と `TEMPLATE_RAG_PROFILES` は現状維持 |
+### 3層構成
 
-
-### リクエストがサーバに届いてから返るまで
-
-1. ユーザーが ES 画面で添削を開始すると、フロントは **Next.js** の `POST /api/documents/{id}/review/stream` を呼ぶ。
-2. Next は認証・クレジット等を処理したうえで、**FastAPI** の `POST /api/es/review/stream` に同内容を渡し、応答を **SSE（Server-Sent Events）** でクライアントに流し直す。画面に出る進捗バーは、この SSE の `progress` イベントに対応する。
-3. FastAPI 側ではまず `**_generate_review_progress`** が動く。ここで入力チェック →（企業があれば）RAG → 本体処理 `**review_section_with_template**` の順に進む。
-4. SSE はユーザー体験としては `rewrite → sources → complete` の順で見える。実イベントは `string_chunk(path="streaming_rewrite")` で改善案、`array_item_complete(path="keyword_sources.{n}")` で出典を流し、最後に `complete` で最終結果と `review_meta` を返す。
-
-### ここで止まる（ユーザーにエラーとして返る）例
-
-
-| 段階    | 条件                        | 結果のイメージ                |
-| ----- | ------------------------- | ---------------------- |
-| 入力検証  | 本文が空（前後空白のみ含む）            | ストリームでエラー              |
-| 入力検証  | 設問タイトルが空                  | ストリームでエラー（設問が必要）       |
-| 注入リスク | 高リスクと判定                   | ストリームでエラー（汎用バリデーション文言） |
-| リライト  | 規定回数の生成・検証を尽くしても合格案が得られない | ストリームでエラー（内部では 422 扱い） |
-| LLM   | リライト呼び出しが 503 相当で失敗       | ストリームでエラー（内部では 503 相当） |
-
-
-企業 ID が無い場合でも添削は続行できる（設問タイプの制限あり）。企業 ID がある場合は、このあと **企業 RAG（ハイブリッド検索）** で根拠チャンクを取り、プロンプト用のエビデンスカードを組み立てる。無い場合は RAG ステップを実質的にスキップする。
-
-### `review_section_with_template` の中身（rewrite）
-
-この関数が「1 設問分」の添削の中心である。ユーザー向けに返すのは rewrite のみで、内部で safety / grounding のヒントを組み立てるが優先度リストは出さない。
-
-rewrite の設問依存ルールは helper 関数に直書きせず、`TEMPLATE_DEFS` の spec を読んで組み立てる。prompt では主に次を使う。
-
-- `required_elements`
-- `anti_patterns`
-- `recommended_structure`
-- `question_focus_rules`
-- `negative_reframe_guidance`
-- `playbook`
-
-rewrite 候補は毎回 `**_validate_rewrite_candidate`** で機械検証する。  
-ライブ品質ゲート（`backend/app/testing/es_review_live_gate.py` の `evaluate_live_case`）で見る **focus 用トークン**は、`_validate_standard_conclusion_focus` などルータ側の焦点ルールと **同義表現（例: 志望／惹か、参加／体感・機会）**で揃えてある。  
-候補本文に `です・ます` が残る場合は、最終検証の前に **安全なだ・である調正規化**を一度だけ掛ける。`rewrite_validation_status=degraded` でベストエフォート採用するときも同じ正規化を通し、不自然な置換を避けながら style fail を減らす。
-validator 側も同じ `TEMPLATE_DEFS` の `evaluation_checks` を参照して、`repeated_opening_pattern`、先頭数文の focus、role / company / intern anchor、`negative_self_eval_patterns` を判定する。`self_pr` の自己否定語、`intern_reason` の複合設問、`role_course_reason` の role anchor も spec 側で管理する。
-文末記号が欠けた断片文は `fragment` として扱い、`under_min` と混在しない限り length-fix へ逃がさない。
-
-retry は次の順で進む。
-
-1. `strict`
-2. `focused retry 1`
-3. `focused retry 2`
-4. `length-fix`（最大 1 回）
-5. `degraded` / 422
-
-focused retry では次の focus mode を使う。
-
-- `length_focus_min`
-- `length_focus_max`
-- `style_focus`
-- `grounding_focus`
-- `answer_focus`
-- `opening_focus`
-- `structure_focus`
-- `positive_reframe_focus`
-
-focused retry / length-fix は **単一原因だけでなく複数 failure code を見て、最大 2 つまでの focus mode を同時に組み合わせる**。基本は `length` 1 つ + 非 length 1 つで、例として `under_min + verbose_opening` は `length_focus_min + opening_focus`、`over_max + grounding` は `length_focus_max + grounding_focus` のように扱う。`under_min` を含む複合失敗では **length を主因**として扱い、`opening` / `grounding` は副次修正として扱う。`grounding_focus` は required-centered で、役割 / プログラム軸を先に強く見る。retry hint も `TEMPLATE_DEFS.retry_guidance` を参照し、テンプレ別の橋渡し文言を共通生成する。`length-fix` の final soft は `length` / `style` / `grounding` のみを許可し、通った場合の `length_fix_result` は `soft_recovered`、`rewrite_validation_status` は `soft_ok` になる。required 設問の **150〜220字帯**は短答として潰しすぎないよう、prompt 上は **3〜4文**を基本にし、`under_min` では経験→役割/企業接点→貢献の橋渡し文を **1〜2文**まで補って下限に寄せる。
-`negative_self_eval` が主因のときは `positive_reframe_focus` を使い、自己否定語を残したまま best-effort 採用しない。
-
-**まだ改善案が確定しないとき**  
-
-1. **length-fix**（最大 1 回）: 条件を満たす場合だけ、全文を作り直すのではなく **文字数寄りの専用プロンプト**で直す。final soft は `length` / `style` / `grounding` のみを許可する。
-2. **degraded 採用**: 規定をすべて試しても厳密合格が無いが、安全基準を満たす最良候補がある場合、その本文を **品質ラベル付き**で返す。
-3. それも不可なら **422** で終了する。
-
-**画面への出し方（ストリーミング）**  
-実装上、**改善案を `string_chunk` で先に SSE 送出**し、続けて出典リンクを `array_item_complete` で追加し、最後に `complete` を流す。図では「案 → 出典 → 完了」の順に見えるが、表示順もこの順である。
-
-## 使う入力
-
-- 設問: `sectionTitle`, `templateType`, `sectionCharLimit`
-- 本文: `sectionContent`
-- 企業文脈: `companyId`, `industryOverride`, `roleName`, `internName`
-- ユーザー文脈: `profile_context`, `gakuchika_context`, `document_context.other_sections`
-- その回の追加資料: `user_provided_corporate_urls`
-
-### 企業未選択のドキュメント
-
-企業に紐づかない ES でも添削できる。設問タイプは **自動（未指定）・ガクチカ・自己PR・価値観** に限定する。自動推論は conservative で、`confidence=high` のときだけ具体テンプレを採用し、それ以外は `basic` にフォールバックする。明示で集合外を送った場合は 400。企業 RAG と業界・職種の UI は使わない（企業ありの添削では従来どおり業界・職種が必須）。
-
-### 検索クエリ（retrieval_query）
-
-企業 RAG の hybrid 検索に渡す `retrieval_query` は、設問タイプ・業界・企業名・職種・本文要約に加え、**プロフィール（大学・志望軸）・ガクチカ要約・同一 ES の他設問見出し要約**を短く連結する（全体は上限文字で打ち切り）。
-
-### 出典（keyword_sources）
-
-企業 URL に加え、**今回リクエストに含めたユーザー由来コンテキスト**（プロフィール / ガクチカ / 同一 ES の他設問）をカードとして先に列挙する。これらは **アプリ内の相対パス**（例: `/profile`, `/gakuchika`, `/es/{document_id}`）を `source_url` に載せ、フロントの `ReferenceSourceCard` は `next/link` で **新しいタブ**に開く（`target="_blank"` / `rel="noopener noreferrer"`）。`document_id` は Next のストリーム API から FastAPI `ReviewRequest` に渡す。
-
-## 企業情報の優先順位
-
-企業根拠は次の順で使う。
-
-1. ユーザーが手動追加した URL / PDF（family-aligned retrieval boost）
-2. ユーザーが選択して保存した企業ページ
-3. 既存の corporate RAG（ユーザーが選択した公開ソースのみで構成）
-
-`user_provided` は「この資料を見てほしい」という明示意図があるため、ES添削では family-aligned retrieval boost として扱う。  
-企業情報取得機能の `official / medium / low` 表示とは別の優先度で、検索語への直前 prepend はしない。
-
-## 処理の流れ
-
-### 1. 入力防御
-
-ユーザー由来のテキスト全体を検査する。
-
-- `high`: prompt 開示要求、参考ES開示要求、個人情報抽出要求、SQL exfiltration
-- `medium`: code fence、role prefix、XML風タグ
-
-`high` は遮断、`medium` は sanitize して続行する。
-
-### 2. 企業RAG取得
-
-企業がある場合は hybrid search を使う。見る source family は設問タイプで固定する。
-
-- `company_motivation`: `business_future` → `people_values` → `hiring_role`
-- `role_course_reason`: `hiring_role` → `people_values` → `business_future`
-- `intern_reason`: `hiring_role` → `people_values` → `business_future`
-- `intern_goals`: `people_values` → `hiring_role` → `business_future`
-- `post_join_goals`: `business_future` → `people_values` → `hiring_role`
-- `self_pr` / `gakuchika` / `work_values` / `basic`: 企業シグナルがあるときだけ `people_values` を補助利用
-
-`user_provided_corporate_urls` は family-aligned retrieval boost として反映する。  
-直前に追加された URL / PDF でも、設問タイプに合わない family には boost しない。検索語への prepend や direct context の先頭結合は行わない。
-
-### 3. grounding 判定
-
-required 設問で `role_grounded` とみなすには、少なくとも次の両方が必要。
-
-- `役割 / プログラム` に効く根拠
-- `企業理解 / 事業 / 価値観` に効く根拠
-
-片方が欠ける場合は `company_general` に留める。grounding の不足は validator が `grounding` failure code として返し、次の focused retry で `grounding_focus` を使う。
-
-内部では template ごとに推奨 grounding level を持つ。
-
-- `gakuchika`: `none`
-- `self_pr`, `work_values`: `light`
-- `intern_reason`, `intern_goals`, `post_join_goals`: `standard`
-- `company_motivation`, `role_course_reason`: `deep`
-- `basic`: 設問文に応じて可変
-
-最終 `effective_grounding_level` は、設問分類結果、字数帯、same-company coverage、mismatch 安全弁を見て下げることはあっても、根拠なしに上げない。
-
-### 4. rewrite 生成
-
-標準経路では rewrite-only を返す。backend で parse / validation を行い、失敗時は focused retry、length-fix、degraded / 422 の順で扱う。
-
-rewrite prompt に入れるものは絞っている。
-
-- 設問と文字数条件
-- 元回答
-- 選択済み user facts
-- 内部ヒント
-- 企業根拠カード
-- 参考ES由来の quality hints
-- `TEMPLATE_DEFS` 由来の `required_elements / anti_patterns / recommended_structure`
-
-`selected_user_facts` は relevance と source balance で最大 8 件に絞る。  
-`current_answer` は必ず含める。
-
-required 設問では、設問タイプに応じて使う根拠軸を固定しつつ、次の文脈を追加ヒントとして圧縮する。
-
-- `profile_context` の志望業界 / 志望職種
-- `gakuchika_context` の強み / 行動要約
-- 同一 ES 内の関連セクション見出しと要約
-
-追加ヒント語は最大 6 件までに制限し、multi-pass の探索は増やさない。
-
-### 企業ソース不足時の扱い
-
-企業ソースが不足しているときは、企業固有の断定を広げず、`company_general` または `weak_evidence_notice` で安全側に倒す。
-
-- 判定対象は保存済み `corporateInfoUrls` のうち `trustedForEsReview=true` な source
-- trusted source は原則として次
-  - `official`
-  - `parentAllowed=true` の親会社 source
-  - `upload://corporate-pdf/<company_id>/...`
-- `none / light` 設問 (`basic`, `gakuchika`, `self_pr`, `work_values`) は、設問に企業シグナルがない限り企業断定を強めない
-- `low-cost` モードでも追加の企業ソース取得は行わず、既存 source だけで続行する
-- required 設問では `人・役割軸` と `事業軸` の trusted coverage が不足しているとき、企業固有の断定を抑える
-- required 設問では、同一 verified source しか残らない場合でも、1つの excerpt から `事業理解` と `現場期待 / 役割理解` の **別テーマ card** を安全に切り出せるときだけ 2 観点に分解して使う。title が短く primary claim に excerpt を使うケースでも、theme が明確に分かれるなら 2 観点として採用してよい。他社 source や未検証 source を混ぜて件数だけ満たすことはしない
-
-### 6. 検証と再試行
-
-post-check で次を検証する。
-
-- 空文字ではない
-- 文字数条件を満たす
-- `だ・である調`
-- 冒頭が設問に正対し、設問の復唱から始まっていない（`company_motivation` / `role_course_reason` / `intern_goals` / `post_join_goals` は **先頭2文まで**で結論・アンカーを確認し、経験前置き1文＋本答え1文を許容する）
-- 箇条書き・列挙調ではない
-- 文末が言い切りで終わる（未完了の断片文でない）
-
-rewrite retry は `strict → focused retry 1 → focused retry 2 → length-fix → degraded / 422` で固定する。  
-focused retry は常に**最新の failure code 群**に追従して repair plan を作り、必要なら複数 focus mode を同時に選び直す。  
-`under_min` は `length_focus_min`、`over_max` は `length_focus_max`、`style` は `style_focus`、`grounding` は `grounding_focus`、`answer_focus` は `answer_focus`、`verbose_opening` は `opening_focus`、`bulletish_or_listlike` / `empty` / `fragment` / `generic` は `structure_focus` を使う。  
-全標準モデルで共通 validator を使い、`結論ファースト / answer focus / verbose opening / bulletish` を同じ基準で検証する。  
-文字数の strict 受理帯は常に `X-10〜X`（`X = char_max`）に固定する。  
-内部目標帯は strict 帯とは別に、`provider/model family`・`char_max` 帯・`original_len / char_max` を見て動的に決める。短答寄りで under-min が出やすいモデルほど上側に寄せ、overflow を起こしやすい局面では下側へ広げる。  
-`gpt-5.4-mini` は under-min が連続しやすいため、short / medium / long でより上側の target window を使い、2回連続で under-min がほぼ改善しない場合に加え、**残 shortfall がまだ大きいのに伸び幅が小さい場合**も 3回目の通常 rewrite を飛ばして early length-fix に入る。  
-`length-fix` の final soft は `length` / `style` / `grounding` のみを許可し、`bulletish_or_listlike` / `empty` / `fragment` は最後まで strict のままにする。通った結果は `length_fix_result=soft_recovered` と `rewrite_validation_status=soft_ok` で記録する。  
-途中の rewrite 段では under-min を受理しない。
-
-非 length 主因の複合失敗では、focused retry の後に safe fallback rewrite を 1 回だけ許容する。これは `build_template_fallback_rewrite_prompt` を実運用に組み込み、`fallback_triggered=true` と `fallback_reason` を `review_meta` に残す。純粋な `under_min / over_max` だけの失敗は従来どおり length-fix に寄せる。
-
-### `review_meta` の追加診断
-
-- `classification_confidence`
-- `classification_secondary_candidates`
-- `classification_rationale`
-- `recommended_grounding_level`
-- `effective_grounding_level`
-- `misclassification_recovery_applied`
-- `fallback_triggered`
-- `fallback_reason`
-- `grounding_repair_applied`
-
-これらは live/offline 集計で「どのテンプレ・字数帯・モデルで分類救済や fallback が多いか」を見るための診断フィールドである。
-
-## 参考ESの扱い
-
-参考ESは本文の材料には使わない。用途は次だけ。
-
-- quality hints
-- coarse skeleton
-- 条件付きの統計ヒント
-
-quality hints では全標準モデルに共通で次を要求する。
-
-- 1文目で結論を言い切る
-- 3〜4文程度の締まった構成にする
-- 各文の役割を分け、同じ内容の言い換えで水増ししない
-- 参考群の平均から大きく外れたときだけ、長さ・文数・具体性の追加ヒントを出す
-- 参考群のばらつきが大きいときは、型にはめすぎない一文を足す
-
-禁止していること。
-
-- 参考ES本文の引用
-- 参考ESを企業根拠として使うこと
-- 参考ES由来の事実をユーザー事実として使うこと
-
-## モデル別メモ
-
-- `Claude / GPT / Gemini / low-cost` の4系統だけを current-state とする。
-- OpenAI 系は rewrite / length-fix を plain text 契約で使い、空レスポンスを避けるため `prompt_cache_key` と出力フロアを併用する。
-- OpenAI の Responses API text 経路では、ES 添削に限って `verbosity="medium"` を明示し、short / medium 帯の under-min を減らす。
-- `gpt-5.4-mini` は provider別 length profile で最も強く上側へ寄せる。short / medium / long の gap を狭め、under-min recovery も `X` 近傍を狙う。rewrite の既定温度は **0.16**（他 OpenAI は **0.2**）。`char_max` が大きい設問では rewrite 用 `max_tokens` をわずかに上乗せする（呼び出し回数は増やさない）。
-- `gpt-5.4` / `Claude` / `Gemini` も provider別 profile を持つが、`gpt-5.4-mini` ほど aggressive にはしない。
-- Gemini は ES 添削で低温固定を避け、provider の標準寄り設定で rewrite 欠落と文字数不足を抑える。**`char_max≥300` 前後の長文**では、rewrite の `max_output_tokens` 相当に **追加の出力余裕**を付与する（同一リクエスト内の上限のみ調整）。
-- `low-cost` 導線は `gpt-5.4-mini` を使う。
-
-## UI の要点
-
-- **認証**: ES 添削はログインユーザー向け機能で、guest では実行しない。未ログインまたは guest のときは `ReviewPanel` でログイン導線を出し、Next API も 401 を返す。
-- **Free プラン**: モデルは **GPT-5.4 mini 固定**（UI は案内のみ）。**消費クレジットは有料でプレミアムモデルを選んだ場合と同じ表**（6〜20）。`review/stream` が `user_profiles.plan` を見て `llm_model` を `low-cost` に上書きする。
-- **Standard / Pro**: `モデル選択` dropdown で `Claude / GPT / Gemini / クレジット消費を抑えて添削` を設問ごとに切り替えられる
-- 業界 / 職種 / 設問タイプは dropdown
-- 設問タイプ dropdown には、自動判定の推奨結果と短い理由を表示する。ユーザーが明示的に変更した場合はその選択を優先する
-- CTA は固定フッター
-- 企業選択時は、企業連携状態を `ReviewPanel` 上部の `CompanyStatusBanner` で表示する
-- 企業未選択時は、空状態または設問セットアップ文言で「プロフィール / ガクチカを使って添削できる」旨を案内する
-
-### クレジット消費（`calculateESReviewCost`）
-
-
-| モデル区分                              | 〜500字 | 〜1000字 | 〜1500字 | 1501字〜 |
-| ---------------------------------- | ----- | ------ | ------ | ------ |
-| Claude / GPT / Gemini              | 6     | 10     | 14     | 20     |
-| クレジット消費を抑えて添削（low-cost）            | 3     | 6      | 9      | 12     |
-| **Free プラン（実体 mini・クレジットはプレミアム帯）** | **6** | **10** | **14** | **20** |
-
-
-### クレジット不足ガード
-
-- `ReviewPanel` は auth 未確定中に guest 扱いへ落とさず、クレジット確認中の状態を優先表示する。
-
-### 右パネル内スクロールと自動追尾
-
-- ES 編集画面は `h-screen` + `overflow-hidden` のため、ウィンドウ全体の `scrollTo` はほとんど効かない。
-- **添削開始時**は、`isLoading` が true になってストリーミング用 DOM に差し替わった**直後**（`useLayoutEffect`）に次を行う。ボタン押下の同期的な `scrollTo` だけでは、まだセットアップ画面のままのため先頭移動が無効化されやすい。
-  1. `ReviewPanel` ルート（`panelRootRef`）に対して `scrollIntoView({ block: "start", behavior: "auto" })` し、親に縦スクロールがある場合でもパネル上端が見えるようにする（モバイルシート等）。
-  2. パネル内の `scrollContainerRef`（`overflow-y-auto`）を `scrollTop = 0` で先頭へ戻し、進捗 UI から見失わないようにする。
-- **自動追尾**は参照実装寄りの単純方式にする。
-  - 開始直後はパネル上端と進捗 UI を見せる。
-  - 最初の rewrite / sources が出始めた後は、**表示内容が増えるたびにそのコンテナを `scrollHeight` まで送る**単純な追尾にする。
-- **ストリーミング〜再生完了までの自動追尾**は参照実装寄りの単純方式とし、`ResizeObserver` や phase ベースの pause/resume は使わない。
-- スクロールコンテナに `**overflow-anchor: none`**（`[overflow-anchor:none]`）を付け、ブラウザの scroll anchoring 由来の誤判定を抑える。
-- `sources` の streamed section は静的描画を優先し、スクロール中に縦移動 animation でガタつかせない。
-
-### セットアップ入力のバリデーション表示
-
-- **本文**が **5 文字未満**（前後空白を除く）のときも、業界・職種と同様に `getReviewValidationIssues` の `section_content` として扱い、対象設問カードに赤字枠・本文下のエラー文を出す。閾値は `MIN_REVIEW_SECTION_BODY_CHARS`（`review-panel-validation.ts`）。
-- テンプレ名・インターン名・業界・職種などの未充足は `getReviewValidationIssues` で常に計算するが、**赤い枠線・リング・`aria-invalid`・フィールド直下のエラー文**は、`この設問をAI添削` を押してまだ開始できないとき（`setupErrorHighlight`）にだけ出す。セクション全体の**背景色は赤く染めず**、枠・入力・セレクトの境界だけで示す。
-- 未ハイライト時はフッターの案内は通常のヒント文のみとし、不足項目の列挙は出さない。ハイライト時は短い指示（赤字の枠内の入力・選択）に加え、先頭の issue メッセージを最大1件だけ併記する。
-
-`ReviewPanel` は `useCredits` の残高と `calculateESReviewCost` を比較し、不足時は添削ボタンを無効化してヒントテキストで案内する。サーバ側の 402 チェックは引き続き必須であり、クライアント側はソフトガードの位置づけ。
-
-### 出典カードの遷移
-
-- 内部リンク (`/profile`, `/gakuchika`, `/es/{document_id}`) を含む出典カードも新しいタブで開く。
-
-## Phase 10 補足: 散文品質の誘導
-
-Phase 10 は validation を変えず、**プロンプト層**のみで「冒頭が長い / 企業名を本文で繰り返す / 固有名詞が繰り返される / self_pr が数値なしで終わる / gakuchika が羅列的になる」5 課題に対処する。検証レポートは `docs/review/feature/es_review_quality_audit_20260417.md`。
-
-### 冒頭 1 文の 20〜45 字ルール
-
-- 対象: rewrite / fallback rewrite / draft（fallback 経路）
-- 参照: `backend/app/prompts/es_templates.py` の `build_template_rewrite_prompt` / `build_template_fallback_rewrite_prompt` の `<constraints>`、および `_GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK` 先頭行
-- 参考 ES ヒント側: `backend/app/prompts/reference_es.py` で 9 テンプレ全ての 1 番目のヒントを 20〜45 字に統一
-- 効果: Live smoke で冒頭字数 median 60-80 → **37 字** に短縮（20260417 レポート）
-
-### 企業名本文言及の 3-way ポリシー
-
-`effective_company_grounding` に合わせて `company_mention_rule` を動的に切り替える。
-
-| 実効ポリシー | 企業名本文言及 | 敬称 |
-|---|---|---|
-| `none`（grounding_mode=="none"） | 禁止 | 禁止 |
-| `assistive` | 本文全体で **2 回まで** | 禁止 |
-| `required` / `deep` | 本文中 **1 回まで**（冒頭のみ）、以降は敬称（`貴社` / 業界別） | 以降は敬称 |
-
-参照: `build_template_rewrite_prompt` / `build_template_fallback_rewrite_prompt` の `company_mention_rule` 算出箇所。reference_es.py 側では 5 企業系テンプレ（company_motivation / role_course_reason / post_join_goals / intern_reason / intern_goals）の NG 行に「企業名を 3 回以上書く」禁止を配置。
-
-### intern / role の固有名詞汎用語置換
-
-- 対象: `template_type in {intern_reason, intern_goals}`（`intern_name` が渡された場合）、および `role_course_reason`（`role_name` 指定時）
-- 参照: `backend/app/prompts/es_templates.py:_format_proper_noun_policy`
-- ルール: 冒頭 1 回のみ使用、2 回目以降は `本インターンシップ` / `本プログラム` / `本コース` / `当該職種` 等の汎用語に置換
-- reference_es.py: intern_reason / intern_goals / role_course_reason の該当ヒントを同文言に統一
-
-### self_pr / work_values の数値・行動動詞必須化
-
-- 参照: `backend/app/prompts/es_templates.py` の `_STYLE_RULES` に `applicable_templates={"self_pr", "work_values"}` で 2 ルール追加
-- プロンプト側: 「強みや価値観は抽象ラベル（〜力・〜姿勢）だけで終わらせず、人数・期間・件数・比率などの数値を最低 1 つ、具体的な行動動詞を最低 1 組入れて再現性を示す」
-- reference_es.py: self_pr / work_values の既存ヒントと NG を数値・行動動詞要件に沿って置換
-- retry mapping: `retry_guidance` に `quantify` キー追加（Phase 11 で retry focus mode mapping と接続予定）
-
-### gakuchika 複数施策のナンバリング
-
-- 参照: `backend/app/prompts/es_templates.py` の `_STYLE_RULES` に `applicable_templates={"gakuchika"}` で 1 ルール追加
-- プロンプト側: 「複数の施策や工夫を書くときは `(1)(2)` または `まず / 次に` で順序を明示し、`また / さらに` の羅列にしない」
-- gakuchika playbook (`_format_required_template_playbook` 経由) にも構造指示を拡張
-- retry mapping: `retry_guidance` に `structure` キー追加（Phase 11 予定）
-
-### Phase 10 スコープ外
-
-- `build_template_draft_generation_prompt()` は Phase 10 対象外。`_GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK` 経由でのみ 10-A-2 が反映される
-- `retry focus mode mapping`（`es_review_retry.py`）の `quantify` / `structure` への対応は Phase 11
-- Notion 管理プロンプト（`es_review.global_conclusion_first_rules` 等）の同期は別タスク
-- validation 層での企業名回数カウント検出は追加しない（プロンプト指示の効果を見てから判断）
-
-## 主要 `review_meta`
-
-- `llm_provider`, `llm_model`
-- `review_variant`
-- `grounding_mode`, `primary_role`
-- `company_evidence_count`, `evidence_coverage_level`
-- `retrieval_profile_name`, `priority_source_match_count`
-- `reference_hint_count`, `reference_conditional_hints_applied`, `reference_profile_variance`
-- `rewrite_generation_mode`, `rewrite_attempt_count`
-- `length_policy`, `length_shortfall`, `length_fix_attempted`, `length_fix_result`
-- `length_profile_id`, `target_window_lower`, `target_window_upper`
-- `source_fill_ratio`, `required_growth`, `latest_failed_length`, `length_failure_code`
-- `rewrite_validation_status`
-- `token_usage`
-  - `input_tokens`, `output_tokens`, `reasoning_tokens`, `cached_input_tokens`
-  - `llm_call_count`, `structured_call_count`, `text_call_count`
-
-## テスト
-
-主な回帰テストは以下。
-
-- `backend/tests/es_review/test_es_review_template_rag_policy.py`
-- `backend/tests/es_review/test_es_review_template_repairs.py`
-- `backend/tests/es_review/test_es_review_quality_rubric.py`
-- `backend/tests/es_review/test_es_review_final_quality_cases.py`
-- `backend/tests/shared/test_llm_provider_routing.py`
-- `backend/tests/es_review/integration/test_live_es_review_provider_report.py`
-
-実 API を使う **Live プロバイダゲート**は **GitHub Actions では実行しない**。開発時にローカルで明示的にコマンドを実行する。手順・環境変数・スイープは `[docs/testing/ES_REVIEW_QUALITY.md](../testing/ES_REVIEW_QUALITY.md)` を参照。
-
-実行例:
-
-```bash
-python -m pytest backend/tests/es_review -q
-python -m pytest backend/tests/shared/test_llm_provider_routing.py -q
-make backend-test-live-es-review
 ```
+┌─────────────────────────────────────────────────────────┐
+│  Frontend (React)                                       │
+│  ESEditorPageClient → ReviewPanel → useESReview hook    │
+│  SSE消費 → Playback状態遷移 → StreamingReviewResponse   │
+└────────────────────────────┬────────────────────────────┘
+                             │ POST /api/documents/{id}/review/stream
+┌────────────────────────────▼────────────────────────────┐
+│  BFF (Next.js API Route)                                │
+│  認証検証 → クレジット予約 → ペイロード構築 → SSE中継     │
+│  handle-review-stream.ts + review-stream-context.ts     │
+└────────────────────────────┬────────────────────────────┘
+                             │ POST /api/es/review/stream
+┌────────────────────────────▼────────────────────────────┐
+│  Backend (FastAPI)                                       │
+│  入力防御 → RAG取得 → 4段パイプライン → SSE生成           │
+│  es_review.py → services/es_review/ → prompts/          │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 主要ファイル配置
+
+| 層 | パス | 責務 |
+|---|---|---|
+| Page | `src/app/(product)/es/[id]/page.tsx` | SSR + ドキュメント取得 |
+| Editor | `src/components/es/ESEditorPageClient.tsx` | 分割パネル + ブロック編集 |
+| Review UI | `src/components/es/ReviewPanel.tsx` | セットアップ + 添削開始 |
+| Result UI | `src/components/es/StreamingReviewResponse.tsx` | ストリーミング結果表示 |
+| Hook | `src/hooks/useESReview.ts` | SSE消費 + 状態管理 |
+| Transport | `src/features/es-review/hooks/transport.ts` | SSEパース |
+| BFF Route | `src/app/api/documents/[id]/review/stream/route.ts` | API エントリ |
+| BFF Logic | `src/bff/es-review/handle-review-stream.ts` | クレジット + ストリーム中継 |
+| BFF Context | `src/bff/es-review/review-stream-context.ts` | リクエスト検証 + ペイロード構築 |
+| Billing | `src/bff/billing/es-review-stream-policy.ts` | Reserve/Confirm/Cancel |
+| Router | `backend/app/routers/es_review.py` | FastAPI エンドポイント + SSE生成 |
+| Orchestrator | `backend/app/services/es_review/orchestrator.py` | 4段パイプライン |
+| Validation | `backend/app/services/es_review/validation.py` | リライト品質検証 |
+| Retry | `backend/app/services/es_review/retry.py` | リトライ戦略 + focus mode |
+| Grounding | `backend/app/services/es_review/grounding.py` | エビデンスカード構築 |
+| Fact Guard | `backend/app/services/es_review/fact_guard.py` | ハルシネーション検出 |
+| Templates | `backend/app/prompts/es_templates/` | 9テンプレートのプロンプト生成 |
+| Reference | `backend/app/prompts/reference_es.py` | 参考ES品質プロファイル |
+| Logic Patterns | `backend/app/prompts/logic_patterns.py` | 構成パターン抽出（参考ESから分離） |
+| Explanation | `backend/app/services/es_review/explanation.py` | 改善解説 JSON v2 生成 |
+| Template Context | `backend/app/services/es_review/template_context.py` | 複合テンプレート解決 |
+| Reference Data | `backend/app/reference/es_review/` | 参考ES JSONL + 構成パターン JSON |
+
+### SSEイベントプロトコル
+
+FastAPI からの内部SSEは BFF で ES添削専用の公開DTOへ変換する。ブラウザへは内部 `path`、`source_id`、`requestId`、retry trace、token usage、debug 情報を渡さない。
+
+| イベント | 用途 | ペイロード例 |
+|---|---|---|
+| `progress` | 進捗更新 | `{step, progress, label}` |
+| `rewrite_delta` | 改善案テキスト逐次送出 | `{text}` |
+| `rewrite_complete` | 改善案テキスト確定 | `{value}` |
+| `explanation_complete` | 改善説明確定 | `{value}` — value は JSON v2 文字列: `{"version":2,"improvement_points":[...],"main_changes":[...]}` |
+| `source_added` | 出典カード追加 | `{source}` |
+| `complete` | 最終結果 | `{result: {rewrites[], template_review, improvement_explanation, review_meta, billing_outcome}}` — `improvement_explanation` も JSON v2 文字列 |
+| `error` | エラー | `{message, code, action, retryable}` |
+
+---
+
+## 3. リクエストライフサイクル
+
+### ユーザー操作からレスポンスまで
+
+1. **設問選択**: ユーザーが ES エディタで設問ブロックを選択
+2. **セットアップ**: ReviewPanel でテンプレート種別・企業・業界・職種・モデルを設定
+3. **添削開始**: 「この設問をAI添削」ボタン → `useESReview.requestSectionReview()` 呼び出し
+4. **BFF処理**: Next.js API が認証確認 → クレジット予約 → FastAPI へ中継
+5. **バックエンド処理**: 入力防御 → RAG取得 → リライト生成 → SSE送出
+6. **UI表示**: 進捗バー → リライト文字送出 → 出典カード → 完了
+
+### BFF層の役割（`handle-review-stream.ts`）
+
+```
+prepareReviewStreamContext()  → リクエスト検証 + ペイロード構築
+  ↓
+esReviewStreamPolicy.precheck()  → 認証確認（ゲスト拒否）
+  ↓
+esReviewStreamPolicy.reserve()  → クレジット事前控除
+  ↓
+fetch(FastAPI /api/es/review/stream)  → 上流SSE取得
+  ↓
+SSEストリーム中継  → フロントへ透過転送
+  ↓
+complete受信 → confirm()  |  error/abort → cancel()（返金）
+```
+
+### BFF ペイロード構築（`review-stream-context.ts`）
+
+BFF はフロントからの簡潔なリクエストを、バックエンドが必要とするリッチなコンテキストに変換する:
+
+- `profile_context`: ユーザープロフィール（大学・志望業界・志望職種）
+- `gakuchika_context`: 直近4件のガクチカ要約
+- `document_context`: 同一ESの他設問（最大4件）
+- `retrieval_query`: RAG検索用の連結クエリ（最大850字）
+- `role_context`: 職種情報（ユーザー入力 or なし）
+
+### エラーパス
+
+| 段階 | 条件 | 結果 |
+|---|---|---|
+| BFF | 未認証/ゲスト | 401 |
+| BFF | クレジット不足 | 402 |
+| Backend | 本文空 / 設問タイトル空 | SSE error |
+| Backend | 注入リスク（high） | SSE error |
+| Backend | LLM 呼び出し失敗 | 503 |
+| Backend | リライト全試行失敗 | 422 |
+
+---
+
+## 4. バックエンドパイプライン
+
+### 4.1 入力防御
+
+ユーザー由来テキスト全体を `detect_request_injection_risk()` で検査する。
+
+- **high**（遮断）: プロンプト開示要求、参考ES開示要求、個人情報抽出、SQL exfiltration
+- **medium**（sanitize して続行）: code fence、role prefix、XML風タグ
+
+### 4.2 4段パイプライン（`review_section_with_template`）
+
+#### Stage 1: コンテキスト準備（`prepare_review_context`）
+
+- テンプレート判定 + 分類信頼度評価
+- 複合テンプレート解決（`build_effective_template_context()`）— 設問が複数テンプレートにまたがる場合に `EffectiveTemplateContext` を構築。RAG プロファイルタイプ（`rag_profile_type`）、企業 RAG 要否（`requires_company_rag`）、統合評価軸（`effective_evaluation_axes`、最大7軸）を一元解決する。SSOT: `backend/app/services/es_review/template_context.py`
+- grounding level 解決（テンプレート推奨 × 証拠量 × 字数帯）
+- ユーザー事実抽出（最大8件、relevance + source balance で選択）
+- 企業RAGソース検証（同一企業ドメイン確認）
+- エビデンスカード構築（最大5件、テーマ分類付き）
+- 参考ES品質プロファイル読み込み
+
+#### Stage 2: リライトループ（`execute_rewrite_loop`）
+
+最大3回の試行。各試行で:
+
+1. Focus mode 解決（前回の失敗コードから決定）
+2. プロンプト構築（`build_template_rewrite_prompt`）
+3. LLM呼び出し
+4. `_validate_rewrite_candidate()` で機械検証:
+   - 文字数制約（strict帯: char_max-10 〜 char_max）
+   - だ・である調の徹底
+   - 冒頭結論ファースト（20-45字）
+   - 企業根拠の存在（grounding required時）
+   - AI smell スコア（tier 0-3）
+   - ハルシネーション検出（数値/役職/経験の捏造）
+5. 合格 → break / 不合格 → 失敗コード記録 → 次の試行
+
+#### Stage 3: リカバリパイプライン（`execute_recovery_pipeline`）
+
+Stage 2 で合格案が得られなかった場合:
+
+1. **Length-fix**（最大1回）: 文字数専用プロンプトで修正。soft validation（length/style/grounding のみ許可）
+2. **Best-effort 採用**: 安全基準を満たす最良候補を `degraded` ラベル付きで採用
+3. **全失敗**: 422 HTTPException
+
+#### Stage 4: 組立（`assemble_review_response`）
+
+- 最終リライトを20文字チャンクでSSE送出
+- 出典リンクを逐次送出
+- 改善解説を GPT-5.4-mini で非同期生成（8秒タイムアウト、最大900トークン）
+- `review_meta`（50+フィールド）を組立
+
+##### 改善解説（Explanation JSON v2）
+
+改善解説は `explanation.py` の `generate_improvement_explanation()` が生成する。出力は構造化 JSON v2 形式で、OpenAI JSON Schema モードを使用する。評価軸は `effective_evaluation_axes`（Stage 1 で解決済み）からテンプレートごとに決定する。
+
+```json
+{
+  "version": 2,
+  "improvement_points": [
+    {"axis": "評価軸名", "point": "改善ポイント短く", "detail": "読み手に伝わる変化を1文で"}
+  ],
+  "main_changes": [
+    {"before_summary": "変更前の要約", "after_summary": "変更後の要約", "change": "何をどう直したかを1文で"}
+  ]
+}
+```
+
+| フィールド | 最大件数 | 切り詰め上限 |
+|---|---|---|
+| `improvement_points` | 3件 | axis: 32字、point: 48字、detail: 110字 |
+| `main_changes` | 2件 | before_summary: 24字、after_summary: 24字、change: 90字 |
+
+- ストリーミングチャンクは個別送出せず、完全なレスポンスを収集後 `_normalize_explanation_payload()` で正規化
+- BFF 層で `explanation_complete` イベントに変換し、フロントの `useESReview` が JSON パースして UI 表示
+- `complete` イベントの `result.improvement_explanation` も同じ JSON v2 文字列
+
+SSOT: `backend/app/services/es_review/explanation.py`
+
+### 4.3 バリデーション判定基準
+
+| チェック項目 | 判定基準 | 失敗コード |
+|---|---|---|
+| 文字数下限 | char_max の 90% フロア | `under_min` |
+| 文字数上限 | char_max 超過 | `over_max` |
+| 文体 | です/ます の残存 | `style` |
+| 冒頭 | 設問復唱・長すぎる導入 | `verbose_opening` |
+| 企業根拠 | required テンプレで根拠なし | `grounding` |
+| 構造 | 箇条書き・断片文 | `bulletish_or_listlike` / `fragment` |
+| 自己否定 | ネガティブな自己評価 | `negative_self_eval` |
+| 捏造 | 数値/役職の改変 | `hallucination` |
+
+### 4.4 リトライ戦略
+
+リトライ順序は固定:
+
+```
+strict → focused retry 1 → focused retry 2 → length-fix → degraded / 422
+```
+
+Focused retry は失敗コードから focus mode を決定する:
+
+| 失敗コード | Focus mode |
+|---|---|
+| `under_min` | `length_focus_min` |
+| `over_max` | `length_focus_max` |
+| `style` | `style_focus` |
+| `grounding` | `grounding_focus` |
+| `verbose_opening` | `opening_focus` |
+| `negative_self_eval` | `positive_reframe_focus` |
+| `bulletish_or_listlike` / `fragment` | `structure_focus` |
+
+複合失敗では composite mode（Step 1 / Step 2 段階指示）を1回の LLM 呼び出しで適用する。
+
+#### Delta-band 動的修復
+
+`length_focus_min` は `FocusModeContext` により不足量に応じた具体的修復戦略を生成する:
+
+| Delta Band | 条件 | 修復戦略 |
+|---|---|---|
+| large | shortfall >= 70字 | 2〜3文追加。根拠経験→学び→企業接点を展開 |
+| medium | 35-69字 | 1文追加。既存文脈の具体化か因果の補足 |
+| small | 15-34字 | 補足句1つ。語尾・接続・修飾の密度向上 |
+| tiny | < 15字 | 語尾変更・短い補足句で微調整 |
+
+SSOT: `compute_shortfall_delta_band()` in `backend/app/prompts/es_templates/_length_control.py`
+
+#### Overshoot 方式（under_min_recovery）
+
+LLM のアンダーシュート傾向を補正するため、recovery stage では内部目標を char_max を超えて設定する:
+
+| Provider | short 帯 | medium 帯 | long 帯 |
+|---|---|---|---|
+| GPT-5 Mini | +20字 | +15字 | +10字 |
+| Claude / GPT-5 / Gemini / generic | +15字 | +12字 | +8字 |
+
+#### Temperature / Token 上限
+
+| Stage | Focus Mode | Temperature | Token 上限 |
+|---|---|---|---|
+| Rewrite | normal | 0.20 | char_max * 1.4 |
+| Rewrite | length_focus_min (large) | 0.15 | char_max * 1.3 |
+| Rewrite | length_focus_min (medium) | 0.13 | char_max * 1.3 |
+| Rewrite | length_focus_min (small/tiny) | 0.11 | char_max * 1.3 |
+| Rewrite | 他の focus mode | 0.14 | char_max * 1.4 |
+| Length-fix | - | 0.12 | char_max * 1.2 |
+
+詳細: `docs/prompts/es-review/repair-strategies.md`
+
+---
+
+## 5. テンプレートシステム
+
+### 9テンプレート
+
+| テンプレート | 用途 | Grounding Policy |
+|---|---|---|
+| `basic` | 汎用（分類不能時のフォールバック） | 設問文に応じて可変 |
+| `company_motivation` | 志望動機 | `deep` (required) |
+| `role_course_reason` | コース/職種志望理由 | `deep` (required) |
+| `intern_reason` | インターン参加理由 | `standard` (required) |
+| `intern_goals` | インターンで学びたいこと | `standard` (required) |
+| `post_join_goals` | 入社後にやりたいこと | `standard` (required) |
+| `gakuchika` | 学生時代に力を入れたこと | `none` |
+| `self_pr` | 自己PR | `light` (assistive) |
+| `work_values` | 大切にしている価値観 | `light` (assistive) |
+
+### TEMPLATE_DEFS の構造
+
+`backend/app/prompts/es_templates/` に各テンプレートの仕様を集約:
+
+- `purpose`: テンプレートの目的
+- `required_elements`: 必須要素
+- `anti_patterns`: 禁止パターン
+- `evaluation_checks`: 自動検証項目
+- `retry_guidance`: リトライ時の橋渡し文言
+- `recommended_structure`: 推奨構成
+- `question_focus_rules`: 冒頭焦点ルール
+
+プロンプト・バリデータ・リトライヒントが同じ定義を参照することで一貫性を保証する。
+
+### 複合テンプレート
+
+1設問に複数のテンプレートタイプが含まれる場合（例: 「志望動機 + 入社後の目標」）、`merge_template_specs()` が仕様をマージする:
+
+- `required_elements`: 全コンポーネントから重複排除して統合
+- `anti_patterns`: 同上
+- `evaluation_axes`: 主テンプレートの全軸 + 副テンプレートの上位2軸（最大7軸、重複排除）
+- `grounding_level`: コンポーネント中の最高レベルを採用
+- `requires_company_rag`: いずれかが `True` なら `True`
+- `retry_guidance`: 主テンプレートを基本に、副テンプレートのガイダンスを追加
+
+`strength_weakness` バリアントでは「弱みの認識と克服姿勢」を必須要素に追加し、専用の評価軸を付与する。11パターンの `SUPPORTED_COMPOUND_PATTERNS` を定義（一覧はコード参照）。
+
+SSOT: `backend/app/services/es_review/template_context.py` の `merge_template_specs()`
+
+### テンプレート別結び動詞ガイダンス
+
+テンプレートごとに参考ESコーパスの傾向に基づく結び動詞の推奨が異なる:
+
+| テンプレート | 結びの傾向 |
+|---|---|
+| `gakuchika` | 「培った」「身につけた」が主流。「学んだ」は避ける |
+| `self_pr` | 「活かしたい」「活用したい」で志望先業務に接続 |
+| `company_motivation` | 「貢献していく」「成長したい」で行動宣言 |
+
+ガクチカでは配分ガイド・few-shot例・patterns.json のすべてで「培った」「身につけた」「磨いた」を推奨し、「学んだ」「実感した」を禁止している。
+
+SSOT: `backend/app/prompts/es_templates/_prompt_builder.py` の配分ガイド、`backend/app/prompts/gakuchika_prompts.py` の few-shot 配分例
+
+### Grounding Level の解決
+
+推奨レベルを基に、以下の条件で下方修正する（上げることはない）:
+
+- `basic` で char_max ≤ 220 → `light` に制限
+- RAG 未利用 → 1段階下げ
+- evidence_coverage が `weak` → 1段階下げ
+- evidence_coverage が `none` → `light` に強制
+
+---
+
+## 6. 企業RAG連携
+
+### RAG取得条件
+
+- 企業が選択されている場合のみ実行
+- 企業未選択でも添削は可能（テンプレート制限あり: basic/gakuchika/self_pr/work_values のみ）
+
+### Source Family 優先順位（テンプレート依存）
+
+| テンプレート | 1st | 2nd | 3rd |
+|---|---|---|---|
+| `company_motivation` | business_future | people_values | hiring_role |
+| `role_course_reason` | hiring_role | people_values | business_future |
+| `intern_reason` / `intern_goals` | hiring_role | people_values | business_future |
+| `post_join_goals` | business_future | people_values | hiring_role |
+| `self_pr` / `gakuchika` / `work_values` | people_values（補助のみ） | — | — |
+
+### エビデンスカード構築
+
+RAGソースを構造化してプロンプトに渡す:
+
+1. 同一企業ドメイン検証（`classify_company_domain_relation`）
+2. テーマ分類（企業理解/事業理解/価値観/役割理解/現場期待 等）
+3. 最大5件に絞り込み
+4. `evidence_coverage_level` を算出: `strong` / `partial` / `weak` / `none`
+
+ソース不足時は企業固有の断定を広げず、`company_general` または `weak_evidence_notice` で安全側に倒す。
+
+---
+
+## 7. 品質保証
+
+### 参考ES
+
+参考ESは本文の材料には使わない。用途は以下に限定:
+
+- **quality hints**: 冒頭結論の長さ、文数、具体性の統計的指針
+- **coarse skeleton**: 大まかな構成パターン
+- **conditional hints**: 参考群との乖離が大きい場合のみ追加ヒント
+- **logic patterns**: 論理構成パターン（`logic_patterns.py` で別モジュール管理）
+
+#### JSONL コーパス
+
+設問タイプ別にコーパスを格納する。`REFERENCE_ES_PATH` を明示的にオーバーライドした場合のみレガシー JSON にフォールバックする。
+
+```
+backend/app/reference/es_review/
+├── basic/
+│   ├── references.jsonl     ← 参考ES本文
+│   └── patterns.json        ← logic_patterns 用
+├── company_motivation/
+│   └── ...
+└── ... (9テンプレート分)
+```
+
+**`references.jsonl` レコードのフィルタリング条件**:
+
+| 条件 | 必須値 |
+|---|---|
+| `question_type` | リクエストと一致 |
+| `capture_kind` | `"full_text"` |
+| `usage_consent` | `true` |
+| `anonymized` | `true` |
+| `source_provenance` | 存在（空でない） |
+
+**テキスト品質検証**（`_is_reference_text_usable()`）:
+
+- 最低20文字
+- アーティファクトパターンを含まない: `"【内容・詳細】"`, `"文字以上"`, `"文字以下"`, `"お聞かせください"`, `"教えてください"`
+- `char_max` 設定時: `max(char_max + 80, char_max × 1.35)` 以内
+
+参考ESが0件の場合、`build_reference_quality_profile()` は空のデフォルトプロファイルを返す（`None` ではない）。品質ヒントと骨子はテンプレート種別の固定値が適用される。
+
+SSOT: `backend/app/prompts/reference_es.py`
+
+#### 構成パターン（Logic Patterns）
+
+`reference_es.py` から分離された `logic_patterns.py` が構成パターンの読み込みと整形を担う。
+
+- ソース: `backend/app/reference/es_review/{question_type}/patterns.json`
+- `build_logic_patterns_block()` は `build_reference_quality_block()` 内から呼び出される
+- 出力条件: confidence が `high` または `medium`、かつ `char_max >= 260`
+
+**安全検査**:
+- `human_reviewed: true` が必須（未レビューのパターンは無視）
+- `_check_copy_safety()`: 企業名がパターンテキストに残っていないことを確認
+- スキーマバリデーション: 必須フィールドの存在を検証
+
+SSOT: `backend/app/prompts/logic_patterns.py`
+
+### Cross-Model Compliance
+
+ES 添削の text 生成は、Claude / GPT / Gemini の全モデルで `backend/app/prompts/es_templates/_prompt_builder.py` が構築した同一 system / user プロンプトを使用する。provider 別の text augmentation は行わず、文体・文字数・出力形式・段落構成の契約はテンプレートビルダー側を正本にする。
+
+SSOT: `backend/app/prompts/es_templates/_prompt_builder.py`
+
+### AI安全対策
+
+| 対策 | 検出対象 | 処理 |
+|---|---|---|
+| Injection検出 | プロンプト操作・情報抽出 | high→遮断 / medium→sanitize |
+| Fact Guard | 数値変更・役職変更・経験捏造 | `hallucination` 失敗コード → hard block + 事実保全リトライ |
+| AI Smell | 評論調・抽象名詞の過多 | tier を観測し、必要時はリトライヒント |
+
+### review_meta による観測性
+
+バックエンド内部では全添削リクエストに `review_meta`（50+フィールド）を付与し、品質の観測・集計を可能にする。BFF の公開SSEでは UI 表示に必要な最小 subset だけを残す。
+
+- **分類**: `classification_confidence`, `recommended_grounding_level`, `effective_grounding_level`
+- **生成過程（内部診断のみ）**: `rewrite_attempt_count`, `length_policy`, `repair_dispatches`, `composite_retry_modes`, `length_fix_attempted`, `fallback_triggered`
+- **提出前チェック材料**: `ai_smell_tier`, `concrete_marker_count`, `opening_conclusion_chars`
+- **検証結果**: `rewrite_validation_status` (`strict` / `soft_ok` / `degraded` / `failed`)
+- **トークン使用量（内部診断のみ）**: `input_tokens`, `output_tokens`, `reasoning_tokens`, `llm_call_count`
+
+公開 `review_meta` は `grounding_mode`、`weak_evidence_notice`、`rewrite_validation_status`、`rewrite_validation_user_hint`、提出前チェックに必要な自然表示用の数値に限定する。
+
+---
+
+## 8. フロントエンド
+
+### コンポーネント構成
+
+```
+ESEditorPageClient (1155行)
+├── ブロックエディタ（H2セクション単位）
+├── 自動保存（2秒debounce）
+├── Undo/Redo
+└── デスクトップ: 55/45 分割パネル
+    └── ReviewPanel (1400行)
+        ├── セットアップUI（テンプレート/企業/業界/職種/モデル）
+        ├── バリデーション + エラーハイライト
+        └── StreamingReviewResponse (601行)
+            ├── 進捗バー
+            ├── リライトテキスト（タイピングアニメーション）
+            ├── 反映準備 CTA
+            ├── 改善ポイント / 主な変更点（JSON v2 payload を UI で表示、初期折りたたみ）
+            ├── 提出前チェック（構成/具体性/企業接続/根拠、初期折りたたみ）
+            └── 出典リンク（初期折りたたみ）
+```
+
+### ストリーミング再生システム
+
+`useESReview` フックが SSE を消費し、Playback状態遷移を管理:
+
+```
+idle → rewrite（文字逐次表示）→ sources（出典カード追加）→ complete（確定）
+```
+
+- タイピングアニメーション: 句読点で遅延、`prefers-reduced-motion` 対応
+- 20文字チャンク単位でバックエンドから送出
+- `responseInstanceKey` インクリメントで再マウント強制
+
+### 主要フック
+
+| フック | 責務 |
+|---|---|
+| `useESReview` | SSE消費・状態管理・abort制御・経過時間計測 |
+| `useCredits` | 残高取得・コスト計算 |
+| `useOperationLock` | ストリーミング中のエディタロック |
+
+### リライト反映
+
+1. ユーザーが「この改善案を反映」をクリック
+2. `ReflectModal` で差分（追加=緑/削除=赤）を表示
+3. 確認 → `handleApplyRewrite()` でセクション置換
+4. Undo ボタンで元に戻せる
+
+---
+
+## 9. 課金・認証
+
+### クレジット消費テーブル（`calculateESReviewCost`）
+
+| モデル区分 | 〜500字 | 〜1000字 | 〜1500字 | 1501字〜 |
+|---|---|---|---|---|
+| Claude / GPT / Gemini | 6 | 10 | 14 | 20 |
+| クレジット消費を抑えて添削 (low-cost) | 3 | 6 | 9 | 12 |
+| Free プラン（実体=mini、クレジットはプレミアム帯） | 6 | 10 | 14 | 20 |
+
+### Reserve → Confirm/Cancel フロー
+
+1. **Reserve**: 添削開始時にクレジットを事前控除
+2. **Confirm**: SSE `complete` で `billing_outcome.success && billable` → 控除確定
+3. **Cancel**: エラー・abort・無効な結果 → 返金
+
+### 認証ルール
+
+- **ログインユーザー**: 全機能利用可能
+- **ゲスト**: 添削不可（BFF が 401 で拒否）
+- **Free プラン**: GPT-5.4 mini 固定（モデル選択UI非表示）
+- **Standard / Pro**: 4モデルから選択可能
+
+---
+
+## 10. テスト
+
+### Validation Profile
+
+ES rewrite の検証は `backend/app/services/es_review/validation_profile.py` の `STRICT_PROFILE` を標準にする。元回答の情報量は文字数と抽出事実数から `sparse` / `low` / `moderate` / `sufficient` に分類し、短い元回答では `fact_preservation` を warning 扱いに落として、事実が少ない入力への過剰ブロックを避ける。
+
+`number_mutation` は全 tier で hard block のまま維持する。`role_title_mutation` と `metric_fabrication` は情報量 tier に応じて hard block / warning の境界を変え、telemetry には `validation_profile_name` と `information_density` を残す。
+
+### テスト層
+
+| 層 | コマンド | 内容 |
+|---|---|---|
+| Unit (Backend) | `python -m pytest backend/tests/es_review -q` | プロンプト構造・バリデーション・リトライ |
+| Architecture | `python -m pytest backend/tests/architecture/ -q` | サービス層の境界分離 |
+| Live Provider | `make backend-test-live-es-review` | 実API品質ゲート（ローカルのみ） |
+| Unit (Frontend) | `npm run test:unit` | コンポーネント・バリデーション |
+| E2E | `make test-e2e-functional-local AI_LIVE_LOCAL_FEATURES=es-review` | ブラウザ統合テスト |
+
+### 主要テストファイル
+
+- `backend/tests/es_review/test_es_review_prompt_structure.py` — 166ケース、全テンプレートの prompt 構造検証
+- `backend/tests/es_review/test_es_review_final_quality_cases.py` — リライト品質・文字数・文体の回帰テスト
+- `backend/tests/es_review/test_es_review_quality_rubric.py` — コンテキスト品質の最低0.8スコア保証
+- `backend/tests/es_review/test_es_review_template_repairs.py` — 正規化・圧縮・degraded処理
+- `backend/tests/architecture/test_es_review_ca2_boundaries.py` — サービス層↔ルーター層の依存方向
+- `backend/tests/es_review/test_es_review_explanation_prompt.py` — 改善説明 JSON v2 構造検証
+- `backend/tests/es_review/test_es_review_template_context.py` — 複合テンプレート解決
+- `backend/tests/es_review/test_logic_patterns.py` — 構成パターン・copy-safety
+- `backend/tests/es_review/test_reference_es_corpus_integrity.py` — コーパス整合性
+
+---
+
+## 11. 主要ファイル一覧（クイックリファレンス）
+
+| カテゴリ | ファイル | 行数 |
+|---|---|---|
+| **Backend Core** | `backend/app/services/es_review/orchestrator.py` | ~1,630 |
+| | `backend/app/services/es_review/validation.py` | ~930 |
+| | `backend/app/services/es_review/retry.py` | ~900 |
+| | `backend/app/services/es_review/grounding.py` | ~990 |
+| | `backend/app/services/es_review/explanation.py` | ~310 |
+| | `backend/app/services/es_review/template_context.py` | ~295 |
+| | `backend/app/routers/es_review.py` | ~1,310 |
+| **Prompts** | `backend/app/prompts/es_templates/` (dir) | ~2,535 |
+| | `backend/app/prompts/reference_es.py` | ~650 |
+| | `backend/app/prompts/logic_patterns.py` | ~290 |
+| **Data** | `backend/app/reference/es_review/` (dir) | 9テンプレート分の JSONL + patterns |
+| **Frontend** | `src/components/es/ReviewPanel.tsx` | ~1,400 |
+| | `src/components/es/ESEditorPageClient.tsx` | ~1,155 |
+| | `src/components/es/StreamingReviewResponse.tsx` | ~600 |
+| | `src/hooks/useESReview.ts` | ~690 |
+| **BFF** | `src/bff/es-review/review-stream-context.ts` | ~393 |
+| | `src/bff/es-review/handle-review-stream.ts` | ~221 |
+
+---
+
+## 補足: 関連ドキュメント
+
+- テスト品質基準: `docs/testing/ES_REVIEW_QUALITY.md`
+- ガクチカ深掘り: `docs/features/GAKUCHIKA_DEEP_DIVE.md`
+- 志望動機: `docs/features/MOTIVATION.md`
+- 集客LP: `src/app/(marketing)/es-tensaku-ai/page.tsx`

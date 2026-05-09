@@ -1,13 +1,31 @@
 "use client";
 
+import { useMemo } from "react";
+import {
+  ConversationPhaseBar,
+  ConversationProgressBar,
+  type PhaseItem,
+  type ProgressStage,
+} from "@/components/chat";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConversationSidebarCard } from "@/components/chat/ConversationWorkspaceShell";
 import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
-import { MotivationPhaseBar } from "@/components/motivation/MotivationPhaseBar";
-import { MotivationProgressStatus } from "@/components/motivation/MotivationProgressStatus";
-import { type CausalGap, type ConversationMode, type EvidenceCard, type StageStatus } from "@/features/motivation/domain/ui";
+import {
+  getMotivationLifecyclePhase,
+  getMotivationPhaseStatus,
+  getMotivationSlotPillStatus,
+  MOTIVATION_LIFECYCLE_PHASES,
+  SLOT_PILL_LABELS,
+  STAGE_ORDER,
+  type CausalGap,
+  type ConversationMode,
+  type EvidenceCard,
+  type MotivationStageKey,
+  type StageStatus,
+} from "@/features/motivation/domain/ui";
+import { cn } from "@/lib/utils";
 
 import { ResetIcon } from "./motivation-icons";
 
@@ -28,6 +46,93 @@ const SLOT_DISPLAY_ORDER = [
   "value_contribution",
   "differentiation",
 ] as const;
+
+type SlotKey = Exclude<MotivationStageKey, "closing">;
+
+function formatQuestionDisplay(questionCount: number, conversationMode: ConversationMode): string {
+  if (questionCount === 0) return "これから1問目";
+  if (conversationMode === "slot_fill") return `${questionCount}問目 / 約6問`;
+  return `${questionCount}問目 / 補強中`;
+}
+
+function CausalGapSteps({ gaps }: { gaps: CausalGap[] }) {
+  return (
+    <div className="space-y-0.5">
+      {gaps.map((gap, index) => {
+        const status: Extract<ProgressStage["status"], "current" | "pending"> = index === 0 ? "current" : "pending";
+        return (
+          <div key={gap.id} className="flex items-start gap-2.5 py-1">
+            <span className="relative mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center">
+              <span
+                className={cn(
+                  "absolute inline-flex h-2 w-2 rounded-full",
+                  status === "current" ? "bg-sky-500" : "bg-muted-foreground/30",
+                )}
+              />
+              {status === "current" ? (
+                <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-sky-500 opacity-60" />
+              ) : null}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-medium text-foreground/80">
+                {SLOT_PILL_LABELS[gap.slot as SlotKey] || gap.slot}
+              </p>
+              {status === "current" ? (
+                <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{gap.reason}</p>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ProgressDetailSection({
+  currentSlotLabel,
+  currentIntentLabel,
+  nextAdvanceCondition,
+}: {
+  currentSlotLabel: string | null;
+  currentIntentLabel: string | null;
+  nextAdvanceCondition: string | null;
+}) {
+  const hasDetail =
+    currentSlotLabel !== null ||
+    currentIntentLabel !== null ||
+    nextAdvanceCondition !== null;
+
+  if (!hasDetail) return null;
+
+  return (
+    <div className="space-y-1 text-xs text-muted-foreground">
+      {currentSlotLabel !== null ? (
+        <p>
+          今確認していること:{" "}
+          <span className="font-medium text-foreground/80">
+            {currentSlotLabel}
+          </span>
+        </p>
+      ) : null}
+      {currentIntentLabel !== null ? (
+        <p>
+          今回知りたいこと:{" "}
+          <span className="font-medium text-foreground/80">
+            {currentIntentLabel}
+          </span>
+        </p>
+      ) : null}
+      {nextAdvanceCondition !== null ? (
+        <p>
+          次に進む条件:{" "}
+          <span className="font-medium text-foreground/80">
+            {nextAdvanceCondition}
+          </span>
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 export function MotivationConversationSidebar({
   effectiveIndustry,
@@ -84,6 +189,59 @@ export function MotivationConversationSidebar({
   draftHelperText: string;
   onResetConversation: () => void;
 }) {
+  const isDeepDive = conversationMode === "deepdive";
+  const questionDisplay = formatQuestionDisplay(questionCount, conversationMode);
+  const progressStages = useMemo<ProgressStage[]>(() => {
+    if (isDeepDive && causalGaps.length > 0) {
+      return [];
+    }
+    return (STAGE_ORDER as SlotKey[]).map((slot) => ({
+      key: slot,
+      label: SLOT_PILL_LABELS[slot],
+      status: getMotivationSlotPillStatus(slot, stageStatus),
+    }));
+  }, [causalGaps.length, isDeepDive, stageStatus]);
+  const motivationPhases = useMemo<PhaseItem[]>(() => {
+    const currentPhase = getMotivationLifecyclePhase(
+      isDraftReady,
+      conversationMode,
+      Boolean(nextQuestion),
+      causalGaps.length > 0,
+    );
+    const hasDraft = Boolean(generatedDraft?.trim());
+    const phaseDefinitions: Array<{
+      key: "slot_fill" | "draft_ready" | "deep_dive_active" | "interview_ready";
+      label: string;
+    }> = [
+      { key: "slot_fill", label: "質問中" },
+      ...MOTIVATION_LIFECYCLE_PHASES.map((phase) => ({
+        key: phase.key,
+        label:
+          phase.key === "deep_dive_active"
+            ? "深掘り中"
+            : phase.key === "interview_ready"
+              ? "深掘り完了"
+              : phase.label,
+      })),
+    ];
+
+    return phaseDefinitions.map((phase) => {
+      if (phase.key === "slot_fill") {
+        return {
+          ...phase,
+          status: currentPhase === "slot_fill" ? "current" : "done",
+        };
+      }
+
+      let itemStatus = getMotivationPhaseStatus(phase.key, currentPhase);
+      if (phase.key === "draft_ready" && hasDraft && itemStatus !== "done") {
+        itemStatus = "done";
+      }
+      const label = phase.key === "draft_ready" && hasDraft ? "ES生成済み" : phase.label;
+      return { key: phase.key, label, status: itemStatus };
+    });
+  }, [causalGaps.length, conversationMode, generatedDraft, isDraftReady, nextQuestion]);
+
   return (
     <>
       <ConversationSidebarCard
@@ -139,23 +297,19 @@ export function MotivationConversationSidebar({
               </div>
             ) : (
               <>
-                <MotivationProgressStatus
-                  stageStatus={stageStatus}
-                  questionCount={questionCount}
-                  conversationMode={conversationMode}
-                  coachingFocus={coachingFocus}
-                  currentSlotLabel={currentSlotLabel}
-                  currentIntentLabel={currentIntentLabel}
-                  nextAdvanceCondition={nextAdvanceCondition}
-                  causalGaps={causalGaps}
-                />
-                <MotivationPhaseBar
-                  isDraftReady={isDraftReady}
-                  generatedDraft={generatedDraft}
-                  conversationMode={conversationMode}
-                  hasNextQuestion={Boolean(nextQuestion)}
-                  hasCausalGaps={causalGaps.length > 0}
-                />
+                <ConversationProgressBar
+                  stages={progressStages}
+                  headerSubtext={questionDisplay}
+                  footerMessage={coachingFocus}
+                >
+                  {isDeepDive && causalGaps.length > 0 ? <CausalGapSteps gaps={causalGaps} /> : null}
+                  <ProgressDetailSection
+                    currentSlotLabel={currentSlotLabel}
+                    currentIntentLabel={currentIntentLabel}
+                    nextAdvanceCondition={nextAdvanceCondition}
+                  />
+                </ConversationProgressBar>
+                <ConversationPhaseBar phases={motivationPhases} />
                 <p className="text-xs leading-5 text-muted-foreground">
                   {draftHelperText}
                 </p>

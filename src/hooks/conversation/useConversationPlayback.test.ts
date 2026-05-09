@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { shouldCommitConversationPlayback } from "./useConversationPlayback";
 
 describe("shouldCommitConversationPlayback", () => {
+  // cast 除去後も振る舞い不変を担保
   it("returns true only when pending data exists, streaming is active, and playback is complete", () => {
     expect(
       shouldCommitConversationPlayback({

@@ -400,13 +400,19 @@ def _compute_hallucination_score(
     warnings: list[dict[str, str]],
     *,
     template_type: str,
+    tier2_threshold: float | None = None,
 ) -> dict[str, Any]:
+    threshold = (
+        tier2_threshold
+        if tier2_threshold is not None
+        else _HALLUCINATION_TIER2_THRESHOLD
+    )
     if not warnings:
         return {
             "score": 0.0,
             "tier": 0,
             "band": "standard",
-            "threshold": _HALLUCINATION_TIER2_THRESHOLD,
+            "threshold": threshold,
         }
 
     metric_penalty = (
@@ -422,7 +428,7 @@ def _compute_hallucination_score(
         else:
             score += _HALLUCINATION_PENALTIES.get(code, 0.0)
 
-    if score >= _HALLUCINATION_TIER2_THRESHOLD:
+    if score >= threshold:
         tier = 2
     elif score > 0:
         tier = 1
@@ -437,7 +443,7 @@ def _compute_hallucination_score(
             if template_type in {"company_motivation", "post_join_goals"}
             else "standard"
         ),
-        "threshold": _HALLUCINATION_TIER2_THRESHOLD,
+        "threshold": threshold,
     }
 
 
@@ -447,6 +453,7 @@ __all__ = [
     "_HALLUCINATION_TIER2_THRESHOLD",
     "_compute_hallucination_score",
     "_detect_fact_hallucination_warnings",
+    "_extract_experience_terms",
     "_extract_numeric_expressions",
     "_extract_role_titles",
 ]

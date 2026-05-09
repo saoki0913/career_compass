@@ -13,7 +13,7 @@ language: ja
 ## 対象ファイル・コンポーネント（主な候補）
 
 - `backend/app/routers/es_review.py` — **5220行**。ES添削の全ロジックが集中。
-- `backend/app/prompts/es_templates.py` — **1824行**。テンプレート定義・プロンプトビルダー・文字数制御。
+- `backend/app/prompts/es_templates/` — **1824行**。テンプレート定義・プロンプトビルダー・文字数制御。
 - `backend/app/utils/llm.py` — LLM呼び出し・モデル解決・コスト計算が混在。
 - `.omm/` — アーキテクチャ記録（リファクタリングの整合性検証に使用）。
 
@@ -41,7 +41,7 @@ language: ja
 - RAG コンテキスト取得
 - テンプレート判定
 
-### `es_templates.py` の分割候補
+### `es_templates/` の分割候補
 - テンプレート定義（TEMPLATE_DEFS）
 - プロンプトビルダー関数群
 - 文字数制御プロファイル

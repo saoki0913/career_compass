@@ -32,8 +32,8 @@ describe("FeaturesSection design-system guard", () => {
     );
   });
 
-  it("uses 6-column CSS grid for cards", () => {
-    expect(source).toContain("repeat(6, 1fr)");
+  it("uses a 3-column desktop grid for the six reference cards", () => {
+    expect(source).toContain("lg:grid-cols-3");
   });
 
   it("uses Noto Sans JP font family without Inter", () => {
@@ -59,26 +59,40 @@ describe("FeaturesSection design-system guard", () => {
     expect(source).toContain('from "@/lib/marketing/lp-assets"');
     const imgSrcMatches = source.match(/src=\{lpSectionAsset\(/g);
     expect(imgSrcMatches).not.toBeNull();
-    expect(imgSrcMatches!.length).toBeGreaterThanOrEqual(6);
+    expect(imgSrcMatches!.length).toBeGreaterThanOrEqual(1);
+    expect(source).toContain("features.map");
   });
 
   it("has section id='features'", () => {
     expect(source).toContain('id="features"');
+    expect(source).toContain("scroll-mt-[92px]");
   });
 
-  it("uses reference card border-radius of 22px", () => {
-    expect(source).toContain("borderRadius: 22");
+  it("uses compact reference card border-radius and enhanced shadows", () => {
+    expect(source).toContain("rounded-2xl");
+    expect(source).toContain("rgba(20,50,110,0.12)");
+    expect(source).toContain("rgba(20,50,110,0.13)");
   });
 
-  it("uses reference inner visual wrap border-radius of 14px", () => {
-    expect(source).toContain("borderRadius: 14");
-    expect(source).toContain("feat-card-visual-v2");
-    expect(source).toContain("height: 238");
-    expect(source).toContain('objectFit: "contain"');
+  it("uses reference card visuals with stable aspect ratio", () => {
+    expect(source).toContain("h-[240px]");
+    expect(source).toContain("sm:h-[260px]");
+    expect(source).toContain("object-contain");
+    expect(source).toContain("items-center justify-center bg-white p-3");
+    expect(source).not.toContain("bg-[#f7fbff] p-3");
+    expect(source).not.toContain("bg-white/80 px-5 py-6");
   });
 
   it("uses responsive breakpoints for grid fallback", () => {
-    expect(source).toContain("max-width: 1099px");
-    expect(source).toContain("max-width: 768px");
+    expect(source).toContain("lg:grid-cols-[500px_minmax(0,1fr)]");
+    expect(source).toContain("md:grid-cols-[1fr_48px_1fr_48px_1fr]");
+  });
+
+  it("marks the section for Playwright section screenshots", () => {
+    expect(source).toContain('data-section="features"');
+  });
+
+  it("includes sparkle decorations", () => {
+    expect(source).toContain("LpSparkleDecorations");
   });
 });

@@ -82,6 +82,24 @@ describe("marketing home page regressions", () => {
     }
   });
 
+  it("does not keep outdated root LP card-free or duplicated before-after copy", () => {
+    const rootLpFiles = [
+      "src/components/landing/sections/BeforeAfterSection.tsx",
+      "src/components/landing/sections/PricingSection.tsx",
+      "src/components/landing/sections/LPFAQSection.tsx",
+      "src/lib/marketing/landing-faqs.ts",
+      "src/lib/seo/site-structured-data.ts",
+    ];
+
+    for (const file of rootLpFiles) {
+      const source = readSource(file);
+      expect(source).not.toContain("もう迷わない！");
+      expect(source).not.toContain("クレカ登録不要");
+      expect(source).not.toContain("カード登録不要");
+      expect(source).not.toContain("クレジットカード登録なしで始められます");
+    }
+  });
+
   it("exports page-specific metadata via createMarketingMetadata", () => {
     const source = readSource("src/app/(marketing)/page.tsx");
 

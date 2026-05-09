@@ -1,1 +1,1 @@
-User-visible route structure across the marketing site, auth and onboarding flows, the main product workspace, and standalone utility pages. It explains how navigation surfaces map to the repository's App Router folders.
+現在の route map は marketing、auth/onboarding、product workspace、company management、AI workflows、operations settings、utility/tools に分かれる。Product workspace の主要導線は sidebar と各 page/client component に分散しており、route-page-map と実 navigation の同期が重要。settings/profile のような近接 route はリンク先の実在確認が必要で、route map が古いと UI から存在しない API/route へ進む問題を見落とす。

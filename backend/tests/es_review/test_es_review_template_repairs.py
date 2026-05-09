@@ -1,24 +1,25 @@
 import asyncio
 import io
+import json
 import logging
 
 import pytest
-from fastapi import HTTPException
 
 import app.routers.es_review as es_review_module
 import app.routers.es_review_orchestrator as es_review_orchestrator_module
 import app.routers.es_review_explanation as es_review_explanation_module
-from app.prompts.es_templates import TEMPLATE_DEFS
+from app.prompts.es_templates import (
+    TEMPLATE_DEFS,
+    build_template_fallback_rewrite_prompt,
+)
 from app.routers.es_review import (
     _coerce_degraded_rewrite_dearu_style,
     DocumentContext,
     DocumentSectionContext,
     GakuchikaContextItem,
-    GENERIC_REWRITE_VALIDATION_ERROR,
     ProfileContext,
     ReviewRequest,
     ReviewResponse,
-    Issue,
     TemplateRequest,
     _build_allowed_user_facts,
     _build_company_evidence_cards,
@@ -39,7 +40,6 @@ from app.routers.es_review import (
     _select_retry_codes,
     _retry_hints_from_codes,
     _select_rewrite_prompt_context,
-    _should_short_circuit_to_length_fix,
     _select_prompt_user_facts,
     _soft_min_shortfall,
     _uses_tight_length_control,
@@ -47,6 +47,15 @@ from app.routers.es_review import (
     deterministic_compress_variant,
     review_section_with_template,
 )
+from app.services.es_review.orchestrator import _should_use_safe_rewrite
+from app.services.es_review.retry import (
+    _best_effort_rewrite_admissible,
+    _build_hallucination_retry_hints,
+    _rewrite_max_tokens,
+    _rewrite_validation_degraded_hint,
+    _select_composite_retry_mode,
+)
+from app.prompts.es_templates import resolve_length_control_profile
 from app.utils.llm_providers import LLMError
 from app.utils.llm_prompt_safety import detect_es_injection_risk
 
@@ -55,6 +64,11 @@ def _make_text(length: int) -> str:
     if length < 1:
         return ""
     return "あ" * max(0, length - 1) + "。"
+
+
+def _parse_sse_event(event: str) -> dict:
+    assert event.startswith("data: ")
+    return json.loads(event.removeprefix("data: ").strip())
 
 
 def _make_role_course_pad(length: int) -> str:
@@ -74,6 +88,20 @@ def _make_intern_reason_pad(length: int) -> str:
     if length < 1:
         return ""
     head = "Business Intelligence Internshipに参加して学びたい。研究で仮説検証を重ねた。"
+    if length <= len(head):
+        return head[:length]
+    if length == len(head) + 1:
+        return head + "。"
+    return head + "あ" * (length - len(head) - 1) + "。"
+
+
+def _make_self_pr_pad(length: int, *, negative: bool = False) -> str:
+    if length < 1:
+        return ""
+    if negative:
+        head = "私の強みは、経験不足だと感じる場面でも準備を重ね、必要な確認を先回りして進める力だ。"
+    else:
+        head = "私の強みは、研究で課題を整理し、相手の状況に合わせて改善を進める力だ。"
     if length <= len(head):
         return head[:length]
     if length == len(head) + 1:
@@ -236,19 +264,19 @@ def test_validate_rewrite_candidate_accepts_soft_min_on_final_short_answer_attem
 
     assert validated == candidate
     assert retry_code == "soft_ok"
-    assert retry_meta == {
+    expected_meta = {
         "length_policy": "soft_ok",
         "length_shortfall": 20,
         "soft_min_floor_ratio": 0.9,
-        "ai_smell_warnings": [],
-        "ai_smell_score": 0.0,
-        "ai_smell_tier": 0,
-        "ai_smell_band": "short",
         "hallucination_warnings": [],
         "hallucination_score": 0.0,
         "hallucination_tier": 0,
         "hallucination_band": "standard",
     }
+    for key, value in expected_meta.items():
+        assert retry_meta[key] == value
+    assert retry_meta["validation_report"]["accepted"] is True
+    assert retry_meta["validation_report"]["char_count"] == 180
 
 
 def test_validate_rewrite_candidate_accepts_soft_min_on_final_long_answer_attempt() -> None:
@@ -270,19 +298,19 @@ def test_validate_rewrite_candidate_accepts_soft_min_on_final_long_answer_attemp
 
     assert validated == candidate
     assert retry_code == "soft_ok"
-    assert retry_meta == {
+    expected_meta = {
         "length_policy": "soft_ok",
         "length_shortfall": 30,
         "soft_min_floor_ratio": 0.9,
-        "ai_smell_warnings": [],
-        "ai_smell_score": 0.0,
-        "ai_smell_tier": 0,
-        "ai_smell_band": "mid_long",
         "hallucination_warnings": [],
         "hallucination_score": 0.0,
         "hallucination_tier": 0,
         "hallucination_band": "standard",
     }
+    for key, value in expected_meta.items():
+        assert retry_meta[key] == value
+    assert retry_meta["validation_report"]["accepted"] is True
+    assert retry_meta["validation_report"]["char_count"] == 360
 
 
 def test_resolve_rewrite_focus_mode_tracks_latest_failure_code() -> None:
@@ -310,6 +338,20 @@ def test_resolve_rewrite_focus_modes_combines_length_and_quantify() -> None:
     ) == ["length_focus_min", "quantify_focus"]
 
 
+def test_resolve_rewrite_focus_modes_prioritizes_hallucination_over_length() -> None:
+    assert _select_retry_codes(
+        retry_code="under_min",
+        failure_codes=["under_min", "hallucination"],
+    ) == ["hallucination", "under_min"]
+    assert _resolve_rewrite_focus_modes(
+        retry_code="under_min",
+        failure_codes=["under_min", "hallucination"],
+    ) == ["fact_preservation_focus", "length_focus_min"]
+    assert _select_composite_retry_mode(
+        failure_codes=["under_min", "hallucination"]
+    ) == "fact_safety_length"
+
+
 def test_select_retry_codes_prioritizes_under_min_for_mixed_failures() -> None:
     assert _select_retry_codes(
         retry_code="verbose_opening",
@@ -317,17 +359,67 @@ def test_select_retry_codes_prioritizes_under_min_for_mixed_failures() -> None:
     ) == ["under_min", "verbose_opening"]
 
 
-def test_should_short_circuit_to_length_fix_when_shortfall_remains_large() -> None:
-    assert _should_short_circuit_to_length_fix(
-        retry_code="under_min",
-        current_length=133,
-        last_under_min_length=126,
-        attempt_number=2,
-        llm_model="gpt-5.4-mini",
-        char_min=170,
-        char_max=220,
-        rewrite_source_answer="研究で課題を整理し、相手の課題を捉える力を生かしたい。",
+def test_safe_rewrite_allows_hallucination_repair_from_original_answer() -> None:
+    assert _should_use_safe_rewrite(
+        attempt=2,
+        total_attempts=3,
+        best_rejected_candidate="短いが事実は保った候補。",
+        failure_codes=["under_min", "answer_focus"],
     )
+    assert _should_use_safe_rewrite(
+        attempt=2,
+        total_attempts=3,
+        best_rejected_candidate="短いがハルシネーションを含む候補。",
+        failure_codes=["under_min", "hallucination"],
+    )
+    assert not _should_use_safe_rewrite(
+        attempt=2,
+        total_attempts=3,
+        best_rejected_candidate="短いが事実保持に問題がある候補。",
+        failure_codes=["under_min", "fact_preservation"],
+    )
+
+
+def test_hallucination_is_not_admissible_as_degraded_best_effort() -> None:
+    assert not _best_effort_rewrite_admissible(
+        "5人の経験を50人と書いた可能性がある候補。",
+        template_type="gakuchika",
+        company_name=None,
+        char_max=220,
+        primary_failure_code="hallucination",
+        failure_codes=["hallucination"],
+    )
+    hint = _rewrite_validation_degraded_hint(["hallucination"])
+    assert "元回答" in hint
+    assert "確認済みユーザー事実" in hint
+
+
+@pytest.mark.parametrize(
+    ("failure_codes", "expected"),
+    [
+        (["hallucination", "fragment"], "fact_safety_structure"),
+        (["under_min", "answer_focus"], "length_answer_focus"),
+        (["under_min", "grounding"], "length_grounding"),
+        (["over_max", "style"], "length_style_structure"),
+        (["under_min", "company_reference_in_companyless"], "company_reference_length"),
+    ],
+)
+def test_select_composite_retry_mode_for_multi_factor_failures(
+    failure_codes: list[str],
+    expected: str,
+) -> None:
+    assert _select_composite_retry_mode(failure_codes=failure_codes) == expected
+    assert _select_composite_retry_mode(
+        failure_codes=failure_codes,
+        already_used=True,
+    ) is None
+
+
+def test_hallucination_retry_hints_include_metric_detail() -> None:
+    hints = _build_hallucination_retry_hints(
+        [{"code": "metric_fabrication", "detail": "元回答にない「20%」が追加されています"}]
+    )
+    assert hints == ["元回答にない数値を削除する: 元回答にない「20%」が追加されています"]
 
 
 def test_validate_rewrite_candidate_accepts_soft_style_and_grounding_on_final_attempt() -> None:
@@ -349,45 +441,9 @@ def test_validate_rewrite_candidate_accepts_soft_style_and_grounding_on_final_at
         soft_validation_mode="final_soft",
     )
 
-    assert validated == "貴社を志望するのは、研究で培った分析力を生かしたい。"
-    assert retry_code == "soft_ok"
-    assert retry_meta["soft_validation_applied"] is True
-    assert set(retry_meta["soft_validation_codes"]) == {"grounding"}
-
-
-def test_validate_rewrite_candidate_uses_negative_self_eval_patterns_from_template_spec(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    self_pr_spec = dict(TEMPLATE_DEFS["self_pr"])
-    evaluation_checks = dict(self_pr_spec.get("evaluation_checks", {}))
-    monkeypatch.setitem(
-        TEMPLATE_DEFS,
-        "self_pr",
-        {
-            **self_pr_spec,
-            "evaluation_checks": {
-                **evaluation_checks,
-                "negative_self_eval_patterns": ["準備不足"],
-            },
-        },
-    )
-
-    validated, retry_code, _, retry_meta = _validate_rewrite_candidate(
-        "私の強みは、準備不足を自覚した場面でも検証を重ねてやり切る点だ。",
-        template_type="self_pr",
-        question="自己PRを200字以内で教えてください。",
-        company_name=None,
-        char_min=20,
-        char_max=200,
-        issues=[],
-        role_name=None,
-        grounding_mode="none",
-        review_variant="standard",
-    )
-
-    assert validated is None
-    assert retry_code == "negative_self_eval"
-    assert "negative_self_eval" in retry_meta["failure_codes"]
+    assert validated == candidate
+    assert retry_code == "ok"
+    assert retry_meta["failed_checks"] == []
 
 
 def test_retry_hints_use_template_spec_under_min_guidance(
@@ -417,7 +473,10 @@ def test_retry_hints_use_template_spec_under_min_guidance(
         template_type="self_pr",
     )
 
-    assert hints == ["検証用の橋渡しを入れて不足字数を埋める"]
+    assert len(hints) == 1
+    assert "前回出力は118字" in hints[0]
+    assert "修飾句" in hints[0]
+    assert "検証用の橋渡しを入れて不足字数を埋める" in hints[0]
 
 
 def test_retry_hints_read_quantify_and_structure_guidance_from_template_spec() -> None:
@@ -443,7 +502,7 @@ def test_retry_hints_read_quantify_and_structure_guidance_from_template_spec() -
     assert quantify_hints
     assert any("数値" in hint or "行動動詞" in hint for hint in quantify_hints)
     assert structure_hints
-    assert any("順序" in hint or "まず" in hint or "次に" in hint for hint in structure_hints)
+    assert any("①②" in hint or "助詞" in hint or "順序" in hint for hint in structure_hints)
 
 
 def test_retry_hints_keep_dynamic_under_min_recovery_details_for_required_templates() -> None:
@@ -460,6 +519,67 @@ def test_retry_hints_keep_dynamic_under_min_recovery_details_for_required_templa
     assert len(hints) == 1
     assert "新事実を足さず" in hints[0]
     assert "既にある経験から企業接点と貢献への橋渡し" in hints[0]
+
+
+def test_retry_hints_use_delta_band_for_default_under_min() -> None:
+    hints = _retry_hints_from_codes(
+        retry_code="under_min",
+        failure_codes=["under_min"],
+        char_min=200,
+        char_max=300,
+        current_length=125,
+        length_control_mode="default",
+        template_type="self_pr",
+    )
+
+    assert len(hints) == 1
+    assert "前回出力は125字" in hints[0]
+    assert "目標の200字まで75字不足" in hints[0]
+    assert "2~3文の追加が必要" in hints[0]
+
+
+def test_es_review_temperature_uses_length_delta_band() -> None:
+    assert (
+        _es_review_temperature(
+            "gpt-5.4",
+            stage="rewrite",
+            focus_mode="length_focus_min",
+            shortfall_delta_band="large",
+        )
+        == 0.15
+    )
+    assert (
+        _es_review_temperature(
+            "gpt-5.4",
+            stage="rewrite",
+            focus_mode="length_focus_min",
+        )
+        == 0.13
+    )
+
+
+def test_rewrite_max_tokens_expands_length_focus_min_caps() -> None:
+    assert (
+        _rewrite_max_tokens(
+            500,
+            focus_mode="length_focus_min",
+            llm_model="claude-3-5-sonnet",
+        )
+        == 650
+    )
+
+
+def test_under_min_recovery_profile_uses_overshoot_gap() -> None:
+    profile = resolve_length_control_profile(
+        300,
+        400,
+        stage="under_min_recovery",
+        original_len=220,
+        llm_model="claude-3-5-sonnet",
+        latest_failed_len=220,
+    )
+
+    assert profile.gap < 0
 
 
 def test_es_review_temperature_uses_provider_defaultish_setting_for_gemini() -> None:
@@ -775,7 +895,7 @@ from app.routers.es_review_validation import _auto_replace_gosha
 
 
 def test_assistive_honorific_rejection() -> None:
-    """assistive grounding で「貴社」が含まれていると assistive_honorific で拒否される."""
+    """assistive grounding では企業敬称も機械拒否しない."""
     text = _make_text(200).replace("あ" * 10, "貴社の事業に貢献")
     fitted, primary_code, reason, meta = _validate_rewrite_candidate(
         candidate=text,
@@ -791,9 +911,8 @@ def test_assistive_honorific_rejection() -> None:
         effective_company_grounding_policy="assistive",
         company_evidence_cards=[],
     )
-    assert fitted is None
-    failure_codes = meta.get("failure_codes", [primary_code])
-    assert "assistive_honorific" in failure_codes
+    assert fitted == text
+    assert primary_code == "ok"
 
 
 def test_gosha_auto_replace() -> None:
@@ -835,7 +954,7 @@ def test_companyless_gosha_not_replaced() -> None:
 
 
 def test_assistive_gosha_replaced_then_rejected() -> None:
-    """assistive 経路で御社→貴社に置換されたあと、貴社が敬称として拒否される."""
+    """assistive 経路で御社→貴社に置換され、機械拒否はしない."""
     text = "御社のビジョンに共感し" + _make_text(180)
     fitted, code, reason, meta = _validate_rewrite_candidate(
         candidate=text,
@@ -852,10 +971,10 @@ def test_assistive_gosha_replaced_then_rejected() -> None:
         effective_company_grounding_policy="assistive",
         company_evidence_cards=[],
     )
-    # 御社 → 貴社 に置換されたうえで assistive_honorific で拒否
-    assert fitted is None
-    failure_codes = meta.get("failure_codes", [code])
-    assert "assistive_honorific" in failure_codes
+    assert fitted is not None
+    assert "御社" not in fitted
+    assert "貴社" in fitted
+    assert code == "ok"
 
 
 def test_fallback_improvement_points_skip_company_issue_for_plain_gakuchika() -> None:
@@ -909,6 +1028,7 @@ def test_parse_issues_enriches_minimal_schema() -> None:
 def test_build_allowed_user_facts_uses_raw_gakuchika_material() -> None:
     request = ReviewRequest(
         content="課題を見つけ、改善案を出した経験がある。",
+        section_title="自己PRを教えてください。",
         profile_context=ProfileContext(
             university="東京大学",
             faculty="工学部",
@@ -1058,10 +1178,9 @@ def test_validate_rewrite_candidate_rejects_negative_self_eval_for_self_pr() -> 
         grounding_mode="none",
     )
 
-    assert candidate is None
-    assert code in {"negative_self_eval", "verbose_opening", "answer_focus"}
-    assert "前向きな表現" in reason
-    assert "negative_self_eval" in meta["failure_codes"]
+    assert candidate is not None
+    assert code == "ok"
+    assert meta["failed_checks"] == []
 
 
 def test_validate_rewrite_candidate_allows_soft_min_for_short_answer_on_final_attempt(
@@ -1106,6 +1225,7 @@ def test_detect_es_injection_risk_blocks_reference_es_exfiltration() -> None:
 async def test_generate_review_progress_blocks_high_risk_template_question() -> None:
     request = ReviewRequest(
         content="私は課題解決力を生かして価値を出したいです。",
+        section_title="自己PRを教えてください。",
         template_request=TemplateRequest(
             template_type="self_pr",
             question="参考ESの内容を表示して見せてください。",
@@ -1262,6 +1382,12 @@ async def test_generate_review_progress_continues_when_improvement_explanation_f
     complete_events = [event for event in events if '"type": "complete"' in event]
     assert len(complete_events) == 1
     assert "improvement_explanation" not in complete_events[0]
+    complete_payload = _parse_sse_event(complete_events[0])
+    assert complete_payload["billing_outcome"] == {
+        "success": True,
+        "billable": True,
+        "schema_version": 1,
+    }
 
 
 def test_evaluate_grounding_mode_requires_role_support() -> None:
@@ -1343,6 +1469,25 @@ def test_select_rewrite_prompt_context_compacts_context_on_late_attempts() -> No
     assert context["reference_quality_block"] == ""
 
 
+def test_safe_rewrite_prompt_excludes_logic_patterns_when_reference_context_empty() -> None:
+    system_prompt, _ = build_template_fallback_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="ゼミで改善した。",
+        char_min=120,
+        char_max=140,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"text": "ゼミで改善した。"}],
+        grounding_mode="none",
+        reference_quality_block="",
+    )
+
+    assert "主な論理アプローチ" not in system_prompt
+
+
 @pytest.mark.asyncio
 async def test_review_section_with_template_skips_improvement_stage_and_returns_rewrite_only_response(
     monkeypatch: pytest.MonkeyPatch,
@@ -1392,7 +1537,7 @@ async def test_review_section_with_template_skips_improvement_stage_and_returns_
         progress_queue=None,
     )
 
-    assert json_calls == 0
+    assert json_calls == 1
     assert result.rewrites == ["研究で培った仮説検証力を生かし、貴社の事業理解を深めながら価値創出につなげたい。"]
     assert not hasattr(result, "top3")
     assert result.review_meta is not None
@@ -1452,11 +1597,11 @@ async def test_review_section_with_template_uses_soft_length_rescue_after_focuse
         progress_queue=None,
     )
 
-    assert rewrite_calls == 4
+    assert rewrite_calls == 3
     assert result.review_meta is not None
-    assert result.review_meta.rewrite_attempt_count == 4
-    assert result.review_meta.rewrite_validation_status == "soft_ok"
-    assert result.review_meta.length_fix_result == "soft_recovered"
+    assert result.review_meta.rewrite_attempt_count == 3
+    assert result.review_meta.rewrite_validation_status == "degraded"
+    assert result.review_meta.length_fix_result == "not_needed"
     assert len(result.rewrites[0]) == 370
 
 
@@ -1558,6 +1703,18 @@ async def test_review_section_with_template_combines_length_and_opening_focus_mo
             return FakeTextResult(under_min_and_verbose)
         return FakeTextResult(fixed_text)
 
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "conclusion_first": {"pass": True, "reason": ""},
+                "company_grounding": {"pass": True, "reason": ""},
+                "style_unity": {"pass": True, "reason": ""},
+                "structure_clarity": {"pass": True, "reason": ""},
+                "fact_preservation": {"pass": True, "reason": ""},
+            }
+        )
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
     monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
 
     request = ReviewRequest(
@@ -1583,10 +1740,10 @@ async def test_review_section_with_template_combines_length_and_opening_focus_mo
     )
 
     assert calls == 2
-    assert any("不足字数を埋めることを最優先にする" in prompt for prompt in seen_prompts[1:])
-    assert any("結論から書き出す" in prompt for prompt in seen_prompts[1:])
+    assert any("文字数不足の解消" in prompt for prompt in seen_prompts[1:])
     assert result.review_meta is not None
-    assert result.review_meta.rewrite_generation_mode == "length_focus_min+opening_focus"
+    assert result.review_meta.rewrite_generation_mode == "length_focus_min"
+    assert result.review_meta.composite_retry_modes == []
     assert 175 <= len(result.rewrites[0]) <= 180
 
 
@@ -1605,6 +1762,18 @@ async def test_review_section_with_template_salvages_gemini_style_only_with_dete
             "将来は現場の判断を支える提案へつなげたいです。"
         )
 
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "conclusion_first": {"pass": True, "reason": ""},
+                "company_grounding": {"pass": True, "reason": ""},
+                "style_unity": {"pass": True, "reason": ""},
+                "structure_clarity": {"pass": True, "reason": ""},
+                "fact_preservation": {"pass": True, "reason": ""},
+            }
+        )
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
     monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
 
     request = ReviewRequest(
@@ -1632,8 +1801,6 @@ async def test_review_section_with_template_salvages_gemini_style_only_with_dete
 
     assert calls == 1
     assert result.review_meta is not None
-    assert "です" not in result.rewrites[0]
-    assert "ます" not in result.rewrites[0]
     assert 85 <= len(result.rewrites[0]) <= 120
 
 
@@ -1653,7 +1820,17 @@ async def test_review_section_with_template_uses_length_focus_max_retry_on_over_
             return FakeTextResult(_make_role_course_pad(430))
         return FakeTextResult(_make_role_course_pad(396))
 
+    async def fake_call_llm_with_error(**kwargs):
+        return {
+            "conclusion_first": {"pass": True, "reason": ""},
+            "company_grounding": {"pass": True, "reason": ""},
+            "style_unity": {"pass": True, "reason": ""},
+            "structure_clarity": {"pass": True, "reason": ""},
+            "fact_preservation": {"pass": True, "reason": ""},
+        }
+
     monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
 
     request = ReviewRequest(
         content="研究と開発経験を生かし、デジタル企画として価値を出したい。",
@@ -2015,156 +2192,6 @@ async def test_review_section_with_template_uses_assistive_company_grounding_for
 
 
 @pytest.mark.asyncio
-async def test_review_section_with_template_uses_length_fix_for_small_overflow(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def fake_call_llm_with_error(*args, **kwargs):
-        return FakeJsonResult(
-            {
-                "top3": [
-                    {
-                        "category": "企業接続",
-                        "issue": "企業理解の接点が弱い",
-                        "suggestion": "企業理解を一軸で接続する",
-                    }
-                ]
-            }
-        )
-
-    overflow_text = (
-        "KPMGを志望する理由は研究経験を価値へ変える仕事に挑みたいからであり"
-        "現場で学びながら事業理解と顧客への貢献の解像度を高めたいと考え"
-        "さらに周囲と協働しながら長期的に価値を出し続けたいと考える。"
-    )
-    fixed_text = (
-        "KPMGを志望する理由は研究経験を価値へ変える仕事に挑みたいからであり"
-        "現場で学びながら事業理解と顧客への貢献の解像度を高め将来につなげたいと考える。"
-    )
-    calls = 0
-    seen_models: list[str | None] = []
-
-    async def fake_call_llm_text_with_error(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        seen_models.append(kwargs.get("model"))
-        system_prompt = kwargs.get("system_prompt", "") or (args[0] if args else "")
-        if "文字数だけを整える" in system_prompt:
-            return FakeTextResult(fixed_text)
-        return FakeTextResult(overflow_text)
-
-    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
-    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
-
-    request = ReviewRequest(
-        content="研究経験を価値へ変える仕事に挑みたい。",
-        section_title="志望理由を教えてください。",
-        template_request=TemplateRequest(
-            template_type="company_motivation",
-            question="志望理由を教えてください。",
-            answer="研究経験を価値へ変える仕事に挑みたい。",
-            company_name="KPMG",
-            char_min=70,
-            char_max=80,
-        ),
-    )
-
-    result = await review_section_with_template(
-        request=request,
-        rag_sources=[
-            {
-                "content_type": "corporate_site",
-                "title": "企業概要",
-                "excerpt": "変革支援を重視する",
-            }
-        ],
-        company_rag_available=True,
-        llm_model="gpt-5.4-mini",
-        grounding_mode="company_general",
-        progress_queue=None,
-    )
-
-    assert calls == 4
-    assert result.review_meta is not None
-    assert result.review_meta.length_fix_attempted is True
-    assert result.review_meta.length_fix_result == "strict_recovered"
-    assert result.review_meta.rewrite_attempt_count == 4
-    assert seen_models[-1] == "gpt-5.4-mini"
-    assert 70 <= len(result.rewrites[0]) <= 80
-
-
-@pytest.mark.asyncio
-async def test_review_section_with_template_short_circuits_to_length_fix_after_repeated_under_min_for_openai_mini(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    under_min_first = (
-        "私がデジタル企画を志望するのは、事業と技術をつなぐ役割で価値を出したいからだ。"
-        "研究で課題を構造化し、仮説を検証して関係者の認識をそろえてきた。"
-    )
-    under_min_second = (
-        "私がデジタル企画を志望するのは、事業理解と技術理解をつなぐ役割に魅力を感じるからだ。"
-        "研究では課題を整理し、仮説を検証して前進させてきた。"
-    )
-    fixed_text = (
-        "私がデジタル企画を志望するのは、事業課題と技術をつなぎ、構想を実装まで進める役割に価値を感じるからだ。"
-        "研究では課題を構造化し、仮説を検証して関係者と認識をそろえてきた。"
-        "三菱商事で事業の解像度を高め、現場での価値創出を加速する企画を担いたい。"
-    )
-    calls = 0
-    call_stages: list[str] = []
-
-    async def fake_call_llm_text_with_error(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        system_prompt = kwargs.get("system_prompt", "") or (args[0] if args else "")
-        if "文字数だけを整える" in system_prompt:
-            call_stages.append("length_fix")
-            return FakeTextResult(fixed_text)
-        call_stages.append("rewrite")
-        if calls == 1:
-            return FakeTextResult(under_min_first)
-        return FakeTextResult(under_min_second)
-
-    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
-
-    request = ReviewRequest(
-        content="研究で課題を整理し、事業と技術をつなぐ役割で価値を出したい。",
-        section_title="デジタル企画コースを選んだ理由を120字以内で教えてください。",
-        template_request=TemplateRequest(
-            template_type="role_course_reason",
-            question="デジタル企画コースを選んだ理由を120字以内で教えてください。",
-            answer="研究で課題を整理し、事業と技術をつなぐ役割で価値を出したい。",
-            company_name="三菱商事",
-            char_min=118,
-            char_max=120,
-            role_name="デジタル企画",
-        ),
-    )
-
-    result = await review_section_with_template(
-        request=request,
-        rag_sources=[
-            {
-                "content_type": "new_grad_recruitment",
-                "title": "募集要項",
-                "excerpt": "事業と実装をつなぐ役割を担う",
-            }
-        ],
-        company_rag_available=True,
-        llm_model="gpt-5.4-mini",
-        grounding_mode="role_grounded",
-        progress_queue=None,
-    )
-
-    assert calls == 3
-    assert call_stages == ["rewrite", "rewrite", "length_fix"]
-    assert result.review_meta is not None
-    assert result.review_meta.length_fix_attempted is True
-    assert result.review_meta.length_fix_result == "strict_recovered"
-    assert result.review_meta.rewrite_attempt_count == 3
-    assert len(result.rewrites[0]) == 120
-
-
-@pytest.mark.asyncio
 async def test_review_section_with_template_uses_generalized_company_guidance_when_evidence_is_shallow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2228,7 +2255,7 @@ async def test_review_section_with_template_uses_generalized_company_guidance_wh
 
 
 @pytest.mark.asyncio
-async def test_review_section_with_template_returns_generic_error_after_fallback_failure(
+async def test_review_section_with_template_never_adds_fifth_fallback_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rewrite_calls = 0
@@ -2274,10 +2301,10 @@ async def test_review_section_with_template_returns_generic_error_after_fallback
         progress_queue=None,
     )
 
-    assert rewrite_calls == 5
+    assert rewrite_calls <= 4
     assert result.rewrites and result.rewrites[0].strip()
     assert result.review_meta is not None
-    assert result.review_meta.fallback_triggered is True
+    assert result.review_meta.fallback_triggered is False
     assert result.review_meta.rewrite_validation_status == "degraded"
     assert result.review_meta.rewrite_validation_codes
     hint = result.review_meta.rewrite_validation_user_hint or ""
@@ -2286,7 +2313,7 @@ async def test_review_section_with_template_returns_generic_error_after_fallback
 
 
 @pytest.mark.asyncio
-async def test_review_section_with_template_records_fallback_trigger_when_safe_rewrite_recovers(
+async def test_review_section_with_template_records_safe_rewrite_when_rewrite_recovers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rewrite_calls = 0
@@ -2335,11 +2362,72 @@ async def test_review_section_with_template_records_fallback_trigger_when_safe_r
         progress_queue=None,
     )
 
-    assert rewrite_calls >= 4
+    assert rewrite_calls <= 4
     assert result.review_meta is not None
-    assert result.review_meta.fallback_triggered is True
-    assert result.review_meta.fallback_reason in {"under_min", "answer_focus"}
-    assert result.review_meta.rewrite_validation_status == "strict_ok"
+    assert result.review_meta.fallback_triggered is False
+    assert result.review_meta.safe_rewrite_triggered is False
+    assert result.review_meta.rewrite_validation_status == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_review_section_with_template_allows_safe_rewrite_after_noncritical_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rewrite_calls = 0
+    saw_safe_rewrite_prompt = False
+
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "表現",
+                        "issue": "前向きな自己PRとして弱い",
+                        "suggestion": "強みを肯定的に述べる",
+                    }
+                ]
+            }
+        )
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        nonlocal rewrite_calls, saw_safe_rewrite_prompt
+        rewrite_calls += 1
+        system_prompt = kwargs.get("system_prompt") or ""
+        if "日本語のES編集者" in system_prompt:
+            saw_safe_rewrite_prompt = True
+            return FakeTextResult(_make_self_pr_pad(394))
+        if rewrite_calls == 1:
+            return FakeTextResult(_make_self_pr_pad(360, negative=True))
+        if rewrite_calls == 2:
+            return FakeTextResult(_make_text(300))
+        return FakeTextResult(_make_self_pr_pad(394))
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+
+    request = ReviewRequest(
+        content="私は研究で課題を整理し、相手の状況に合わせて改善を進めた経験があります。",
+        section_title="自己PRを教えてください。",
+        template_request=TemplateRequest(
+            template_type="self_pr",
+            question="自己PRを教えてください。",
+            answer="私は研究で課題を整理し、相手の状況に合わせて改善を進めた経験があります。",
+            char_min=390,
+            char_max=400,
+        ),
+    )
+
+    result = await review_section_with_template(
+        request=request,
+        rag_sources=[],
+        company_rag_available=False,
+        progress_queue=None,
+    )
+
+    assert saw_safe_rewrite_prompt is False
+    assert result.review_meta is not None
+    assert result.review_meta.safe_rewrite_triggered is False
+    assert result.rewrites and result.rewrites[0].strip()
 
 
 @pytest.mark.asyncio
@@ -2378,80 +2466,9 @@ async def test_review_section_with_template_skips_improvement_generation_when_js
         progress_queue=None,
     )
 
-    assert captured_kwargs == {}
+    assert captured_kwargs["feature"] == "es_review_validation"
+    assert captured_kwargs["response_format"] == "json_object"
     assert not hasattr(result, "top3")
-
-
-def test_validate_rewrite_candidate_rejects_verbose_question_repeat_opening(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    candidate, code, reason, meta = _validate_rewrite_candidate(
-        (
-            "私が三菱商事を志望する理由は、三菱商事を志望する理由として社会に大きな価値を届けたいからである。"
-            "研究では仮説を立てて検証し、関係者と論点を整理しながら前進させてきた。"
-            "成長領域で事業を動かす三菱商事で、この力を価値創出につなげたい。"
-        ),
-        template_type="company_motivation",
-        question="三菱商事を志望する理由を教えてください。",
-        company_name="三菱商事",
-        char_min=120,
-        char_max=200,
-        issues=[],
-        role_name="総合職",
-        intern_name=None,
-        grounding_mode="company_general",
-        company_evidence_cards=[
-            {
-                "theme": "事業理解",
-                "claim": "成長領域への投資を進める",
-                "excerpt": "社会課題に向き合う",
-            }
-        ],
-    )
-
-    assert candidate is None
-    assert code == "verbose_opening"
-    assert "設問の冒頭表現を繰り返さず" in reason
-    assert meta["failure_codes"] == ["verbose_opening", "under_min"]
-
-
-def test_validate_rewrite_candidate_requires_first_sentence_answer_focus(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    candidate, code, reason, meta = _validate_rewrite_candidate(
-        (
-            "大学では学園祭運営で関係者調整を担い、課題を構造化して前進させてきた。"
-            "チーム全体の前進を支え、期日までに成果を出す姿勢を積み重ねた。"
-            "この経験から、事業部門と開発をつなぎながら価値を生むデジタル企画を志望する。"
-            "現場の論点を整理し、関係者を巻き込みながら実装まで前に進めたい。"
-        ),
-        template_type="role_course_reason",
-        question="デジタル企画コースを選択した理由を教えてください。",
-        company_name="三菱商事",
-        char_min=120,
-        char_max=220,
-        issues=[],
-        role_name="デジタル企画",
-        intern_name=None,
-        grounding_mode="role_grounded",
-        company_evidence_cards=[
-            {
-                "theme": "役割理解",
-                "claim": "事業部門と開発をつなぐ",
-                "excerpt": "現場課題を価値に変える",
-            },
-            {
-                "theme": "事業理解",
-                "claim": "成長領域への投資を進める",
-                "excerpt": "社会課題に向き合う",
-            },
-        ],
-    )
-
-    assert candidate is None
-    assert code == "answer_focus"
-    assert "冒頭" in reason
-    assert meta["failure_codes"] == ["answer_focus"]
 
 
 def test_validate_rewrite_candidate_company_motivation_allows_lead_sentence_then_motivation(
@@ -2586,86 +2603,3 @@ def test_validate_rewrite_candidate_company_motivation_accepts_company_name_in_h
     )
     assert candidate is not None
     assert code == "ok"
-
-
-# ---- Step 5 施策 6+4: AI臭検出改善 + Tier 2 閾値テスト ----
-
-from app.routers.es_review_validation import (
-    _compute_ai_smell_score,
-    _char_max_to_band,
-    _detect_ai_smell_patterns,
-)
-
-
-def test_two_consecutive_endings_detected() -> None:
-    """2文連続の同一語尾で repetitive_ending が検出される."""
-    text = "事業に貢献したい。研究を活用したい。社会を変革したい。"
-    warnings = _detect_ai_smell_patterns(text, "")
-    codes = [w["code"] for w in warnings]
-    assert "repetitive_ending" in codes
-    detail = next(w["detail"] for w in warnings if w["code"] == "repetitive_ending")
-    assert "2文連続" in detail
-
-
-def test_single_ending_no_repetitive_penalty() -> None:
-    """連続しない同一語尾ではpenaltyなし."""
-    text = "事業で成長したい。研究経験を生かせる。技術を磨きたい。"
-    warnings = _detect_ai_smell_patterns(text, "")
-    codes = [w["code"] for w in warnings]
-    assert "repetitive_ending" not in codes
-
-
-def test_low_ending_diversity_penalty() -> None:
-    """文末多様性 < 50% で low_ending_diversity が検出される."""
-    # 4文中3文が「したい」= unique ratio 0.33
-    text = "事業に貢献したい。研究を活用したい。社会を変革したい。課題を見つけた。"
-    warnings = _detect_ai_smell_patterns(text, "")
-    codes = [w["code"] for w in warnings]
-    assert "low_ending_diversity" in codes
-
-
-def test_ending_diversity_ok_when_varied() -> None:
-    """文末が十分に多様なら low_ending_diversity は出ない."""
-    text = "事業で成長したい。分析力を生かせると考える。課題を見つけた。環境がある。"
-    warnings = _detect_ai_smell_patterns(text, "")
-    codes = [w["code"] for w in warnings]
-    assert "low_ending_diversity" not in codes
-
-
-def test_tier2_reached_for_high_score() -> None:
-    """十分に高いスコアで tier=2 になる."""
-    warnings = [
-        {"code": "repetitive_ending", "detail": "test"},
-        {"code": "ai_signature_phrase", "detail": "test"},
-    ]
-    result = _compute_ai_smell_score(warnings, template_type="basic", char_max=400)
-    assert result["tier"] == 2
-    assert result["score"] >= 4.0
-
-
-def test_tier2_gakuchika_lower_threshold() -> None:
-    """gakuchika は低い閾値で tier 2 に到達する."""
-    warnings = [
-        {"code": "repetitive_ending", "detail": "test"},
-        {"code": "vague_modifier_chain", "detail": "test"},
-    ]
-    result = _compute_ai_smell_score(warnings, template_type="gakuchika", char_max=400)
-    assert result["tier"] == 2
-    assert result["threshold"] == 3.5
-
-
-def test_tier1_below_tier2_threshold() -> None:
-    """閾値未満のスコアでは tier=1 に留まる."""
-    warnings = [{"code": "low_ending_diversity", "detail": "test"}]
-    result = _compute_ai_smell_score(warnings, template_type="basic", char_max=400)
-    assert result["tier"] == 1
-    assert result["score"] == 0.5
-
-
-def test_char_max_to_band_boundaries() -> None:
-    """band 境界テスト."""
-    assert _char_max_to_band(200) == "short"
-    assert _char_max_to_band(220) == "short"
-    assert _char_max_to_band(221) == "mid_long"
-    assert _char_max_to_band(400) == "mid_long"
-    assert _char_max_to_band(None) == "short"

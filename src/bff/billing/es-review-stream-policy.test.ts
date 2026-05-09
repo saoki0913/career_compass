@@ -1,9 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { BillingGateUnavailableError } = vi.hoisted(() => ({
+  BillingGateUnavailableError: class BillingGateUnavailableError extends Error {
+    code = "BILLING_GATE_UNAVAILABLE";
+
+    constructor(message = "Billing gate unavailable") {
+      super(message);
+      this.name = "BillingGateUnavailableError";
+    }
+  },
+}));
+
 vi.mock("@/lib/credits", () => ({
   reserveCredits: vi.fn(),
   confirmReservation: vi.fn(),
   cancelReservation: vi.fn(),
+  BillingGateUnavailableError,
+  isBillingGateUnavailableError: (error: unknown) => error instanceof BillingGateUnavailableError,
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -70,6 +83,40 @@ describe("esReviewStreamPolicy", () => {
 
     expect(result?.reservationId).toBeNull();
     expect(result?.errorResponse?.status).toBe(402);
+  });
+
+  it("returns structured 503 when the billing gate schema is unavailable", async () => {
+    const credits = await import("@/lib/credits");
+    vi.mocked(credits.reserveCredits).mockResolvedValue({
+      success: false,
+      reservationId: "",
+      newBalance: 8,
+      error: "subscriptions billing hold columns are missing",
+      errorCode: "BILLING_GATE_UNAVAILABLE",
+    });
+    const { esReviewStreamPolicy } = await import("./es-review-stream-policy");
+
+    const result = await esReviewStreamPolicy.reserve?.(
+      {
+        userId: "user-1",
+        guestId: null,
+        documentId: "doc-1",
+        creditCost: 2,
+        requestId: "req-1",
+      },
+      2,
+    );
+
+    expect(result?.reservationId).toBeNull();
+    expect(result?.errorResponse?.status).toBe(503);
+    expect(result?.errorResponse?.headers.get("X-Request-Id")).toBe("req-1");
+    await expect(result?.errorResponse?.json()).resolves.toMatchObject({
+      error: {
+        code: "BILLING_GATE_UNAVAILABLE",
+        retryable: true,
+      },
+      requestId: "req-1",
+    });
   });
 
   it("confirms reservations only for billable success", async () => {

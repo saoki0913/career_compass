@@ -1,38 +1,50 @@
 ---
 name: codex-delegation-workflow
-description: Codex CLI への作業委譲の判断基準とオーケストレーション手順。plan_review / implementation / post_review / imagegen の4モード。
+description: Codex への作業委譲の判断基準とオーケストレーション手順。Plugin + MCP を primary、delegate.sh を fallback とする 2+1 チャネル体制。
 language: ja
 ---
 
 # Codex Delegation Workflow
 
-Claude Code (Opus 4.6) から Codex CLI (GPT-5.4) へ作業を委譲するためのオーケストレーション指針。
+Claude Code (Opus 4.6) から Codex (GPT-5.5) へ作業を委譲するためのオーケストレーション指針。
+
+## 2+1 チャネル体制
+
+| チャネル | 用途 | ツール |
+|---|---|---|
+| **Plugin** (primary) | レビュー、軽量委譲、ジョブ管理 | `/codex:review`, `/codex:adversarial-review`, `/codex:rescue`, `/codex:status`, `/codex:result`, `/codex:cancel` |
+| **MCP** (primary) | 対話的マルチターン実装 | `mcp__codex__codex` + `codex-reply` |
+| **delegate.sh** (fallback) | バッチ実行（全 4 モード維持） | `scripts/codex/delegate.sh` |
+
+## チャネル選択ガイド
+
+| シナリオ | Primary | Fallback |
+|---|---|---|
+| コードレビュー | Plugin `/codex:review` | delegate.sh post_review |
+| 設計レビュー | Plugin `/codex:adversarial-review` | delegate.sh plan_review |
+| 重い実装（ステアリング必要） | MCP `codex(heavy_impl)` | delegate.sh implementation |
+| 軽量実装（fire-and-forget） | Plugin `/codex:rescue --background` | delegate.sh implementation |
+| 並列サブエージェント | Plugin `/codex:rescue --background` × N | MCP `codex(review_only)` × N |
+| 軽微修正 | MCP `codex(small_auto)` | — |
+| 画像生成 | delegate.sh imagegen（exclusive） | — |
+| ジョブ監視 | Plugin `/codex:status` | `ls -td .codex/state/handoffs/` |
 
 ## いつ Codex に委譲するか
 
-### plan_review モード
-- PRD / RFC / issue の設計レビューを独立した視点で行いたいとき
-- architecture-gate の PASS_WITH_REFACTOR / BLOCK 判定の second opinion として
-- 変更の影響範囲が広く、別モデルの視点が有用と判断されるとき
+### 委譲閾値
+- 変更ファイル数 ≥ 3
+- 変更行数 ≥ 50
+- ユーザーが明示的に「Codex に任せたい」と示唆
 
-### implementation モード
-- 独立性の高いタスク（テスト追加、ドキュメント生成、lint 修正）を並行処理したいとき
-- Claude の context window が逼迫し、作業を分離したいとき
-- Python / TypeScript の局所的な実装タスクで、Codex のコード生成を活用したいとき
-
-### post_review モード
-- 大規模変更（ファイル数 >= 10 or 行数 >= 500）の commit 前レビュー
-- hotspot ファイルの変更を含む commit 前レビュー
-- security-sensitive ファイル（auth, csrf, stripe, credits）の変更後
-- マルチモデルレビューで見落としを減らしたいとき
+### レビュー委譲
+- 大規模変更（ファイル数 >= 10 or 行数 >= 500）の commit 前レビュー → `/codex:review`
+- hotspot ファイルの変更 → `/codex:review`
+- architect-routed ファイル変更 → `/codex:adversarial-review` も追加
+- security-sensitive ファイル変更 → 両方実行推奨
 
 ### imagegen モード
 - LP/UI 用の画像アセットを GPT Image 2 (`$imagegen`) で生成したいとき
-- ヒーロー画像、機能イラスト、UI モック、デザイン素材の生成
-- ChatGPT サブスク内で実行（API 課金なし）
-- 品質: `.codex/skills/imagegen/` の構造化プロンプト + Anti-Tacky Guidelines を適用
-- 出力先: `public/generated_images/` → 承認後に LP 正式アセットへ昇格
-- Scope audit: `public/generated_images/` 外の変更は fail-close
+- delegate.sh imagegen 経由のみ（Plugin/MCP に同等機能なし）
 
 ## 委譲しないケース
 - release / deploy / provider CLI 操作（release-engineer の領域）
@@ -43,11 +55,31 @@ Claude Code (Opus 4.6) から Codex CLI (GPT-5.4) へ作業を委譲するため
 
 ## 実行手順
 
+### Plugin 経由
+1. `/codex:review` or `/codex:rescue [--background]` を実行
+2. `/codex:status` で進捗確認
+3. `/codex:result` で結果取得
+4. Claude が結果を判断する
+
+### MCP 経由
+1. `mcp__codex__codex(prompt, cwd, profile=heavy_impl)` を実行
+2. 結果確認 → `codex-reply` で追加指示（最大 3 ターン）
+3. Claude が結果を検証する
+
+### delegate.sh 経由（fallback）
 1. `/codex-plan-review` or `/codex-implement` or `/codex-post-review` or `/codex-imagegen` を実行
-2. 内部で `scripts/codex/delegate.sh <mode>` が Codex CLI を非対話実行する（default timeout 3600s、長時間タスクのみ最大 7200s）。Bash ツール timeout は CLAUDE.md「Bash Tool Timeout Policy」に従う
-3. 結果は `.claude/state/codex-handoffs/<request_id>/result.md` に保存される
+2. 内部で `scripts/codex/delegate.sh <mode>` が Codex CLI を非対話実行する
+3. 結果は `.codex/state/handoffs/<request_id>/result.md` に保存される
 4. Claude が結果を Read で読み込み、内容を判断する
-5. 必要に応じて Codex の提案を採用・修正・却下する
+
+## checkpoint 作成
+
+| レビュー経路 | checkpoint decision |
+|---|---|
+| Plugin `/codex:review` | `plugin-reviewed` |
+| delegate.sh post_review → 続行 | `reviewed-proceed` |
+| delegate.sh post_review → 修正委譲 | `delegate-fixes` |
+| Claude fallback review | `fallback-reviewed` |
 
 ## 失敗時フォールバック
 
@@ -56,17 +88,14 @@ Claude Code (Opus 4.6) から Codex CLI (GPT-5.4) へ作業を委譲するため
 | TIMEOUT (default 3600s / max 7200s) | Claude が自身で作業を続行 |
 | CODEX_ERROR (非ゼロ exit) | meta.json に記録、Claude が続行 |
 | PARSE_FAILURE (result.md が空) | Claude が続行 |
+| Plugin コマンド失敗 | delegate.sh fallback → それも失敗なら Claude 続行 |
 | plan_review 失敗 | Claude 単独レビューへフォールバック |
 | implementation 失敗 | Claude がスコープを縮めて自力実装 |
 | post_review 失敗 | code-reviewer / security-auditor skill へ戻す |
-| imagegen 失敗 | `$imagegen` 不可なら `image_gen.py` CLI (要 OPENAI_API_KEY) へ fallback |
-| SCOPE_VIOLATION | imagegen で許可パス外の変更を検出。画像は収集せず Claude に報告 |
-
-すべての失敗は `.claude/state/codex-handoffs/<request_id>/meta.json` に記録される。
+| imagegen 失敗 | `$imagegen` 不可なら `image_gen.py` CLI へ fallback |
 
 ## 制約
 - Codex に release, provider CLI, secret access, scope 再定義は持たせない
 - AGENTS.md が正本（.codex/ 側のファイルは source of truth にしない）
-- request/result は Markdown 正本 (v1)
 - Codex が行った変更は Claude が検証してから commit する
-- wrapper のガードレールは既存 hook の guardrail と同等（secrets, force-push, destructive rm）
+- 並列実行中は Claude はファイル編集を行わない（競合防止）

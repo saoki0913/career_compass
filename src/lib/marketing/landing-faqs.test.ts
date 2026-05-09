@@ -34,5 +34,9 @@ describe("landing-faqs data guard", () => {
 
   it("does not claim credit card registration is completely unnecessary", () => {
     expect(source).not.toContain("いいえ。無料ではじめる時点では");
+    expect(source).not.toContain("クレジットカード登録なしで始められます");
+    expect(source).not.toContain("カード登録不要");
+    expect(source).not.toContain("クレカ登録不要");
+    expect(source).toContain("有料プランへ変更する場合は、決済画面で支払い情報を入力します。");
   });
 });

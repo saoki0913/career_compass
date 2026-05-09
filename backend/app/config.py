@@ -214,6 +214,10 @@ class Settings(BaseSettings):
     #   - low-cost
     # 直指定 model ID や旧 alias（openai / google）も後方互換で解決する。
     model_es_review: str = "claude-sonnet"           # MODEL_ES_REVIEW
+    model_es_review_validation: str = Field(
+        default="gpt-mini",
+        validation_alias=AliasChoices("MODEL_ES_REVIEW_VALIDATION"),
+    )
     model_gakuchika: str = "claude-haiku"             # MODEL_GAKUCHIKA
     model_motivation: str = "claude-haiku"            # MODEL_MOTIVATION
     model_interview_plan: str = Field(

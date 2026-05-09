@@ -40,11 +40,36 @@ describe("LPFAQSection design-system guard", () => {
     expect(source).toContain("LANDING_PAGE_FAQS");
   });
 
-  it("uses new FAQ character image", () => {
+  it("uses new FAQ character image with absolute positioning", () => {
     expect(source).toContain("faq/person-pc.png");
-    expect(source).toContain("xl:grid-cols-[minmax(0,980px)_minmax(220px,1fr)]");
-    expect(source).toContain("w-[270px]");
+    expect(source).toContain("xl:mr-[260px]");
+    expect(source).toContain("w-[220px]");
+    expect(source).not.toContain("xl:items-end");
     expect(source).not.toContain("girl-at-laptop.png");
+  });
+
+  it("keeps the FAQ illustration independent from accordion height changes", () => {
+    expect(source).toContain("overflow-clip");
+    expect(source).not.toContain("overflow-hidden");
+    expect(source).toContain("absolute bottom-0 right-0");
+    expect(source).not.toContain("sticky bottom-8");
+    expect(source).not.toContain("xl:grid-cols-[1fr_240px]");
+    expect(source).not.toContain("xl:pb-4");
+    expect(source).not.toContain("xl:pr-[250px]");
+    expect(source).toContain("right-[182px]");
+    expect(source).toContain("top-[82px]");
+    expect(source).toContain("h-11 w-11");
+    expect(source).toContain("text-[24px]");
+    expect(source).not.toContain("translateY");
+    expect(source).not.toContain("animate-");
+  });
+
+  it("anchors illustration with top positioning to prevent accordion jump", () => {
+    expect(source).toContain("right-14 top-[200px]");
+  });
+
+  it("includes sparkle decorations", () => {
+    expect(source).toContain("LpSparkleDecorations");
   });
 
   it("does not reference deleted decorative images", () => {
@@ -52,5 +77,16 @@ describe("LPFAQSection design-system guard", () => {
     expect(source).not.toContain("dot-pattern-light.png");
     expect(source).not.toContain("18_sparkle_decoration.png");
     expect(source).not.toContain("curved-lines-dot.png");
+  });
+
+  it("uses available FAQ decoration assets", () => {
+    expect(source).toContain("faq/01_dots_grid_large.png");
+    expect(source).toContain("faq/06_document_check.png");
+    expect(source).toContain("faq/08_curve_simple.png");
+  });
+
+  it("marks the section for Playwright section screenshots", () => {
+    expect(source).toContain('data-section="faq"');
+    expect(source).toContain("scroll-mt-[92px]");
   });
 });

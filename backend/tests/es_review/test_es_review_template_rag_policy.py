@@ -1,14 +1,20 @@
+import pytest
+
 from app.prompts.es_templates import (
     get_template_company_grounding_policy,
     get_template_default_grounding_level,
 )
+from app.prompts.es_templates._rag_profiles import (
+    get_template_content_type_boosts,
+    get_template_rag_profile,
+)
+from app.rag import vector_store
 from app.utils.es_template_classifier import classify_es_question
+from app.services.es_review.source_policy import _filter_verified_company_rag_sources
 from app.routers.es_review import (
     _assess_company_evidence_coverage,
-    _build_template_content_type_boosts,
     _build_company_evidence_cards,
     _evaluate_template_rag_availability,
-    _filter_verified_company_rag_sources,
     _should_fetch_company_rag_for_template,
 )
 
@@ -49,7 +55,7 @@ def test_template_grounding_level_defaults_match_template_family() -> None:
 
 
 def test_classifier_returns_secondary_candidates_and_grounding_recommendation() -> None:
-    result = classify_es_question("デジタル企画コースを志望する理由を教えてください。")
+    result = classify_es_question("デジタル企画コースを選択した理由を教えてください。")
 
     assert result.predicted_template_type == "role_course_reason"
     assert result.confidence == "high"
@@ -216,7 +222,7 @@ def test_filter_verified_company_rag_sources_rejects_ir_page_from_employee_inter
 
 
 def test_template_content_type_boosts_follow_company_motivation_priority() -> None:
-    boosts = _build_template_content_type_boosts(
+    boosts = get_template_content_type_boosts(
         "company_motivation",
         assistive_company_signal=False,
     )
@@ -227,12 +233,21 @@ def test_template_content_type_boosts_follow_company_motivation_priority() -> No
 
 
 def test_template_content_type_boosts_disable_assistive_templates_without_signal() -> None:
-    boosts = _build_template_content_type_boosts(
+    boosts = get_template_content_type_boosts(
         "gakuchika",
         assistive_company_signal=False,
     )
 
     assert boosts == {}
+
+
+def test_template_rag_profile_includes_content_type_boosts_for_company_templates() -> None:
+    profile = get_template_rag_profile("role_course_reason")
+
+    boosts = profile["content_type_boosts"]
+    assert boosts["new_grad_recruitment"] == 1.35
+    assert boosts["employee_interviews"] == 1.18
+    assert boosts["midterm_plan"] == 0.92
 
 
 def test_assistive_templates_skip_company_rag_without_signal() -> None:
@@ -244,3 +259,47 @@ def test_assistive_templates_skip_company_rag_without_signal() -> None:
         "gakuchika",
         assistive_company_signal=True,
     ) is True
+
+
+@pytest.mark.asyncio
+async def test_enhanced_context_with_sources_propagates_priority_source_urls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict = {}
+
+    async def fake_search_company_context_enhanced(**kwargs: object) -> list[dict]:
+        captured.update(kwargs)
+        return [
+            {
+                "text": "新卒採用では顧客課題に向き合う姿勢を重視している。",
+                "metadata": {
+                    "source_url": "https://example.com/recruit/",
+                    "content_type": "new_grad_recruitment",
+                    "chunk_type": "full_text",
+                    "heading": "採用情報",
+                },
+            }
+        ]
+
+    monkeypatch.setattr(vector_store, "get_rag_cache", lambda: None)
+    monkeypatch.setattr(
+        vector_store,
+        "hybrid_search_company_context_enhanced",
+        fake_search_company_context_enhanced,
+    )
+
+    context, sources = await vector_store.get_enhanced_context_for_review_with_sources(
+        company_id="company-1",
+        es_content="志望理由を添削してください。",
+        max_context_length=800,
+        search_options={
+            "priority_source_urls": ["https://example.com/recruit/"],
+            "content_type_boosts": {"new_grad_recruitment": 1.35},
+        },
+        tenant_key="tenant-1",
+    )
+
+    assert captured["priority_source_urls"] == ["https://example.com/recruit/"]
+    assert captured["content_type_boosts"] == {"new_grad_recruitment": 1.35}
+    assert "新卒採用では" in context
+    assert sources[0]["source_url"] == "https://example.com/recruit/"

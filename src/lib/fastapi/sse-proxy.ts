@@ -46,6 +46,7 @@ export interface SSEProxyOptions {
     data: Record<string, unknown>,
   ) => Promise<SSEProxyCompleteResult | void>;
   onError?: (data: Record<string, unknown>) => Promise<void>;
+  onErrorEvent?: (data: Record<string, unknown>) => Record<string, unknown>;
   onCostTelemetry?: (telemetry: InternalCostTelemetry | null) => void;
   onFinally?: (summary: { success: boolean }) => void | Promise<void>;
 }
@@ -59,6 +60,39 @@ type SSEBlockParseResult =
   | { kind: "event"; event: Record<string, unknown>; telemetry: InternalCostTelemetry | null }
   | { kind: "raw"; text: string }
   | null;
+
+function hasJapanese(text: string): boolean {
+  return /[\u3040-\u30ff\u3400-\u9fff]/.test(text);
+}
+
+function isTechnicalMessage(text: string): boolean {
+  return /(internal server error|trace|stack|sql|secret|token|provider|backend|exception|api key|authorization|debug|request failed|db\b)/i.test(text);
+}
+
+function userSafeStreamMessage(value: unknown): string {
+  const message = typeof value === "string" ? value.trim() : "";
+  if (message && hasJapanese(message) && !isTechnicalMessage(message)) {
+    return message;
+  }
+  return "AI処理中にエラーが発生しました。しばらくしてからもう一度お試しください。";
+}
+
+function buildStreamErrorEvent(
+  event: Record<string, unknown>,
+  requestId: string,
+  fallbackCode: string,
+): Record<string, unknown> {
+  return {
+    type: "error",
+    message: userSafeStreamMessage(event.message),
+    code: typeof event.code === "string" ? event.code : fallbackCode,
+    requestId,
+    action: typeof event.action === "string" ? event.action : "時間を置いて、もう一度お試しください。",
+    retryable: typeof event.retryable === "boolean" ? event.retryable : true,
+    ...(typeof event.error_type === "string" ? { error_type: event.error_type } : {}),
+    ...(typeof event.llmErrorType === "string" ? { llmErrorType: event.llmErrorType } : {}),
+  };
+}
 
 function parseSSEDataBlock(block: string): SSEBlockParseResult {
   const trimmed = block.trim();
@@ -139,9 +173,11 @@ export function createSSEProxyStream(
 ): ReadableStream<Uint8Array> {
   const {
     feature,
+    requestId,
     onProgress,
     onComplete,
     onError,
+    onErrorEvent,
     onCostTelemetry,
     onFinally,
   } = options;
@@ -156,9 +192,13 @@ export function createSSEProxyStream(
         const errorEvent = {
           type: "error",
           message: "AIレスポンスが空です",
+          code: `${feature.toUpperCase()}_EMPTY_RESPONSE`,
+          requestId,
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
         };
         controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(errorEvent)}\n\n`),
+          encoder.encode(`data: ${JSON.stringify(onErrorEvent ? onErrorEvent(errorEvent) : errorEvent)}\n\n`),
         );
         if (onFinally) {
           try {
@@ -216,6 +256,10 @@ export function createSSEProxyStream(
         );
       };
 
+      const forwardErrorEventObject = (event: Record<string, unknown>) => {
+        forwardEventObject(onErrorEvent ? onErrorEvent(event) : event);
+      };
+
       const processEventBlock = async (block: string): Promise<boolean> => {
         const parsed = parseSSEDataBlock(block);
         if (!parsed) return false;
@@ -241,8 +285,12 @@ export function createSSEProxyStream(
               const errorEvent = {
                 type: "error",
                 message: "ストリーミング処理中にエラーが発生しました",
+                code: `${feature.toUpperCase()}_COMPLETE_HOOK_FAILED`,
+                requestId,
+                action: "時間を置いて、もう一度お試しください。",
+                retryable: true,
               };
-              forwardEventObject(errorEvent);
+              forwardErrorEventObject(errorEvent);
               return true;
             }
           }
@@ -255,14 +303,20 @@ export function createSSEProxyStream(
         }
 
         if (eventType === "error") {
+          const safeErrorEvent = buildStreamErrorEvent(
+            sanitized,
+            requestId,
+            `${feature.toUpperCase()}_STREAM_FAILED`,
+          );
+          const errorEvent = onErrorEvent ? onErrorEvent(safeErrorEvent) : safeErrorEvent;
           if (onError) {
             try {
-              await onError(sanitized);
+              await onError(errorEvent);
             } catch (hookErr) {
               console.error(`[sse-proxy:${feature}] onError failed:`, hookErr);
             }
           }
-          forwardEventObject(sanitized);
+          forwardEventObject(errorEvent);
           return false;
         }
 
@@ -309,8 +363,12 @@ export function createSSEProxyStream(
         const errorEvent = {
           type: "error",
           message: "AIストリーム接続が途中で切れました。しばらくしてから再試行してください。",
+          code: `${feature.toUpperCase()}_STREAM_INTERRUPTED`,
+          requestId,
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
         };
-        forwardEventObject(errorEvent);
+        forwardErrorEventObject(errorEvent);
       } finally {
         await runFinally(sawSuccess);
         try {

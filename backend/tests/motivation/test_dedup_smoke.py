@@ -48,7 +48,6 @@ def test_motivation_uses_planner_constants():
 def test_motivation_uses_retry_helpers():
     """Verify motivation.py uses extracted retry helpers, not local copies."""
     assert motivation._select_motivation_draft is motivation_retry._select_motivation_draft
-    assert motivation._maybe_retry_for_ai_smell is motivation_retry._maybe_retry_for_ai_smell
     assert motivation._apply_multipass_refinement is motivation_retry._apply_multipass_refinement
 
 

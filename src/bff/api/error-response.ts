@@ -15,12 +15,15 @@ type CreateApiErrorResponseOptions = {
   error?: unknown;
   logContext?: string;
   extra?: Record<string, unknown>;
+  requestId?: string;
 };
 
 const DEFAULT_AUTH_REQUIRED_USER_MESSAGE = "ログインが必要です。";
 const DEFAULT_AUTH_REQUIRED_ACTION = "ログインしてから、もう一度お試しください。";
 
-function getRequestId(request?: NextRequest): string {
+function getRequestId(request?: NextRequest, override?: string): string {
+  const overrideId = override?.trim();
+  if (overrideId) return overrideId;
   const requestId = request?.headers.get("x-request-id")?.trim();
   return requestId && requestId.length > 0 ? requestId : randomUUID();
 }
@@ -29,7 +32,7 @@ export function createApiErrorResponse(
   request: NextRequest | undefined,
   options: CreateApiErrorResponseOptions
 ) {
-  const requestId = getRequestId(request);
+  const requestId = getRequestId(request, options.requestId);
   const isDevelopment = process.env.NODE_ENV === "development";
   const normalizedUserMessage =
     options.status === 401 ? DEFAULT_AUTH_REQUIRED_USER_MESSAGE : options.userMessage;

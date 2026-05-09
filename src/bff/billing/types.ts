@@ -5,7 +5,9 @@
  * contract so routes can precheck, reserve, confirm, or cancel billing
  * uniformly without the routes knowing the specific credit model.
  *
- * NOTE: company-fetch uses free quota + credits; policy abstraction deferred.
+ * Implementations may use post-success consumption, up-front reservations, free
+ * quota, or a mix of those mechanics. Routes should still depend on this
+ * policy shape instead of importing credit lifecycle primitives directly.
  */
 
 export type BillingOutcome =

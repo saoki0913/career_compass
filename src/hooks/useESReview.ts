@@ -4,7 +4,7 @@ import { startTransition, useCallback, useEffect, useRef, useState } from "react
 import { trackEvent } from "@/lib/analytics/client";
 import type { StandardESReviewModel } from "@/lib/ai/es-review-models";
 import { calculateESReviewCost } from "@/lib/credits/cost";
-import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { AppUiError, parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import type {
   CurrentSectionInfo,
   ReviewMode,
@@ -29,7 +29,6 @@ import {
   isVisibleSourceSettled,
   mergeStreamedItems,
   type ReceivedReviewState,
-  upsertStreamItem,
 } from "@/features/es-review/hooks/playback";
 
 export type {
@@ -37,16 +36,15 @@ export type {
   ReviewMode,
   ReviewPlaybackPhase,
   ReviewResult,
-  SectionData,
-  SSEArrayItemCompleteEvent,
-  SSEChunkEvent,
   SSECompleteEvent,
   SSEErrorEvent,
   SSEEvent,
-  SSEFieldCompleteEvent,
+  SSEExplanationCompleteEvent,
   SSEProgressEvent,
   SSEProgressState,
-  SSEStringChunkEvent,
+  SSERewriteCompleteEvent,
+  SSERewriteDeltaEvent,
+  SSESourceAddedEvent,
   TemplateReview,
   TemplateSource,
   TemplateType,
@@ -228,17 +226,6 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
             return false;
           }
 
-          if (response.status === 402) {
-            setError("クレジットが不足しています。プランのアップグレードまたはクレジットの追加購入をご検討ください。");
-            setErrorAction(null);
-            trackEvent("ai_review_error", {
-              status: 402,
-              reviewMode: effectiveReviewMode,
-              errorCode: "INSUFFICIENT_CREDITS",
-            });
-            return false;
-          }
-
           const uiError = await parseApiErrorResponse(
             response,
             {
@@ -284,54 +271,43 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
                 }));
                 break;
 
-              case "field_complete":
-                if (event.path === "streaming_rewrite" && typeof event.value === "string") {
-                  const rewriteText = event.value;
-                  setReceivedReview((prev) => ({
-                    ...prev,
-                    rewriteText:
-                      rewriteText.length > prev.rewriteText.length ? rewriteText : prev.rewriteText,
-                  }));
-                } else if (
-                  event.path === "improvement_explanation" &&
-                  typeof event.value === "string"
-                ) {
-                  const explanationText = event.value;
-                  setReceivedReview((prev) => ({
-                    ...prev,
-                    explanationText:
-                      explanationText.length > prev.explanationText.length
-                        ? explanationText
-                        : prev.explanationText,
-                    explanationComplete: true,
-                  }));
-                }
+              case "rewrite_complete": {
+                const rewriteText = event.value;
+                setReceivedReview((prev) => ({
+                  ...prev,
+                  rewriteText:
+                    rewriteText.length > prev.rewriteText.length ? rewriteText : prev.rewriteText,
+                }));
+                break;
+              }
+
+              case "explanation_complete": {
+                const explanationText = event.value;
+                setReceivedReview((prev) => ({
+                  ...prev,
+                  explanationText:
+                    explanationText.length > prev.explanationText.length
+                      ? explanationText
+                      : prev.explanationText,
+                  explanationComplete: true,
+                }));
+                break;
+              }
+
+              case "source_added":
+                setReceivedReview((prev) => ({
+                  ...prev,
+                  keywordSources: [...prev.keywordSources, event.source],
+                }));
                 break;
 
-              case "array_item_complete":
-                if (event.path.startsWith("keyword_sources.")) {
-                  setReceivedReview((prev) => ({
-                    ...prev,
-                    keywordSources: upsertStreamItem(prev.keywordSources, event.path, event.value as TemplateSource),
-                  }));
-                }
+              case "rewrite_delta":
+                setReceivedReview((prev) => ({
+                  ...prev,
+                  rewriteText: prev.rewriteText + event.text,
+                }));
                 break;
 
-              case "string_chunk":
-                if (event.path === "streaming_rewrite") {
-                  setReceivedReview((prev) => ({
-                    ...prev,
-                    rewriteText: prev.rewriteText + event.text,
-                  }));
-                } else if (event.path === "improvement_explanation") {
-                  setReceivedReview((prev) => ({
-                    ...prev,
-                    explanationText: prev.explanationText + event.text,
-                  }));
-                }
-                break;
-
-              case "chunk":
               case "complete":
               case "error":
                 break;
@@ -345,8 +321,13 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
 
         if (!streamResult.ok) {
           if (streamResult.reason === "stream_error") {
+            const rawStreamError = new AppUiError(streamResult.message, {
+              code: streamResult.code ?? "ES_REVIEW_STREAM_FAILED",
+              action: streamResult.action,
+              retryable: streamResult.retryable ?? true,
+            });
             const streamUiError = toAppUiError(
-              new Error(streamResult.message),
+              rawStreamError,
               {
                 code: "ES_REVIEW_STREAM_FAILED",
                 userMessage: "添削処理を完了できませんでした。",
@@ -357,7 +338,10 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
             );
             setError(streamUiError.message);
             setErrorAction(streamUiError.action ?? null);
-            trackEvent("ai_review_error", { reviewMode: effectiveReviewMode });
+            trackEvent("ai_review_error", {
+              reviewMode: effectiveReviewMode,
+              errorCode: streamUiError.code,
+            });
             return false;
           }
 

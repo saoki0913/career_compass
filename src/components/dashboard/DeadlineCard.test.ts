@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import { DeadlineCard } from "./DeadlineCard";
 import type { Deadline } from "@/hooks/useDeadlines";
 
+
 function makeDeadline(overrides: Partial<Deadline> = {}): Deadline {
   return {
     id: "deadline-1",

@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
@@ -10,7 +10,6 @@ import {
   fetchMotivationRoleOptions,
   resetMotivationConversation,
   startMotivationConversation,
-  streamMotivationConversation,
 } from "@/features/motivation/application/client-api";
 import {
   type CausalGap,
@@ -27,12 +26,10 @@ import {
 } from "@/features/motivation/domain/ui";
 import type { MotivationConversationPayload } from "@/lib/motivation/conversation-payload";
 import { notifyError, notifyInfo, notifyMotivationDraftReady } from "@/lib/notifications";
-import { appendOptimisticUserMessage, rollbackOptimisticMessageById } from "@/hooks/conversation/optimistic-message";
+import { useConversationRuntime } from "@/hooks/conversation";
 import { resolveRoleSelection } from "@/hooks/conversation/role-selection";
-import { parseSSEStream } from "@/hooks/conversation/sse-stream-parser";
-import { createStreamTimeout } from "@/hooks/conversation/stream-timeout";
 import { useMotivationPostDraftState } from "@/features/motivation/hooks/useMotivationPostDraftState";
-import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
+import { createMotivationStreamAdapter } from "@/hooks/motivation/motivation-stream-adapter";
 import { useOperationLock } from "@/hooks/useOperationLock";
 
 type ConversationPayload = Partial<
@@ -50,26 +47,6 @@ type ConversationPayload = Partial<
     selectedRoleSource?: string | null;
   } | null;
   setup?: MotivationSetupSnapshot | null;
-};
-
-type PendingCompleteData = {
-  messages: MotivationMessage[];
-  nextQuestion: string | null;
-  questionCount: number;
-  isDraftReady: boolean;
-  draftReadyJustUnlocked: boolean;
-  evidenceSummary: string | null;
-  evidenceCards: EvidenceCard[];
-  userEvidenceCards: EvidenceCard[];
-  questionStage: MotivationStageKey | null;
-  stageStatus: StageStatus | null;
-  coachingFocus: string | null;
-  conversationMode: ConversationMode;
-  currentSlot: Exclude<MotivationStageKey, "closing"> | null;
-  currentIntent: string | null;
-  nextAdvanceCondition: string | null;
-  progress: MotivationProgress | null;
-  causalGaps: CausalGap[];
 };
 
 function withIds(
@@ -90,18 +67,12 @@ export function useMotivationConversationController({ companyId }: { companyId: 
   const [questionCount, setQuestionCount] = useState(0);
   const [isDraftReady, setIsDraftReady] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSending, setIsSending] = useState(false);
-  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [answer, setAnswer] = useState("");
   const [evidenceSummary, setEvidenceSummary] = useState<string | null>(null);
   const [evidenceCards, setEvidenceCards] = useState<EvidenceCard[]>([]);
   const [userEvidenceCards, setUserEvidenceCards] = useState<EvidenceCard[]>([]);
   const [isResetting, setIsResetting] = useState(false);
   const [isStartingConversation, setIsStartingConversation] = useState(false);
-  const [streamingLabel, setStreamingLabel] = useState<string | null>(null);
-  const [streamingTargetText, setStreamingTargetText] = useState("");
-  const [isTextStreaming, setIsTextStreaming] = useState(false);
-  const [streamingSessionId, setStreamingSessionId] = useState(0);
   const [questionStage, setQuestionStage] = useState<MotivationStageKey | null>(null);
   const [stageStatus, setStageStatus] = useState<StageStatus | null>(null);
   const [coachingFocus, setCoachingFocus] = useState<string | null>(null);
@@ -119,15 +90,9 @@ export function useMotivationConversationController({ companyId }: { companyId: 
   const [roleSelectionSource, setRoleSelectionSource] = useState<RoleSelectionSource | null>(null);
   const [customRoleInput, setCustomRoleInput] = useState("");
   const [slotSummaries, setSlotSummaries] = useState<Record<string, string>>({});
-  const [pendingCompleteData, setPendingCompleteData] = useState<PendingCompleteData | null>(null);
 
   const roleOptionsRequestIdRef = useRef(0);
   const fetchDataRequestIdRef = useRef(0);
-
-  const { displayedText: streamingText, isPlaybackComplete } = useStreamingTextPlayback(
-    streamingTargetText,
-    { isActive: isTextStreaming, resetKey: streamingSessionId },
-  );
 
   const applySetupSelection = useCallback((
     setup: MotivationSetupSnapshot | null | undefined,
@@ -272,10 +237,6 @@ export function useMotivationConversationController({ companyId }: { companyId: 
       setSelectedRoleName("");
       setRoleSelectionSource(null);
       setCustomRoleInput("");
-      setPendingCompleteData(null);
-      setStreamingTargetText("");
-      setIsTextStreaming(false);
-      setStreamingSessionId((prev) => prev + 1);
     });
   }, []);
 
@@ -392,43 +353,51 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     void fetchData();
   }, [fetchData]);
 
-  useEffect(() => {
-    if (!pendingCompleteData || !isTextStreaming) {
-      return;
-    }
-    if (!isPlaybackComplete) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
+  const adapter = useMemo(() => createMotivationStreamAdapter({
+    companyId,
+    commitState: (state) => {
       startTransition(() => {
-        setMessages(pendingCompleteData.messages);
-        setNextQuestion(pendingCompleteData.nextQuestion);
-        setQuestionCount(pendingCompleteData.questionCount || 0);
-        setIsDraftReady(pendingCompleteData.isDraftReady || false);
-        setEvidenceSummary(pendingCompleteData.evidenceSummary || null);
-        setEvidenceCards(pendingCompleteData.evidenceCards || []);
-        setUserEvidenceCards(pendingCompleteData.userEvidenceCards || []);
-        setQuestionStage(pendingCompleteData.questionStage || null);
-        setStageStatus(pendingCompleteData.stageStatus || null);
-        setCoachingFocus(pendingCompleteData.coachingFocus || null);
-        setConversationMode(pendingCompleteData.conversationMode || "slot_fill");
-        setCurrentSlot(pendingCompleteData.currentSlot || null);
-        setCurrentIntent(pendingCompleteData.currentIntent || null);
-        setNextAdvanceCondition(pendingCompleteData.nextAdvanceCondition || null);
-        setProgress(pendingCompleteData.progress || null);
-        setCausalGaps(pendingCompleteData.causalGaps || []);
-        setPendingCompleteData(null);
-        setIsTextStreaming(false);
-        setStreamingTargetText("");
+        setMessages(state.messages);
+        setNextQuestion(state.nextQuestion);
+        setQuestionCount(state.questionCount);
+        setIsDraftReady(state.isDraftReady);
+        setEvidenceSummary(state.evidenceSummary);
+        setEvidenceCards(state.evidenceCards);
+        setUserEvidenceCards(state.userEvidenceCards);
+        setQuestionStage(state.questionStage);
+        setStageStatus(state.stageStatus);
+        setCoachingFocus(state.coachingFocus || null);
+        setConversationMode(state.conversationMode || "slot_fill");
+        setCurrentSlot(state.currentSlot || null);
+        setCurrentIntent(state.currentIntent || null);
+        setNextAdvanceCondition(state.nextAdvanceCondition || null);
+        setProgress(state.progress || null);
+        setCausalGaps(state.causalGaps || []);
       });
-      if (pendingCompleteData.draftReadyJustUnlocked) {
+      if (state.draftReadyJustUnlocked) {
         notifyMotivationDraftReady();
       }
-    }, 180);
+    },
+    onError: async (err) => {
+      if (err instanceof Error && err.name === "AbortError") {
+        notifyError({ title: "AIの応答に時間がかかりすぎています。再度お試しください。" });
+      }
+      await fetchData();
+    },
+  }), [companyId, fetchData]);
 
-    return () => window.clearTimeout(timer);
-  }, [isPlaybackComplete, isTextStreaming, pendingCompleteData]);
+  const {
+    send: runtimeSend,
+    isSending,
+    isWaitingForResponse,
+    streamingText,
+    isTextStreaming,
+    streamingLabel,
+  } = useConversationRuntime({
+    adapter,
+    messages,
+    setMessages,
+  });
 
   const postDraft = useMotivationPostDraftState({
     companyId,
@@ -551,157 +520,10 @@ export function useMotivationConversationController({ companyId }: { companyId: 
 
   const handleSend = useCallback(async () => {
     const textToSend = answer.trim();
-    if (!textToSend || isSending) return;
-    if (!acquireLock("AIに送信中")) {
-      notifyInfo({ title: `${activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。` });
-      return;
-    }
-
-    const optimisticUpdate = appendOptimisticUserMessage(messages, "optimistic", (optimisticId) => ({
-      id: optimisticId,
-      role: "user" as const,
-      content: textToSend,
-      isOptimistic: true,
-    }));
-    const optimisticId = optimisticUpdate.optimisticId;
-
-    setMessages(optimisticUpdate.messages);
+    if (!textToSend) return;
     setAnswer("");
-    setIsSending(true);
-    setIsWaitingForResponse(true);
-    setPendingCompleteData(null);
-    setStreamingTargetText("");
-    setIsTextStreaming(false);
-    setStreamingSessionId((prev) => prev + 1);
-    setStreamingLabel(null);
-
-    const { controller, clear: clearStreamTimeout } = createStreamTimeout();
-    let startedQuestionPlayback = false;
-
-    try {
-      const response = await streamMotivationConversation(
-        companyId,
-        { answer: textToSend },
-        controller.signal,
-      );
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "MOTIVATION_CONVERSATION_STREAM_FAILED",
-            userMessage: "送信に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleSend",
-        );
-      }
-
-      let completed = false;
-
-      for await (const event of parseSSEStream(response)) {
-        if (event.type === "progress") {
-          setStreamingLabel((event.label as string) || null);
-        } else if (event.type === "complete") {
-          completed = true;
-          const data = event.data as Record<string, unknown>;
-          const nextData: PendingCompleteData = {
-            messages: withIds((data.messages as Array<{ role: "user" | "assistant"; content: string; id?: string }>) || []),
-            nextQuestion: (data.nextQuestion as string) ?? null,
-            questionCount: (data.questionCount as number) || 0,
-            isDraftReady: (data.isDraftReady as boolean) || false,
-            draftReadyJustUnlocked: (data.draftReadyJustUnlocked as boolean) || false,
-            evidenceSummary: (data.evidenceSummary as string) || null,
-            evidenceCards: (data.evidenceCards as EvidenceCard[]) || [],
-            userEvidenceCards: (data.userEvidenceCards as EvidenceCard[]) || [],
-            questionStage: (data.questionStage as MotivationStageKey) || null,
-            stageStatus: (data.stageStatus as StageStatus) || null,
-            coachingFocus: (data.coachingFocus as string) || null,
-            conversationMode: (data.conversationMode as ConversationMode) || "slot_fill",
-            currentSlot: (data.currentSlot as Exclude<MotivationStageKey, "closing">) || null,
-            currentIntent: (data.currentIntent as string) || null,
-            nextAdvanceCondition: (data.nextAdvanceCondition as string) || null,
-            progress: (data.progress as MotivationProgress) || null,
-            causalGaps: (data.causalGaps as CausalGap[]) || [],
-          };
-          const questionForPlayback =
-            typeof nextData.nextQuestion === "string"
-              ? nextData.nextQuestion.trim()
-              : "";
-
-          if (startedQuestionPlayback) {
-            if (questionForPlayback) {
-              setStreamingTargetText(questionForPlayback);
-            }
-            setPendingCompleteData(nextData);
-          } else if (questionForPlayback) {
-            setStreamingTargetText(questionForPlayback);
-            setIsTextStreaming(true);
-            setIsWaitingForResponse(false);
-            setPendingCompleteData(nextData);
-            startedQuestionPlayback = true;
-          } else {
-            setMessages(nextData.messages);
-            setNextQuestion(nextData.nextQuestion);
-            setQuestionCount(nextData.questionCount);
-            setIsDraftReady(nextData.isDraftReady);
-            setEvidenceSummary(nextData.evidenceSummary);
-            setEvidenceCards(nextData.evidenceCards);
-            setUserEvidenceCards(nextData.userEvidenceCards);
-            setQuestionStage(nextData.questionStage);
-            setStageStatus(nextData.stageStatus);
-            setCoachingFocus(nextData.coachingFocus || null);
-            setConversationMode(nextData.conversationMode || "slot_fill");
-            setCurrentSlot(nextData.currentSlot || null);
-            setCurrentIntent(nextData.currentIntent || null);
-            setNextAdvanceCondition(nextData.nextAdvanceCondition || null);
-            setProgress(nextData.progress || null);
-            setCausalGaps(nextData.causalGaps || []);
-            if (nextData.draftReadyJustUnlocked) {
-              notifyMotivationDraftReady();
-            }
-          }
-        } else if (event.type === "error") {
-          throw new Error((event.message as string) || "AIサービスでエラーが発生しました");
-        }
-      }
-
-      if (!completed) {
-        throw new Error("ストリームが途中で切断されました");
-      }
-    } catch (err) {
-      setMessages((prev) => rollbackOptimisticMessageById(prev, optimisticId));
-      setPendingCompleteData(null);
-      setStreamingTargetText("");
-      setIsTextStreaming(false);
-      if (err instanceof Error && err.name === "AbortError") {
-        notifyError({ title: "AIの応答に時間がかかりすぎています。再度お試しください。" });
-      } else {
-        reportUserFacingError(
-          err,
-          {
-            code: "MOTIVATION_CONVERSATION_STREAM_FAILED",
-            userMessage: "送信に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "MotivationPage.handleSend",
-        );
-      }
-      await fetchData();
-    } finally {
-      clearStreamTimeout();
-      setIsSending(false);
-      setIsWaitingForResponse(false);
-      setStreamingLabel(null);
-      if (!startedQuestionPlayback) {
-        setStreamingTargetText("");
-        setIsTextStreaming(false);
-      }
-      releaseLock();
-    }
-  }, [acquireLock, activeOperationLabel, answer, companyId, fetchData, isSending, releaseLock]);
+    await runtimeSend(textToSend);
+  }, [answer, runtimeSend]);
 
   const handleResetConversation = useCallback(async () => {
     if (isSending || isGeneratingDraft || isResetting || isWaitingForResponse || isTextStreaming || isStartingConversation) {

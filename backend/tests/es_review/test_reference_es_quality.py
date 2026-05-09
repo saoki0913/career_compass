@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from app.prompts import reference_es
+from app.prompts import logic_patterns
 
 
 @pytest.fixture()
@@ -46,6 +47,126 @@ def test_build_reference_quality_block_uses_quality_summary(reference_payload: N
     assert "私が貴社を志望する理由は二つある" not in block
 
 
+def test_load_reference_examples_uses_template_jsonl_corpus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    corpus_dir = tmp_path / "reference" / "es_review"
+    target_dir = corpus_dir / "company_motivation"
+    target_dir.mkdir(parents=True)
+    distinctive_sentence = "私が貴社を志望する理由は二つある。"
+    records = [
+        {
+            "id": "jsonl_ref_001",
+            "question_type": "company_motivation",
+            "company_name": "KPMG",
+            "char_max": 400,
+            "title": "jsonl",
+            "capture_kind": "full_text",
+            "text": distinctive_sentence + "研究経験を生かして課題解決に貢献したい。",
+            "source_provenance": "self_owned_reference_es",
+            "usage_consent": True,
+            "anonymized": True,
+            "anonymization_level": "self_owned",
+        }
+    ]
+    (target_dir / "references.jsonl").write_text(
+        "\n".join(reference_es.json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_CORPUS_DIR", corpus_dir)
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", reference_es.DEFAULT_REFERENCE_ES_PATH)
+
+    examples = reference_es.load_reference_examples(
+        "company_motivation",
+        char_max=400,
+        company_name="KPMG",
+    )
+    block = reference_es.build_reference_quality_block(
+        "company_motivation",
+        char_max=400,
+        company_name="KPMG",
+    )
+
+    assert [example["id"] for example in examples] == ["jsonl_ref_001"]
+    assert "参考件数: 1件" in block
+    assert distinctive_sentence not in block
+
+
+def test_load_reference_examples_ignores_unconsented_jsonl_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    corpus_dir = tmp_path / "reference" / "es_review"
+    target_dir = corpus_dir / "gakuchika"
+    target_dir.mkdir(parents=True)
+    records = [
+        {
+            "id": "missing_consent",
+            "question_type": "gakuchika",
+            "char_max": 400,
+            "capture_kind": "full_text",
+            "text": "学園祭で課題を整理し、参加率を20%改善した。",
+            "source_provenance": "self_owned_reference_es",
+            "usage_consent": False,
+            "anonymized": True,
+            "anonymization_level": "self_owned",
+        },
+        {
+            "id": "usable",
+            "question_type": "gakuchika",
+            "char_max": 400,
+            "capture_kind": "full_text",
+            "text": "私は学園祭で課題を整理し、参加率を20%改善した。",
+            "source_provenance": "self_owned_reference_es",
+            "usage_consent": True,
+            "anonymized": True,
+            "anonymization_level": "self_owned",
+        },
+    ]
+    (target_dir / "references.jsonl").write_text(
+        "\n".join(reference_es.json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_CORPUS_DIR", corpus_dir)
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", reference_es.DEFAULT_REFERENCE_ES_PATH)
+
+    examples = reference_es.load_reference_examples("gakuchika", char_max=400)
+
+    assert [example["id"] for example in examples] == ["usable"]
+
+
+def test_load_reference_examples_does_not_fallback_to_private_json_when_corpus_empty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    corpus_dir = tmp_path / "reference" / "es_review"
+    (corpus_dir / "company_motivation").mkdir(parents=True)
+    (corpus_dir / "company_motivation" / "references.jsonl").write_text("", encoding="utf-8")
+    legacy_path = tmp_path / "private_reference.json"
+    legacy_path.write_text(
+        reference_es.json.dumps(
+            {
+                "references": [
+                    {
+                        "id": "legacy_ref",
+                        "question_type": "company_motivation",
+                        "char_max": 400,
+                        "text": "この旧ローカル参考ESはproduction corpusが空でも使わない。",
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_CORPUS_DIR", corpus_dir)
+    monkeypatch.setattr(reference_es, "DEFAULT_REFERENCE_ES_PATH", legacy_path)
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", legacy_path)
+
+    assert reference_es.load_reference_examples("company_motivation", char_max=400) == []
+
+
 def test_build_reference_quality_profile_summarizes_reference_stats(reference_payload: None) -> None:
     profile = reference_es.build_reference_quality_profile(
         "company_motivation",
@@ -67,6 +188,27 @@ def test_build_reference_quality_profile_summarizes_reference_stats(reference_pa
     assert profile["conditional_hints"]
 
 
+def test_build_reference_quality_profile_falls_back_to_static_guidance_without_corpus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    corpus_dir = tmp_path / "reference" / "es_review"
+    (corpus_dir / "self_pr").mkdir(parents=True)
+    (corpus_dir / "self_pr" / "references.jsonl").write_text("", encoding="utf-8")
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_CORPUS_DIR", corpus_dir)
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", reference_es.DEFAULT_REFERENCE_ES_PATH)
+
+    profile = reference_es.build_reference_quality_profile("self_pr", char_max=400)
+    block = reference_es.build_reference_quality_block("self_pr", char_max=400)
+
+    assert profile is not None
+    assert profile["reference_count"] == 0
+    assert profile["quality_hints"] == reference_es.QUESTION_TYPE_QUALITY_HINTS["self_pr"]
+    assert profile["skeleton"] == reference_es.QUESTION_TYPE_SKELETONS["self_pr"]
+    assert "参考件数: 0件" in block
+    assert "1文目で強みの核を結論として言い切る" in block
+
+
 def test_build_reference_quality_profile_adds_length_guidance_only_for_large_gap(
     reference_payload: None,
 ) -> None:
@@ -79,6 +221,107 @@ def test_build_reference_quality_profile_adds_length_guidance_only_for_large_gap
 
     assert profile is not None
     assert any("かなり短い" in hint for hint in profile["conditional_hints"])
+
+
+def _write_logic_patterns(root: Path, question_type: str, *, source_count: int = 11) -> None:
+    target = root / question_type
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "patterns.json").write_text(
+        reference_es.json.dumps(
+            {
+                "question_type": question_type,
+                "source_count": source_count,
+                "human_reviewed": True,
+                "patterns": [
+                    {
+                        "approach_label": "課題起点型",
+                        "approach_description": "結論で経験の核を示し、課題と行動を因果でつなぐ",
+                        "frequency_count": 8,
+                        "persuasion_key": "行動理由と成果を近くに置く",
+                    }
+                ],
+                "section_balance": "冒頭短め・中盤厚め・締め短め",
+                "opening_pattern": {"structure": "経験の核を一文で置く"},
+                "closing_pattern": {"structure": "成果から学びへ接続する"},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    logic_patterns.get_logic_patterns.cache_clear()
+
+
+def test_reference_quality_block_uses_logic_patterns_when_available(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(logic_patterns, "LOGIC_PATTERNS_DIR", tmp_path)
+    _write_logic_patterns(tmp_path, "gakuchika")
+
+    block = reference_es.build_reference_quality_block("gakuchika", char_max=400)
+
+    assert "主な論理アプローチ" in block
+    assert "冒頭パターン:" not in block
+
+
+def test_reference_quality_block_omits_structural_block_when_patterns_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    corpus_dir = tmp_path / "reference" / "es_review"
+    target_dir = corpus_dir / "gakuchika"
+    target_dir.mkdir(parents=True)
+    records = [
+        {
+            "id": f"ref_{index}",
+            "question_type": "gakuchika",
+            "char_max": 400,
+            "capture_kind": "full_text",
+            "text": f"私はゼミで課題を整理した。行動を改善した結果、提出遅延を{index + 1}件減らした。",
+            "source_provenance": "self_owned_reference_es",
+            "usage_consent": True,
+            "anonymized": True,
+        }
+        for index in range(3)
+    ]
+    (target_dir / "references.jsonl").write_text(
+        "\n".join(reference_es.json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_CORPUS_DIR", corpus_dir)
+    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", reference_es.DEFAULT_REFERENCE_ES_PATH)
+    monkeypatch.setattr(logic_patterns, "LOGIC_PATTERNS_DIR", tmp_path / "missing")
+    logic_patterns.get_logic_patterns.cache_clear()
+
+    block = reference_es.build_reference_quality_block("gakuchika", char_max=400)
+
+    assert "主な論理アプローチ" not in block
+    assert "【参考ESから抽出した構成パターン】" not in block
+
+
+def test_reference_quality_block_gates_logic_patterns_by_char_max(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(logic_patterns, "LOGIC_PATTERNS_DIR", tmp_path)
+    _write_logic_patterns(tmp_path, "gakuchika")
+
+    block = reference_es.build_reference_quality_block("gakuchika", char_max=200)
+
+    assert "主な論理アプローチ" not in block
+
+
+def test_reference_quality_block_medium_confidence_type_shows_patterns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(logic_patterns, "LOGIC_PATTERNS_DIR", tmp_path)
+    _write_logic_patterns(tmp_path, "work_values", source_count=4)
+
+    block = reference_es.build_reference_quality_block("work_values", char_max=400)
+
+    assert "主な論理アプローチ" in block
+    assert "件数が少ない設問タイプのため" in block
 
 
 def test_build_reference_quality_profile_adds_variance_hint_for_high_variance(
@@ -232,15 +475,15 @@ def test_build_reference_quality_profile_adds_conclusion_and_digit_hints(
 @pytest.mark.parametrize(
     ("question_type", "expected_hint"),
     [
-        ("basic", "20〜45字"),
-        ("company_motivation", "20〜45字"),
-        ("intern_reason", "20〜45字"),
-        ("intern_goals", "20〜45字"),
-        ("gakuchika", "20〜45字"),
-        ("self_pr", "20〜45字"),
-        ("post_join_goals", "20〜45字"),
-        ("role_course_reason", "20〜45字"),
-        ("work_values", "20〜45字"),
+        ("basic", "結論として"),
+        ("company_motivation", "結論として"),
+        ("intern_reason", "結論として"),
+        ("intern_goals", "結論として"),
+        ("gakuchika", "結論として"),
+        ("self_pr", "結論として"),
+        ("post_join_goals", "結論として"),
+        ("role_course_reason", "結論として"),
+        ("work_values", "結論として"),
     ],
 )
 def test_quality_hints_require_short_opening_conclusion(
@@ -298,45 +541,12 @@ def test_build_reference_quality_block_includes_sentence_flow_when_available(
     assert "接続:" in block
 
 
-def test_build_reference_quality_block_includes_structural_patterns_only_when_enough_filtered_references(
+def test_build_reference_quality_block_uses_logic_patterns_for_work_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    payload = {
-        "version": 1,
-        "references": [
-            {
-                "id": "ref_work_values_001",
-                "question_type": "work_values",
-                "company_name": "",
-                "char_max": 300,
-                "title": "work-values-1",
-                "text": "私が大切にしているのは、相手の状況を踏まえて動くことだ。アルバイトでは引き継ぎ方法を見直し、問い合わせ対応を15%減らした。今後も周囲の前提をそろえながら成果につなげたい。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_work_values_002",
-                "question_type": "work_values",
-                "company_name": "",
-                "char_max": 300,
-                "title": "work-values-2",
-                "text": "私が働くうえで大切にしたいのは、最後まで責任を持つ姿勢だ。ゼミでは担当を超えて進行を補い、提出遅れを0件にした。仕事でも周囲を支えながら成果に責任を持ちたい。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_work_values_003",
-                "question_type": "work_values",
-                "company_name": "",
-                "char_max": 300,
-                "title": "work-values-3",
-                "text": "私が重視するのは、課題を放置せず対話で前に進めることだ。サークルでは意見の違いを整理し、参加率を10ポイント高めた。今後も対話を通じて組織に貢献したい。",
-                "capture_kind": "full_text",
-            },
-        ],
-    }
-    path = tmp_path / "es_references.json"
-    path.write_text(reference_es.json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", path)
+    monkeypatch.setattr(logic_patterns, "LOGIC_PATTERNS_DIR", tmp_path)
+    _write_logic_patterns(tmp_path, "work_values", source_count=4)
 
     block = reference_es.build_reference_quality_block(
         "work_values",
@@ -345,12 +555,10 @@ def test_build_reference_quality_block_includes_structural_patterns_only_when_en
     )
 
     assert "【参考ESから抽出した構成パターン】" in block
-    assert "冒頭パターン" in block
-    assert "締めパターン" in block
-    assert "行動・成果" in block
+    assert "主な論理アプローチ" in block
 
 
-def test_build_reference_quality_profile_extracts_v2_star_pattern_for_gakuchika(
+def test_build_reference_quality_profile_omits_structural_patterns_v2(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -378,13 +586,6 @@ def test_build_reference_quality_profile_extracts_v2_star_pattern_for_gakuchika(
                 "text": "私が最も力を入れたのは研究室の共有改善だ。記録の粒度がばらつく課題に対し、議事録テンプレートを統一した。結果として確認工数を2割減らした。",
                 "capture_kind": "full_text",
             },
-            {
-                "id": "ref_g4",
-                "question_type": "gakuchika",
-                "char_max": 400,
-                "text": "私が学生時代に注力したのはサークル運営の改善だ。新入生対応が属人化していたため、担当表と連絡フローを再設計した。結果、参加率を15ポイント高めた。",
-                "capture_kind": "full_text",
-            },
         ],
     }
     path = tmp_path / "es_references.json"
@@ -394,142 +595,4 @@ def test_build_reference_quality_profile_extracts_v2_star_pattern_for_gakuchika(
     profile = reference_es.build_reference_quality_profile("gakuchika", char_max=400)
 
     assert profile is not None
-    assert profile["structural_patterns_v2"] is not None
-    assert profile["structural_patterns_v2"]["composition_type"] == "star_sequential"
-    assert "中盤" in profile["structural_patterns_v2"]["section_balance_label"]
-
-
-def test_build_reference_quality_profile_extracts_v2_numbered_reasons_for_intern_reason(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payload = {
-        "version": 1,
-        "references": [
-            {
-                "id": "ref_i1",
-                "question_type": "intern_reason",
-                "char_max": 200,
-                "text": "私が貴社インターンを志望する理由は二つある。第一に、研究で培った分析力を実務で試したいからだ。第二に、現場の意思決定に近い環境で学びたいからだ。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_i2",
-                "question_type": "intern_reason",
-                "char_max": 200,
-                "text": "参加したい理由は二つある。第一に、仮説検証力を実務課題で試したい。第二に、社員の方の視点を吸収したい。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_i3",
-                "question_type": "intern_reason",
-                "char_max": 200,
-                "text": "志望理由は二つある。第一に、顧客課題への向き合い方を学びたい。第二に、自分の強みが通用するか確かめたい。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_i4",
-                "question_type": "intern_reason",
-                "char_max": 200,
-                "text": "参加理由は二点ある。第一に、実務のスピード感を体感したい。第二に、分析結果を施策に結び付ける視点を得たい。",
-                "capture_kind": "full_text",
-            },
-        ],
-    }
-    path = tmp_path / "es_references.json"
-    path.write_text(reference_es.json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", path)
-
-    profile = reference_es.build_reference_quality_profile("intern_reason", char_max=200)
-
-    assert profile is not None
-    assert profile["structural_patterns_v2"] is not None
-    assert profile["structural_patterns_v2"]["composition_type"] == "numbered_reasons"
-
-
-def test_build_reference_quality_profile_extracts_v2_single_thread_for_role_course_reason(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payload = {
-        "version": 1,
-        "references": [
-            {
-                "id": "ref_r1",
-                "question_type": "role_course_reason",
-                "char_max": 400,
-                "text": "私がデジタル企画コースを志望するのは、事業理解と技術理解をつなぐ役割に魅力を感じるからだ。研究で論点整理を担った経験を生かし、現場で価値を出したい。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_r2",
-                "question_type": "role_course_reason",
-                "char_max": 400,
-                "text": "志望理由は、複数の関係者をつなぎながら前に進める役割に適性を感じるからだ。ゼミでの進行設計経験を土台に、事業と実装を橋渡ししたい。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_r3",
-                "question_type": "role_course_reason",
-                "char_max": 400,
-                "text": "このコースを志望するのは、顧客課題と技術の両方を理解しながら価値を形にしたいからだ。研究活動での整理力を業務で生かしたい。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_r4",
-                "question_type": "role_course_reason",
-                "char_max": 400,
-                "text": "役割選択の理由は、事業に近い立場で課題解決に関わりたいからだ。関係者調整の経験を生かし、役割の中で価値を発揮したい。",
-                "capture_kind": "full_text",
-            },
-        ],
-    }
-    path = tmp_path / "es_references.json"
-    path.write_text(reference_es.json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", path)
-
-    profile = reference_es.build_reference_quality_profile("role_course_reason", char_max=400)
-
-    assert profile is not None
-    assert profile["structural_patterns_v2"] is not None
-    assert profile["structural_patterns_v2"]["composition_type"] == "single_thread"
-
-
-def test_build_reference_quality_profile_keeps_v2_disabled_for_sparse_or_unsupported_templates(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    payload = {
-        "version": 1,
-        "references": [
-            {
-                "id": "ref_p1",
-                "question_type": "post_join_goals",
-                "char_max": 400,
-                "text": "入社後は事業理解を深めながら価値を出したい。研究で培った整理力を生かしたい。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_p2",
-                "question_type": "post_join_goals",
-                "char_max": 400,
-                "text": "将来は現場で経験を積み、事業を前進させたい。原体験を土台に成長したい。",
-                "capture_kind": "full_text",
-            },
-            {
-                "id": "ref_p3",
-                "question_type": "post_join_goals",
-                "char_max": 400,
-                "text": "入社後に挑戦したいのは、課題整理を通じて価値創出に関わることだ。経験を積みながら貢献したい。",
-                "capture_kind": "full_text",
-            },
-        ],
-    }
-    path = tmp_path / "es_references.json"
-    path.write_text(reference_es.json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", path)
-
-    profile = reference_es.build_reference_quality_profile("post_join_goals", char_max=400)
-
-    assert profile is not None
-    assert profile["structural_patterns_v2"] is None
+    assert "structural_patterns_v2" not in profile

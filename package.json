@@ -68,6 +68,7 @@
     "db:migrate:as-app": "DRIZZLE_MIGRATE_USE_DATABASE_URL=1 dotenv -e .env.local -- drizzle-kit migrate",
     "db:repair:interview-feedback-evidence": "dotenv -e .env.local -- node scripts/dev/ensure-interview-feedback-evidence-columns.mjs",
     "db:repair:subscription-cancel-column": "dotenv -e .env.local -- node scripts/dev/ensure-cancel-at-period-end-column.mjs",
+    "db:repair:billing-hold-columns": "dotenv -e .env.local -- node scripts/dev/ensure-billing-hold-columns.mjs",
     "db:migrate:prod": "NODE_OPTIONS=--dns-result-order=ipv4first dotenv -e .env.production -- drizzle-kit migrate",
     "stripe:bootstrap-live": "dotenv -e .env.local -- node scripts/release/stripe-shupass-live-bootstrap.mjs",
     "stripe:inspect": "dotenv -e .env.local -- node scripts/stripe/inspect.mjs",

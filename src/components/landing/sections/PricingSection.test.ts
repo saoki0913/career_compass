@@ -13,31 +13,35 @@ describe("PricingSection design-system guard", () => {
     "src/components/landing/sections/PricingSection.tsx",
   );
 
-  it("includes decorative credit card illustration for desktop", () => {
-    expect(source).toContain("pricing/icon-credit-card-price.png");
+  it("includes available decorative pricing illustrations for desktop", () => {
+    expect(source).toContain("pricing/image_01_nobg.png");
+    expect(source).toContain("pricing/image_09_nobg.png");
   });
 
-  it("includes inline PricingShieldIcon SVG component", () => {
-    expect(source).toContain("PricingShieldIcon");
+  it("uses lucide shield and check icons as HTML components", () => {
+    expect(source).toContain("ShieldCheck");
+    expect(source).toContain("CheckCircle2");
   });
 
   it("decorative images have alt empty and role presentation", () => {
-    // All 7 decorative images must have alt="" and role="presentation"
     const decorativeMatches = source.match(/role="presentation"/g);
     expect(decorativeMatches).not.toBeNull();
-    expect(decorativeMatches!.length).toBeGreaterThanOrEqual(7);
+    expect(decorativeMatches!.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("uses reference design heading color #0d1f3a", () => {
-    expect(source).toContain("#0d1f3a");
+  it("uses shared design tokens for heading and accents", () => {
+    expect(source).toContain("var(--lp-navy)");
+    expect(source).toContain("var(--lp-cta)");
   });
 
-  it("uses reference design accent color #2d6eff", () => {
-    expect(source).toContain("#2d6eff");
-  });
 
   it("limits LP feature list to 6 items per plan", () => {
     expect(source).toContain(".slice(0, 6)");
+  });
+
+  it("does not strip billing caveats from plan features", () => {
+    expect(source).not.toContain("replace(/（.*?）/g");
+    expect(source).toContain("<span>{feature}</span>");
   });
 
   it("uses SSOT pricing data from getMarketingPricingPlans", () => {
@@ -45,23 +49,39 @@ describe("PricingSection design-system guard", () => {
     expect(source).toContain('"monthly"');
   });
 
-  it("does not import lucide-react icons", () => {
-    expect(source).not.toContain("lucide-react");
+  it("imports lucide-react icons instead of using button images", () => {
+    expect(source).toContain("lucide-react");
   });
 
   it("includes wave SVG decoration", () => {
-    expect(source).toContain("PricingWave");
+    expect(source).toContain('viewBox="0 0 1672 941"');
   });
 
-  it("includes 3 plus-sign text decorations", () => {
-    // The "+" text decorations appear 3 times
-    const plusMatches = source.match(/>\s*\+\s*<\/span>/g);
-    expect(plusMatches).not.toBeNull();
-    expect(plusMatches!.length).toBe(3);
+  it("uses the selected low-friction trust copy", () => {
+    expect(source).toContain("無料プランあり");
+    expect(source).toContain("必要な分だけ使える");
+    expect(source).not.toContain("月50クレジットから");
+    expect(source).not.toContain("クレカ登録不要");
+    expect(source).not.toContain("カード登録不要");
   });
 
   it("keeps low-friction trust copy without overstating free usage", () => {
-    expect(source).toContain("30秒で簡単スタート");
     expect(source).toContain("無料プランあり");
+    expect(source).toContain("あとから変更OK");
+    expect(source).not.toContain("クレジットカード登録不要");
+  });
+
+  it("uses enhanced card shadows for professional depth", () => {
+    expect(source).toContain("rgba(38,128,255,0.22)");
+    expect(source).toContain("rgba(20,50,110,0.13)");
+  });
+
+  it("marks the section for Playwright section screenshots", () => {
+    expect(source).toContain('data-section="pricing"');
+    expect(source).toContain("scroll-mt-[92px]");
+  });
+
+  it("includes sparkle decorations", () => {
+    expect(source).toContain("LpSparkleDecorations");
   });
 });

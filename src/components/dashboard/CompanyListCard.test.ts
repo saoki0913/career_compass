@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCompanyAvatarColor, getCompanyLogoSources } from "@/lib/dashboard-utils";
 
+
 describe("CompanyProgressCard", () => {
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_LOGO_DEV_TOKEN", "");

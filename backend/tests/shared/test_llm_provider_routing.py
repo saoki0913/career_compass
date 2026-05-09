@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 import httpx
+
 import pytest
 from openai import APIError as OpenAIAPIError
 
@@ -935,17 +936,6 @@ async def test_call_llm_with_error_repairs_google_partial_json_with_same_model(
 
     assert result.success is True
     assert result.data == {"ok": True}
-
-
-def test_augment_system_prompt_for_provider_text_keeps_non_es_review_prompt_unchanged() -> None:
-    assert (
-        llm._augment_system_prompt_for_provider_text(
-            "openai",
-            "system",
-            feature="motivation",
-        )
-        == "system"
-    )
 
 
 def test_repair_json_gpt_mini_max_tokens_matches_policy() -> None:

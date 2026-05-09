@@ -28,7 +28,10 @@ const FEATURE_CONFIG = {
     patterns: [
       /^backend\/app\/routers\/es_review[^/]*\.py$/u,
       /^backend\/app\/prompts\/es_[^/]+\.py$/u,
+      /^backend\/app\/prompts\/es_templates\/.+\.py$/u,
+      /^backend\/app\/prompts\/logic_patterns\.py$/u,
       /^backend\/app\/prompts\/reference_es\.py$/u,
+      /^backend\/app\/reference\/es_review\/.+\/patterns\.json$/u,
       /^backend\/app\/testing\/es_review_live_gate\.py$/u,
       /^src\/components\/es\/.+/u,
       /^src\/features\/es-review\/.+/u,
@@ -49,6 +52,7 @@ const FEATURE_CONFIG = {
       /^backend\/app\/evaluators\/draft_quality\.py$/u,
       /^backend\/app\/prompts\/gakuchika[^/]*\.py$/u,
       /^backend\/app\/prompts\/es_templates\.py$/u,
+      /^backend\/app\/prompts\/es_templates\/.+\.py$/u,
       /^backend\/app\/normalization\/gakuchika_payload\.py$/u,
       /^backend\/app\/utils\/gakuchika_text\.py$/u,
       /^src\/components\/gakuchika\/.+/u,

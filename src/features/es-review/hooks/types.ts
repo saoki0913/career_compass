@@ -30,7 +30,6 @@ export interface TemplateVariant {
 }
 
 export interface TemplateSource {
-  source_id: string;
   source_url: string;
   content_type: string;
   content_type_label?: string;
@@ -76,12 +75,13 @@ export interface ReviewResult {
     weak_evidence_notice?: boolean;
     injection_risk?: string | null;
     user_context_sources?: string[];
-    hallucination_guard_mode?: "strict";
+    hallucination_guard_mode?: "advisory" | "hard_block" | "strict";
+    repair_dispatch_count?: number;
+    composite_retry_modes?: string[];
+    final_acceptance_source?: "rewrite" | "safe_rewrite" | "length_fix" | "degraded_best_effort";
     classification_confidence?: "high" | "medium" | "low";
     classification_secondary_candidates?: TemplateType[];
-    classification_rationale?: string | null;
     misclassification_recovery_applied?: boolean;
-    rewrite_attempt_count?: number;
     length_policy?: "strict" | "soft_ok";
     length_shortfall?: number;
     soft_min_floor_ratio?: number | null;
@@ -91,12 +91,16 @@ export interface ReviewResult {
     rewrite_validation_codes?: string[];
     rewrite_validation_user_hint?: string | null;
     fallback_triggered?: boolean;
-    fallback_reason?: string | null;
     grounding_repair_applied?: boolean;
     ai_smell_tier?: number;
     concrete_marker_count?: number;
     opening_conclusion_chars?: number;
     rewrite_sentence_count?: number;
+  };
+  billing_outcome?: {
+    success?: boolean;
+    billable?: boolean;
+    schema_version?: number;
   };
 }
 
@@ -135,40 +139,39 @@ export interface SSECompleteEvent {
 export interface SSEErrorEvent {
   type: "error";
   message: string;
-  error_type?: string;
+  code?: string;
+  action?: string;
+  retryable?: boolean;
 }
 
-export interface SSEFieldCompleteEvent {
-  type: "field_complete";
-  path: string;
-  value: unknown;
-}
-
-export interface SSEArrayItemCompleteEvent {
-  type: "array_item_complete";
-  path: string;
-  value: unknown;
-}
-
-export interface SSEChunkEvent {
-  type: "chunk";
+export interface SSERewriteDeltaEvent {
+  type: "rewrite_delta";
   text: string;
 }
 
-export interface SSEStringChunkEvent {
-  type: "string_chunk";
-  path: string;
-  text: string;
+export interface SSERewriteCompleteEvent {
+  type: "rewrite_complete";
+  value: string;
+}
+
+export interface SSEExplanationCompleteEvent {
+  type: "explanation_complete";
+  value: string;
+}
+
+export interface SSESourceAddedEvent {
+  type: "source_added";
+  source: TemplateSource;
 }
 
 export type SSEEvent =
   | SSEProgressEvent
   | SSECompleteEvent
   | SSEErrorEvent
-  | SSEFieldCompleteEvent
-  | SSEArrayItemCompleteEvent
-  | SSEChunkEvent
-  | SSEStringChunkEvent;
+  | SSERewriteDeltaEvent
+  | SSERewriteCompleteEvent
+  | SSEExplanationCompleteEvent
+  | SSESourceAddedEvent;
 
 export interface VisibleTemplateSource extends TemplateSource {
   isSettled: boolean;

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "rollout_phase": "A",
+  "mode": "standard",
+  "blocking_threshold": "high",
+  "hint_cooldown_edits": 3,
+  "max_hints_per_session": 8,
+  "commit_gate_mode": "standard",
+  "categories_enabled": "all",
+  "deferral_expiry_days": 7
+}

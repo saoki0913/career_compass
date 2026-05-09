@@ -1,5 +1,5 @@
 #!/bin/bash
-# PreToolUse(Bash): delegate.sh plan_review / post_review の実行前に
+# PreToolUse(Bash): delegate.sh plan_review の実行前に
 # AskUserQuestion での確認を機械的に強制する。
 # checkpoint が未設定ならブロック（exit 2）。
 set -euo pipefail
@@ -21,8 +21,6 @@ fi
 MODE=""
 if printf '%s' "$CMD" | grep -qE 'delegate\.sh[[:space:]]+plan_review'; then
   MODE="plan_review"
-elif printf '%s' "$CMD" | grep -qE 'delegate\.sh[[:space:]]+post_review'; then
-  MODE="post_review"
 fi
 
 if [ -z "$MODE" ]; then
@@ -57,22 +55,6 @@ CLAUDE.md §A に従い、Codex plan review の実行前に AskUserQuestion で
   2. ユーザーが承認したら:
      echo "approved" > $CHECKPOINT
   3. delegate.sh plan_review を再実行
-EOF
-    ;;
-  post_review)
-    cat >&2 <<EOF
-⛔ delegate.sh post_review をブロックしました。
-
-CLAUDE.md §B に従い、Codex post_review の実行前に AskUserQuestion で
-ユーザー確認が必要です。
-
-手順:
-  1. AskUserQuestion で「Codex post_review を実行しますか？」と確認
-     - 変更統計（ファイル数・行数・hotspot）を提示
-     - 選択肢: 「実行する」「Claude fallback レビュー」「スキップ」
-  2. ユーザーが承認したら:
-     echo "approved" > $CHECKPOINT
-  3. delegate.sh post_review を再実行
 EOF
     ;;
 esac

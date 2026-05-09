@@ -86,7 +86,7 @@ fi
 # --- Check 2: JSON checkpoint + staged diff snapshot ---
 DECISION=$(jq -r '.decision // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
 case "$DECISION" in
-  reviewed-proceed|delegate-fixes|fallback-reviewed) ;;
+  reviewed-proceed|delegate-fixes|fallback-reviewed|plugin-reviewed) ;;
   *)
     cat >&2 <<EOF
 ⛔ git commit をブロックしました。
@@ -126,7 +126,7 @@ REVIEW_EXECUTION_STATUS=$(jq -r '.reviewExecutionStatus // empty' "$COMMIT_DELEG
 REVIEW_VERDICT=$(jq -r '.reviewVerdict // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
 MAX_SEVERITY=$(jq -r '.maxSeverity // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
 
-if [ "$DECISION" != "fallback-reviewed" ]; then
+if [ "$DECISION" != "fallback-reviewed" ] && [ "$DECISION" != "plugin-reviewed" ]; then
   if [ -z "$REVIEW_REQUEST_ID" ] || [ -z "$REVIEW_EXECUTION_STATUS" ] || [ -z "$REVIEW_VERDICT" ]; then
     cat >&2 <<EOF
 ⛔ git commit をブロックしました。

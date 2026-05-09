@@ -203,4 +203,16 @@ if echo "$FILE_PATH" | grep -qE '(^|/)backend/tests/.*\.py$'; then
 EOF
 fi
 
+# ─────────────────────────────────────────────────────────────
+# Quality Gate hints (fail-open: engine failure must NOT affect existing hooks)
+# ─────────────────────────────────────────────────────────────
+QG_ENGINE="$(dirname "$0")/lib/quality-gate-engine.sh"
+if [ -f "$QG_ENGINE" ]; then
+  (
+    # shellcheck source=lib/quality-gate-engine.sh
+    . "$QG_ENGINE" 2>/dev/null &&
+    qg_maybe_emit_hint "$FILE_PATH" "$SESSION_ID"
+  ) || true
+fi
+
 exit 0

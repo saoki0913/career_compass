@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CalendarEvent, DeadlineEvent, GoogleCalendarEvent } from "@/hooks/useCalendar";
 import { reportUserFacingError } from "@/lib/client-error-ui";
+import { startOfJstDayAsUtc } from "@/lib/datetime/jst";
 
 // Extended type for display purposes
 export type DisplayEvent =
@@ -149,13 +150,10 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
     };
   };
 
-  // Get days left for deadline
   const getDaysLeft = (dueDate: string) => {
-    const due = new Date(dueDate);
-    const now = new Date();
-    const diff = due.getTime() - now.getTime();
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return days;
+    const todayStart = startOfJstDayAsUtc(new Date());
+    const dueStart = startOfJstDayAsUtc(new Date(dueDate));
+    return Math.ceil((dueStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
   };
 
   // Render content based on event type

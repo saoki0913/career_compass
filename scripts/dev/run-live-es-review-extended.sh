@@ -23,6 +23,7 @@ REQUIRE_JUDGE_PASS=""
 OUT_DIR_OVERRIDE=""
 BATCH_TS=""
 SHOW_PROGRESS=1
+GENERATE_REPORT=0
 
 usage() {
   cat <<'EOF'
@@ -47,6 +48,7 @@ Options:
   --judge              LIVE_ES_REVIEW_ENABLE_JUDGE=1
   --require-judge-pass LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS=1
   --no-progress        Disable per-case stderr progress (LIVE_ES_REVIEW_CLI_PROGRESS=0)
+  --report             Generate model comparison report (docs/review/feature/) after aggregate
   -h, --help           This help
 
 Environment overrides (optional): LIVE_ES_REVIEW_CASE_FILTER, LIVE_ES_REVIEW_JUDGE_MODEL, etc.
@@ -140,6 +142,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-progress)
       SHOW_PROGRESS=0
+      shift
+      ;;
+    --report)
+      GENERATE_REPORT=1
       shift
       ;;
     -h | --help)
@@ -236,6 +242,14 @@ if [[ "$AGGREGATE" == 1 ]]; then
   fi
   python scripts/dev/aggregate_live_es_review_runs.py "${_jsons[@]}"
   echo "Aggregate written under backend/tests/output/live_es_review_aggregate_*"
+fi
+
+if [[ "$GENERATE_REPORT" == 1 ]]; then
+  echo
+  echo "=== generating model comparison report ==="
+  python scripts/dev/generate_model_comparison_report.py \
+    --input-dir "$OUT_SUBDIR" \
+    --case-set "$CASE_SET"
 fi
 
 echo

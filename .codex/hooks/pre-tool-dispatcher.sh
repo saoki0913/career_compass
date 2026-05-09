@@ -42,6 +42,9 @@ case "$TOOL" in
     fi
 
     if guard_command_is_git_commit "$CMD"; then
+      if [ -f "$SCRIPT_DIR/quality-gate-commit-check.sh" ]; then
+        run_hook "quality-gate-commit-check.sh"
+      fi
       run_hook "commit-codex-gate.sh"
     fi
 

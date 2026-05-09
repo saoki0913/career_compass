@@ -5,6 +5,7 @@
  */
 
 import { NextRequest } from "next/server";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { esReviewStreamPolicy } from "@/bff/billing/es-review-stream-policy";
 import { STREAM_FEATURE_CONFIGS } from "@/lib/fastapi/stream-config";
 import {
@@ -20,9 +21,11 @@ import {
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import { prepareReviewStreamContext } from "./review-stream-context";
-
-const jsonErr = (msg: string, status: number) =>
-  new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json" } });
+import {
+  sanitizePublicESReviewCompleteEvent,
+  sanitizePublicESReviewErrorEvent,
+  sanitizePublicESReviewProgressEvent,
+} from "./public-review-stream";
 
 function getCompleteResult(event: Record<string, unknown>): Record<string, unknown> | null {
   const direct = event.result;
@@ -50,6 +53,45 @@ function isValidReviewCompleteEvent(event: Record<string, unknown>): boolean {
     && rewrites.some((rewrite) => typeof rewrite === "string" && rewrite.trim().length > 0);
 }
 
+function getBillingOutcome(event: Record<string, unknown>): Record<string, unknown> | null {
+  const result = getCompleteResult(event);
+  const outcome = result?.billing_outcome ?? event.billing_outcome;
+  if (outcome && typeof outcome === "object" && !Array.isArray(outcome)) {
+    return outcome as Record<string, unknown>;
+  }
+  return null;
+}
+
+function isBillableReviewCompleteEvent(event: Record<string, unknown>): boolean {
+  const outcome = getBillingOutcome(event);
+  if (outcome) {
+    return outcome.success === true && outcome.billable !== false && isValidReviewCompleteEvent(event);
+  }
+  return isValidReviewCompleteEvent(event);
+}
+
+function extractUpstreamErrorType(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const body = payload as Record<string, unknown>;
+  const detail = body.detail;
+  if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+    const errorType = (detail as Record<string, unknown>).error_type;
+    return typeof errorType === "string" ? errorType : undefined;
+  }
+  const errorType = body.error_type;
+  return typeof errorType === "string" ? errorType : undefined;
+}
+
+function upstreamFailureMessage(status: number): string {
+  if (status === 429) {
+    return "AI添削の利用が集中しています。少し時間を置いてからお試しください。";
+  }
+  if (status >= 400 && status < 500) {
+    return "入力内容や設定を確認して、もう一度お試しください。";
+  }
+  return "AI添削を完了できませんでした。時間を置いて、もう一度お試しください。";
+}
+
 export async function handleReviewStream(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -60,10 +102,11 @@ export async function handleReviewStream(
     const { id: documentId } = await params;
     const prepared = await prepareReviewStreamContext(request, documentId);
     if (!prepared.ok) return prepared.response;
+    const billingContext = { ...prepared.billingContext, requestId };
 
-    const precheckResult = await esReviewStreamPolicy.precheck(prepared.billingContext);
+    const precheckResult = await esReviewStreamPolicy.precheck(billingContext);
     if (!precheckResult.ok) return precheckResult.errorResponse!;
-    const reserveResult = await esReviewStreamPolicy.reserve!(prepared.billingContext, prepared.creditCost);
+    const reserveResult = await esReviewStreamPolicy.reserve!(billingContext, prepared.creditCost);
     if (reserveResult.errorResponse) return reserveResult.errorResponse;
     const reservationId: string | null = reserveResult.reservationId;
 
@@ -78,29 +121,46 @@ export async function handleReviewStream(
         payload: prepared.payload,
       });
     } catch (fetchError) {
-      await esReviewStreamPolicy.cancel(prepared.billingContext, reservationId, "fastapi_fetch_exception");
+      await esReviewStreamPolicy.cancel(billingContext, reservationId, "fastapi_fetch_exception");
       if (isSecretMissingError(fetchError)) {
         logAiCreditCostSummary({ feature: "es_review", requestId, status: "failed", creditsUsed: 0, telemetry: null });
-        return jsonErr("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。", 503);
+        return createApiErrorResponse(request, {
+          status: 503,
+          code: "ES_REVIEW_AI_AUTH_NOT_CONFIGURED",
+          userMessage: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+          requestId,
+          logContext: "es_review_stream_secret_missing",
+          error: fetchError,
+        });
       }
       throw fetchError;
     }
 
     if (!upstream.response.ok) {
       upstream.clearTimeout();
-      await esReviewStreamPolicy.cancel(prepared.billingContext, reservationId, "fastapi_not_ok");
+      await esReviewStreamPolicy.cancel(billingContext, reservationId, "fastapi_not_ok");
       const raw = await upstream.response.json().catch(() => null);
       const { payload: errorBody, telemetry } = raw && typeof raw === "object"
         ? splitInternalTelemetry(raw as Record<string, unknown>)
         : { payload: raw, telemetry: null as InternalCostTelemetry | null };
+      const llmErrorType = extractUpstreamErrorType(errorBody);
       logAiCreditCostSummary({ feature: "es_review", requestId, status: "failed", creditsUsed: 0, telemetry });
-      return new Response(
-        JSON.stringify({
-          error: (errorBody as { detail?: { error?: string } } | null)?.detail?.error || "AI review failed",
-          error_type: (errorBody as { detail?: { error_type?: string } } | null)?.detail?.error_type,
-        }),
-        { status: upstream.response.status, headers: { "Content-Type": "application/json" } },
-      );
+      return createApiErrorResponse(request, {
+        status: upstream.response.status,
+        code: "ES_REVIEW_UPSTREAM_FAILED",
+        userMessage: upstreamFailureMessage(upstream.response.status),
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: upstream.response.status >= 500 || upstream.response.status === 429,
+        llmErrorType,
+        requestId,
+        logContext: "es_review_stream_upstream_not_ok",
+        extra: {
+          upstreamStatus: upstream.response.status,
+          ...(llmErrorType ? { llmErrorType } : {}),
+        },
+      });
     }
 
     let creditConfirmed = false;
@@ -118,37 +178,52 @@ export async function handleReviewStream(
       clearUpstreamTimeout: upstream.clearTimeout,
       requestId,
       onCostTelemetry: (telemetry) => { latestTelemetry = telemetry ?? latestTelemetry; },
+      onProgress: sanitizePublicESReviewProgressEvent,
       onComplete: async (event) => {
-        if (!isValidReviewCompleteEvent(event)) {
+        if (!isBillableReviewCompleteEvent(event)) {
           logOnce("failed", 0);
           return {
             cancel: true,
             replaceEvent: {
               type: "error",
               message: "添削結果の形式が不正です。クレジットは消費されません。",
+              code: "ES_REVIEW_INVALID_COMPLETE_PAYLOAD",
+              action: "時間を置いて、もう一度お試しください。",
+              retryable: true,
             },
           };
         }
         if (creditConfirmed) return;
         await esReviewStreamPolicy.confirm(
-          prepared.billingContext,
+          billingContext,
           { kind: "billable_success", creditsConsumed: prepared.creditCost, freeQuotaUsed: false },
           reservationId,
         );
         creditConfirmed = true;
         logOnce("success", prepared.creditCost);
         void incrementDailyTokenCount(prepared.identity, computeTotalTokens(latestTelemetry));
+        return { replaceEvent: sanitizePublicESReviewCompleteEvent(event) };
       },
+      onErrorEvent: sanitizePublicESReviewErrorEvent,
       onError: async () => { logOnce("failed", 0); },
       onFinally: async () => {
         if (!creditConfirmed && reservationId) {
-          await esReviewStreamPolicy.cancel(prepared.billingContext, reservationId, "stream_ended_without_complete");
+          await esReviewStreamPolicy.cancel(billingContext, reservationId, "stream_ended_without_complete");
         }
         if (!summaryLogged) logOnce("cancelled", 0);
       },
     });
-  } catch {
+  } catch (error) {
     logAiCreditCostSummary({ feature: "es_review", requestId, status: "failed", creditsUsed: 0, telemetry: null });
-    return jsonErr("Internal server error", 500);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "ES_REVIEW_STREAM_INTERNAL_ERROR",
+      userMessage: "ES添削を開始できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      requestId,
+      logContext: "es_review_stream_unhandled_error",
+      error,
+    });
   }
 }
