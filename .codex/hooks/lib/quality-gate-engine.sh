@@ -11,10 +11,16 @@ __QUALITY_GATE_ENGINE_SOURCED=1
 # Resolve skill-recommender.sh: prefer codex version, fall back to claude version
 _QG_SKILL_REC="$(dirname "${BASH_SOURCE[0]}")/skill-recommender.sh"
 if [ ! -f "$_QG_SKILL_REC" ]; then
-  _QG_SKILL_REC="$(dirname "${BASH_SOURCE[0]}")/../../.claude/hooks/lib/skill-recommender.sh"
+  _QG_SKILL_REC="$(dirname "${BASH_SOURCE[0]}")/../../../.claude/hooks/lib/skill-recommender.sh"
 fi
 # shellcheck source=skill-recommender.sh
 . "$_QG_SKILL_REC"
+
+skill_session_state_dir() {
+  local dir="$HOME/.codex/sessions/career_compass"
+  mkdir -p "$dir"
+  printf '%s\n' "$dir"
+}
 
 _QG_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 _QG_CONFIG_FILE="$_QG_PROJECT_DIR/.codex/quality-gate.json"

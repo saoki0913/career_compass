@@ -198,7 +198,9 @@ describe("POST /api/stripe/checkout", () => {
         status: "free",
       },
     ]);
-    stripeSubscriptionsListMock.mockResolvedValue({ data: [{ id: "sub_active" }] });
+    stripeSubscriptionsListMock
+      .mockResolvedValueOnce({ data: [{ id: "sub_active" }] })
+      .mockResolvedValueOnce({ data: [] });
 
     const { POST } = await import("./route");
     const request = new NextRequest("http://localhost:3000/api/stripe/checkout", {
@@ -211,11 +213,44 @@ describe("POST /api/stripe/checkout", () => {
 
     expect(response.status).toBe(409);
     expect(payload.code).toBe("STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION");
+    expect(stripeSubscriptionsListMock).toHaveBeenCalledTimes(2);
     expect(stripeSubscriptionsListMock).toHaveBeenCalledWith({
       customer: "cus_existing",
       status: "active",
       limit: 1,
     });
+    expect(stripeSubscriptionsListMock).toHaveBeenCalledWith({
+      customer: "cus_existing",
+      status: "trialing",
+      limit: 1,
+    });
+    expect(stripeCustomerCreateMock).not.toHaveBeenCalled();
+    expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects checkout when Stripe has a trialing subscription for the customer", async () => {
+    dbSelectLimitMock.mockResolvedValue([
+      {
+        stripeCustomerId: "cus_existing",
+        stripeSubscriptionId: null,
+        status: "free",
+      },
+    ]);
+    stripeSubscriptionsListMock
+      .mockResolvedValueOnce({ data: [] })
+      .mockResolvedValueOnce({ data: [{ id: "sub_trialing" }] });
+
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost:3000/api/stripe/checkout", {
+      method: "POST",
+      body: JSON.stringify({ plan: "standard", period: "monthly" }),
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.code).toBe("STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION");
     expect(stripeCustomerCreateMock).not.toHaveBeenCalled();
     expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
   });

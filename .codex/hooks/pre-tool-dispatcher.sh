@@ -33,6 +33,10 @@ case "$TOOL" in
       run_hook "git-push-guard.sh"
     fi
 
+    if guard_command_is_git_branch_create "$CMD"; then
+      run_hook "git-branch-guard.sh"
+    fi
+
     if guard_command_has_destructive_delete "$CMD"; then
       run_hook "destructive-rm-guard.sh"
     fi

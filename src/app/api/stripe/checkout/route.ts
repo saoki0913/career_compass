@@ -104,20 +104,27 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Also check Stripe API for active subscriptions (handles concurrent POST before webhook fires)
+    // Also check Stripe API for active/trialing subscriptions (handles concurrent POST before webhook fires)
     if (existingSubscription?.stripeCustomerId) {
-      const activeStripeSubs = await stripe.subscriptions.list({
-        customer: existingSubscription.stripeCustomerId,
-        status: "active",
-        limit: 1,
-      });
+      const [activeSubs, trialingSubs] = await Promise.all([
+        stripe.subscriptions.list({
+          customer: existingSubscription.stripeCustomerId,
+          status: "active",
+          limit: 1,
+        }),
+        stripe.subscriptions.list({
+          customer: existingSubscription.stripeCustomerId,
+          status: "trialing",
+          limit: 1,
+        }),
+      ]);
 
-      if (activeStripeSubs.data.length > 0) {
+      if (activeSubs.data.length > 0 || trialingSubs.data.length > 0) {
         return createApiErrorResponse(req, {
           status: 409,
           code: "STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION",
           userMessage: "すでに有効なプランがあります。プラン変更は設定画面から行えます。",
-          developerMessage: "Stripe customer already has an active subscription",
+          developerMessage: "Stripe customer already has an active or trialing subscription",
         });
       }
     }

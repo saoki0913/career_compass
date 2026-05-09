@@ -138,6 +138,16 @@ Edit/Write でその場しのぎのコードパターンを追加しようとし
 
 ---
 
+## Branch Management Rules
+
+- 開発は `develop` ブランチで行い、`git push origin develop` でリモートに反映する。
+- 本番リリースは `develop` で動作確認後、`main` にマージする。
+- ローカルで新しいブランチを作成する際は、必ず事前に AskUserQuestion でユーザーに確認する。勝手にブランチを切らない。
+- 一時的な作業ブランチ（wip/*, feature/* 等）を作成する場合は、用途と理由を明示してユーザーの承認を得ること。
+- この規約は `.claude/hooks/git-branch-guard.sh` が PreToolUse hook で機械的に enforce する。
+
+---
+
 ## Key Commands
 
 ```bash
