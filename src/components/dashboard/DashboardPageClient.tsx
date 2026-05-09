@@ -2,7 +2,12 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { useCredits } from "@/hooks/useCredits";
+import { getPurchaseSuccessState } from "@/lib/billing/url-state";
+import { notifyPurchaseSuccess } from "@/lib/notifications";
 import { CompanyProgressCard } from "@/components/dashboard/CompanyListCard";
 import { WeeklyScheduleView, getWeekDays } from "@/components/dashboard/WeeklyScheduleView";
 import { TodayTasksCard } from "@/components/dashboard/TodayTasksCard";
@@ -67,6 +72,26 @@ export function DashboardPageClient({
   });
   const { isConnected: isCalendarConnected } = useGoogleCalendar();
   const { isCollapsed } = useSidebar();
+
+  const searchParams = useSearchParams();
+  const { refreshPlan, userPlan, isAuthenticated, isReady } = useAuth();
+  const { refresh: creditsRefresh } = useCredits({ isAuthenticated, isAuthReady: isReady });
+  const purchaseHandled = useRef(false);
+
+  useEffect(() => {
+    if (purchaseHandled.current) return;
+    const { success, plan } = getPurchaseSuccessState(searchParams);
+    if (!success || !plan) return;
+    purchaseHandled.current = true;
+
+    (async () => {
+      await refreshPlan();
+      const isPlanConfirmed = userPlan?.plan === plan;
+      notifyPurchaseSuccess(plan, isPlanConfirmed);
+      await creditsRefresh();
+      window.history.replaceState({}, "", "/dashboard");
+    })();
+  }, [searchParams, refreshPlan, userPlan?.plan, creditsRefresh]);
 
   const scheduleDeadlines = useMemo(() => deadlines.map((d) => ({ id: d.id, companyId: d.companyId, company: d.company, type: d.type, title: d.title, dueDate: d.dueDate, daysLeft: d.daysLeft })), [deadlines]);
   const handleCompleteTodayTask = async () => {

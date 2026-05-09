@@ -309,6 +309,8 @@ run_crud_feature() {
   local playwright_spec=""
   case "$crud_feature" in
     calendar|tasks-deadlines) playwright_spec="e2e/functional/deadlines-calendar.spec.ts" ;;
+    notifications) playwright_spec="e2e/functional/notifications.spec.ts" ;;
+    billing) playwright_spec="e2e/functional/billing.spec.ts" ;;
   esac
 
   if [[ -n "$playwright_spec" ]]; then

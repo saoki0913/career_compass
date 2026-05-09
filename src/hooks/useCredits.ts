@@ -39,11 +39,6 @@ export interface CreditsInfo {
       remaining: number;
       limit: number;
     };
-    /** @deprecated API は companyRagHtmlPages / companyRagPdfPages を返す */
-    companyRagUnits?: {
-      remaining: number;
-      limit: number;
-    };
     /** 選考スケジュール取得の月次無料枠 */
     selectionSchedule?: {
       remaining: number;
@@ -132,7 +127,7 @@ export function useCredits(opts: UseCreditsOptions = {}) {
     fetchCreditsData,
     {
       fallbackData: initialData,
-      revalidateOnFocus: false,
+      revalidateOnFocus: true,
       dedupingInterval: 3000,
       revalidateOnMount: !initialData,
       onError(err, key) {
@@ -158,14 +153,8 @@ export function useCredits(opts: UseCreditsOptions = {}) {
     nextResetAt: credits?.nextResetAt ? new Date(credits.nextResetAt) : null,
     selectionScheduleRemaining,
     selectionScheduleLimit,
-    companyRagUnitsRemaining:
-      credits?.monthlyFree.companyRagHtmlPages?.remaining ??
-      credits?.monthlyFree.companyRagUnits?.remaining ??
-      0,
-    companyRagUnitsLimit:
-      credits?.monthlyFree.companyRagHtmlPages?.limit ??
-      credits?.monthlyFree.companyRagUnits?.limit ??
-      0,
+    companyRagUnitsRemaining: credits?.monthlyFree.companyRagHtmlPages?.remaining ?? 0,
+    companyRagUnitsLimit: credits?.monthlyFree.companyRagHtmlPages?.limit ?? 0,
     companyRagPdfPagesRemaining: credits?.monthlyFree.companyRagPdfPages?.remaining ?? 0,
     companyRagPdfPagesLimit: credits?.monthlyFree.companyRagPdfPages?.limit ?? 0,
     plan: credits?.plan ?? "guest",

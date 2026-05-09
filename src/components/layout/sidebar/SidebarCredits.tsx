@@ -4,6 +4,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useCredits } from "@/hooks/useCredits";
+import { getCreditLowThreshold } from "@/lib/stripe/config";
 import {
   Tooltip,
   TooltipContent,
@@ -40,15 +41,21 @@ function formatResetDate(date: Date): string {
 
 export function SidebarCredits({ collapsed }: SidebarCreditsProps) {
   const { isAuthenticated, isReady } = useAuth();
-  const { balance, nextResetAt, isLoading, error, refresh } = useCredits({
+  const { balance, monthlyAllocation, plan, nextResetAt, isLoading, error, refresh } = useCredits({
     isAuthenticated,
     isAuthReady: isReady,
   });
 
   const balanceDisplay = isLoading ? "…" : error ? "---" : balance.toLocaleString();
-  const tooltipText = nextResetAt
-    ? `クレジット残高 (${formatResetDate(nextResetAt)})`
-    : "クレジット残高";
+  const threshold = getCreditLowThreshold(monthlyAllocation);
+  const isDepleted = !isLoading && !error && balance === 0;
+  const isLow = !isLoading && !error && balance > 0 && balance <= threshold;
+  const planLabel = plan === "guest" ? "" : plan === "free" ? "Free" : plan === "standard" ? "Standard" : plan === "pro" ? "Pro" : "";
+  const tooltipText = isDepleted
+    ? "クレジット不足 — プランを確認"
+    : nextResetAt
+      ? `${planLabel ? planLabel + " " : ""}クレジット残高 (${formatResetDate(nextResetAt)})`
+      : `${planLabel ? planLabel + " " : ""}クレジット残高`;
 
   if (collapsed) {
     return (
@@ -56,7 +63,7 @@ export function SidebarCredits({ collapsed }: SidebarCreditsProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="group relative flex h-10 w-10 flex-col items-center justify-center mx-auto rounded-lg transition-colors hover:bg-sidebar-accent/60">
-              <CoinIcon className="mb-0.5" />
+              <CoinIcon className={cn("mb-0.5", isDepleted && "text-destructive", isLow && "text-amber-600")} />
               {error ? (
                 <button
                   type="button"
@@ -67,7 +74,10 @@ export function SidebarCredits({ collapsed }: SidebarCreditsProps) {
                   ---
                 </button>
               ) : (
-                <span className="text-[10px] font-semibold tabular-nums text-sidebar-primary leading-none">
+                <span className={cn(
+                  "text-[10px] font-semibold tabular-nums leading-none",
+                  isDepleted ? "text-destructive" : isLow ? "text-amber-600" : "text-sidebar-primary"
+                )}>
                   {balanceDisplay}
                 </span>
               )}
@@ -86,25 +96,38 @@ export function SidebarCredits({ collapsed }: SidebarCreditsProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <Link
-            href="/pricing"
-            className="group flex h-10 w-full items-center gap-3 rounded-lg px-3 transition-colors hover:bg-sidebar-accent/60"
+            href={isDepleted ? "/pricing?source=sidebar&reason=depleted" : "/pricing"}
+            className="group flex w-full items-center gap-3 rounded-lg px-3 transition-colors hover:bg-sidebar-accent/60 min-h-[2.5rem]"
           >
             <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-              <CoinIcon className="h-4 w-4" />
+              <CoinIcon className={cn("h-4 w-4", isDepleted && "text-destructive", isLow && "text-amber-600")} />
             </span>
-            {error ? (
-              <button
-                type="button"
-                onClick={(e) => { e.preventDefault(); refresh(); }}
-                className="flex-1 text-left text-sm font-semibold text-destructive"
-              >
-                {balanceDisplay}
-              </button>
-            ) : (
-              <span className="flex-1 truncate text-sm font-semibold tabular-nums text-sidebar-primary">
-                {balanceDisplay}
-              </span>
-            )}
+            <span className="flex min-w-0 flex-1 flex-col">
+              {error ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); refresh(); }}
+                  className="text-left text-sm font-semibold text-destructive"
+                >
+                  {balanceDisplay}
+                </button>
+              ) : (
+                <>
+                  <span className={cn(
+                    "truncate text-sm font-semibold tabular-nums",
+                    isDepleted ? "text-destructive" : isLow ? "text-amber-600" : "text-sidebar-primary"
+                  )}>
+                    {isDepleted ? "0 — 補充 →" : balanceDisplay}
+                  </span>
+                  {planLabel && !isLoading ? (
+                    <span className="truncate text-[10px] leading-tight text-sidebar-foreground/50">
+                      {planLabel} / {monthlyAllocation}
+                      {isLow ? " · 残りわずか" : ""}
+                    </span>
+                  ) : null}
+                </>
+              )}
+            </span>
           </Link>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={8}>

@@ -53,17 +53,15 @@ test.describe("Notifications (guest)", () => {
       });
       notifId = notif.id;
 
-      const markRes = await apiRequest(page, "PATCH", `/api/notifications/${notifId}`, {
-        read: true,
-      });
+      const markRes = await apiRequest(page, "POST", `/api/notifications/${notifId}/read`);
       expect(markRes.ok()).toBe(true);
 
       const listRes = await apiRequest(page, "GET", "/api/notifications");
       const body = (await listRes.json()) as {
-        notifications: Array<{ id: string; read: boolean }>;
+        notifications: Array<{ id: string; isRead: boolean }>;
       };
       const updated = body.notifications.find((n) => n.id === notifId);
-      expect(updated?.read).toBe(true);
+      expect(updated?.isRead).toBe(true);
     } finally {
       if (notifId) await deleteGuestNotification(page, notifId);
     }
@@ -76,7 +74,7 @@ test.describe("Notifications (guest)", () => {
 
     await navigateTo(page, "/notifications");
     await expect(
-      page.getByText(/通知はまだありません|通知がありません/i).first(),
+      page.getByText(/通知はありません|通知がありません|通知はまだありません/i).first(),
     ).toBeVisible({ timeout: 15_000 });
   });
 });
@@ -102,9 +100,7 @@ test.describe("Notifications (authenticated)", () => {
       await page.reload({ waitUntil: "domcontentloaded" });
       await expect(page.getByText(notif.title)).toBeVisible({ timeout: 15_000 });
 
-      const markRes = await apiRequest(page, "PATCH", `/api/notifications/${notifId}`, {
-        read: true,
-      });
+      const markRes = await apiRequest(page, "POST", `/api/notifications/${notifId}/read`);
       expect(markRes.ok()).toBe(true);
     } finally {
       if (notifId) await deleteOwnedNotification(page, notifId);
@@ -133,11 +129,11 @@ test.describe("Notifications (authenticated)", () => {
 
       const listRes = await apiRequest(page, "GET", "/api/notifications");
       const body = (await listRes.json()) as {
-        notifications: Array<{ id: string; read: boolean }>;
+        notifications: Array<{ id: string; isRead: boolean }>;
       };
       for (const id of notifIds) {
         const n = body.notifications.find((x) => x.id === id);
-        expect(n?.read).toBe(true);
+        expect(n?.isRead).toBe(true);
       }
     } finally {
       for (const id of notifIds) {
@@ -153,9 +149,7 @@ test.describe("Notifications (edge cases)", () => {
     await loginAsGuest(page);
     await ensureGuestSession(page);
 
-    const res = await apiRequest(page, "PATCH", "/api/notifications/nonexistent-id-000", {
-      read: true,
-    });
+    const res = await apiRequest(page, "POST", "/api/notifications/nonexistent-id-000/read");
     expect(res.status()).toBe(404);
   });
 });

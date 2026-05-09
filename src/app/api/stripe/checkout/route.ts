@@ -17,6 +17,7 @@ import { getAppUrl } from "@/lib/app-url";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { logError } from "@/lib/logger";
 import { getCsrfFailureReason } from "@/lib/csrf";
+import { createHash } from "crypto";
 
 export async function POST(req: NextRequest) {
   try {
@@ -157,6 +158,11 @@ export async function POST(req: NextRequest) {
     // (https://www.shupass.jp/terms) を設定しておく必要がある。未設定のまま
     // この API を呼ぶと Stripe 側で 400 エラーが返るため、本番デプロイ前に
     // 必ず Dashboard 側の設定を完了させること。
+    const timeBucket = Math.floor(Date.now() / (10 * 60 * 1000));
+    const idempotencyKey = createHash("sha256")
+      .update(`checkout:${session.user.id}:${plan}:${period}:${timeBucket}`)
+      .digest("hex");
+
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: stripeCustomerId,
@@ -203,7 +209,7 @@ export async function POST(req: NextRequest) {
       consent_collection: {
         terms_of_service: "required",
       },
-    });
+    }, { idempotencyKey });
 
     return NextResponse.json({
       url: checkoutSession.url,

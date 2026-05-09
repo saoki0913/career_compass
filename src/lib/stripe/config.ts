@@ -129,6 +129,10 @@ export function getPlanCredits(plan: PlanType): number {
   return PLAN_METADATA[plan].credits;
 }
 
+export function getCreditLowThreshold(monthlyAllocation: number): number {
+  return Math.max(10, Math.ceil(monthlyAllocation * 0.05));
+}
+
 export function validateStripePriceConfig(): void {
   const missing: string[] = [];
 
