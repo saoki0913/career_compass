@@ -87,8 +87,8 @@
 | Track | Category | Scope | 工数 |
 |-------|----------|-------|------|
 | A | **#1 セキュリティ** (sub-phases) | Week 1: Auth系 (CSRF, guest migration, webhook idempotency). Week 2: Backend系 (SSRF, SSE concurrency, PDF/URL validation). Week 3: Billing系 (payment_failed downgrade, race conditions, DB owner integrity) | 2-3w |
-| B | #8 企業情報 Phase 0 + #17 P0b | #8: 5 Critical bugs (JST violations, KeyError crash, idempotency, task rollback, HTML table). #17: UptimeRobot dashboard 登録・アラート受信確認、Sentry dashboard 到達確認 | #8: 3-5d, #17: 0.5-1d |
-| C | #17 P1+P2, #15 P0 tests | Loki, error.tsx/global-error.tsx, rollback script, runbooks, Sentry Crons / cron monitoring + coverage gap 分析 | 2-3w |
+| B | #8 企業情報 Phase 0 + #17 P0b | **Done (repo/CLI baseline)**: #8 5 Critical bugs 解消。#17 は UptimeRobot/Sentry 手順化、Vercel/Sentry/secrets/公開 health の CLI baseline 確認済み。**Manual**: UptimeRobot dashboard 登録・アラート受信確認、backend Sentry event 到達確認。 | 完了 |
+| C | #17 P1+P2, #15 P0 tests | **Release minimum Done**: frontend/product/global error boundary の Sentry capture と Sentry scrub allowlist 強化。**Deferred**: Loki, rollback provider 実行化, Sentry Crons / cron monitoring, `/health/deep`, Drizzle slow query logger, coverage gap 分析。 | release minimum 完了 / P1+ deferred |
 
 **理由**: #1 を sub-phase 化し auth/backend/billing の領域ごとに進める。Sentry は Phase 0 で PII scrub が整ったため安全に導入可能。#8 P0 は独立した critical bug。
 
@@ -100,8 +100,9 @@
 **完了実績:**
 - 2026-05-07: **Track A #1 Security 全 20 タスク完了**（3 sub-phase: Auth Week 1, Backend Week 2, Billing Week 3）
 - 2026-05-07: **Track B #8 P0 全 5 Critical bugs 解消** — T-01 JST基準違反一掃 (5箇所)、T-02 KeyError crash修正、T-03 タスク生成冪等性保証、T-04 タスク巻き戻しバグ修正、T-05 HTML テーブル構造保持
+- 2026-05-09: **#17 監視 release minimum 完了** — `docs/plan/monitoring-release-readiness-tasks.json` で状態管理を開始し、product/global error boundary の Sentry capture、Sentry event scrub allowlist 強化、Vercel/Sentry/secrets/公開 health の CLI baseline を記録した。frontend Sentry は First Event 到達済み、backend Sentry は project active だが No events yet のため手動 follow-up とする。
 
-**Gate**: 全 15 セキュリティタスク完了（sub-phase ごとに検証）、#8 の 5 Critical bugs 解消、Sentry でエラー捕捉確認、監視 Phase 1+2 完了。
+**Gate**: 全 15 セキュリティタスク完了（sub-phase ごとに検証）、#8 の 5 Critical bugs 解消、Sentry で frontend エラー捕捉確認、監視 release minimum 完了。Loki / Sentry Crons / rollback provider 実行化 / `/health/deep` / slow query logger は本番リリース後の P1+ として扱う。
 
 ---
 
@@ -150,8 +151,8 @@
 
 **Release Gate Checklist (Codex 推奨: 明文化):**
 - [ ] #14 Legal P0+P1 全要件充足（特商法, AI 免責, cookie consent, account deletion）
-- [ ] PII scrub + Sentry 安全運用確認
-- [ ] Rollback / incident runbook / backup 動作確認
+- [ ] PII scrub + Sentry 安全運用確認（release minimum repo 対応済み: Replay off, `sendDefaultPii=false`, scrub allowlist, frontend First Event 確認。backend event 到達と外部 monitor alert は手動 follow-up）
+- [ ] Rollback / incident runbook / backup 動作確認（rollback は dry-run 正本。provider 実行化と backup validation は #16 P1+）
 - [ ] 「成功時のみ消費」ビジネスルール全 API で検証済み
 - [ ] 全 21 ページ SEO audit pass
 - [ ] LLM Judge false positive rate 目標達成
