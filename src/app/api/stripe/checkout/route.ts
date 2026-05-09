@@ -58,6 +58,16 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Validate period
+    if (!["monthly", "annual"].includes(period)) {
+      return createApiErrorResponse(req, {
+        status: 400,
+        code: "STRIPE_CHECKOUT_INVALID_PERIOD",
+        userMessage: "お支払い期間の選択内容を確認してください。",
+        developerMessage: "Invalid billing period. Must be 'monthly' or 'annual'.",
+      });
+    }
+
     // Get price ID
     const priceId = getPriceId(plan, period);
     if (!priceId) {
@@ -79,6 +89,38 @@ export async function POST(req: NextRequest) {
       .from(subscriptions)
       .where(eq(subscriptions.userId, session.user.id))
       .limit(1);
+
+    // Block checkout if user already has an active subscription
+    if (
+      existingSubscription?.stripeSubscriptionId &&
+      existingSubscription.status &&
+      ["active", "trialing"].includes(existingSubscription.status)
+    ) {
+      return createApiErrorResponse(req, {
+        status: 409,
+        code: "STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION",
+        userMessage: "すでに有効なプランがあります。プラン変更は設定画面から行えます。",
+        developerMessage: "User already has an active subscription; use the billing portal for changes",
+      });
+    }
+
+    // Also check Stripe API for active subscriptions (handles concurrent POST before webhook fires)
+    if (existingSubscription?.stripeCustomerId) {
+      const activeStripeSubs = await stripe.subscriptions.list({
+        customer: existingSubscription.stripeCustomerId,
+        status: "active",
+        limit: 1,
+      });
+
+      if (activeStripeSubs.data.length > 0) {
+        return createApiErrorResponse(req, {
+          status: 409,
+          code: "STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION",
+          userMessage: "すでに有効なプランがあります。プラン変更は設定画面から行えます。",
+          developerMessage: "Stripe customer already has an active subscription",
+        });
+      }
+    }
 
     if (existingSubscription?.stripeCustomerId) {
       stripeCustomerId = existingSubscription.stripeCustomerId;

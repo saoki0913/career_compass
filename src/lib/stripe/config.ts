@@ -128,3 +128,20 @@ export function isPaidPlan(plan: PlanType): boolean {
 export function getPlanCredits(plan: PlanType): number {
   return PLAN_METADATA[plan].credits;
 }
+
+export function validateStripePriceConfig(): void {
+  const missing: string[] = [];
+
+  for (const spec of managedConfig.prices) {
+    const value = process.env[spec.envVar];
+    if (!value || !value.startsWith("price_")) {
+      missing.push(spec.envVar);
+    }
+  }
+
+  if (missing.length > 0) {
+    console.error(
+      `[Stripe] Missing or invalid price env vars: ${missing.join(", ")}. Checkout will fail for affected plans.`,
+    );
+  }
+}

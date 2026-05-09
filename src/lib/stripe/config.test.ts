@@ -34,4 +34,30 @@ describe("stripe config", () => {
     expect(getBillingPeriodFromPriceId("price_pro_year")).toBe("annual");
     expect(getBillingPeriodFromPriceId("price_unknown")).toBeNull();
   });
+
+  it("warns when price env vars are missing", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { validateStripePriceConfig } = await importConfig();
+
+    validateStripePriceConfig();
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy.mock.calls[0][0]).toContain("STRIPE_PRICE_STANDARD_MONTHLY");
+    spy.mockRestore();
+  });
+
+  it("does not warn when all price env vars are set", async () => {
+    vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "price_std_month");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_ANNUAL", "price_std_year");
+    vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_month");
+    vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
+
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { validateStripePriceConfig } = await importConfig();
+
+    validateStripePriceConfig();
+
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
 });

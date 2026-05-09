@@ -7,12 +7,16 @@ const {
   createApiErrorResponseMock,
   stripeCheckoutCreateMock,
   stripeCustomerCreateMock,
+  stripeSubscriptionsListMock,
+  dbSelectLimitMock,
 } = vi.hoisted(() => ({
   csrfMock: vi.fn(),
   getSessionMock: vi.fn(),
   createApiErrorResponseMock: vi.fn(),
   stripeCheckoutCreateMock: vi.fn(),
   stripeCustomerCreateMock: vi.fn(),
+  stripeSubscriptionsListMock: vi.fn(),
+  dbSelectLimitMock: vi.fn(),
 }));
 
 vi.mock("@/lib/csrf", () => ({
@@ -41,6 +45,9 @@ vi.mock("@/lib/stripe", () => ({
     customers: {
       create: stripeCustomerCreateMock,
     },
+    subscriptions: {
+      list: stripeSubscriptionsListMock,
+    },
   },
 }));
 
@@ -49,7 +56,7 @@ vi.mock("@/lib/db", () => ({
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
-          limit: vi.fn(() => Promise.resolve([])),
+          limit: dbSelectLimitMock,
         })),
       })),
     })),
@@ -80,9 +87,13 @@ describe("POST /api/stripe/checkout", () => {
     createApiErrorResponseMock.mockReset();
     stripeCheckoutCreateMock.mockReset();
     stripeCustomerCreateMock.mockReset();
+    stripeSubscriptionsListMock.mockReset();
+    dbSelectLimitMock.mockReset();
     csrfMock.mockReturnValue(null);
     getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
+    dbSelectLimitMock.mockResolvedValue([]);
     stripeCustomerCreateMock.mockResolvedValue({ id: "cus_1" });
+    stripeSubscriptionsListMock.mockResolvedValue({ data: [] });
     stripeCheckoutCreateMock.mockResolvedValue({ id: "cs_1", url: "https://checkout.stripe.test/cs_1" });
     createApiErrorResponseMock.mockImplementation((request: unknown, payload: { status: number }) =>
       NextResponse.json(payload, { status: payload.status }),
@@ -136,5 +147,76 @@ describe("POST /api/stripe/checkout", () => {
     expect(checkoutPayload.custom_text.submit.message).toContain("https://www.shupass.jp/legal");
     expect(checkoutPayload.custom_text.terms_of_service_acceptance.message).toContain("https://www.shupass.jp/terms");
     expect(checkoutPayload.custom_text.terms_of_service_acceptance.message).toContain("https://www.shupass.jp/legal");
+  });
+
+  it("rejects invalid billing period before creating a customer", async () => {
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost:3000/api/stripe/checkout", {
+      method: "POST",
+      body: JSON.stringify({ plan: "standard", period: "weekly" }),
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.code).toBe("STRIPE_CHECKOUT_INVALID_PERIOD");
+    expect(stripeCustomerCreateMock).not.toHaveBeenCalled();
+    expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects checkout when the user already has an active subscription", async () => {
+    dbSelectLimitMock.mockResolvedValue([
+      {
+        stripeCustomerId: "cus_existing",
+        stripeSubscriptionId: "sub_existing",
+        status: "active",
+      },
+    ]);
+
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost:3000/api/stripe/checkout", {
+      method: "POST",
+      body: JSON.stringify({ plan: "standard", period: "monthly" }),
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.code).toBe("STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION");
+    expect(stripeSubscriptionsListMock).not.toHaveBeenCalled();
+    expect(stripeCustomerCreateMock).not.toHaveBeenCalled();
+    expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects checkout when Stripe already has an active subscription for the customer", async () => {
+    dbSelectLimitMock.mockResolvedValue([
+      {
+        stripeCustomerId: "cus_existing",
+        stripeSubscriptionId: null,
+        status: "free",
+      },
+    ]);
+    stripeSubscriptionsListMock.mockResolvedValue({ data: [{ id: "sub_active" }] });
+
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost:3000/api/stripe/checkout", {
+      method: "POST",
+      body: JSON.stringify({ plan: "pro", period: "annual" }),
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.code).toBe("STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION");
+    expect(stripeSubscriptionsListMock).toHaveBeenCalledWith({
+      customer: "cus_existing",
+      status: "active",
+      limit: 1,
+    });
+    expect(stripeCustomerCreateMock).not.toHaveBeenCalled();
+    expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
   });
 });
