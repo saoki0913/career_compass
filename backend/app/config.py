@@ -106,6 +106,14 @@ class Settings(BaseSettings):
         default=["localhost", "127.0.0.1"],
         validation_alias=AliasChoices("BACKEND_TRUSTED_HOSTS"),
     )
+    railway_public_domain: str = Field(
+        default="",
+        validation_alias=AliasChoices("RAILWAY_PUBLIC_DOMAIN"),
+    )
+    railway_private_domain: str = Field(
+        default="",
+        validation_alias=AliasChoices("RAILWAY_PRIVATE_DOMAIN"),
+    )
     sentry_dsn: str = Field(
         default="",
         validation_alias=AliasChoices("SENTRY_DSN"),
@@ -136,6 +144,18 @@ class Settings(BaseSettings):
                 return v
             return [item.strip() for item in s.split(",") if item.strip()]
         return v
+
+    @staticmethod
+    def _normalize_host(host: str) -> str:
+        value = host.strip()
+        if not value:
+            return ""
+        if "://" in value:
+            value = value.split("://", 1)[1]
+        value = value.split("/", 1)[0].split("?", 1)[0]
+        if value.startswith("["):
+            return value.split("]", 1)[0] + "]"
+        return value.split(":", 1)[0]
 
     # ===== API キー =====
     openai_api_key: str = ""
@@ -470,6 +490,18 @@ class Settings(BaseSettings):
                 "CORS wildcard '*' is not allowed in production. "
                 "Please specify explicit origins in CORS_ORIGINS environment variable."
             )
+        railway_hosts = [
+            self._normalize_host(self.railway_public_domain),
+            self._normalize_host(self.railway_private_domain),
+        ]
+        self.trusted_hosts = list(
+            dict.fromkeys(
+                [
+                    *self.trusted_hosts,
+                    *(host for host in railway_hosts if host),
+                ]
+            )
+        )
         return self
 
     model_config = SettingsConfigDict(
