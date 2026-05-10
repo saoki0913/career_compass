@@ -30,9 +30,9 @@ from dataclasses import dataclass
 from typing import Literal, Optional
 
 try:
-    import redis.asyncio as redis
+    import redis.asyncio as redis_asyncio
 except Exception:  # pragma: no cover - redis lib missing in minimal envs
-    redis = None  # type: ignore
+    redis_asyncio = None
 
 from app.config import settings
 from app.utils.secure_logger import get_logger
@@ -196,8 +196,10 @@ class SseLease:
             self._heartbeat_task.cancel()
             try:
                 await self._heartbeat_task
-            except (asyncio.CancelledError, Exception):
-                pass
+            except asyncio.CancelledError:
+                logger.debug("[SSE lease] heartbeat task cancelled during release")
+            except Exception as exc:
+                logger.warning(f"[SSE lease] heartbeat task cleanup failed: {exc}")
             self._heartbeat_task = None
         if self._client is None or self._lease_id == "_noop":
             return
@@ -252,11 +254,11 @@ def _get_redis_client():
     if _redis_client_initialized:
         return _redis_client_cache
     _redis_client_initialized = True
-    if redis is None or not settings.redis_url:
+    if redis_asyncio is None or not settings.redis_url:
         _redis_client_cache = None
         return None
     try:
-        _redis_client_cache = redis.from_url(
+        _redis_client_cache = redis_asyncio.from_url(
             settings.redis_url, decode_responses=True
         )
     except Exception as exc:  # pragma: no cover - redis startup failure
