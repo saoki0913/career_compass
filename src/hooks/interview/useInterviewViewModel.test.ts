@@ -24,7 +24,7 @@ describe("useInterviewViewModel derivations", () => {
     ).toBe("role_fit");
   });
 
-  it("combines normalized company id and weakest axis", () => {
+  it("combines normalized company id and weakest axis with progress derivations", () => {
     const vm = useInterviewViewModel({
       companyId: [" company-3 "],
       feedback: {
@@ -39,11 +39,44 @@ describe("useInterviewViewModel derivations", () => {
         improved_answer: "",
         next_preparation: [],
       },
+      stageStatus: {
+        currentTopicLabel: "leadership",
+        coveredTopics: ["motivation"],
+        remainingTopics: ["teamwork"],
+      },
+      questionCount: 3,
+      questionFlowCompleted: false,
+      hasStarted: true,
     });
 
-    expect(vm).toEqual({
-      normalizedCompanyId: "company-3",
-      weakestAxis: "persuasiveness",
+    expect(vm.normalizedCompanyId).toBe("company-3");
+    expect(vm.weakestAxis).toBe("persuasiveness");
+    expect(vm.topicStages).toHaveLength(3);
+    expect(vm.topicStages[0]).toMatchObject({ label: "motivation", status: "done" });
+    expect(vm.topicStages[1]).toMatchObject({ label: "leadership", status: "current" });
+    expect(vm.topicStages[2]).toMatchObject({ label: "teamwork", status: "pending" });
+    expect(vm.interviewPhases).toHaveLength(4);
+    expect(vm.interviewPhases[0]).toMatchObject({ key: "setup", status: "done" });
+    expect(vm.interviewPhases[1]).toMatchObject({ key: "questions", status: "current" });
+    expect(vm.questionDisplay).toBe("3問目 / 約3問");
+    expect(vm.coachingNarrative).toBe("leadershipについて確認しています。");
+  });
+
+  it("returns defaults when stageStatus is null and not started", () => {
+    const vm = useInterviewViewModel({
+      companyId: "company-4",
+      feedback: null,
+      stageStatus: null,
+      questionCount: 0,
+      questionFlowCompleted: false,
+      hasStarted: false,
     });
+
+    expect(vm.normalizedCompanyId).toBe("company-4");
+    expect(vm.weakestAxis).toBeNull();
+    expect(vm.topicStages).toEqual([]);
+    expect(vm.interviewPhases[0]).toMatchObject({ key: "setup", status: "current" });
+    expect(vm.questionDisplay).toBe("開始前");
+    expect(vm.coachingNarrative).toBe("初回質問を準備中");
   });
 });

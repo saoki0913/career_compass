@@ -1,14 +1,5 @@
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue | undefined };
-
-function postJson(path: string, payload: Record<string, JsonValue | undefined>, signal?: AbortSignal) {
-  return fetch(path, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal,
-  });
-}
+import type { JsonValue } from "@/lib/shared";
+import { postJson } from "@/lib/shared";
 
 export function fetchInterviewData(companyId: string) {
   return fetch(`/api/companies/${companyId}/interview`, {

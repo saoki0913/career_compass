@@ -59,14 +59,14 @@ export function QuickActions({ onInterviewClick, onMotivationClick, className }:
         const Icon = action.Icon;
         const content = (
           <>
-            <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-md", tone.icon)}>
+            <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md lg:h-6 lg:w-6", tone.icon)}>
               <Icon className="h-4 w-4" aria-hidden="true" strokeWidth={2.2} />
             </span>
-            <span className="whitespace-nowrap text-xs font-semibold leading-tight">{action.title}</span>
+            <span className="whitespace-nowrap text-sm font-semibold leading-tight lg:text-xs">{action.title}</span>
           </>
         );
         const actionClassName = cn(
-          "flex h-9 shrink-0 items-center gap-1.5 rounded-lg border-[1.5px] px-3 text-left shadow-sm transition-all duration-150 hover:-translate-y-px hover:shadow-md active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          "flex h-11 shrink-0 items-center gap-2 rounded-lg border-[1.5px] px-3.5 text-left shadow-sm transition-all duration-150 hover:-translate-y-px hover:shadow-md active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:h-9 lg:gap-1.5 lg:px-3",
           tone.pill,
         );
 

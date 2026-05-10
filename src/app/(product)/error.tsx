@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { captureClientBoundaryError } from "@/lib/observability/client";
 
 export default function ProductError({
   error,
@@ -12,7 +13,10 @@ export default function ProductError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("[ProductError]", error.message, error.digest);
+    captureClientBoundaryError(error, {
+      boundary: "product",
+      digest: error.digest,
+    });
   }, [error]);
 
   return (

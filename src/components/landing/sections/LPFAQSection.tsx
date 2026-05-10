@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, MessageCircle, Plus } from "lucide-react";
-import { lpSectionAsset } from "@/lib/marketing/lp-assets";
+import { lpSectionAsset, LP_SECTION_ASSETS } from "@/lib/assets/image-registry";
 import { LpSparkleDecorations } from "@/components/landing/shared/LpSparkleDecorations";
 import { LANDING_PAGE_FAQS } from "@/lib/marketing/landing-faqs";
 
@@ -73,18 +73,17 @@ export function LPFAQSection() {
     <section
       id="faq"
       data-section="faq"
-      className="relative scroll-mt-[92px] overflow-clip"
+      className="relative scroll-mt-[92px] overflow-clip py-10 sm:py-[52px] lg:pt-[62px] lg:pb-[54px]"
       style={{
-        padding: "62px 0 54px",
-        background: "var(--lp-surface-faq)",
+        background: "linear-gradient(180deg, #fff 0%, #f4f8ff 100%)",
         fontFamily:
           "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
         fontFeatureSettings: '"palt"',
       }}
     >
-      <img src={lpSectionAsset("faq/01_dots_grid_large.png")} alt="" role="presentation" className="pointer-events-none absolute left-[-78px] top-12 hidden w-[210px] opacity-40 lg:block" />
-      <img src={lpSectionAsset("faq/06_document_check.png")} alt="" role="presentation" className="pointer-events-none absolute right-[80px] top-[190px] hidden w-[110px] opacity-55 xl:block" />
-      <img src={lpSectionAsset("faq/08_curve_simple.png")} alt="" role="presentation" className="pointer-events-none absolute right-0 top-0 hidden w-[560px] opacity-45 lg:block" />
+      <img src={lpSectionAsset(LP_SECTION_ASSETS.faq.decoDotsGrid)} alt="" role="presentation" className="pointer-events-none absolute left-[-78px] top-12 hidden w-[210px] opacity-40 lg:block" />
+      <img src={lpSectionAsset(LP_SECTION_ASSETS.faq.decoDocumentCheck)} alt="" role="presentation" className="pointer-events-none absolute right-[80px] top-[190px] hidden w-[110px] opacity-55 xl:block" />
+      <img src={lpSectionAsset(LP_SECTION_ASSETS.faq.decoCurve)} alt="" role="presentation" className="pointer-events-none absolute right-0 top-0 hidden w-[560px] opacity-45 lg:block" />
       <LpSparkleDecorations sparkles={faqSparkles} />
 
       <div className="relative z-10 mx-auto max-w-[1430px] px-6 sm:px-10 lg:px-12 xl:px-14">
@@ -111,7 +110,7 @@ export function LPFAQSection() {
         </div>
 
         <div className="pointer-events-none absolute right-14 top-[200px] hidden xl:block" style={{ width: 240, height: 260 }}>
-          <img src={lpSectionAsset("faq/person-pc.png")} alt="" role="presentation" className="absolute bottom-0 right-0 w-[220px] max-w-full object-contain" />
+          <img src={lpSectionAsset(LP_SECTION_ASSETS.faq.personPc)} alt="" role="presentation" className="absolute bottom-0 right-0 w-[220px] max-w-full object-contain" />
           <span className="absolute right-[182px] top-[82px] flex h-11 w-11 items-center justify-center rounded-full border bg-white text-[24px] font-black" style={{ borderColor: "#b9d8ff", color: "var(--lp-cta)" }}>
             ?
           </span>

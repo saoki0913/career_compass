@@ -1,1 +1,1 @@
-Lifecycle complexity is uneven across domains: some routes are direct CRUD, while AI routes add streaming, background ingest, and provider retries. This makes regressions likely if ownership and side-effect ordering drift.
+Request lifecycle の主要懸念は、同じ lifecycle 不変条件が feature ごとに別実装になっている点。成功時のみ消費、request id、structured error、SSE complete/error の扱い、owner check の配置が ES review、motivation、gakuchika、interview、company-info で揺れている。締切 status と task side effect、Stripe plan state、RAG ingest status のような状態遷移は route 内に分岐が散り、状態正本を追いにくい。

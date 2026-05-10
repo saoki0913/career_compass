@@ -14,7 +14,7 @@ language: ja
 
 - `backend/app/utils/llm.py` — LLM呼び出し基盤、モデル解決（`_resolve_model_target`）、コスト計算（`_DEFAULT_LLM_PRICE_CATALOG`）、プロバイダー別API呼び出し
 - `backend/app/config.py` — モデル名環境変数（`GPT_MODEL`, `GPT_MINI_MODEL`, `CLAUDE_SONNET_MODEL` 等）
-- `backend/app/prompts/es_templates.py` — `_model_provider_family()`, `resolve_length_control_profile()`, `_MODEL_FAMILY_DEFAULTS`
+- `backend/app/prompts/es_templates/` — `_model_provider_family()`, `resolve_length_control_profile()`, `_MODEL_FAMILY_DEFAULTS`
 - `backend/app/routers/es_review.py` — ES添削の3回リトライ+length_fix+degradedフォールバック
 
 ## ワークフロー
@@ -44,7 +44,7 @@ language: ja
 
 ### RAG + LLM 統合
 - 企業RAGグラウンディング: `none` / `light` / `standard` / `deep` の4段階
-- テンプレート別ソースファミリー優先順位（`TEMPLATE_SOURCE_FAMILY_PRIORITIES`）
+- テンプレート別ソースファミリー優先順位（`TEMPLATE_CONTENT_GROUP_ORDER`）
 - エビデンスカバレッジレベル（`weak` / `partial` / `sufficient`）に応じた使い方指示
 
 ## 品質基準

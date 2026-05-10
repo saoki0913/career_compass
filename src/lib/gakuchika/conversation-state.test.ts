@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildConversationStatePatch,
-  getGakuchikaNextAction,
   getBuildItemStatus,
-  safeParseMessages,
+  getGakuchikaNextAction,
   safeParseConversationState,
+  safeParseMessages,
   serializeConversationState,
   type ConversationState,
 } from "./conversation-state";

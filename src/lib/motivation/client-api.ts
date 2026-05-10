@@ -1,21 +1,5 @@
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-
-function buildJsonHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-  };
-}
-
-function withQuery(basePath: string, query?: Record<string, string | null | undefined>) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(query ?? {})) {
-    if (value) {
-      params.set(key, value);
-    }
-  }
-  const queryString = params.toString();
-  return queryString ? `${basePath}?${queryString}` : basePath;
-}
+import type { JsonValue } from "@/lib/shared";
+import { buildJsonHeaders, postJson, withQuery } from "@/lib/shared";
 
 async function request(
   path: string,
@@ -58,11 +42,7 @@ export async function startMotivationConversation(
   companyId: string,
   payload: Record<string, JsonValue>,
 ) {
-  return request(`/api/motivation/${companyId}/conversation/start`, {
-    method: "POST",
-    headers: buildJsonHeaders(),
-    body: JSON.stringify(payload),
-  });
+  return postJson(`/api/motivation/${companyId}/conversation/start`, payload);
 }
 
 export async function streamMotivationConversation(
@@ -70,48 +50,29 @@ export async function streamMotivationConversation(
   payload: Record<string, JsonValue>,
   signal: AbortSignal,
 ) {
-  return request(`/api/motivation/${companyId}/conversation/stream`, {
-    method: "POST",
-    headers: buildJsonHeaders(),
-    body: JSON.stringify(payload),
-    signal,
-  });
+  return postJson(`/api/motivation/${companyId}/conversation/stream`, payload, signal);
 }
 
 export async function generateMotivationDraft(
   companyId: string,
   payload: Record<string, JsonValue>,
 ) {
-  return request(`/api/motivation/${companyId}/generate-draft`, {
-    method: "POST",
-    headers: buildJsonHeaders(),
-    body: JSON.stringify(payload),
-  });
+  return postJson(`/api/motivation/${companyId}/generate-draft`, payload);
 }
 
 export async function generateMotivationDraftDirect(
   companyId: string,
   payload: Record<string, JsonValue>,
 ) {
-  return request(`/api/motivation/${companyId}/generate-draft-direct`, {
-    method: "POST",
-    headers: buildJsonHeaders(),
-    body: JSON.stringify(payload),
-  });
+  return postJson(`/api/motivation/${companyId}/generate-draft-direct`, payload);
 }
 
 export async function saveMotivationDraft(companyId: string) {
-  return request(`/api/motivation/${companyId}/save-draft`, {
-    method: "POST",
-    headers: buildJsonHeaders(),
-  });
+  return postJson(`/api/motivation/${companyId}/save-draft`);
 }
 
 export async function resumeMotivationDeepDive(companyId: string) {
-  return request(`/api/motivation/${companyId}/resume-deepdive`, {
-    method: "POST",
-    headers: buildJsonHeaders(),
-  });
+  return postJson(`/api/motivation/${companyId}/resume-deepdive`);
 }
 
 export async function resetMotivationConversation(companyId: string) {

@@ -43,7 +43,6 @@ from app.utils.llm_providers import (
     WARNING,
     LLMResult,
     _augment_system_prompt_for_provider_json,
-    _augment_system_prompt_for_provider_text,
     _classify_error_for_provider,
     _create_error,
     _detect_truncation,
@@ -830,11 +829,7 @@ async def call_llm_text_with_error(
                 return LLMResult(success=False, error=leakage_error)
         elif target.provider == "google":
             raw_response, payload = await _call_google_generate_content(
-                system_prompt=_augment_system_prompt_for_provider_text(
-                    target.provider,
-                    system_prompt,
-                    feature=feature,
-                ),
+                system_prompt=system_prompt,
                 user_message=user_message,
                 messages=normalized_messages,
                 max_tokens=max_tokens,

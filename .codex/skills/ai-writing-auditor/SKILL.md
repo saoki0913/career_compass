@@ -11,10 +11,10 @@ description: ES添削・下書き生成出力のAI臭を検出し、自然な日
 
 ## 対象ファイル・コンポーネント
 
-- `backend/app/prompts/es_templates.py` — テンプレート定義の `anti_patterns`、`evaluation_checks` との統合
+- `backend/app/prompts/es_templates/` — テンプレート定義の `anti_patterns`、`evaluation_checks` との統合
 - `backend/app/prompts/reference_es.py` — 参考ES品質プロファイルとの照合
 - `backend/app/routers/es_review.py` — バリデーションパスでの品質ゲート統合候補
-- `private/reference_es/es_references.json` — 自然な日本語ESのベンチマーク
+- `backend/app/reference/es_review/<template>/references.jsonl` — 自然な日本語ESのベンチマーク
 
 ## 日本語ES向け検出カテゴリ
 

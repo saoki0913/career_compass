@@ -213,6 +213,49 @@ describe("handleReviewStream", () => {
     expect(fetchFastApiWithPrincipalMock).not.toHaveBeenCalled();
   });
 
+  it("returns billing gate 503 before calling FastAPI when credit reservation is unavailable", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    reserveMock.mockResolvedValueOnce({
+      reservationId: null,
+      errorResponse: Response.json(
+        {
+          error: {
+            code: "BILLING_GATE_UNAVAILABLE",
+            userMessage: "課金状態の確認に失敗しました。",
+            retryable: true,
+          },
+        },
+        { status: 503 },
+      ),
+    });
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toMatchObject({
+      error: {
+        code: "BILLING_GATE_UNAVAILABLE",
+        retryable: true,
+      },
+    });
+    expect(fetchFastApiWithPrincipalMock).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(cancelMock).not.toHaveBeenCalled();
+  });
+
   it("confirms the reservation only after the stream completes", async () => {
     const { handleReviewStream } = await import("./handle-review-stream");
     fetchFastApiWithPrincipalMock.mockResolvedValue(
@@ -336,7 +379,7 @@ describe("handleReviewStream", () => {
     fetchFastApiWithPrincipalMock.mockResolvedValue(
       Response.json(
         {
-          detail: { error: "backend failed", error_type: "provider_failure" },
+          detail: { error: "provider stack: secret token leaked", error_type: "provider_failure" },
           internal_telemetry: { model: "gpt", input_tokens: 10 },
         },
         { status: 503 },
@@ -356,16 +399,222 @@ describe("handleReviewStream", () => {
       { params: Promise.resolve({ id: "doc-1" }) },
       "/api/es/review/stream",
     );
-    const text = await response.text();
+    const body = await response.json();
 
     expect(response.status).toBe(503);
+    expect(response.headers.get("X-Request-Id")).toBe("req-1");
     expect(cancelMock).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: "doc-1" }),
       "res-1",
       "fastapi_not_ok",
     );
     expect(confirmMock).not.toHaveBeenCalled();
-    expect(text).toContain("backend failed");
+    expect(body).toMatchObject({
+      error: {
+        code: "ES_REVIEW_UPSTREAM_FAILED",
+        userMessage: "AI添削を完了できませんでした。時間を置いて、もう一度お試しください。",
+        llmErrorType: "provider_failure",
+      },
+      requestId: "req-1",
+    });
+    expect(JSON.stringify(body)).not.toContain("provider stack");
+    expect(JSON.stringify(body)).not.toContain("internal_telemetry");
+  });
+
+  it("returns structured 503 when FastAPI principal secret is missing", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockRejectedValue(
+      new Error("CAREER_PRINCIPAL_HMAC_SECRET is not configured"),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("X-Request-Id")).toBe("req-1");
+    expect(cancelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: "doc-1" }),
+      "res-1",
+      "fastapi_fetch_exception",
+    );
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(body).toMatchObject({
+      error: {
+        code: "ES_REVIEW_AI_AUTH_NOT_CONFIGURED",
+        userMessage: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。",
+      },
+      requestId: "req-1",
+    });
+  });
+
+  it("returns structured 500 and cancels the reservation when FastAPI fetch throws", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockRejectedValue(new Error("fetch failed"));
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("X-Request-Id")).toBe("req-1");
+    expect(cancelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: "doc-1" }),
+      "res-1",
+      "fastapi_fetch_exception",
+    );
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(body).toMatchObject({
+      error: {
+        code: "ES_REVIEW_STREAM_INTERNAL_ERROR",
+        userMessage: "ES添削を開始できませんでした。",
+      },
+      requestId: "req-1",
+    });
+  });
+
+  it("confirms when complete event has billing_outcome and valid rewrites", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                'data: {"type":"complete","result":{"rewrites":["改善後の本文"]},"billing_outcome":{"success":true,"billable":true,"schema_version":1}}\n\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    await response.text();
+
+    expect(confirmMock).toHaveBeenCalledOnce();
+    expect(cancelMock).not.toHaveBeenCalled();
+  });
+
+  it("publishes only the ES review public SSE contract", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'data: {"type":"progress","step":"rewrite","progress":44,"label":"debug /backend/path requestId=req-upstream"}',
+                  'data: {"type":"string_chunk","path":"streaming_rewrite","text":"改善"}',
+                  'data: {"type":"array_item_complete","path":"keyword_sources.0","value":{"source_id":"src-internal","source_url":"https://example.com","content_type":"corporate_site","title":"source","excerpt":"evidence"}}',
+                  'data: {"type":"complete","requestId":"req-upstream","result":{"rewrites":["改善後の本文"],"template_review":{"template_type":"self_pr","variants":[{"text":"改善後の本文","source_id":"variant-src","debug":"variant-debug"}],"keyword_sources":[{"source_id":"src-internal","source_url":"https://example.com","content_type":"corporate_site","title":"source","excerpt":"evidence"}]},"review_meta":{"grounding_mode":"none","rewrite_attempt_count":3,"repair_dispatches":["retry"],"fallback_reason":"debug","token_usage":{"input_tokens":1},"rewrite_attempt_trace":[{"step":"internal"}],"ai_smell_warnings":[{"code":"x"}]}},"internal_telemetry":{"input_tokens":10}}',
+                  "",
+                ].join("\n\n"),
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    const text = await response.text();
+
+    expect(text).toContain('"type":"rewrite_delta"');
+    expect(text).toContain('"type":"source_added"');
+    expect(text).toContain('"type":"complete"');
+    expect(text).toContain("改善後の本文");
+    expect(text).not.toContain("source_id");
+    expect(text).not.toContain("req-upstream");
+    expect(text).not.toContain("rewrite_attempt_count");
+    expect(text).not.toContain("repair_dispatches");
+    expect(text).not.toContain("fallback_reason");
+    expect(text).not.toContain("token_usage");
+    expect(text).not.toContain("rewrite_attempt_trace");
+    expect(text).not.toContain("ai_smell_warnings");
     expect(text).not.toContain("internal_telemetry");
+    expect(text).not.toContain("/backend/path");
+    expect(text).not.toContain("variant-src");
+    expect(text).not.toContain("variant-debug");
+  });
+
+  it("sanitizes proxy-generated ES review stream errors", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockResolvedValue(new Response(null, { status: 200 }));
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    const text = await response.text();
+
+    expect(text).toContain('"type":"error"');
+    expect(text).toContain("ES_REVIEW_EMPTY_RESPONSE");
+    expect(text).not.toContain("requestId");
+    expect(text).not.toContain("req-1");
   });
 });

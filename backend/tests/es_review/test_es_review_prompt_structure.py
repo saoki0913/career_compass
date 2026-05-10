@@ -4,16 +4,17 @@ import pytest
 
 from app.prompts.es_templates import (
     TEMPLATE_DEFS,
-    _GLOBAL_CONCLUSION_FIRST_RULES,
-    _GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK,
     _build_contextual_rules,
     _format_company_guidance,
     _format_user_fact_guidance,
     _format_target_char_window,
     build_template_fallback_rewrite_prompt,
-    build_template_length_fix_prompt,
     build_template_rewrite_prompt,
 )
+from app.prompts.es_templates._prompt_builder import _format_fact_preservation_rules
+from app.prompts.es_quality_rules import STYLE_RULES
+from app.prompts.es_templates._focus_modes import FocusModeContext
+from app.services.es_review.retry import _select_rewrite_prompt_context
 
 
 @pytest.mark.parametrize("template_type", sorted(TEMPLATE_DEFS.keys()))
@@ -26,6 +27,7 @@ def test_template_defs_expose_common_spec_fields(template_type: str) -> None:
         "anti_patterns",
         "recommended_structure",
         "evaluation_checks",
+        "evaluation_axes",
         "retry_guidance",
         "company_usage",
         "fact_priority",
@@ -36,6 +38,7 @@ def test_template_defs_expose_common_spec_fields(template_type: str) -> None:
     assert template_def["anti_patterns"]
     assert template_def["recommended_structure"]
     assert template_def["evaluation_checks"]
+    assert template_def["evaluation_axes"]
 
 
 def test_rewrite_prompt_renders_required_elements_and_anti_patterns_from_template_spec(
@@ -73,6 +76,27 @@ def test_rewrite_prompt_renders_required_elements_and_anti_patterns_from_templat
     assert "- 検証用必須要素" in system_prompt
     assert "【避けるパターン】" in system_prompt
     assert "- 検証用禁止表現" in system_prompt
+
+
+def test_rewrite_prompt_always_includes_reference_copy_safety_rules() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="company_motivation",
+        company_name="三菱商事",
+        industry="総合商社",
+        question="三菱商事を志望する理由を教えてください。",
+        answer="研究で仮説検証を重ねた経験を、事業を動かす仕事で生かしたい。",
+        char_min=180,
+        char_max=260,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で仮説検証を重ねた。"}],
+        grounding_mode="none",
+        reference_quality_block="",
+    )
+
+    assert "参考ESは品質傾向だけを参考にし" in system_prompt
+    assert "本文・語句・特徴的な言い回し・個別エピソードを再利用しない" in system_prompt
+    assert "参考ES由来の事実をユーザー事実や企業根拠として扱わない" in system_prompt
 
 
 @pytest.mark.parametrize(
@@ -136,7 +160,7 @@ def test_required_medium_long_rewrite_prompt_includes_structure_and_examples(
     assert "4文前後" in system_prompt
     assert "【書き出し例】" in system_prompt
     assert "【避ける例】" in system_prompt
-    assert "設問文の言い換え" in system_prompt
+    assert "結論" in system_prompt
     assert "【改善ポイント】" not in system_prompt
     assert "研究" in user_prompt
 
@@ -262,7 +286,8 @@ def test_contextual_rules_are_grouped_by_priority() -> None:
     assert "【SHOULD（できる限り）】" in rules
     assert "【WATCH（注意）】" in rules
     assert "ユーザーの元回答に含まれる数値・固有名詞" in rules
-    assert "関係者を巻き込みながら" in rules
+    assert "〜したい、〜と考える、〜と考えている、〜していきたい" in rules
+    assert "LLM特有フレーズ" in rules
     assert "- 指定の字数下限を下回る改善案は再検証で弾かれる" in rules
 
 
@@ -383,66 +408,133 @@ def test_rewrite_prompt_keeps_core_constraints_when_structural_patterns_v2_are_p
         ),
     )
 
-    assert "<constraints>" in system_prompt
+    assert '<constraints priority="absolute">' in system_prompt
     assert "<length_policy>" in system_prompt
     assert "【参考ESから抽出した構成パターン】" in system_prompt
     assert "【設問で落としてはいけない要素】" in system_prompt
 
 
-def test_required_length_fix_prompt_stays_minimal_and_bridge_only() -> None:
-    system_prompt, user_prompt = build_template_length_fix_prompt(
-        template_type="role_course_reason",
-        current_text="研究で培った分析力を生かしたい。",
-        char_min=120,
-        char_max=140,
-        fix_mode="under_min",
-        length_control_mode="under_min_recovery",
-    )
-
-    assert "既にある経験・職種・企業接点" in system_prompt
-    assert "1文まで足し" in system_prompt
-    assert "新しい経験・役割・成果・数字・企業施策を足さない" in system_prompt
-    assert "研究で培った分析力を生かしたい。" in user_prompt
-
-
-def test_required_length_fix_prompt_allows_two_short_bridges_for_large_medium_shortfall() -> None:
-    system_prompt, _ = build_template_length_fix_prompt(
-        template_type="role_course_reason",
-        current_text="研究で培った分析力を生かしたい。",
-        char_min=170,
-        char_max=220,
-        fix_mode="under_min",
-        length_control_mode="under_min_recovery",
-    )
-
-    assert "1〜2文まで足し" in system_prompt
-
-
-def test_length_fix_prompt_allows_extra_bridge_when_large_under_shortfall() -> None:
-    system_prompt, _ = build_template_length_fix_prompt(
-        template_type="self_pr",
-        current_text="短い。",
-        char_min=200,
+def test_rewrite_prompt_includes_logic_patterns_on_first_attempt() -> None:
+    reference_block = "【参考ESから抽出した構成パターン】\n- 主な論理アプローチ: 課題起点型 (11件中8件)"
+    attempt_context = _select_rewrite_prompt_context(
+        template_type="gakuchika",
         char_max=400,
-        fix_mode="under_min",
-        length_control_mode="default",
+        attempt=0,
+        simplified_mode=False,
+        prompt_user_facts=[{"text": "ゼミで改善した。"}],
+        company_evidence_cards=[],
+        improvement_payload=[],
+        reference_quality_block=reference_block,
+        evidence_coverage_level="none",
     )
 
-    assert "1〜2か所足し" in system_prompt
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="ゼミで改善した。",
+        char_min=300,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=attempt_context["prompt_user_facts"],
+        grounding_mode="none",
+        reference_quality_block=attempt_context["reference_quality_block"],
+    )
+
+    assert "主な論理アプローチ" in system_prompt
 
 
-def test_self_pr_length_fix_prompt_includes_negative_reframe_guidance() -> None:
-    system_prompt, _ = build_template_length_fix_prompt(
+def test_rewrite_prompt_excludes_logic_patterns_on_retry() -> None:
+    attempt_context = _select_rewrite_prompt_context(
+        template_type="gakuchika",
+        char_max=400,
+        attempt=1,
+        simplified_mode=False,
+        prompt_user_facts=[{"text": "ゼミで改善した。"}],
+        company_evidence_cards=[],
+        improvement_payload=[],
+        reference_quality_block="【参考ESから抽出した構成パターン】\n- 主な論理アプローチ: 課題起点型",
+        evidence_coverage_level="none",
+    )
+
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="ゼミで改善した。",
+        char_min=300,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=attempt_context["prompt_user_facts"],
+        grounding_mode="none",
+        reference_quality_block=attempt_context["reference_quality_block"],
+    )
+
+    assert "主な論理アプローチ" not in system_prompt
+
+
+def test_fallback_prompt_excludes_logic_patterns_when_context_is_empty() -> None:
+    system_prompt, _ = build_template_fallback_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="ゼミで改善した。",
+        char_min=300,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"text": "ゼミで改善した。"}],
+        grounding_mode="none",
+        reference_quality_block="",
+    )
+
+    assert "主な論理アプローチ" not in system_prompt
+
+
+@pytest.mark.parametrize(
+    ("delta_band", "current_length", "expected"),
+    [
+        ("large", 110, "2〜3文追加"),
+        ("medium", 155, "1文追加"),
+        ("small", 180, "修飾句"),
+        ("tiny", 197, "修飾語"),
+    ],
+)
+def test_rewrite_prompt_uses_focus_mode_context_for_length_delta_band(
+    delta_band: str,
+    current_length: int,
+    expected: str,
+) -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
         template_type="self_pr",
-        current_text="経験不足だが、最後までやり切る。",
-        char_min=150,
-        char_max=220,
-        fix_mode="under_min",
-        length_control_mode="under_min_recovery",
+        company_name=None,
+        industry=None,
+        question="自己PRを教えてください。",
+        answer="研究で改善を進めた。",
+        char_min=200,
+        char_max=300,
+        company_evidence_cards=[],
+        has_rag=False,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で改善を進めた。"}],
+        grounding_mode="none",
+        focus_modes=["length_focus_min"],
+        focus_mode_context=FocusModeContext(
+            char_min=200,
+            char_max=300,
+            current_length=current_length,
+            shortfall=200 - current_length,
+            delta_band=delta_band,
+            template_type="self_pr",
+        ),
     )
 
-    assert "【自己PRで避ける表現】" in system_prompt
-    assert "自己否定語をそのまま残さない" in system_prompt
+    assert f"現在{current_length}字、目標200字まで{200 - current_length}字不足" in system_prompt
+    assert expected in system_prompt
 
 
 def test_required_short_prompt_includes_required_playbook_and_min_guard() -> None:
@@ -496,7 +588,7 @@ def test_rewrite_prompt_uses_400_char_target_window() -> None:
     assert f"今回の内部目標帯: {expected_window}" in system_prompt
 
 
-def test_rewrite_prompt_uses_tighter_target_window_on_under_min_recovery() -> None:
+def test_rewrite_prompt_uses_overshoot_target_on_under_min_recovery() -> None:
     answer = "研究で培った分析力を、事業と技術をつなぐ役割で生かしたい。"
     system_prompt, _ = build_template_rewrite_prompt(
         template_type="role_course_reason",
@@ -515,16 +607,11 @@ def test_rewrite_prompt_uses_tighter_target_window_on_under_min_recovery() -> No
         grounding_mode="role_grounded",
         length_control_mode="under_min_recovery",
         length_shortfall=22,
+        latest_failed_length=368,
     )
 
-    expected_window = _format_target_char_window(
-        390,
-        400,
-        stage="under_min_recovery",
-        original_len=len(answer),
-        llm_model=None,
-    )
-    assert f"今回の内部目標帯: {expected_window}" in system_prompt
+    assert "strict受理帯: 390字〜400字" in system_prompt
+    assert "今回の内部目標帯: 400字〜" in system_prompt
 
 
 def test_target_window_biases_openai_mini_higher_for_short_answers() -> None:
@@ -549,9 +636,9 @@ def test_target_window_biases_openai_mini_higher_for_short_answers() -> None:
         llm_model="claude-sonnet-4-6",
     )
 
-    assert mini_window == "135字〜140字"  # gap拡大 (short:2→4) により目標下限が下がった
-    assert full_window == "134字〜140字"
-    assert claude_window == "132字〜140字"
+    assert mini_window == "131字〜140字"
+    assert full_window == "130字〜140字"
+    assert claude_window == "130字〜140字"
 
 
 def test_rewrite_prompt_includes_length_focus_max_guidance() -> None:
@@ -575,6 +662,33 @@ def test_rewrite_prompt_includes_length_focus_max_guidance() -> None:
     assert "【今回の修正フォーカス】" in system_prompt
     assert "削る" in system_prompt
     assert "最大字数" in system_prompt
+
+
+@pytest.mark.parametrize("template_type", sorted(TEMPLATE_DEFS.keys()))
+def test_rewrite_prompt_includes_common_fact_preservation_rules(template_type: str) -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type=template_type,
+        company_name="テスト株式会社",
+        industry="IT",
+        question="設問に答えてください。",
+        answer="研究室で3人のチームをまとめ、2か月で共有方法を見直した。",
+        char_min=180,
+        char_max=220,
+        company_evidence_cards=[
+            {"theme": "企業姿勢", "claim": "顧客課題を重視する", "excerpt": "課題解決を支援する"}
+        ],
+        has_rag=True,
+        allowed_user_facts=[
+            {
+                "source": "current_answer",
+                "text": "研究室で3人のチームをまとめ、2か月で共有方法を見直した。",
+            }
+        ],
+        grounding_mode="company_general",
+    )
+
+    assert "元回答・使えるユーザー事実・企業根拠カードにない数値" in system_prompt
+    assert "文字数不足でも新事実で埋めず" in system_prompt
 
 
 def test_short_answer_guidance_covers_self_pr_structure() -> None:
@@ -745,7 +859,7 @@ def test_output_contract_contains_no_linebreak_rule() -> None:
 
 
 def test_constraints_ending_variety() -> None:
-    """Constraints should include the 2-sentence consecutive ending prohibition."""
+    """Prompt should include ending variety guidance via core_style STYLE_RULES."""
     system_prompt, _ = build_template_rewrite_prompt(
         template_type="basic",
         company_name="テスト株式会社",
@@ -759,21 +873,22 @@ def test_constraints_ending_variety() -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
         grounding_mode="company_general",
     )
-    assert "2文連続" in system_prompt
+    assert "連続しないよう" in system_prompt
 
 
-def test_global_rules_include_flow_and_linebreak() -> None:
-    """_GLOBAL_CONCLUSION_FIRST_RULES should contain line-break prohibition, ending variety, and flow rules."""
-    assert "結論ファースト" in _GLOBAL_CONCLUSION_FIRST_RULES
-    assert "抽象動詞" in _GLOBAL_CONCLUSION_FIRST_RULES
-    assert "LLM特有フレーズ" in _GLOBAL_CONCLUSION_FIRST_RULES
+def test_style_rules_include_key_guidance() -> None:
+    """STYLE_RULES should contain conclusion-first, abstract verb, and LLM phrase guidance."""
+    all_texts = " ".join(r.text for r in STYLE_RULES)
+    assert "結論" in all_texts
+    assert "抽象動詞" in all_texts
+    assert "LLM特有フレーズ" in all_texts
 
 
 @pytest.mark.parametrize(
     "builder_fn",
     [build_template_rewrite_prompt, build_template_fallback_rewrite_prompt],
 )
-def test_constraints_require_opening_conclusion_with_20_to_45_chars(builder_fn) -> None:
+def test_constraints_require_conclusion_first(builder_fn) -> None:
     system_prompt, _ = builder_fn(
         template_type="company_motivation",
         company_name="三菱商事",
@@ -787,11 +902,8 @@ def test_constraints_require_opening_conclusion_with_20_to_45_chars(builder_fn) 
         allowed_user_facts=[{"source": "current_answer", "text": "研究で仮説検証を重ねた。"}],
         grounding_mode="company_general",
     )
-    assert "20〜45字" in system_prompt
-
-
-def test_global_fallback_rules_require_opening_conclusion_with_20_to_45_chars() -> None:
-    assert "20〜45字" in _GLOBAL_CONCLUSION_FIRST_RULES_FALLBACK
+    assert "結論ファースト" in system_prompt or "結論" in system_prompt
+    assert "20〜45字" not in system_prompt
 
 
 def test_assistive_grounding_limits_company_name_mentions() -> None:
@@ -810,7 +922,7 @@ def test_assistive_grounding_limits_company_name_mentions() -> None:
         company_grounding_override="assistive",
     )
     assert "本文全体で2回まで" in system_prompt
-    assert "貴社・御社" in system_prompt
+    assert "貴社" in system_prompt
 
 
 def test_required_grounding_limits_company_name_to_once_then_honorific() -> None:
@@ -920,7 +1032,7 @@ def test_gakuchika_prompt_includes_structure_rule_and_playbook() -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "学園祭運営の改善に取り組んだ。"}],
         grounding_mode="none",
     )
-    assert "まず / 次に" in system_prompt or "(1)(2)" in system_prompt
+    assert "①②" in system_prompt or "①では" in system_prompt
     assert "【requiredテンプレの型】" in system_prompt
 
 
@@ -928,18 +1040,6 @@ def test_retry_guidance_has_quantify_and_structure_entries() -> None:
     assert "quantify" in TEMPLATE_DEFS["self_pr"]["retry_guidance"]
     assert "quantify" in TEMPLATE_DEFS["work_values"]["retry_guidance"]
     assert "structure" in TEMPLATE_DEFS["gakuchika"]["retry_guidance"]
-
-
-def test_length_fix_prompt_supports_quantify_focus() -> None:
-    system_prompt, _ = build_template_length_fix_prompt(
-        template_type="self_pr",
-        current_text="周囲を巻き込みながら改善を進めた。",
-        char_min=220,
-        char_max=320,
-        fix_mode="under_min",
-        focus_modes=["quantify_focus"],
-    )
-    assert "人数・期間・件数・比率" in system_prompt or "数値" in system_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -985,21 +1085,10 @@ def test_self_count_absent_without_limits() -> None:
     assert "セルフチェック" not in system_prompt
 
 
-def test_length_fix_includes_count_adjust() -> None:
-    """Length-fix prompt with GPT model should include Draft->Count->Adjust pattern."""
-    system_prompt, _ = build_template_length_fix_prompt(
-        template_type="basic",
-        current_text="短い回答。",
-        char_min=200,
-        char_max=400,
-        fix_mode="under_min",
-        llm_model="gpt-4o",
-    )
-    assert "Draft" in system_prompt and "Adjust" in system_prompt
 
 
-def test_gemini_paragraph_allocation() -> None:
-    """Gemini model with medium+ band should include paragraph allocation."""
+def test_gemini_sentence_allocation() -> None:
+    """Gemini model with medium+ band should include sentence allocation."""
     system_prompt, _ = build_template_rewrite_prompt(
         template_type="basic",
         company_name="テスト株式会社",
@@ -1014,4 +1103,64 @@ def test_gemini_paragraph_allocation() -> None:
         grounding_mode="company_general",
         llm_model="gemini-2.0-flash",
     )
-    assert "段落配分" in system_prompt
+    assert "文量配分" in system_prompt
+
+
+def test_fact_preservation_rules_include_structural_exception() -> None:
+    rules = _format_fact_preservation_rules()
+    assert "構造改善" in rules
+    assert "論理的に導ける" in rules
+    assert "数値・固有名詞・未経験の出来事" in rules
+
+
+@pytest.mark.parametrize(
+    "template_type,expected_phrase",
+    [
+        ("gakuchika", "培った"),
+        ("post_join_goals", "キャリア像"),
+        ("role_course_reason", "貢献像"),
+        ("company_motivation", "貢献像"),
+        ("self_pr", "業務文脈"),
+    ],
+)
+def test_rewrite_prompt_includes_closing_guidance(
+    template_type: str, expected_phrase: str
+) -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type=template_type,
+        company_name=None,
+        industry=None,
+        question="テスト設問",
+        answer="テスト回答。",
+        char_min=300,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        grounding_mode="none",
+    )
+    assert expected_phrase in system_prompt
+
+
+@pytest.mark.parametrize(
+    "template_type,expected_phrase",
+    [
+        ("gakuchika", "培った"),
+        ("post_join_goals", "キャリア像"),
+    ],
+)
+def test_fallback_rewrite_prompt_includes_closing_guidance(
+    template_type: str, expected_phrase: str
+) -> None:
+    system_prompt, _ = build_template_fallback_rewrite_prompt(
+        template_type=template_type,
+        company_name=None,
+        industry=None,
+        question="テスト設問",
+        answer="テスト回答。",
+        char_min=300,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        grounding_mode="none",
+    )
+    assert expected_phrase in system_prompt

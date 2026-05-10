@@ -4,7 +4,9 @@ import { memo, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Check,
+  ChevronDown,
   Clipboard,
+  Lightbulb,
   Link2,
   LoaderCircle,
   Sparkles,
@@ -12,9 +14,15 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { getLLMResultLabel } from "@/lib/ai/model-labels";
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
+import { parseSimpleMarkdown, type SimpleMarkdownInline } from "@/lib/simple-markdown";
 import type {
   ReviewPlaybackPhase,
   VisibleTemplateSource,
@@ -49,6 +57,9 @@ interface StreamingReviewResponseProps {
     weak_evidence_notice?: boolean;
     rewrite_validation_status?: "strict_ok" | "soft_ok" | "degraded";
     rewrite_validation_user_hint?: string | null;
+    repair_dispatch_count?: number;
+    composite_retry_modes?: string[];
+    final_acceptance_source?: "rewrite" | "safe_rewrite" | "length_fix" | "degraded_best_effort";
     ai_smell_tier?: number;
     concrete_marker_count?: number;
     opening_conclusion_chars?: number;
@@ -56,6 +67,11 @@ interface StreamingReviewResponseProps {
   };
   onApply: (rewrite: string) => void;
   onPlaybackStateChange?: (isSettled: boolean) => void;
+}
+
+interface ParsedImprovementExplanation {
+  improvement_points: Array<{ axis?: string; point: string; detail?: string }>;
+  main_changes: Array<{ before_summary?: string; after_summary?: string; change?: string }>;
 }
 
 function CharacterStats({
@@ -153,15 +169,12 @@ function computeSubmissionChecks(
   if (!meta) return null;
 
   const openingChars = meta.opening_conclusion_chars ?? 0;
-  const attempts = (meta as Record<string, unknown>).rewrite_attempt_count as number | undefined ?? 1;
   const sentenceCount = meta.rewrite_sentence_count ?? 0;
   let logicPoints = 0;
   if (openingChars >= 20 && openingChars <= 45) logicPoints += 3;
   else if (openingChars > 0 && openingChars <= 60) logicPoints += 2;
   if (sentenceCount >= 3) logicPoints += 2;
   else if (sentenceCount >= 2) logicPoints += 1;
-  if (attempts <= 1) logicPoints += 2;
-  else if (attempts <= 2) logicPoints += 1;
 
   const concreteCount = meta.concrete_marker_count ?? 0;
   const smellTier = meta.ai_smell_tier ?? 0;
@@ -250,6 +263,179 @@ function renderTypedText(text: string, isActive: boolean, tone: "default" | "mut
       {text || <span className="opacity-0">.</span>}
       {isActive ? <TypingCursor /> : null}
     </p>
+  );
+}
+
+function stripRawMarkdownHeadings(text: string): string {
+  return text
+    .replace(/^#{1,6}\s*(改善ポイント|変更箇所の解説)\s*$/gmu, "")
+    .replace(/^#{1,6}\s*/gmu, "")
+    .trim();
+}
+
+function parseImprovementExplanation(text: string): ParsedImprovementExplanation | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as Partial<ParsedImprovementExplanation>;
+    const improvementPoints = Array.isArray(parsed.improvement_points)
+      ? parsed.improvement_points
+          .map((item) => ({
+            axis: typeof item.axis === "string" ? item.axis.trim() : "",
+            point: typeof item.point === "string" ? item.point.trim() : "",
+            detail: typeof item.detail === "string" ? item.detail.trim() : "",
+          }))
+          .filter((item) => item.point || item.detail)
+          .slice(0, 3)
+      : [];
+    const mainChanges = Array.isArray(parsed.main_changes)
+      ? parsed.main_changes
+          .map((item) => ({
+            before_summary: typeof item.before_summary === "string" ? item.before_summary.trim() : "",
+            after_summary: typeof item.after_summary === "string" ? item.after_summary.trim() : "",
+            change: typeof item.change === "string" ? item.change.trim() : "",
+          }))
+          .filter((item) => item.before_summary || item.after_summary || item.change)
+          .slice(0, 2)
+      : [];
+    return improvementPoints.length || mainChanges.length
+      ? { improvement_points: improvementPoints, main_changes: mainChanges }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function ImprovementExplanation({
+  text,
+  showCursor,
+}: {
+  text: string;
+  showCursor: boolean;
+}) {
+  const parsed = useMemo(() => parseImprovementExplanation(text), [text]);
+  const fallbackText = useMemo(() => stripRawMarkdownHeadings(text), [text]);
+
+  return (
+    <Collapsible>
+      <div className="rounded-2xl border border-border/60 bg-background/80">
+        <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
+          <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-foreground">
+            <Lightbulb className="size-4 shrink-0 text-primary" />
+            改善ポイント
+          </span>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="border-t border-border/60 px-4 py-4">
+          {parsed ? (
+            <div className="space-y-4">
+              {parsed.improvement_points.length > 0 ? (
+                <div className="space-y-2">
+                  {parsed.improvement_points.map((point, index) => (
+                    <div key={`${point.point}-${index}`} className="rounded-xl bg-muted/30 px-3 py-2">
+                      <p className="text-sm font-medium text-foreground">
+                        {point.axis ? `${point.axis}: ` : ""}
+                        {point.point}
+                      </p>
+                      {point.detail ? (
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{point.detail}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {parsed.main_changes.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">主な変更点</p>
+                  {parsed.main_changes.map((change, index) => (
+                    <div key={`${change.before_summary}-${change.after_summary}-${index}`} className="rounded-xl border border-border/50 px-3 py-2">
+                      {change.before_summary || change.after_summary ? (
+                        <p className="text-xs leading-5 text-foreground">
+                          {change.before_summary || "変更前"} → {change.after_summary || "変更後"}
+                        </p>
+                      ) : null}
+                      {change.change ? (
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{change.change}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <SimpleMarkdownText text={fallbackText} showCursor={showCursor} />
+          )}
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  );
+}
+
+function renderSimpleMarkdownInline(tokens: SimpleMarkdownInline[]) {
+  return tokens.map((token, index) => {
+    const key = `${token.type}-${index}`;
+    if (token.type === "strong") {
+      return (
+        <strong key={key} className="font-semibold text-foreground">
+          {token.text}
+        </strong>
+      );
+    }
+    if (token.type === "code") {
+      return (
+        <code key={key} className="rounded bg-muted px-1 py-0.5 text-[0.85em] font-medium">
+          {token.text}
+        </code>
+      );
+    }
+    return <span key={key}>{token.text}</span>;
+  });
+}
+
+function SimpleMarkdownText({
+  text,
+  showCursor,
+}: {
+  text: string;
+  showCursor: boolean;
+}) {
+  const blocks = useMemo(() => parseSimpleMarkdown(text), [text]);
+
+  return (
+    <div className="space-y-2 break-words text-sm leading-7 text-foreground/90">
+      {blocks.map((block, blockIndex) => {
+        const isLastBlock = blockIndex === blocks.length - 1;
+        if (block.type === "list") {
+          const ListTag = block.ordered ? "ol" : "ul";
+          return (
+            <ListTag
+              key={`block-${blockIndex}`}
+              className={cn(
+                "my-2 space-y-1.5 pl-4 text-sm leading-6",
+                block.ordered ? "list-decimal" : "list-disc",
+              )}
+            >
+              {block.items.map((item, itemIndex) => (
+                <li key={`item-${blockIndex}-${itemIndex}`}>
+                  {renderSimpleMarkdownInline(item)}
+                  {showCursor && isLastBlock && itemIndex === block.items.length - 1 ? (
+                    <TypingCursor />
+                  ) : null}
+                </li>
+              ))}
+            </ListTag>
+          );
+        }
+
+        return (
+          <p key={`block-${blockIndex}`}>
+            {renderSimpleMarkdownInline(block.children)}
+            {showCursor && isLastBlock ? <TypingCursor /> : null}
+          </p>
+        );
+      })}
+      {blocks.length === 0 && showCursor ? <TypingCursor /> : null}
+    </div>
   );
 }
 
@@ -427,52 +613,97 @@ export function StreamingReviewResponse({
             )}
           </div>
 
-          {visibleExplanationText ? (
-            <div className="mt-3 rounded-2xl border border-border/50 bg-muted/10 p-4">
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                  className="h-3.5 w-3.5"
-                  aria-hidden="true"
-                >
-                  <path d="M10 1a6 6 0 0 0-3.815 10.631C7.237 12.5 8 13.443 8 14.456v.644a.75.75 0 0 0 .75.75h2.5a.75.75 0 0 0 .75-.75v-.644c0-1.013.762-1.957 1.815-2.825A6 6 0 0 0 10 1ZM8.863 17.414a.75.75 0 0 0-.226 1.483 9.066 9.066 0 0 0 2.726 0 .75.75 0 0 0-.226-1.483 7.563 7.563 0 0 1-2.274 0Z" />
-                </svg>
-                改善ポイント
-              </h4>
-              <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-                {visibleExplanationText}
-                {!explanationComplete ? <TypingCursor /> : null}
+          {showActions ? (
+            <div className="mt-3 rounded-2xl border border-border/70 bg-background p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">反映準備</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {isSettled
+                      ? "内容を確認してからエディタへ反映できます。"
+                      : "表示を整えてから反映ボタンを有効にします。"}
+                  </p>
+                </div>
+                {!isSettled ? (
+                  <Badge variant="soft-warning" className="px-3 py-1 text-[11px]">
+                    表示待機中
+                  </Badge>
+                ) : null}
               </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopy}
+                  className="h-11 rounded-full gap-1.5"
+                  disabled={!rewriteForActions}
+                >
+                  {copied ? <Check className="size-4" /> : <Clipboard className="size-4" />}
+                  {copied ? "コピー済み" : "改善案をコピー"}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => onApply(rewriteForActions)}
+                  className="h-11 rounded-full gap-1.5"
+                  disabled={!isSettled || !rewriteForActions}
+                >
+                  <Sparkles className="size-4" />
+                  この改善案を反映
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {visibleExplanationText ? (
+            <div className="mt-3">
+              <ImprovementExplanation
+                text={visibleExplanationText}
+                showCursor={!explanationComplete}
+              />
             </div>
           ) : null}
         </div>
 
         {isPlaybackComplete && submissionChecks ? (
-          <div className="mt-4 flex flex-col gap-2">
-            <p className="text-xs font-medium text-muted-foreground">提出前チェック</p>
-            <SubmissionCheckBadges checks={submissionChecks} />
-          </div>
+          <Collapsible>
+            <div className="rounded-2xl border border-border/60 bg-background/80">
+              <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 px-4 py-3 text-left">
+                <span className="text-sm font-semibold text-foreground">提出前チェック</span>
+                <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="border-t border-border/60 px-4 py-4">
+                <SubmissionCheckBadges checks={submissionChecks} />
+              </CollapsibleContent>
+            </div>
+          </Collapsible>
         ) : null}
 
         {sources.length > 0 ? (
-          <div className="rounded-[26px] border border-border/60 bg-background/88 p-4 sm:p-5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-sm font-semibold text-foreground">出典リンク</h4>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    就活Passに保存したユーザー情報と、企業情報・関連資料の参照元です。プロフィールなど一部はアプリ内ページへ遷移します。
-                  </p>
-                </div>
+          <Collapsible>
+            <div className="rounded-[26px] border border-border/60 bg-background/88">
+              <CollapsibleTrigger className="group flex w-full flex-wrap items-center justify-between gap-2 px-4 py-4 text-left sm:px-5">
+                <span>
+                  <span className="block text-sm font-semibold text-foreground">出典リンク</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    参照したユーザー情報・企業情報を確認できます。
+                  </span>
+                </span>
+                <span className="flex items-center gap-2">
                 <Badge variant="outline" className="px-3 py-1 text-[11px]">
                   {sources.length}件
                 </Badge>
-              </div>
+                  <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+                </span>
+              </CollapsibleTrigger>
 
-              <div className="mt-4 grid gap-3">
+              <CollapsibleContent className="border-t border-border/60 px-4 pb-4 sm:px-5 sm:pb-5">
+                <p className="mt-4 text-xs text-muted-foreground">
+                  就活Passに保存したユーザー情報と、企業情報・関連資料の参照元です。プロフィールなど一部はアプリ内ページへ遷移します。
+                </p>
+                <div className="mt-4 grid gap-3">
                 {sources.map((source, index) => (
-                  <div key={`${source.source_id}-${index}`}>
+                  <div key={`${source.source_url}-${index}`}>
                       <ReferenceSourceCard
                         title={source.title || source.content_type_label || "参考情報"}
                         meta={[source.content_type_label, source.domain].filter(Boolean).join(" / ")}
@@ -481,51 +712,12 @@ export function StreamingReviewResponse({
                       />
                   </div>
                 ))}
-              </div>
+                </div>
+              </CollapsibleContent>
             </div>
-          ) : null}
-
-        {showActions ? (
-          <div className="rounded-[24px] border border-border/70 bg-muted/20 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-foreground">反映準備</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {isSettled
-                    ? "添削が完了しました。内容を確認してから反映できます。"
-                    : "表示を整えてから反映ボタンを有効にします。"}
-                </p>
-              </div>
-              {!isSettled ? (
-                <Badge variant="soft-warning" className="px-3 py-1 text-[11px]">
-                  表示待機中
-                </Badge>
-              ) : null}
-            </div>
-
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCopy}
-                className="h-11 rounded-full gap-1.5"
-                disabled={!rewriteForActions}
-              >
-                {copied ? <Check className="size-4" /> : <Clipboard className="size-4" />}
-                {copied ? "コピー済み" : "改善案をコピー"}
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => onApply(rewriteForActions)}
-                className="h-11 rounded-full gap-1.5"
-                disabled={!isSettled || !rewriteForActions}
-              >
-                <Sparkles className="size-4" />
-                この改善案を反映
-              </Button>
-            </div>
-          </div>
+          </Collapsible>
         ) : null}
+
       </div>
     </section>
   );

@@ -18,6 +18,16 @@ describe("ProductLayoutClient", () => {
     expect(source).toContain("SidebarProvider initialCollapsed={initialCollapsed}");
   });
 
+  it("mobile sidebar toggle has 44px touch target (h-11 w-11)", async () => {
+    const source = await readFile(new URL("./ProductLayoutClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain("h-11 w-11");
+  });
+
+  it("mobile sidebar toggle uses safe-area-inset-top for notch devices", async () => {
+    const source = await readFile(new URL("./ProductLayoutClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain("env(safe-area-inset-top");
+  });
+
   it("uses initialCollapsed as a prop not a local variable", async () => {
     const source = await readFile(new URL("./ProductLayoutClient.tsx", import.meta.url), "utf8");
     // The prop must be destructured or referenced from function parameters, not computed locally

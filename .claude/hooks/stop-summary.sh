@@ -75,6 +75,27 @@ CODEX_EOF
   fi
 fi
 
+# ─────────────────────────────────────────────────────────────
+# Quality Gate session summary (fail-open)
+# ─────────────────────────────────────────────────────────────
+if [ "$TOTAL_FILES" -gt 0 ] && [ -f "$PROJECT_DIR/tools/quality-gate-check.mjs" ]; then
+  (
+    QG_OUTPUT=$(node "$PROJECT_DIR/tools/quality-gate-check.mjs" --mode=quick 2>/dev/null) || true
+    if [ -n "$QG_OUTPUT" ]; then
+      QG_TOTAL=$(echo "$QG_OUTPUT" | jq -r '.total_findings // 0' 2>/dev/null || echo "0")
+      QG_CRITICAL=$(echo "$QG_OUTPUT" | jq -r '.critical_findings // 0' 2>/dev/null || echo "0")
+      QG_HIGH=$(echo "$QG_OUTPUT" | jq -r '.high_findings // 0' 2>/dev/null || echo "0")
+      if [ "$QG_TOTAL" -gt 0 ] 2>/dev/null; then
+        echo "" >&2
+        echo "📋 Quality Gate: ${QG_TOTAL} findings (${QG_CRITICAL} critical, ${QG_HIGH} high)" >&2
+        if [ "$QG_CRITICAL" -gt 0 ] || [ "$QG_HIGH" -gt 0 ]; then
+          echo "   → /quality-gate-audit で詳細レビューを推奨" >&2
+        fi
+      fi
+    fi
+  ) || true
+fi
+
 if ! node "$CLAUDE_PROJECT_DIR/tools/run-verify-status.mjs" >/tmp/career-compass-claude-verify-status.$$ 2>/tmp/career-compass-claude-verify-status.err; then
   cat /tmp/career-compass-claude-verify-status.err >&2 || true
   cat /tmp/career-compass-claude-verify-status.$$ >&2 || true

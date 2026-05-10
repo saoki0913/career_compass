@@ -1,8 +1,8 @@
 created: 2026-04-05T11:26:32.269Z
-updated: 2026-04-05T11:26:44.620Z
-update_count: 2
-last_field: constraint
-git_commit: b4fbb9f
+updated: 2026-05-06T22:22:13.574Z
+update_count: 7
+last_field: diagram
+git_commit: 469e29e9
 git_branch: develop
 children:
   - external-platforms
@@ -10,3 +10,34 @@ children:
   - next-api
   - nextjs-surface
   - shared-domain-libs
+prev_diagram: >
+  graph LR
+      nextjs-surface["Next.js Surface\nsrc/app/(product), src/app/(marketing), src/components"]
+      next-api["Next API / BFF\nsrc/app/api, src/bff"]
+      shared-domain-libs["Shared TS Domain / Policies\nsrc/features, src/lib, src/shared/contracts"]
+      fastapi-ai["FastAPI AI Service\nbackend/app/routers, backend/app/services"]
+      postgres-core["Postgres / Drizzle Core\nsrc/lib/db/schema.ts, drizzle_pg"]
+      rag-storage["RAG Storage & Retrieval\nbackend/app/rag, backend/app/utils/search"]
+      background-jobs["Background / Cron / Webhooks\nsrc/app/api/cron, webhooks, scripts"]
+      external-platforms["External Platforms\nStripe, Google, Supabase, Railway, Vercel, LLMs"]
+
+      nextjs-surface -->|calls browser APIs and BFF endpoints| next-api
+      nextjs-surface -->|uses UI/domain projections| shared-domain-libs
+      next-api -->|resolves identity, owner checks, billing policy| shared-domain-libs
+      next-api -->|reads/writes transactional state| postgres-core
+      next-api -->|delegates AI/RAG work with principal token| fastapi-ai
+      fastapi-ai -->|retrieves and enriches context| rag-storage
+      fastapi-ai -->|LLM and web/search providers| external-platforms
+      next-api -->|Stripe, Google, storage, provider callbacks| external-platforms
+      background-jobs -->|mutates reminders, sync state, webhooks| postgres-core
+      background-jobs -->|provider callbacks and scheduled work| external-platforms
+      rag-storage -->|tenant keyed vector/BM25 data| external-platforms
+
+      classDef entry fill:#89b4fa,stroke:#2563eb,color:#111827
+      classDef store fill:#a6e3a1,stroke:#15803d,color:#111827
+      classDef concern fill:#f38ba8,stroke:#be123c,color:#111827
+      classDef external fill:#585b70,stroke:#374151,color:#f8fafc
+      class nextjs-surface,next-api,fastapi-ai entry
+      class postgres-core,rag-storage store
+      class external-platforms external
+      class shared-domain-libs concern

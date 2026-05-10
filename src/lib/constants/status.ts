@@ -43,6 +43,17 @@ export interface StatusConfig {
   bgColor: string;
 }
 
+export type SelectionPhaseKey = "not_applied" | "es_test" | "interview" | "waiting" | "offer";
+export type SelectionPhaseColor = "slate" | "blue" | "purple" | "amber" | "green";
+
+export interface SelectionPhaseConfig {
+  key: SelectionPhaseKey;
+  label: string;
+  color: SelectionPhaseColor;
+  statuses: readonly CompanyStatus[];
+  defaultStatus: CompanyStatus;
+}
+
 // Category labels
 export const CATEGORY_LABELS: Record<StatusCategory, string> = {
   not_started: "未着手",
@@ -86,6 +97,62 @@ export const STATUS_CONFIG: StatusConfig[] = [
 // All valid status values (for validation)
 export const VALID_STATUSES: CompanyStatus[] = STATUS_CONFIG.map(s => s.value);
 
+export const COMPANY_SELECTION_PHASE_COLUMNS: readonly SelectionPhaseConfig[] = [
+  {
+    key: "not_applied",
+    label: "未応募",
+    color: "slate",
+    statuses: ["inbox", "needs_confirmation", "withdrawn", "archived"],
+    defaultStatus: "inbox",
+  },
+  {
+    key: "es_test",
+    label: "ES・テスト",
+    color: "blue",
+    statuses: ["info_session", "es", "web_test", "coding_test", "es_rejected"],
+    defaultStatus: "es",
+  },
+  {
+    key: "interview",
+    label: "面接・GD",
+    color: "purple",
+    statuses: [
+      "group_discussion",
+      "case_study",
+      "interview_1",
+      "interview_2",
+      "final_interview",
+      "gd_rejected",
+      "interview_1_rejected",
+      "interview_2_rejected",
+    ],
+    defaultStatus: "interview_1",
+  },
+  {
+    key: "waiting",
+    label: "結果待ち",
+    color: "amber",
+    statuses: ["waiting_result"],
+    defaultStatus: "waiting_result",
+  },
+  {
+    key: "offer",
+    label: "内定・インターン合格",
+    color: "green",
+    statuses: ["offer", "summer_pass", "autumn_pass", "winter_pass"],
+    defaultStatus: "offer",
+  },
+] as const;
+
+export const TERMINAL_COMPANY_STATUSES: readonly CompanyStatus[] = [
+  "es_rejected",
+  "gd_rejected",
+  "interview_1_rejected",
+  "interview_2_rejected",
+  "withdrawn",
+  "archived",
+] as const;
+
 // Helper functions
 export function getStatusConfig(status: CompanyStatus): StatusConfig {
   return STATUS_CONFIG.find(s => s.value === status) ?? STATUS_CONFIG[0];
@@ -101,6 +168,18 @@ export function getStatusesByCategory(category: StatusCategory): StatusConfig[] 
 
 export function getStatusCategory(status: CompanyStatus): StatusCategory {
   return getStatusConfig(status).category;
+}
+
+export function getSelectionPhaseForStatus(status: CompanyStatus): SelectionPhaseConfig {
+  return COMPANY_SELECTION_PHASE_COLUMNS.find((phase) => phase.statuses.includes(status)) ?? COMPANY_SELECTION_PHASE_COLUMNS[0];
+}
+
+function getSelectionPhaseByKey(key: SelectionPhaseKey): SelectionPhaseConfig {
+  return COMPANY_SELECTION_PHASE_COLUMNS.find((phase) => phase.key === key) ?? COMPANY_SELECTION_PHASE_COLUMNS[0];
+}
+
+export function getDefaultStatusForPhase(key: SelectionPhaseKey): CompanyStatus {
+  return getSelectionPhaseByKey(key).defaultStatus;
 }
 
 // Grouped statuses for dropdown

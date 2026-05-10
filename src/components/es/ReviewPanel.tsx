@@ -29,7 +29,6 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { useCredits } from "@/hooks/useCredits";
 import {
   EXTRA_FIELD_LABELS,
-  TEMPLATE_EXTRA_FIELDS,
   TEMPLATE_LABELS,
   TEMPLATE_OPTIONS,
   useESReview,
@@ -39,21 +38,13 @@ import {
   DEFAULT_STANDARD_ES_REVIEW_MODEL,
   FREE_PLAN_ES_REVIEW_MODEL,
   getStandardESReviewModelHelper,
-  getStandardESReviewModelLabel,
-  isLowCostESReviewModel,
   STANDARD_ES_REVIEW_MODEL_OPTIONS,
   type StandardESReviewModel,
 } from "@/lib/ai/es-review-models";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
-import { calculateESReviewCost } from "@/lib/credits/cost";
 import type { Industry } from "@/lib/constants/industries";
 import { COMPANYLESS_EXPLICIT_TEMPLATE_TYPES } from "@/lib/es-review/companyless-templates";
-import { inferTemplateTypeDetailsFromQuestion } from "@/lib/es-review/infer-template-type";
-import {
-  requiresIndustryForESReviewTemplate,
-  requiresRoleForESReviewTemplate,
-} from "@/lib/es-review/template-requirements";
 import {
   notifyOperationLocked,
   notifyReviewError,
@@ -62,26 +53,18 @@ import {
 import { ReflectModal } from "./ReflectModal";
 import type { ReviewValidationField } from "./review-panel-validation";
 import {
-  getReviewValidationIssues,
-  MIN_REVIEW_SECTION_BODY_CHARS,
-} from "./review-panel-validation";
+  buildSectionReviewRequestParams,
+  deriveReviewPanelControllerState,
+  templateHasInternNameField,
+  type ReviewPanelSectionRequest,
+  type RoleSelectionSource,
+} from "./review-panel-controller";
 import { buildTemplateRecommendationCopy } from "./template-recommendation";
 import { ReviewEmptyState } from "./ReviewEmptyState";
 import { StreamingReviewResponse } from "./StreamingReviewResponse";
 import { CompanyStatusBanner, type CompanyReviewStatus } from "./review-panel-company-banner";
 
 export type { CompanyReviewStatus };
-
-interface SectionReviewRequest {
-  sectionId?: string;
-  sectionTitle: string;
-  sectionContent: string;
-  originalTextHash?: string;
-  templateType?: TemplateType;
-  companyId?: string | null;
-  roleName?: string | null;
-  sectionCharLimit?: number;
-}
 
 interface ReviewPanelProps {
   documentId: string;
@@ -91,7 +74,7 @@ interface ReviewPanelProps {
   onApplyRewrite?: (newContent: string, sectionTitle?: string | null) => void;
   onUndo?: () => void;
   className?: string;
-  sectionReviewRequest?: SectionReviewRequest | null;
+  sectionReviewRequest?: ReviewPanelSectionRequest | null;
   isSectionSnapshotStale?: boolean;
   onClearSectionReview?: () => void;
   supplementalContent?: ReactNode;
@@ -359,7 +342,7 @@ export function ReviewPanel({
   const [selectedIndustry, setSelectedIndustry] = useState<Industry | null>(null);
   const [roleName, setRoleName] = useState("");
   const [roleSelectionSource, setRoleSelectionSource] = useState<
-    "industry_default" | "company_override" | "application_job_type" | "document_job_type" | "custom" | null
+    RoleSelectionSource | null
   >(null);
   const [customRoleInput, setCustomRoleInput] = useState("");
   const [roleOptionsData, setRoleOptionsData] = useState<RoleOptionResponse | null>(null);
@@ -437,47 +420,7 @@ export function ReviewPanel({
     ];
   }, [hasSelectedCompany]);
 
-  const inferredTemplateDetails = useMemo(() => {
-    if (!sectionReviewRequest?.sectionTitle) {
-      return inferTemplateTypeDetailsFromQuestion("");
-    }
-    return inferTemplateTypeDetailsFromQuestion(sectionReviewRequest.sectionTitle);
-  }, [sectionReviewRequest?.sectionTitle]);
-
-  const inferredTemplate = inferredTemplateDetails.templateType as TemplateType;
-
-  const effectiveTemplate: TemplateType = selectedTemplate ?? inferredTemplate;
-  const selectedTemplateFields = TEMPLATE_EXTRA_FIELDS[effectiveTemplate] ?? [];
-  const requiresInternName = selectedTemplateFields.includes("intern_name");
-  const requiresIndustrySelection =
-    hasSelectedCompany && requiresIndustryForESReviewTemplate(effectiveTemplate);
-  const requiresRoleSelection =
-    hasSelectedCompany && requiresRoleForESReviewTemplate(effectiveTemplate);
   const currentCharLimit = currentSection?.charLimit ?? sectionReviewRequest?.sectionCharLimit;
-  const selectedRoleName = roleName.trim();
-  const selectedTemplateValue = selectedTemplate ?? "auto";
-  const currentTemplateLabel = selectedTemplate ? TEMPLATE_LABELS[selectedTemplate] : "自動判定";
-  const templateRecommendationCopy = buildTemplateRecommendationCopy({
-    selectedTemplate,
-    details: inferredTemplateDetails,
-  });
-  const currentReviewModeLabel = isFreeEsPlan
-    ? "GPT-5.4 mini（Free 固定）"
-    : getStandardESReviewModelLabel(selectedStandardModel);
-  const missingTemplateField = selectedTemplateFields.find((fieldName) => {
-    if (fieldName === "intern_name") {
-      return !internName.trim();
-    }
-
-    if (fieldName === "role_name") {
-      return !selectedRoleName;
-    }
-
-    return false;
-  });
-  const missingTemplateFieldLabel = missingTemplateField
-    ? (EXTRA_FIELD_LABELS[missingTemplateField] ?? missingTemplateField)
-    : null;
   const templateLabel = review?.template_review
     ? TEMPLATE_LABELS[review.template_review.template_type as TemplateType]
     : selectedTemplate
@@ -493,20 +436,82 @@ export function ReviewPanel({
   const companyStatusDensity = hasResponse || Boolean(error) ? "compact" : "full";
   const showFooter = Boolean(sectionReviewRequest);
   const isCustomRoleActive = roleSelectionSource === "custom" && Boolean(customRoleInput.trim());
-  const isTemplateSetupComplete = !missingTemplateField;
-  const isRoleSetupComplete =
-    !hasSelectedCompany ||
-    ((!requiresIndustrySelection || Boolean(selectedIndustry)) && Boolean(selectedRoleName));
-  const sectionBodyTrimLen = sectionReviewRequest?.sectionContent.trim().length ?? 0;
-  const validationIssues = getReviewValidationIssues({
-    sectionContent: sectionReviewRequest?.sectionContent ?? "",
+  const authPending = isAuthLoading || !isAuthReady;
+  const {
+    inferredTemplateDetails,
+    effectiveTemplate,
+    selectedTemplateFields,
     requiresInternName,
-    internName,
-    hasSelectedCompany,
     requiresIndustrySelection,
     requiresRoleSelection,
-    selectedIndustry,
     selectedRoleName,
+    selectedTemplateValue,
+    currentTemplateLabel,
+    currentReviewModeLabel,
+    isTemplateSetupComplete,
+    isRoleSetupComplete,
+    validationIssues,
+    creditCost,
+    canStartReview,
+    footerHelperLines,
+    footerLoginHref,
+    footerButtonLabel,
+    footerActionDisabled,
+  } = useMemo(
+    () =>
+      deriveReviewPanelControllerState({
+        sectionReviewRequest,
+        selectedTemplate,
+        internName,
+        hasSelectedCompany,
+        selectedIndustry,
+        roleName,
+        isFreeEsPlan,
+        selectedStandardModel,
+        authPending,
+        isAuthenticated: isAuthenticated && !isGuest,
+        creditsLoading,
+        hasCreditsError: Boolean(creditsError),
+        balance,
+        isRoleOptionsLoading,
+        roleOptionsError,
+        isLoading,
+        hasResponse,
+        isPlaybackComplete,
+        hasCompletedReview,
+        isCancelling,
+        error,
+        setupErrorHighlight,
+      }),
+    [
+      authPending,
+      balance,
+      creditsError,
+      creditsLoading,
+      error,
+      hasCompletedReview,
+      hasResponse,
+      hasSelectedCompany,
+      internName,
+      isAuthenticated,
+      isCancelling,
+      isFreeEsPlan,
+      isGuest,
+      isLoading,
+      isPlaybackComplete,
+      isRoleOptionsLoading,
+      roleName,
+      roleOptionsError,
+      sectionReviewRequest,
+      selectedIndustry,
+      selectedStandardModel,
+      selectedTemplate,
+      setupErrorHighlight,
+    ],
+  );
+  const templateRecommendationCopy = buildTemplateRecommendationCopy({
+    selectedTemplate,
+    details: inferredTemplateDetails,
   });
   const invalidFieldSet = useMemo(
     () => new Set(validationIssues.map((issue) => issue.field)),
@@ -516,99 +521,6 @@ export function ReviewPanel({
     setupErrorHighlight && invalidFieldSet.has(field);
   const industrySectionInvalid =
     setupErrorHighlight && (fieldInvalid("industry") || fieldInvalid("role_name"));
-  const creditCost = calculateESReviewCost(
-    sectionReviewRequest?.sectionContent.length ?? 0,
-    isFreeEsPlan ? FREE_PLAN_ES_REVIEW_MODEL : selectedStandardModel,
-    isFreeEsPlan ? { userPlan: "free" } : undefined,
-  );
-  const authPending = isAuthLoading || !isAuthReady;
-  const requiresLoginForReview = !authPending && (!isAuthenticated || isGuest);
-  const creditsUnavailable = authPending || (isAuthenticated && (creditsLoading || Boolean(creditsError)));
-  const insufficientCredits =
-    !authPending && isAuthenticated && !creditsUnavailable && balance < creditCost;
-  const isFooterLocked = isLoading || (hasResponse && !isPlaybackComplete);
-  const reviewActionHint =
-    sectionBodyTrimLen < MIN_REVIEW_SECTION_BODY_CHARS
-      ? "本文を6文字以上入力してください。"
-      : authPending
-        ? "AI添削の利用条件を確認しています。"
-        : requiresLoginForReview
-          ? "AI添削はログインユーザー向け機能です。"
-        : creditsLoading
-          ? "クレジット残高を確認しています。"
-          : creditsError
-            ? "クレジット情報を取得できませんでした。少し待ってから再度お試しください。"
-      : !isTemplateSetupComplete && missingTemplateFieldLabel
-          ? `${missingTemplateFieldLabel}を入力してください。`
-          : isRoleOptionsLoading
-            ? "職種候補を読み込んでいます。"
-            : roleOptionsError
-              ? "職種候補を取得できていません。再読み込みしてからお試しください。"
-              : requiresIndustrySelection && !selectedIndustry
-                ? "先に業界を選択してください。"
-                : requiresRoleSelection && !selectedRoleName
-                  ? "先に職種を選択してください。"
-                  : insufficientCredits
-                    ? `クレジットが不足しています（残高 ${balance} / 必要 ${creditCost}）`
-                    : "準備できました。この設問をAI添削できます。";
-  const canStartReview =
-    sectionBodyTrimLen >= MIN_REVIEW_SECTION_BODY_CHARS &&
-    !authPending &&
-    !requiresLoginForReview &&
-    isTemplateSetupComplete &&
-    !creditsUnavailable &&
-    !isRoleOptionsLoading &&
-    !roleOptionsError &&
-    (!requiresIndustrySelection || Boolean(selectedIndustry)) &&
-    (!requiresRoleSelection || Boolean(selectedRoleName)) &&
-    !insufficientCredits;
-  const footerHelperText = error
-    ? "添削結果を表示できませんでした。もう一度お試しください。"
-    : isFooterLocked
-      ? isCancelling
-        ? "添削を中止しています。結果は反映されず、クレジットは消費されません。"
-        : "添削中です。必要なら中止できます。"
-      : hasCompletedReview
-        ? "前回の条件を保持したまま、設定を見直して再添削できます。"
-        : canStartReview
-          ? isFreeEsPlan
-            ? `GPT-5.4 mini 相当で実行します。クレジットはプレミアム帯と同じ目安で、今回 ${creditCost} クレジットです。`
-            : isLowCostESReviewModel(selectedStandardModel)
-              ? `${getStandardESReviewModelLabel(selectedStandardModel)}で実行します。今回の見積りは${creditCost}クレジットです。品質はやや下がる可能性があります。`
-              : `${getStandardESReviewModelLabel(selectedStandardModel)}で実行します。今回の見積りは${creditCost}クレジットです。`
-          : reviewActionHint;
-  const footerHelperLines =
-    setupErrorHighlight && !canStartReview
-      ? [
-          "赤字の枠内を入力・選択してください。",
-          ...(validationIssues[0]?.message ? [validationIssues[0].message] : [reviewActionHint]),
-        ]
-      : [footerHelperText];
-  const footerLoginHref = requiresLoginForReview ? "/login" : null;
-
-  const footerButtonLabel = error
-    ? "この設問を再試行"
-    : isFooterLocked
-      ? isCancelling ? "中止しています" : "中止"
-      : authPending
-        ? "確認中"
-      : requiresLoginForReview
-        ? "ログインして添削する"
-        : creditsLoading
-          ? "クレジット確認中"
-          : creditsError
-            ? "残高確認エラー"
-      : insufficientCredits
-        ? "クレジット不足"
-        : hasCompletedReview
-          ? "条件を見直して再添削"
-          : "この設問をAI添削";
-  const footerActionDisabled =
-    (isFooterLocked && !isLoading) ||
-    authPending ||
-    (!footerLoginHref && requiresLoginForReview) ||
-    creditsUnavailable ||
-    insufficientCredits;
   useEffect(() => {
     if (!sectionReviewRequest) {
       return;
@@ -796,27 +708,25 @@ export function ReviewPanel({
         companyId: companyId ?? null,
         roleName: selectedRoleName || null,
       });
-      return await requestSectionReview({
-        sectionTitle: sectionReviewRequest.sectionTitle,
-        sectionId: sectionReviewRequest.sectionId,
-        sectionContent: sectionReviewRequest.sectionContent,
-        sectionCharLimit: sectionReviewRequest.sectionCharLimit,
+      return await requestSectionReview(buildSectionReviewRequestParams({
+        sectionReviewRequest,
         companyId,
-        templateType: selectedTemplate ?? undefined,
-        internName: requiresInternName ? internName || undefined : undefined,
-        roleName: selectedRoleName || undefined,
-        industryOverride: selectedIndustry || undefined,
-        roleSelectionSource: roleSelectionSource || undefined,
+        selectedTemplate,
+        requiresInternName,
+        internName,
+        selectedRoleName,
+        selectedIndustry,
+        roleSelectionSource,
         reviewMode,
-        llmModel: isFreeEsPlan ? FREE_PLAN_ES_REVIEW_MODEL : selectedStandardModel,
-      });
+        isFreeEsPlan,
+        selectedStandardModel,
+      }));
     } finally {
       releaseLock();
     }
   }, [
     acquireLock,
     companyId,
-    companyReviewStatus,
     effectiveTemplate,
     internName,
     isFreeEsPlan,
@@ -1042,7 +952,7 @@ export function ReviewPanel({
                     onValueChange={(value) => {
                       const nextTemplate = value === "auto" ? null : (value as TemplateType);
                       setSelectedTemplate(nextTemplate);
-                      if (!nextTemplate || !TEMPLATE_EXTRA_FIELDS[nextTemplate].includes("intern_name")) {
+                      if (!nextTemplate || !templateHasInternNameField(nextTemplate)) {
                         setInternName("");
                       }
                     }}

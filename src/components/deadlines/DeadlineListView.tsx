@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { DEADLINE_TYPE_LABELS, type DeadlineType } from "@/hooks/useCompanyDeadlines";
 import { DeadlineProgressBar } from "./DeadlineProgressBar";
+import { startOfJstDayAsUtc } from "@/lib/datetime/jst";
 import type {
   DeadlineDashboardItem,
   DeadlineComputedStatus,
@@ -25,9 +26,9 @@ const STATUS_CONFIG: Record<
 };
 
 function computeDaysLeft(dueDate: string): number {
-  const now = new Date();
-  const due = new Date(dueDate);
-  return Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const todayStart = startOfJstDayAsUtc(new Date());
+  const dueStart = startOfJstDayAsUtc(new Date(dueDate));
+  return Math.ceil((dueStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
 }
 
 function getDaysLeftLabel(daysLeft: number, status: string): string {

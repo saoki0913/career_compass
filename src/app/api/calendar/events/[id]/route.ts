@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { calendarEvents } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import {
   syncWorkBlockDeleteImmediately,
@@ -30,9 +30,22 @@ export async function DELETE(
   try {
     const { id: eventId } = await params;
 
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
+    let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
+    try {
+      session = await auth.api.getSession({
+        headers: await headers(),
+      });
+    } catch (error) {
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "AUTH_SESSION_UNAVAILABLE",
+        userMessage: "認証情報を確認できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        error,
+        logContext: "calendar-event-delete-identity",
+      });
+    }
 
     if (!session?.user?.id) {
       return createApiErrorResponse(request, {
@@ -49,10 +62,13 @@ export async function DELETE(
     const userId = session.user.id;
 
     const [event] = await db
-      .select()
-      .from(calendarEvents)
-      .where(eq(calendarEvents.id, eventId))
-      .limit(1);
+      .delete(calendarEvents)
+      .where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.userId, userId)))
+      .returning({
+        id: calendarEvents.id,
+        googleCalendarId: calendarEvents.googleCalendarId,
+        googleEventId: calendarEvents.googleEventId,
+      });
 
     if (!event) {
       return createApiErrorResponse(request, {
@@ -65,25 +81,12 @@ export async function DELETE(
       });
     }
 
-    if (event.userId !== userId) {
-      return createApiErrorResponse(request, {
-        status: 403,
-        code: "CALENDAR_EVENT_PERMISSION_DENIED",
-        userMessage: "このイベントは削除できませんでした。",
-        action: "対象のイベントを確認して、もう一度お試しください。",
-        developerMessage: "Permission denied",
-        logContext: "calendar-event-delete-forbidden",
-      });
-    }
-
     const calendarSync: ImmediateSyncResult = await syncWorkBlockDeleteImmediately({
       userId,
       eventId,
       googleCalendarId: event.googleCalendarId,
       googleEventId: event.googleEventId,
     });
-
-    await db.delete(calendarEvents).where(eq(calendarEvents.id, eventId));
 
     return NextResponse.json({ success: true, calendarSync });
   } catch (error) {

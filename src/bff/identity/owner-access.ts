@@ -44,6 +44,18 @@ export function buildOwnedRowCondition<T extends OwnedTableColumns>(
   return ownerCondition ? and(idCondition, ownerCondition) ?? null : null;
 }
 
+export async function mutateOwnedRow<T>(
+  condition: SQL | null,
+  mutate: (condition: SQL) => Promise<T[]>,
+): Promise<T | null> {
+  if (!condition) {
+    return null;
+  }
+
+  const [row] = await mutate(condition);
+  return row ?? null;
+}
+
 export function buildOwnedDeadlineCondition(deadlineId: string, identity: OwnerIdentity): SQL | null {
   if (!hasValidOwnerIdentity(identity)) {
     return null;

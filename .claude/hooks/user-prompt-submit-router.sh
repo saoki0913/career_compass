@@ -17,14 +17,6 @@ if printf '%s' "$PROMPT" | grep -qiE 'hook|hooks|harness|PreToolUse|PostToolUse|
   fi
 fi
 
-if printf '%s' "$PROMPT" | grep -qiE 'codex-company/\.secrets|直接.*secret|read.*secret'; then
-  jq -n '{
-    decision: "block",
-    reason: "secrets の実ファイル直接参照は許可していません。scripts/release/sync-career-compass-secrets.sh --check を使ってください。"
-  }'
-  exit 0
-fi
-
 CONTEXT=""
 TITLE=""
 

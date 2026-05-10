@@ -67,6 +67,48 @@ def test_company_info_main_router_depends_on_service_layer_for_ca4() -> None:
     assert not legacy_helper_imports
 
 
+def test_company_info_main_router_does_not_inject_router_module_into_services() -> None:
+    tree = ast.parse(
+        COMPANY_INFO_ROUTER.read_text(encoding="utf-8"),
+        filename=str(COMPANY_INFO_ROUTER),
+    )
+    violations: list[str] = []
+
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.keyword)
+            and node.arg == "company_info_module"
+        ):
+            violations.append(f"company_info_module:{node.lineno}")
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Attribute)
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "sys"
+            and node.value.attr == "modules"
+        ):
+            violations.append(f"sys.modules:{node.lineno}")
+
+    assert not violations
+
+
+def test_company_info_services_do_not_depend_on_router_module_facade() -> None:
+    service_files = sorted(
+        path for path in COMPANY_INFO_SERVICES.glob("*.py") if path.name != "__init__.py"
+    )
+    violations: list[str] = []
+
+    for path in service_files:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "_company_info_module":
+                violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+            elif isinstance(node, ast.arg) and node.arg == "company_info_module":
+                violations.append(f"{path.relative_to(PROJECT_ROOT)}:{node.lineno}")
+
+    assert not violations
+
+
 def test_company_info_ca4_router_helper_modules_are_compatibility_shims() -> None:
     helper_files = sorted(
         path

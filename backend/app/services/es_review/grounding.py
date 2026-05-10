@@ -746,7 +746,8 @@ def _build_company_evidence_cards(
     role_terms = _tokenize_role_terms(role_name)
     candidates: list[dict[str, str]] = []
     seen_claims: set[str] = set()
-    for _, _, source in sorted(ranked):
+    for neg_score, _, source in sorted(ranked):
+        rank_score = -neg_score
         content_type = str(source.get("content_type") or "")
         title = sanitize_prompt_input(
             str(source.get("title") or source.get("heading") or ""), max_length=72
@@ -781,6 +782,7 @@ def _build_company_evidence_cards(
             "content_type": content_type,
             "title": title,
             "same_company_verified": bool(source.get("same_company_verified", True)),
+            "_rank_score": rank_score,
         }
         if not _is_card_quality_sufficient(primary_candidate) and excerpt:
             primary_candidate["claim"] = _normalize_company_evidence_summary(
@@ -815,6 +817,7 @@ def _build_company_evidence_cards(
                 "content_type": content_type,
                 "title": title,
                 "same_company_verified": bool(source.get("same_company_verified", True)),
+                "_rank_score": rank_score,
             }
             if not _is_card_quality_sufficient(secondary_candidate):
                 secondary_candidate["claim"] = _normalize_company_evidence_summary(
@@ -828,7 +831,8 @@ def _build_company_evidence_cards(
                 candidates.append(secondary_candidate)
 
     if not candidates:
-        for _, _, source in sorted(ranked):
+        for neg_score, _, source in sorted(ranked):
+            rank_score = -neg_score
             excerpt = sanitize_prompt_input(
                 str(source.get("excerpt") or source.get("title") or ""),
                 max_length=120,
@@ -859,12 +863,36 @@ def _build_company_evidence_cards(
                 "content_type": str(source.get("content_type") or ""),
                 "title": sanitize_prompt_input(str(source.get("title") or ""), max_length=72).strip(),
                 "same_company_verified": bool(source.get("same_company_verified", True)),
+                "_rank_score": rank_score,
             }
             if _is_card_quality_sufficient(fallback_candidate):
                 candidates.append(fallback_candidate)
                 break
 
-    effective_max_items = min(max_items, 1 if company_grounding == "assistive" else 4)
+    median_score = 0
+    if candidates:
+        scores = sorted(int(candidate.get("_rank_score") or 0) for candidate in candidates)
+        median_score = scores[len(scores) // 2]
+
+    def assistive_second_card_allowed(candidate: dict[str, str]) -> bool:
+        if company_grounding != "assistive":
+            return True
+        if not bool(candidate.get("same_company_verified", True)):
+            return False
+        if int(candidate.get("_rank_score") or 0) < median_score:
+            return False
+        return _is_card_quality_sufficient(candidate)
+
+    assistive_max_items = 1
+    if company_grounding == "assistive" and any(
+        assistive_second_card_allowed(candidate) for candidate in candidates[1:]
+    ):
+        assistive_max_items = 2
+
+    effective_max_items = min(
+        max_items,
+        assistive_max_items if company_grounding == "assistive" else 4,
+    )
 
     cards: list[dict[str, str]] = []
     seen_themes: set[str] = set()
@@ -903,8 +931,8 @@ def _build_company_evidence_cards(
         if candidate in cards:
             continue
         theme = candidate["theme"]
-        if company_grounding == "assistive":
-            break
+        if company_grounding == "assistive" and not assistive_second_card_allowed(candidate):
+            continue
         if generic_role_mode and per_theme_counts.get(theme, 0) >= 1:
             continue
         if not generic_role_mode and per_theme_counts.get(theme, 0) >= 2:
@@ -913,6 +941,8 @@ def _build_company_evidence_cards(
 
     if cards:
         cards[0]["is_primary"] = True
+    for card in cards:
+        card.pop("_rank_score", None)
 
     return cards
 

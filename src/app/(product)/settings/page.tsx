@@ -74,9 +74,6 @@ export default function SettingsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
-  const [showPlanModal, setShowPlanModal] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [isChangingPlan, setIsChangingPlan] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
 
   // Form state
@@ -257,47 +254,16 @@ export default function SettingsPage() {
     }
   };
 
-  const handlePlanChange = async (newPlan: string) => {
+  const handlePlanChange = (newPlan: string) => {
     if (!profile) return;
+    if (newPlan === profile.plan) return;
 
-    setIsChangingPlan(true);
-    setError(null);
-
-    try {
-      // For paid plans, redirect to Stripe Checkout
-      if (newPlan === "standard" || newPlan === "pro") {
-        // Create Stripe Checkout session
-        const response = await fetch("/api/stripe/checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ plan: newPlan }),
-        });
-
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to create checkout session");
-        }
-
-        const { url } = await response.json();
-        window.location.href = url;
-        return;
-      }
-
-      // For downgrade to free, show confirmation
-      if (newPlan === "free" && profile.plan !== "free") {
-        setSelectedPlan(newPlan);
-        setShowPlanModal(true);
-        return;
-      }
-    } catch (err) {
-      setError(reportUserFacingError(err, {
-        code: "STRIPE_CHECKOUT_CREATE_FAILED",
-        userMessage: "プラン変更を開始できませんでした。",
-      }, "SettingsPage:startCheckout"));
-    } finally {
-      setIsChangingPlan(false);
+    if (profile.plan !== "free") {
+      handleOpenBillingPortal();
+      return;
     }
+
+    router.push("/pricing");
   };
 
   const handleOpenBillingPortal = async () => {
@@ -324,47 +290,6 @@ export default function SettingsPage() {
       }, "SettingsPage:openBillingPortal"));
     } finally {
       setIsOpeningPortal(false);
-    }
-  };
-
-  const confirmDowngrade = async () => {
-    if (!selectedPlan) return;
-
-    setIsChangingPlan(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/settings/plan", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ plan: selectedPlan }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to change plan");
-      }
-
-      // Refresh profile
-      const profileResponse = await fetch("/api/settings/profile", {
-        credentials: "include",
-      });
-
-      if (profileResponse.ok) {
-        const data = await profileResponse.json();
-        setProfile(data.profile);
-      }
-
-      setShowPlanModal(false);
-      notifySuccess({ title: "プラン変更を反映しました" });
-    } catch (err) {
-      setError(reportUserFacingError(err, {
-        code: "STRIPE_CHECKOUT_CREATE_FAILED",
-        userMessage: "プラン変更を開始できませんでした。",
-      }, "SettingsPage:changePlan"));
-    } finally {
-      setIsChangingPlan(false);
     }
   };
 
@@ -657,7 +582,7 @@ export default function SettingsPage() {
                     variant="outline"
                     className="w-full"
                     onClick={() => handlePlanChange("free")}
-                    disabled={isChangingPlan}
+                    disabled={isOpeningPortal}
                   >
                     ダウングレード
                   </Button>
@@ -674,7 +599,7 @@ export default function SettingsPage() {
                 <ul className="space-y-2 text-sm mb-4">
                   <li className="flex items-center gap-2">
                     <CheckIcon />
-                    企業登録 30社
+                    企業登録 無制限
                   </li>
                   <li className="flex items-center gap-2">
                     <CheckIcon />
@@ -689,7 +614,7 @@ export default function SettingsPage() {
                   <Button
                     className="w-full"
                     onClick={() => handlePlanChange("standard")}
-                    disabled={isChangingPlan}
+                    disabled={isOpeningPortal}
                   >
                     アップグレード
                   </Button>
@@ -699,7 +624,7 @@ export default function SettingsPage() {
                     variant="outline"
                     className="w-full"
                     onClick={() => handlePlanChange("standard")}
-                    disabled={isChangingPlan}
+                    disabled={isOpeningPortal}
                   >
                     変更
                   </Button>
@@ -731,7 +656,7 @@ export default function SettingsPage() {
                   <Button
                     className="w-full"
                     onClick={() => handlePlanChange("pro")}
-                    disabled={isChangingPlan}
+                    disabled={isOpeningPortal}
                   >
                     アップグレード
                   </Button>
@@ -890,45 +815,6 @@ export default function SettingsPage() {
             </Button>
           </CardContent>
         </Card>
-
-        {/* Plan Change Confirmation Modal */}
-        {showPlanModal && (
-          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-              <h2 className="text-xl font-bold mb-4">
-                プランをダウングレードしますか？
-              </h2>
-              <p className="text-sm text-muted-foreground mb-4">
-                Freeプランに変更すると、一部の機能が制限されます。次回更新日以降に変更が適用されます。
-              </p>
-              <div className="flex gap-2 justify-end">
-                <Button
-                  onClick={() => {
-                    setShowPlanModal(false);
-                    setSelectedPlan(null);
-                  }}
-                  variant="outline"
-                  disabled={isChangingPlan}
-                >
-                  キャンセル
-                </Button>
-                <Button
-                  onClick={confirmDowngrade}
-                  disabled={isChangingPlan}
-                >
-                  {isChangingPlan ? (
-                    <>
-                      <LoadingSpinner />
-                      <span className="ml-2">変更中...</span>
-                    </>
-                  ) : (
-                    "変更する"
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Delete Confirmation Modal */}
         {showDeleteModal && (

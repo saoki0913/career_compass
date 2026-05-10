@@ -1,3 +1,4 @@
+import { safeParseJsonValue } from "@/lib/shared";
 import type {
   CausalGap,
   ForbiddenReask,
@@ -105,17 +106,7 @@ export function coerceQuestionStage(value: unknown): MotivationStage {
   return "industry_reason";
 }
 
-export function safeParseJsonValue(value: unknown): unknown {
-  if (value == null) return null;
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return null;
-    }
-  }
-  return value;
-}
+export { safeParseJsonValue };
 
 export function buildOpenSlots(confirmedFacts: MotivationConversationContext["confirmedFacts"]): string[] {
   const slots: string[] = [];

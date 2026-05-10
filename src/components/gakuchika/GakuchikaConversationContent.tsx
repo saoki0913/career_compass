@@ -1,13 +1,19 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { HelpCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import {
+  ChatInput,
+  ChatMessage,
+  ConversationPhaseBar,
+  ConversationProgressBar,
+  ThinkingIndicator,
+} from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
 import { CharLimitSelector } from "@/components/chat/CharLimitSelector";
@@ -21,18 +27,75 @@ import { useGakuchikaViewModel } from "@/features/gakuchika/hooks/useGakuchikaVi
 import {
   CompletionSummary,
   GakuchikaRestartConfirmDialog,
-  NaturalProgressStatus,
 } from "@/components/gakuchika";
 import { DraftPreviewModal } from "@/components/chat/DraftPreviewModal";
 import { GakuchikaStartScreen } from "@/components/gakuchika/GakuchikaStartScreen";
 import { notifyGakuchikaDraftSaved } from "@/lib/notifications";
 import { GakuchikaDeepDiveSkeleton } from "@/components/skeletons/GakuchikaDeepDiveSkeleton";
-import { getConversationBadgeLabel } from "@/features/gakuchika/domain/conversation-state";
+import {
+  BUILD_TRACK_KEYS,
+  BUILD_TRACK_LABELS,
+  getBuildItemStatus,
+  getConversationBadgeLabel,
+  type ConversationState,
+} from "@/lib/gakuchika/conversation-state";
 import { PROCESSING_LABELS } from "@/features/gakuchika/domain/ui";
 
 type GakuchikaConversationContentProps = {
   gakuchikaId: string;
 };
+
+function stageRemainingLabel(state: ConversationState | null): string | null {
+  if (!state) return null;
+  if (state.stage === "interview_ready") {
+    return "面接準備まで整いました。";
+  }
+  if (state.stage === "deep_dive_active") {
+    return "深掘りで論点を整理しています。";
+  }
+  if (state.stage === "draft_ready" || state.readyForDraft) {
+    return "ES 材料が揃いました。";
+  }
+  return null;
+}
+
+function estimateRemainingQuestionsText(state: ConversationState | null): string | null {
+  if (!state) return null;
+  const stageLabel = stageRemainingLabel(state);
+  if (stageLabel) return stageLabel;
+  const remaining = state.missingElements.length;
+  if (remaining === 0) return "まもなく材料が揃います。";
+  if (remaining === 1) return "あと 1 問程度で材料が揃います。";
+  if (remaining === 2) return "あと 1-2 問で材料が揃いそうです。";
+  return "STAR の材料を順に整理していきましょう。";
+}
+
+function remainingLabelFromServerCount(state: ConversationState | null, n: number): string {
+  const stageLabel = stageRemainingLabel(state);
+  if (stageLabel) return stageLabel;
+  if (n <= 0) return "まもなく材料が揃います。";
+  if (n === 1) return "あと 1 問で材料が揃います。";
+  return `あと ${n} 問で材料が揃いそうです。`;
+}
+
+function estimateTotalQuestionCount(
+  answeredCount: number,
+  remainingLabel: string | null,
+  serverRemaining: number | null,
+): number {
+  const baseline = 5;
+  if (serverRemaining !== null) {
+    if (serverRemaining === 0) {
+      return Math.max(answeredCount, baseline);
+    }
+    return Math.max(baseline, answeredCount + serverRemaining);
+  }
+  const grown = Math.max(baseline, answeredCount + 2);
+  if (remainingLabel && /整いました|揃いました|整理しています/.test(remainingLabel)) {
+    return Math.max(answeredCount, baseline);
+  }
+  return grown;
+}
 
 export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversationContentProps) {
   const router = useRouter();
@@ -101,6 +164,48 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     messages,
     conversationState,
   });
+  const buildTrackStages = useMemo(
+    () =>
+      BUILD_TRACK_KEYS.map((key) => ({
+        key,
+        label: BUILD_TRACK_LABELS[key],
+        status: getBuildItemStatus(conversationState, key),
+      })),
+    [conversationState],
+  );
+  const serverRemaining = conversationState?.remainingQuestionsEstimate ?? null;
+  const effectiveRemaining =
+    typeof serverRemaining === "number" && Number.isFinite(serverRemaining) && serverRemaining >= 0
+      ? Math.floor(serverRemaining)
+      : null;
+  const remainingLabel =
+    effectiveRemaining !== null
+      ? remainingLabelFromServerCount(conversationState, effectiveRemaining)
+      : estimateRemainingQuestionsText(conversationState);
+  const coachMessage = conversationState?.coachProgressMessage?.trim() ?? "";
+  const primaryLine = coachMessage || remainingLabel || "";
+  const estimatedTotal = estimateTotalQuestionCount(answeredCount, remainingLabel, effectiveRemaining);
+  const questionDisplay =
+    answeredCount > 0
+      ? `${Math.min(answeredCount, estimatedTotal)} 問目 / 約 ${estimatedTotal} 問`
+      : "これから 1 問目";
+  const gakuchikaPhases = useMemo(() => {
+    const currentStage = conversationState?.stage ?? "es_building";
+    const phases = [
+      { key: "es_building", label: "Q&A進行中" },
+      { key: "draft_ready", label: "ES作成可" },
+      { key: "deep_dive_active", label: "深掘り中" },
+      { key: "interview_ready", label: "面接準備完了" },
+    ] as const;
+    const currentIndex = Math.max(
+      0,
+      phases.findIndex((phase) => phase.key === currentStage),
+    );
+    return phases.map((phase, index) => ({
+      ...phase,
+      status: index < currentIndex ? "done" as const : index === currentIndex ? "current" as const : "pending" as const,
+    }));
+  }, [conversationState?.stage]);
   const pausedQuestion = conversationState?.pausedQuestion?.trim() || null;
   const displayedNextQuestion = nextQuestion || (shouldPauseConversation ? pausedQuestion : null);
 
@@ -175,10 +280,12 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
               {isAIPowered ? "AI" : "基本"}
             </Badge>
           </div>
-          <NaturalProgressStatus
-            state={conversationState}
+          <ConversationProgressBar
+            stages={buildTrackStages}
+            headerSubtext={questionDisplay}
+            footerMessage={primaryLine}
             variant="inline"
-            answeredCount={answeredCount}
+            columns={4}
           />
           <div className="grid gap-2 lg:grid-cols-2 xl:hidden">
             {sessions.length > 1 ? (
@@ -367,10 +474,13 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                   </Badge>
                 ) : null}
               </div>
-              <NaturalProgressStatus
-                state={conversationState}
-                answeredCount={answeredCount}
+              <ConversationProgressBar
+                stages={buildTrackStages}
+                headerSubtext={questionDisplay}
+                footerMessage={primaryLine}
+                columns={4}
               />
+              <ConversationPhaseBar phases={gakuchikaPhases} />
               <p className="text-xs leading-5 text-muted-foreground">
                 {interviewReady && conversationState?.progressLabel
                   ? `${conversationState.progressLabel}。`

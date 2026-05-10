@@ -17,18 +17,19 @@ describe("useGakuchikaConversationController", () => {
     expect(source).not.toContain("setError,");
   });
 
-  it("uses parseSSEStream instead of raw SSE boilerplate", () => {
-    expect(source).toContain("parseSSEStream");
+  it("delegates SSE handling to the shared runtime instead of raw boilerplate", () => {
+    expect(source).toContain("useConversationRuntime");
+    expect(source).toContain("createGakuchikaStreamAdapter");
     expect(source).not.toContain("new TextDecoder()");
     expect(source).not.toContain("getReader()");
     expect(source).not.toContain('line.startsWith("data: ")');
   });
 
-  it("still handles all SSE event types", () => {
-    expect(source).toContain('event.type === "field_complete"');
-    expect(source).toContain('event.type === "progress"');
-    expect(source).toContain('event.type === "string_chunk"');
-    expect(source).toContain('event.type === "complete"');
-    expect(source).toContain('event.type === "error"');
+  it("keeps SSE event handling out of the controller body", () => {
+    expect(source).not.toContain('event.type === "field_complete"');
+    expect(source).not.toContain('event.type === "progress"');
+    expect(source).not.toContain('event.type === "string_chunk"');
+    expect(source).not.toContain('event.type === "complete"');
+    expect(source).not.toContain('event.type === "error"');
   });
 });

@@ -9,5 +9,4 @@ export {
 export { CompletionSummary } from "./CompletionSummary";
 export { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 export { GakuchikaRestartConfirmDialog } from "./GakuchikaRestartConfirmDialog";
-export { NaturalProgressStatus } from "./NaturalProgressStatus";
 export type { GakuchikaSummary } from "@/lib/gakuchika/summary";

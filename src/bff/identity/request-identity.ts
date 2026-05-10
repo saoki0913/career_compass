@@ -11,7 +11,16 @@ export type RequestIdentity = {
 
 type RequestIdentityOptions = {
   allowDeviceTokenHeader?: boolean;
+  sessionErrorMode?: "fallback" | "throw";
 };
+
+export class RequestIdentitySessionError extends Error {
+  constructor(cause: unknown) {
+    super("Failed to resolve authenticated session");
+    this.name = "RequestIdentitySessionError";
+    this.cause = cause;
+  }
+}
 
 export async function getHeadersIdentity(
   requestHeaders: Headers,
@@ -27,6 +36,9 @@ export async function getHeadersIdentity(
     logError("request-identity:get-session", error, {
       hasDeviceToken: requestHeaders.has("x-device-token"),
     });
+    if (options.sessionErrorMode === "throw") {
+      throw new RequestIdentitySessionError(error);
+    }
   }
 
   if (session?.user?.id) {

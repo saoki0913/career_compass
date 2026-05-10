@@ -7,7 +7,11 @@ const {
   dbSelectMock,
   dbUpdateMock,
   dbInsertMock,
+  dbDeleteMock,
+  dbTransactionMock,
   enqueueDeadlineSyncMock,
+  syncDeadlineImmediatelyMock,
+  syncDeadlineDeleteImmediatelyMock,
   generateTasksForDeadlineMock,
   inArrayMock,
 } = vi.hoisted(() => ({
@@ -16,7 +20,11 @@ const {
   dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
   dbInsertMock: vi.fn(),
+  dbDeleteMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
   enqueueDeadlineSyncMock: vi.fn(),
+  syncDeadlineImmediatelyMock: vi.fn(),
+  syncDeadlineDeleteImmediatelyMock: vi.fn(),
   generateTasksForDeadlineMock: vi.fn(),
   inArrayMock: vi.fn(),
 }));
@@ -42,17 +50,20 @@ vi.mock("@/lib/db", () => ({
     select: dbSelectMock,
     update: dbUpdateMock,
     insert: dbInsertMock,
+    delete: dbDeleteMock,
+    transaction: dbTransactionMock,
   },
 }));
 
 vi.mock("@/lib/calendar/sync", () => ({
   enqueueDeadlineDelete: vi.fn(),
   enqueueDeadlineSync: enqueueDeadlineSyncMock,
-  syncDeadlineImmediately: vi.fn(),
+  syncDeadlineImmediately: syncDeadlineImmediatelyMock,
+  syncDeadlineDeleteImmediately: syncDeadlineDeleteImmediatelyMock,
 }));
 
 vi.mock("@/lib/server/task-generation", () => ({
-  generateTasksForDeadline: generateTasksForDeadlineMock,
+  generateTasksForDeadlineWithExecutor: generateTasksForDeadlineMock,
 }));
 
 vi.mock("drizzle-orm", async (importOriginal) => {
@@ -87,12 +98,23 @@ describe("api/deadlines/[id] PUT", () => {
     dbSelectMock.mockReset();
     dbUpdateMock.mockReset();
     dbInsertMock.mockReset();
+    dbDeleteMock.mockReset();
+    dbTransactionMock.mockReset();
     enqueueDeadlineSyncMock.mockReset();
+    syncDeadlineImmediatelyMock.mockReset();
+    syncDeadlineDeleteImmediatelyMock.mockReset();
     generateTasksForDeadlineMock.mockReset();
     inArrayMock.mockClear();
 
     authGetSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     getGuestUserMock.mockResolvedValue(null);
+    dbTransactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({
+        insert: dbInsertMock,
+        select: dbSelectMock,
+        update: dbUpdateMock,
+      })
+    );
   });
 
   it("creates the standard tasks with one batch insert", async () => {
@@ -150,7 +172,7 @@ describe("api/deadlines/[id] PUT", () => {
 
     expect(response.status).toBe(200);
     expect(generateTasksForDeadlineMock).toHaveBeenCalledTimes(1);
-    expect(generateTasksForDeadlineMock).toHaveBeenCalledWith({
+    expect(generateTasksForDeadlineMock).toHaveBeenCalledWith(expect.anything(), {
       deadlineId: "deadline-1",
       deadlineType: "other",
       deadlineDueDate: deadline.dueDate,
@@ -188,11 +210,6 @@ describe("api/deadlines/[id] PUT", () => {
     dbUpdateMock
       .mockReturnValueOnce({
         set: vi.fn(() => ({
-          where: taskWhereMock,
-        })),
-      })
-      .mockReturnValueOnce({
-        set: vi.fn(() => ({
           where: vi.fn(() => ({
             returning: vi.fn().mockResolvedValue([
               {
@@ -203,6 +220,11 @@ describe("api/deadlines/[id] PUT", () => {
               },
             ]),
           })),
+        })),
+      })
+      .mockReturnValueOnce({
+        set: vi.fn(() => ({
+          where: taskWhereMock,
         })),
       });
 
@@ -271,5 +293,190 @@ describe("api/deadlines/[id] PUT", () => {
     expect(response.status).toBe(200);
     expect(dbUpdateMock).toHaveBeenCalledTimes(1);
     expect(inArrayMock).not.toHaveBeenCalled();
+  });
+
+  it("does not run task generation or sync when the owned deadline update affects no rows", async () => {
+    const deadline = {
+      id: "deadline-1",
+      companyId: "company-1",
+      applicationId: "app-1",
+      type: "other",
+      dueDate: new Date("2026-04-01T00:00:00.000Z"),
+      isConfirmed: false,
+      completedAt: null,
+      autoCompletedTaskIds: null,
+    };
+
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => makeThenableQuery([deadline])),
+    });
+
+    dbUpdateMock.mockReturnValueOnce({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([]),
+        })),
+      })),
+    });
+
+    const { PUT } = await import("@/app/api/deadlines/[id]/route");
+    const request = new NextRequest("http://localhost:3000/api/deadlines/deadline-1", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ isConfirmed: true }),
+    });
+
+    const response = await PUT(request, { params: Promise.resolve({ id: "deadline-1" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error.code).toBe("DEADLINE_NOT_FOUND");
+    expect(generateTasksForDeadlineMock).not.toHaveBeenCalled();
+    expect(syncDeadlineImmediatelyMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps confirmation and task generation in the same transaction", async () => {
+    const deadline = {
+      id: "deadline-1",
+      companyId: "company-1",
+      applicationId: "app-1",
+      type: "es_submission",
+      dueDate: new Date("2026-04-01T00:00:00.000Z"),
+      isConfirmed: false,
+      completedAt: null,
+      autoCompletedTaskIds: null,
+    };
+
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => makeThenableQuery([deadline])),
+    });
+    dbUpdateMock.mockReturnValueOnce({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([{ ...deadline, isConfirmed: true }]),
+        })),
+      })),
+    });
+    generateTasksForDeadlineMock.mockRejectedValueOnce(new Error("template insert failed"));
+
+    const { PUT } = await import("@/app/api/deadlines/[id]/route");
+    const request = new NextRequest("http://localhost:3000/api/deadlines/deadline-1", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ isConfirmed: true }),
+    });
+
+    const response = await PUT(request, { params: Promise.resolve({ id: "deadline-1" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("DEADLINE_UPDATE_FAILED");
+    expect(dbTransactionMock).toHaveBeenCalledTimes(1);
+    expect(syncDeadlineImmediatelyMock).not.toHaveBeenCalled();
+  });
+
+  it("generates tasks from the updated deadline type when confirming and changing type together", async () => {
+    const deadline = {
+      id: "deadline-1",
+      companyId: "company-1",
+      applicationId: "app-1",
+      type: "other",
+      dueDate: new Date("2026-04-01T00:00:00.000Z"),
+      isConfirmed: false,
+      completedAt: null,
+      autoCompletedTaskIds: null,
+    };
+    const updatedDeadline = { ...deadline, type: "es_submission", isConfirmed: true };
+
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => makeThenableQuery([deadline])),
+    });
+    dbUpdateMock.mockReturnValueOnce({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([updatedDeadline]),
+        })),
+      })),
+    });
+    generateTasksForDeadlineMock.mockResolvedValueOnce(["task-1"]);
+
+    const { PUT } = await import("@/app/api/deadlines/[id]/route");
+    const request = new NextRequest("http://localhost:3000/api/deadlines/deadline-1", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type: "es_submission", isConfirmed: true }),
+    });
+
+    const response = await PUT(request, { params: Promise.resolve({ id: "deadline-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(generateTasksForDeadlineMock).toHaveBeenCalledWith(expect.anything(), {
+      deadlineId: "deadline-1",
+      deadlineType: "es_submission",
+      deadlineDueDate: updatedDeadline.dueDate,
+      companyId: "company-1",
+      applicationId: "app-1",
+      userId: "user-1",
+      guestId: null,
+    });
+  });
+});
+
+describe("api/deadlines/[id] DELETE", () => {
+  beforeEach(() => {
+    authGetSessionMock.mockReset();
+    getGuestUserMock.mockReset();
+    dbSelectMock.mockReset();
+    dbUpdateMock.mockReset();
+    dbInsertMock.mockReset();
+    dbDeleteMock.mockReset();
+    dbTransactionMock.mockReset();
+    enqueueDeadlineSyncMock.mockReset();
+    syncDeadlineImmediatelyMock.mockReset();
+    syncDeadlineDeleteImmediatelyMock.mockReset();
+    generateTasksForDeadlineMock.mockReset();
+    inArrayMock.mockClear();
+
+    authGetSessionMock.mockResolvedValue({ user: { id: "user-1" } });
+    getGuestUserMock.mockResolvedValue(null);
+  });
+
+  it("syncs deadline deletion before locally deleting the deadline", async () => {
+    const deadline = {
+      id: "deadline-1",
+      companyId: "company-1",
+      applicationId: "app-1",
+      type: "es_submission",
+      dueDate: new Date("2026-04-01T00:00:00.000Z"),
+      isConfirmed: true,
+      completedAt: null,
+    };
+    const order: string[] = [];
+
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => makeThenableQuery([deadline])),
+    });
+    syncDeadlineDeleteImmediatelyMock.mockImplementation(async () => {
+      order.push("sync");
+      return { status: "synced" };
+    });
+    dbDeleteMock.mockImplementation(() => {
+      order.push("delete");
+      return {
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([{ id: "deadline-1" }]),
+        })),
+      };
+    });
+
+    const { DELETE } = await import("@/app/api/deadlines/[id]/route");
+    const request = new NextRequest("http://localhost:3000/api/deadlines/deadline-1", {
+      method: "DELETE",
+    });
+
+    const response = await DELETE(request, { params: Promise.resolve({ id: "deadline-1" }) });
+
+    expect(response.status).toBe(200);
+    expect(order).toEqual(["sync", "delete"]);
   });
 });

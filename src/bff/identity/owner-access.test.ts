@@ -71,4 +71,23 @@ describe("owner-access", () => {
       ),
     ).toBe(false);
   });
+
+  it("does not call a mutation when the owned condition is null", async () => {
+    const { mutateOwnedRow } = await import("./owner-access");
+    const mutate = vi.fn();
+
+    await expect(mutateOwnedRow(null, mutate)).resolves.toBeNull();
+
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("returns the first row from an owned mutation", async () => {
+    const { mutateOwnedRow } = await import("./owner-access");
+    const condition = { queryChunks: [] } as never;
+    const mutate = vi.fn().mockResolvedValue([{ id: "row-1" }]);
+
+    await expect(mutateOwnedRow(condition, mutate)).resolves.toEqual({ id: "row-1" });
+
+    expect(mutate).toHaveBeenCalledWith(condition);
+  });
 });

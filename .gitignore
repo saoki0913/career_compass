@@ -116,11 +116,26 @@ ml/es_review_qwen/.venv/
 public/generated_images/
 /screenshots/
 
-# LP asset development (reference/intermediate)
-public/dashboard/
+# Dashboard: only track empty-state illustrations
+public/dashboard/*
+!public/dashboard/assets/
+public/dashboard/assets/*
+!public/dashboard/assets/empty-state-hourglass.png
+!public/dashboard/assets/empty-state-clipboard.png
+!public/dashboard/assets/empty-state-folder.png
+!public/dashboard/assets/empty-state-envelope.png
+!public/dashboard/assets/empty-state-document.png
+!public/dashboard/assets/empty-state-conversation.png
+!public/dashboard/assets/empty-state-waiting.png
+!public/dashboard/assets/empty-state-trophy.png
+
+# LP asset development (reference/intermediate/deleted)
+public/marketing/LP/LP.png
 public/marketing/LP/LP_sub/
 public/marketing/LP/assets/_archive/
-public/marketing/LP/section_image/asset/
+public/marketing/LP/screenshots/
+public/marketing/LP/section_image/
+public/marketing/LP/seo-lp-hero/
 public/marketing/LP/reference/
 public/marketing/LP/section-images-v1/
 public/marketing/LP/section-images-v2/
@@ -128,10 +143,19 @@ public/marketing/LP/section-images-v3/
 public/marketing/LP/shukatsupass_separated_assets/
 public/marketing/PR/
 public/marketing/design_system/
+public/marketing/logo/logo_icon_clean.png
 public/reference/
+
+# Next.js boilerplate (unused)
+public/file.svg
+public/globe.svg
+public/next.svg
+public/vercel.svg
+public/window.svg
 quality/reports/
 
 # Local agent / marketing generation outputs
 docs/ops/agent-usage.log
 scripts/marketing_video/.venv/
 scripts/marketing_video/output/
+.release-worktrees/

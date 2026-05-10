@@ -19,8 +19,8 @@ const EXPECTED_HARNESS_INVENTORY = {
   agents: 13,
   opusAgents: 11,
   sonnetAgents: 2,
-  claudeSkills: 42,
-  canonicalSkills: 47,
+  claudeSkills: 43,
+  canonicalSkills: 48,
 };
 
 function makeSkillSource({

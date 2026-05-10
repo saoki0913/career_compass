@@ -255,6 +255,8 @@ make backend-test-live-es-review \
 
 `rewrite_validation_status` は `strict_ok` / `soft_ok` / `degraded` の判定に使う。ライブゲート `evaluate_live_case` は、ルータの `_soft_min_shortfall` と同条件で **`length_policy == soft_ok` または `length_fix_result == soft_recovered`** のときだけ不足を許容する。runtime / gate ともに、`strict → focused retry 1 → focused retry 2 → length-fix` の最終段だけ **`0.9X〜X`** を受理余地とし、それ以外は strict を守る。`rewrite_validation_codes` は degraded 時も単一主因ではなく、最終未解決 code 群を保持する。`dearu_style` は末尾の空白を `strip()` してから **だ・である調** 判定し、style fail は最終検証前に安全な決定論正規化を一度だけ試す。
 
+`validation_profile_name` と `information_density` は短い元回答の検証緩和を確認するための telemetry。`information_density.tier` が `sparse` / `low` の場合は `fact_preservation` が warning 軸になり、hard block code と hallucination tier2 threshold も profile 側の値で評価する。境界値と profile 既定値は `backend/tests/es_review/test_validation_profile.py` で固定する。
+
 ## 実行方法
 
 品質関連だけを見る場合:
@@ -310,7 +312,7 @@ python scripts/dev/aggregate_live_es_review_runs.py backend/tests/output/live_es
 
 - `quality_rubric` は最終文そのものの良し悪しを完全判定するものではない
 - 最終品質の gate は `test_es_review_final_quality_cases.py` が担う
-- Claude 専用 code を変えずに OpenAI / Gemini の structured output 契約と non-Claude prompt hardening が shared layer で崩れていないかは `test_llm_provider_routing.py` で見る
+- Claude / OpenAI / Gemini は ES text 生成で同一プロンプトを使う。provider routing の回帰は `test_llm_provider_routing.py` で見つつ、provider 別の追加 text hardening には依存しない
 - live な最終文品質は `test_live_es_review_provider_report.py` を `case_set` で回す。`smoke` は既定 **gpt-5.4** のみ（手動の軽量実行向け）、`extended` は既定で **4 モデル**（haiku / 5.4 / sonnet / Gemini）。主判定は決定論ルール。`LIVE_ES_REVIEW_REQUIRE_JUDGE_PASS=1` のときは **judge の `overall_pass` もブロック条件**に含める。`COLLECT_ONLY=1` は複数回スイープで失敗を集める用途。OpenAI の rewrite 空レスポンス対策として、rewrite は stability-first の Chat Completions 系 text 経路に分離している。Gemini は ES 添削で低温固定を外している
 - OpenAI live で `parse` / `空のテキストレスポンス` が出た場合は、多くが **出力枠を先に使い切り、可視テキストがゼロ**になったケースに相当する。実装側では **rewrite の `reasoning.effort=none`、出力トークン下限、incomplete 時の内部1回リトライ**で抑えている。
 - live gate の `expected_effective_policy` は **`ReviewMeta.grounding_mode`**（`company_general` / `role_grounded` / `none`）と照合する。`effective_company_grounding_policy`（`required` / `assistive`）とは別物で、以前はフィールド名の取り違えで偽陽性が出うる状態だった

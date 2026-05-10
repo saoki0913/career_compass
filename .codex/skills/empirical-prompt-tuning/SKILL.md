@@ -189,7 +189,7 @@ iteration_passed = ALL of:
 
 他領域への横展開は `docs/config/empirical-prompt-tuning/<domain>.md` を作成するだけ:
 
-- `es-review.md` — ES 添削プロンプト（`backend/app/prompts/es_templates.py`）
+- `es-review.md` — ES 添削プロンプト（`backend/app/prompts/es_templates/`）
 - `motivation.md` — 志望動機プロンプト（`backend/app/prompts/motivation_prompts.py`）
 - `interview.md` — 面接プロンプト（`backend/app/routers/interview.py`）
 

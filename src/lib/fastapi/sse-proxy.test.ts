@@ -77,9 +77,9 @@ describe("createSSEProxyStream", () => {
     expect(events[1]).toEqual({ type: "complete", data: { enriched: true, extra: "field" } });
   });
 
-  it("does not call onComplete on error events — calls onError instead", async () => {
+  it("does not call onComplete on error events — calls onError with a safe payload instead", async () => {
     const upstream = fakeResponse([
-      { type: "error", message: "something failed" },
+      { type: "error", message: "something failed", error_type: "provider_failure" },
     ]);
     const onComplete = vi.fn();
     const onError = vi.fn();
@@ -89,11 +89,19 @@ describe("createSSEProxyStream", () => {
 
     expect(onComplete).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledOnce();
-    expect(onError).toHaveBeenCalledWith({ type: "error", message: "something failed" });
-    expect(events[0]).toEqual({ type: "error", message: "something failed" });
+    expect(onError).toHaveBeenCalledWith({
+      type: "error",
+      message: "AI処理中にエラーが発生しました。しばらくしてからもう一度お試しください。",
+      code: "TEST_STREAM_FAILED",
+      requestId: "req-1",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error_type: "provider_failure",
+    });
+    expect(events[0]).toEqual(onError.mock.calls[0][0]);
   });
 
-  it("preserves sanitized FastAPI error metadata on error events", async () => {
+  it("preserves sanitized FastAPI error metadata without exposing raw technical messages", async () => {
     const upstream = fakeResponse([
       {
         type: "error",
@@ -110,9 +118,12 @@ describe("createSSEProxyStream", () => {
 
     expect(events[0]).toEqual({
       type: "error",
-      message: "tenant key is not configured",
+      message: "AI処理中にエラーが発生しました。しばらくしてからもう一度お試しください。",
+      code: "TEST_STREAM_FAILED",
+      requestId: "req-1",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
       error_type: "tenant_key_not_configured",
-      status_code: 503,
     });
     expect(onCostTelemetry).toHaveBeenCalledOnce();
   });
@@ -208,6 +219,11 @@ describe("createSSEProxyStream", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe("error");
+    expect(events[0]).toMatchObject({
+      code: "TEST_EMPTY_RESPONSE",
+      requestId: "req-1",
+      retryable: true,
+    });
     expect(onFinally).toHaveBeenCalledWith({ success: false });
   });
 
@@ -302,6 +318,11 @@ describe("createSSEProxyStream", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe("error");
+    expect(events[0]).toMatchObject({
+      code: "TEST_COMPLETE_HOOK_FAILED",
+      requestId: "req-1",
+      retryable: true,
+    });
     expect(onFinally).toHaveBeenCalledOnce();
   });
 });

@@ -13,4 +13,27 @@ describe("SidebarCredits", () => {
     expect(source).toContain("TooltipContent");
     expect(source).toContain("tooltipText");
   });
+
+  it("imports getCreditLowThreshold for low-balance detection", async () => {
+    const source = await readFile(new URL("./SidebarCredits.tsx", import.meta.url), "utf8");
+    expect(source).toContain("getCreditLowThreshold");
+  });
+
+  it("applies destructive color when depleted", async () => {
+    const source = await readFile(new URL("./SidebarCredits.tsx", import.meta.url), "utf8");
+    expect(source).toContain("isDepleted");
+    expect(source).toContain("text-destructive");
+  });
+
+  it("applies amber warning color when low", async () => {
+    const source = await readFile(new URL("./SidebarCredits.tsx", import.meta.url), "utf8");
+    expect(source).toContain("isLow");
+    expect(source).toContain("text-amber-600");
+  });
+
+  it("displays plan label and monthly allocation", async () => {
+    const source = await readFile(new URL("./SidebarCredits.tsx", import.meta.url), "utf8");
+    expect(source).toContain("planLabel");
+    expect(source).toContain("monthlyAllocation");
+  });
 });

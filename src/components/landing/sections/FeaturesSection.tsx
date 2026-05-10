@@ -1,5 +1,5 @@
 import { FilePenLine, MessageCircle, PanelsTopLeft } from "lucide-react";
-import { lpSectionAsset } from "@/lib/marketing/lp-assets";
+import { lpSectionAsset, LP_SECTION_ASSETS } from "@/lib/assets/image-registry";
 import { LpSparkleDecorations } from "@/components/landing/shared/LpSparkleDecorations";
 
 const featureSparkles = [
@@ -17,12 +17,12 @@ const flowSteps = [
 ] as const;
 
 const features = [
-  { src: "features/card-es-review.png", alt: "01 ES添削AI" },
-  { src: "features/card-motivation-gakuchika.png", alt: "02 志望動機・ガクチカ作成" },
-  { src: "features/card-interview-prep.png", alt: "03 AI模擬面接" },
-  { src: "features/card-schedule-deadline.png", alt: "04 締切・選考管理" },
-  { src: "features/card-company-application-management.png", alt: "05 企業管理・応募管理" },
-  { src: "features/google-calendar-integration.png", alt: "06 Googleカレンダー連携" },
+  { src: LP_SECTION_ASSETS.features.cardEsReview, alt: "01 ES添削AI" },
+  { src: LP_SECTION_ASSETS.features.cardMotivationGakuchika, alt: "02 志望動機・ガクチカ作成" },
+  { src: LP_SECTION_ASSETS.features.cardInterviewPrep, alt: "03 AI模擬面接" },
+  { src: LP_SECTION_ASSETS.features.cardScheduleDeadline, alt: "04 締切・選考管理" },
+  { src: LP_SECTION_ASSETS.features.cardCompanyManagement, alt: "05 企業管理・応募管理" },
+  { src: LP_SECTION_ASSETS.features.googleCalendar, alt: "06 Googleカレンダー連携" },
 ] as const;
 
 export function FeaturesSection() {
@@ -30,9 +30,8 @@ export function FeaturesSection() {
     <section
       id="features"
       data-section="features"
-      className="relative scroll-mt-[92px] overflow-hidden"
+      className="relative scroll-mt-[92px] overflow-hidden py-10 sm:py-[52px] lg:py-[62px]"
       style={{
-        padding: "62px 0 60px",
         background: "linear-gradient(180deg, #fff 0%, #f4f8ff 100%)",
         fontFamily:
           "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
@@ -93,19 +92,19 @@ export function FeaturesSection() {
           </div>
         </div>
 
-        <div className="mt-8 grid gap-5 lg:grid-cols-3">
+        <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
             <article
               key={feature.alt}
               className="overflow-hidden rounded-2xl border bg-white"
               style={{ borderColor: "#d8eaff", boxShadow: "0 10px 30px rgba(20,50,110,0.13)" }}
             >
-              <div className="flex h-[240px] items-center justify-center bg-white p-3 sm:h-[260px]">
+              <div className="flex h-[180px] items-center justify-center bg-white p-3 sm:h-[240px] lg:h-[260px]">
                 <img
                   src={lpSectionAsset(feature.src)}
                   alt={feature.alt}
                   className="h-full w-full object-contain"
-                  loading="eager"
+                  loading="lazy"
                   decoding="async"
                 />
               </div>

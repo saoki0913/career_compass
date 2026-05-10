@@ -234,6 +234,130 @@ exit 1
   }
 });
 
+test("can apply only Vercel production env", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+  const argsLog = path.join(secretDir, "vercel-args.log");
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-production.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "STRIPE_WEBHOOK_SECRET=whsec_test",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+print -r -- "$*" >> "$VERCEL_ARGS_LOG"
+if [[ "$1" == "env" && "$2" == "add" ]]; then
+  cat >/dev/null || true
+fi
+exit 0
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--apply", "--target", "vercel-production", "--vercel-env", "production", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          VERCEL_ARGS_LOG: argsLog,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const args = readFileSync(argsLog, "utf8");
+    assert.match(args, /env add STRIPE_WEBHOOK_SECRET production/);
+    assert.doesNotMatch(args, /preview develop/);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("can apply only Vercel preview env", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+  const argsLog = path.join(secretDir, "vercel-args.log");
+
+  try {
+    writeFileSync(
+      path.join(secretDir, "vercel-production.env"),
+      [
+        "VERCEL_PROJECT_ID=prj_test123",
+        "VERCEL_TEAM_ID=team_test123",
+        "STRIPE_WEBHOOK_SECRET=whsec_test",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const fakeVercelPath = path.join(binDir, "vercel");
+    writeFileSync(
+      fakeVercelPath,
+      `#!/bin/zsh
+set -euo pipefail
+print -r -- "$*" >> "$VERCEL_ARGS_LOG"
+if [[ "$1" == "env" && "$2" == "add" ]]; then
+  cat >/dev/null || true
+fi
+exit 0
+`,
+      "utf8",
+    );
+    chmodSync(fakeVercelPath, 0o755);
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--apply", "--target", "vercel-production", "--vercel-env", "preview", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          VERCEL_ARGS_LOG: argsLog,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const args = readFileSync(argsLog, "utf8");
+    assert.match(args, /env add STRIPE_WEBHOOK_SECRET preview develop/);
+    assert.doesNotMatch(args, /STRIPE_WEBHOOK_SECRET production/);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("rejects invalid Vercel env scope", () => {
+  const result = spawnSync(
+    "zsh",
+    [scriptPath, "--check", "--target", "vercel-production", "--vercel-env", "staging"],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+    },
+  );
+
+  assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(`${result.stdout}\n${result.stderr}`, /Invalid --vercel-env: staging/);
+});
+
 test("checks Vercel production without preview branch argument", () => {
   const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
   const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));

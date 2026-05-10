@@ -5,11 +5,13 @@ const {
   dbTransactionMock,
   txSelectMock,
   txUpdateMock,
+  txDeleteMock,
 } = vi.hoisted(() => ({
   dbSelectMock: vi.fn(),
   dbTransactionMock: vi.fn(),
   txSelectMock: vi.fn(),
   txUpdateMock: vi.fn(),
+  txDeleteMock: vi.fn(),
 }));
 
 vi.mock("@/lib/db/schema", () => ({
@@ -24,15 +26,31 @@ vi.mock("@/lib/db/schema", () => ({
     id: "id",
     migratedToUserId: "migratedToUserId",
   },
-  interviewConversations: { name: "interview_conversations" },
+  interviewConversations: {
+    name: "interview_conversations",
+    companyId: "interviewCompanyId",
+    guestId: "interviewGuestId",
+    id: "interviewId",
+  },
   interviewDrillAttempts: { name: "interview_drill_attempts" },
   interviewFeedbackHistories: { name: "interview_feedback_histories" },
   interviewTurnEvents: { name: "interview_turn_events" },
-  motivationConversations: { name: "motivation_conversations" },
+  motivationConversations: {
+    name: "motivation_conversations",
+    companyId: "motivationCompanyId",
+    guestId: "motivationGuestId",
+    id: "motivationId",
+  },
   notifications: { name: "notifications" },
   submissionItems: { name: "submission_items" },
   tasks: { name: "tasks" },
-  userPins: { name: "user_pins" },
+  userPins: {
+    name: "user_pins",
+    entityId: "entityId",
+    entityType: "entityType",
+    guestId: "pinGuestId",
+    id: "pinId",
+  },
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -49,6 +67,7 @@ vi.mock("drizzle-orm", () => ({
   isNull: (...values: unknown[]) => ({ isNull: values }),
   lt: (...values: unknown[]) => ({ lt: values }),
   or: (...values: unknown[]) => ({ or: values }),
+  sql: (...values: unknown[]) => ({ sql: values }),
 }));
 
 describe("migrateGuestToUser", () => {
@@ -58,6 +77,7 @@ describe("migrateGuestToUser", () => {
     dbTransactionMock.mockReset();
     txSelectMock.mockReset();
     txUpdateMock.mockReset();
+    txDeleteMock.mockReset();
 
     dbSelectMock.mockReturnValue({
       from: vi.fn(() => ({
@@ -93,9 +113,15 @@ describe("migrateGuestToUser", () => {
         };
       }),
     }));
+    txDeleteMock.mockImplementation(() => ({
+      where: vi.fn(() => ({
+        returning: vi.fn().mockResolvedValue([]),
+      })),
+    }));
 
     dbTransactionMock.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
+        delete: txDeleteMock,
         select: txSelectMock,
         update: txUpdateMock,
       })
@@ -106,8 +132,22 @@ describe("migrateGuestToUser", () => {
     const { migrateGuestToUser } = await import("@/lib/auth/guest");
     const result = await migrateGuestToUser("550e8400-e29b-41d4-a716-446655440000", "user-1");
 
-    expect(result).toEqual({ guestId: "guest-1", userId: "user-1" });
+    expect(result).toEqual({
+      guestId: "guest-1",
+      userId: "user-1",
+      conflicts: {
+        motivationConversations: 0,
+        interviewConversations: 0,
+        userPins: 0,
+      },
+    });
 
+    const deletedTables = txDeleteMock.mock.calls.map(([table]) => table.name);
+    expect(deletedTables).toEqual([
+      "motivation_conversations",
+      "interview_conversations",
+      "user_pins",
+    ]);
     const updatedTables = txUpdateMock.mock.calls.map(([table]) => table.name);
     expect(updatedTables).toEqual([
       "guest_users",
@@ -143,5 +183,29 @@ describe("migrateGuestToUser", () => {
 
     expect(result).toBeNull();
     expect(txUpdateMock).toHaveBeenCalledTimes(1);
+    expect(txDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("records and removes duplicate guest rows before migrating the rest", async () => {
+    txDeleteMock.mockImplementation((table) => ({
+      where: vi.fn(() => ({
+        returning: vi.fn().mockResolvedValue([{ id: `${table.name}-conflict` }]),
+      })),
+    }));
+
+    const { migrateGuestToUser } = await import("@/lib/auth/guest");
+    const result = await migrateGuestToUser("550e8400-e29b-41d4-a716-446655440000", "user-1");
+
+    expect(result).toMatchObject({
+      guestId: "guest-1",
+      userId: "user-1",
+      conflicts: {
+        motivationConversations: 1,
+        interviewConversations: 1,
+        userPins: 1,
+      },
+    });
+    expect(txDeleteMock).toHaveBeenCalledTimes(3);
+    expect(txUpdateMock).toHaveBeenCalledTimes(14);
   });
 });

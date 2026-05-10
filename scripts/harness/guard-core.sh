@@ -60,6 +60,11 @@ guard_command_is_git_commit() {
   guard_command_predicate "$command" "gitCommit"
 }
 
+guard_command_is_git_branch_create() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "gitBranchCreate"
+}
+
 guard_command_is_release_or_provider() {
   local command="${1:-}"
   guard_command_predicate "$command" "releaseProvider"

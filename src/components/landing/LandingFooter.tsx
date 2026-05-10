@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { lpSectionAsset } from "@/lib/marketing/lp-assets";
+import { lpSectionAsset, LP_SECTION_ASSETS, LOGO_ASSETS } from "@/lib/assets/image-registry";
 
 const FOOTER_COLUMNS = [
   {
@@ -44,7 +44,7 @@ export function LandingFooter() {
       }}
     >
       <img
-        src={lpSectionAsset("footer/cityscape.png")}
+        src={lpSectionAsset(LP_SECTION_ASSETS.footer.cityscape)}
         alt=""
         role="presentation"
         className="pointer-events-none absolute bottom-0 left-0 w-full select-none object-cover object-bottom"
@@ -57,7 +57,7 @@ export function LandingFooter() {
           <div>
             <div className="mb-7 flex items-center gap-4">
               <img
-                src="/marketing/logo/logo_text_clean.png"
+                src={LOGO_ASSETS.textClean}
                 alt="就活Pass"
                 className="h-14 w-44 object-cover"
               />
@@ -124,7 +124,7 @@ export function LandingFooter() {
       </div>
 
       <img
-        src={lpSectionAsset("footer/couple.png")}
+        src={lpSectionAsset(LP_SECTION_ASSETS.footer.couple)}
         alt=""
         role="presentation"
         className="pointer-events-none absolute bottom-[-58px] z-10 hidden select-none object-contain xl:block"

@@ -48,3 +48,9 @@ npm run stripe:check-live-readiness -- --json
 - statement descriptor 周辺
 
 CLI の `audit` と `check-live-readiness` は、これらを `manualChecks` として返します。Codex は自動で「確認済み」とは扱いません。
+
+## Makefile
+
+```bash
+make stripe-preflight    # npm run stripe:check-live-readiness -- --json（本番 Stripe の整合チェック）
+```

@@ -28,6 +28,8 @@
 
 - UI regression は Playwright で確認
 - page が local component / local effect / local state を持たないことをレビュー対象にする
+- conversation Controller の非 SSE API 操作は `useLockedOperation` を正本にし、`acquireLock -> Response ok 判定 -> parseApiErrorResponse -> reportUserFacingError -> releaseLock` の配管重複を増やさない
+- 企業特化模擬面接のチャット transcript には user / assistant の発話だけを残し、`transition_line`、再開通知、面接設定、フィードバック、ドリル導線はメッセージとは別の UI 領域に表示する
 
 ## Phase 5
 

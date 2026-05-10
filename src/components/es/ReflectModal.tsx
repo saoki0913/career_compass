@@ -167,7 +167,7 @@ const DisplayModeToggle = memo(function DisplayModeToggle({
         )}
         onClick={() => onToggle(true)}
       >
-        変更点を表示
+        差分
       </button>
       <button
         type="button"
@@ -181,7 +181,7 @@ const DisplayModeToggle = memo(function DisplayModeToggle({
         )}
         onClick={() => onToggle(false)}
       >
-        プレーン表示
+        改善後
       </button>
     </div>
   );
@@ -315,18 +315,25 @@ const ReflectContentDesktop = memo(function ReflectContentDesktop({
         </div>
       ) : null}
 
-      <div className="grid min-h-0 gap-5 md:min-h-[min(48vh,440px)] md:grid-cols-2 md:items-stretch">
+      <div
+        className={cn(
+          "grid min-h-0 gap-5 md:min-h-[min(48vh,440px)] md:items-stretch",
+          showDiff ? "md:grid-cols-2" : "md:grid-cols-1",
+        )}
+      >
+        {showDiff ? (
+          <ComparisonPanel
+            label="変更前"
+            description="今の回答です。"
+            tone="before"
+            text={originalText}
+            diffSegments={diffSegments}
+            showDiff={showDiff}
+          />
+        ) : null}
         <ComparisonPanel
-          label="変更前"
-          description="今の回答です。"
-          tone="before"
-          text={originalText}
-          diffSegments={diffSegments}
-          showDiff={showDiff}
-        />
-        <ComparisonPanel
-          label="変更後"
-          description="反映される改善案です。"
+          label={showDiff ? "変更後" : "改善後"}
+          description={showDiff ? "反映される改善案です。" : "反映される本文を大きく表示しています。"}
           tone="after"
           text={newText}
           diffSegments={diffSegments}
@@ -451,7 +458,7 @@ export function ReflectModal({
   const [showUndo, setShowUndo] = useState(false);
   const [undoTimer, setUndoTimer] = useState(10);
   const [copied, setCopied] = useState(false);
-  const [showDiff, setShowDiff] = useState(true);
+  const [showDiff, setShowDiff] = useState(false);
   const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY);
 
   // Compute diff segments once and pass down

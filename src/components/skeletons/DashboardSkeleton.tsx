@@ -17,7 +17,7 @@ export function DashboardSkeleton() {
           <Skeleton className="hidden h-4 w-36 shrink-0 rounded 2xl:block" shimmerDelayMs={40} />
           <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-2 overflow-hidden px-4 sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:ml-auto lg:mr-0 lg:min-w-0 lg:flex-1 lg:justify-end lg:px-0 lg:pb-1 xl:overflow-visible xl:pb-0">
             {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-9 w-22 rounded-lg" shimmerDelayMs={i * 30} />
+              <Skeleton key={i} className="h-11 w-22 rounded-lg lg:h-9" shimmerDelayMs={i * 30} />
             ))}
           </div>
         </div>
@@ -31,10 +31,10 @@ export function DashboardSkeleton() {
               <CardHeader className="flex shrink-0 flex-row items-center justify-between space-y-0 px-4 lg:px-5">
                 <Skeleton className="h-6 w-44 rounded-md" shimmerDelayMs={0} />
                 <div className="flex items-center gap-1">
-                  <Skeleton className="h-7 w-7 rounded-md" shimmerDelayMs={20} />
-                  <Skeleton className="h-7 w-10 rounded-md" shimmerDelayMs={30} />
-                  <Skeleton className="h-7 w-7 rounded-md" shimmerDelayMs={40} />
-                  <SkeletonButton className="h-7 w-20" shimmerDelayMs={50} />
+                  <Skeleton className="h-9 w-9 rounded-md lg:h-7 lg:w-7" shimmerDelayMs={20} />
+                  <Skeleton className="h-9 w-10 rounded-md lg:h-7" shimmerDelayMs={30} />
+                  <Skeleton className="h-9 w-9 rounded-md lg:h-7 lg:w-7" shimmerDelayMs={40} />
+                  <SkeletonButton className="h-9 w-20 lg:h-7" shimmerDelayMs={50} />
                 </div>
               </CardHeader>
               <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
@@ -100,7 +100,7 @@ export function DashboardSkeleton() {
                       <div className="h-px flex-1 bg-border/30" />
                     </div>
                     {Array.from({ length: 2 }).map((_, i) => (
-                      <div key={i} className="flex items-center gap-3 rounded-lg px-3 py-2">
+                      <div key={i} className="flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 lg:min-h-0">
                         <Skeleton className="h-[18px] w-[18px] shrink-0 rounded" shimmerDelayMs={section * 80 + i * 40 + 30} />
                         <div className="min-w-0 flex-1 space-y-1">
                           <Skeleton className="h-3.5 w-32 rounded-md" shimmerDelayMs={section * 80 + i * 40 + 40} />

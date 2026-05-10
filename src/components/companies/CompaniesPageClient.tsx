@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Building2, LayoutGrid, Layers } from "lucide-react";
+import { Plus, Building2, LayoutGrid, Layers, Columns3 } from "lucide-react";
 import { CompanyGrid } from "@/components/companies/CompanyGrid";
+import { CompanyKanbanBoard } from "@/components/companies/CompanyKanbanBoard";
 import { IndustryGroup } from "@/components/companies/IndustryGroup";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent } from "@/components/ui/card";
@@ -42,9 +43,12 @@ const industryOptions = INDUSTRIES.map((industry) => ({
 }));
 
 const viewOptions = [
+  { key: "kanban", icon: <Columns3 className="w-4 h-4" />, label: "選考ボード" },
   { key: "grid", icon: <LayoutGrid className="w-4 h-4" />, label: "グリッド表示" },
   { key: "industry", icon: <Layers className="w-4 h-4" />, label: "業界別表示" },
 ];
+
+type ViewMode = typeof viewOptions[number]["key"];
 
 type CompaniesPageClientProps = {
   initialData?: {
@@ -56,12 +60,12 @@ type CompaniesPageClientProps = {
 };
 
 export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
-  const { companies, count, limit, isLoading, error, togglePin, deleteCompany } = useCompanies(
+  const { companies, count, limit, isLoading, error, togglePin, deleteCompany, moveCompanyToPhase } = useCompanies(
     initialData ? { initialData } : {}
   );
   const [filter, setFilter] = useState<FilterKey>("all");
   const [selectedIndustries, setSelectedIndustries] = useState<string[]>([]);
-  const [viewMode, setViewMode] = useState("grid");
+  const [viewMode, setViewMode] = useState<ViewMode>("kanban");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortKey>("date_desc");
   const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
@@ -213,6 +217,15 @@ export function CompaniesPageClient({ initialData }: CompaniesPageClientProps) {
                     href: "/companies/new",
                   }
                 }
+              />
+            ) : viewMode === "kanban" ? (
+              <CompanyKanbanBoard
+                companies={filteredCompanies}
+                onMoveToPhase={(companyId, phaseKey) => {
+                  void moveCompanyToPhase(companyId, phaseKey);
+                }}
+                onTogglePin={togglePin}
+                onDeleteStart={handleDeleteStart}
               />
             ) : viewMode === "industry" ? (
               <IndustryGroup companies={filteredCompanies} onTogglePin={togglePin} onDeleteStart={handleDeleteStart} />

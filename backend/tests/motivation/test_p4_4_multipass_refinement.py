@@ -209,17 +209,16 @@ class TestApplyMultipassRefinement:
         assert final == good_draft
         llm_fn.assert_not_called()
 
-    async def test_high_smell_tier_triggers_refinement(self) -> None:
+    async def test_missing_conclusion_and_company_triggers_refinement(self) -> None:
         settings = MagicMock(motivation_multipass_refinement=True)
-        # 結論先行 + 企業固有名を含む refined draft
         refined = "貴社のWoven Cityに惹かれ志望します。" * 8
         llm_fn = AsyncMock(return_value=refined)
         final, tel = await _apply_multipass_refinement(
             initial_draft="背景から始まる長い文章" * 10,
             initial_smell_score={
-                "tier": 2,
-                "score": 4.5,
-                "warnings": [{"code": "x", "detail": "y"}],
+                "tier": 0,
+                "score": 0.0,
+                "warnings": [],
             },
             initial_within_limits=True,
             company_context="トヨタ Woven City",
@@ -234,7 +233,7 @@ class TestApplyMultipassRefinement:
             settings=settings,
         )
         assert tel["refinement_attempted"] is True
-        assert "ai_smell_tier_high" in tel["refinement_reasons"]
+        assert "missing_company_specificity" in tel["refinement_reasons"] or "no_conclusion_first" in tel["refinement_reasons"]
         llm_fn.assert_called_once()
 
     async def test_missing_company_specificity_triggers_refinement(self) -> None:

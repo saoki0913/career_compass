@@ -238,7 +238,7 @@ POST /api/companies/[id]/deadlines
 | `src/components/deadlines/DeadlineSummaryStats.tsx` | サマリー統計 |
 | `src/components/deadlines/DeadlineProgressBar.tsx` | 進捗バー |
 | `src/components/deadlines/DeadlineListView.tsx` | リスト表示 |
-| `src/components/dashboard/DeadlineCard.tsx` | ダッシュボード右カラムの独立締切カード。空状態は `public/dashboard/assets/image_05.png` を使用 |
+| `src/components/dashboard/DeadlineCard.tsx` | ダッシュボード右カラムの独立締切カード。空状態は `DASHBOARD_ASSETS.emptyDeadline`（`public/dashboard/assets/empty-state-hourglass.png`）を使用 |
 | `src/components/deadlines/DeadlineForm.tsx` | 締切フォーム |
 | `src/components/deadlines/DeadlineModal.tsx` | 締切モーダル |
 | `src/components/companies/DeadlineApprovalModal.tsx` | 自動抽出承認UI（重複警告付き） |

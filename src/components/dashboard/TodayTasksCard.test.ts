@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import { TodayTasksCard } from "./TodayTasksCard";
 import type { Task, TodayTask } from "@/hooks/useTasks";
 
+
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: "task-1",
@@ -102,11 +103,12 @@ describe("TodayTasksCard", () => {
     expect(source).not.toContain("bg-violet-50");
   });
 
-  it("uses dashboard assets and a real task toggle callback", async () => {
+  it("uses dashboard assets via image registry and a real task toggle callback", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./TodayTasksCard.tsx", import.meta.url), "utf8");
     expect(source).toContain("next/image");
-    expect(source).toContain("/dashboard/assets/image_09.png");
+    expect(source).toContain("DASHBOARD_ASSETS");
+    expect(source).toContain("DASHBOARD_ASSETS.emptyTodayTasks");
     expect(source).toContain("onToggleTask");
     expect(source).toContain("onCompleteTodayTask");
     expect(source).not.toContain("Visual-only");

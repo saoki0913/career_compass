@@ -40,6 +40,13 @@ const requiredInterviewTables = [
   "interview_feedback_histories",
   "interview_turn_events",
 ];
+const requiredSubscriptionColumns = [
+  "billing_hold_status",
+  "billing_hold_reason",
+  "billing_hold_stripe_dispute_id",
+  "billing_hold_started_at",
+  "billing_hold_ended_at",
+];
 const requiredInterviewColumns = {
   interview_conversations: [
     "role_track",
@@ -123,6 +130,31 @@ try {
     missingInterviewColumns.length === 0 ? "OK" : `MISSING (${missingInterviewColumns.join(", ")})`
   );
 
+  const subscriptionColumns = await sql`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'subscriptions'
+      AND column_name IN (
+        'billing_hold_status',
+        'billing_hold_reason',
+        'billing_hold_stripe_dispute_id',
+        'billing_hold_started_at',
+        'billing_hold_ended_at'
+      )
+  `;
+  const presentSubscriptionColumns = new Set(
+    subscriptionColumns.map((row) => row.column_name),
+  );
+  const missingSubscriptionColumns = requiredSubscriptionColumns.filter(
+    (columnName) => !presentSubscriptionColumns.has(columnName),
+  );
+  process.stdout.write(
+    `[check-prod-db-drift] subscription billing hold columns: ${
+      missingSubscriptionColumns.length === 0 ? "OK" : `MISSING (${missingSubscriptionColumns.join(", ")})`
+    }\n`,
+  );
+
   const metaSchemas = await sql`
     SELECT table_schema
     FROM information_schema.tables
@@ -177,6 +209,13 @@ try {
   if (missingInterviewColumns.length > 0) {
     console.error(
       `[check-prod-db-drift] interview v2 必須カラムが不足しています (${missingInterviewColumns.join(", ")})。面接対策は 503 になり得ます。make deploy-migrate を実行してください。`
+    );
+    process.exitCode = 1;
+  }
+
+  if (missingSubscriptionColumns.length > 0) {
+    process.stderr.write(
+      `[check-prod-db-drift] subscriptions billing hold 必須カラムが不足しています (${missingSubscriptionColumns.join(", ")})。ES添削などのクレジット消費機能は 503 になり得ます。make deploy-migrate を実行してください。\n`,
     );
     process.exitCode = 1;
   }

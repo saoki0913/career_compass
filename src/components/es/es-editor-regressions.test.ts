@@ -40,7 +40,7 @@ describe("ES editor regressions", () => {
 
     expect(reviewPanelSource).toContain("explanationText={explanationText}");
     expect(reviewPanelSource).toContain("explanationComplete={explanationComplete}");
-    expect(hookSource).toContain('event.path === "improvement_explanation"');
+    expect(hookSource).toContain('case "explanation_complete"');
     expect(hookSource).toContain("explanationComplete: true");
   });
 

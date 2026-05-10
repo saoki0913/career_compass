@@ -1,9 +1,15 @@
 graph TD
-    marketing-routes["Marketing Routes\nsrc/app/(marketing)/"]
-    auth-routes["Auth Routes\nsrc/app/(auth)/"]
-    product-routes["Product Routes\nsrc/app/(product)/"]
-    utility-routes["Utility Routes\nsrc/app/checklists/"]
+    marketing-routes["Marketing Routes\nsrc/app/(marketing)"]
+    auth-routes["Auth / Onboarding\nsrc/app/(auth), auth APIs"]
+    product-routes["Product Workspace\nsrc/app/(product)"]
+    company-routes["Company Management\ncompanies, deadlines, RAG, applications"]
+    ai-workflows["AI Workflows\nES, Motivation, Gakuchika, Interview"]
+    operations-routes["Operations Settings\nsettings, profile, notifications, calendar"]
+    utility-routes["Utility / Checklists / Tools\nsrc/app/checklists, tools"]
 
-    marketing-routes -->|"funnels visitors into account creation or product exploration"| auth-routes
-    auth-routes -->|"lands authenticated users in the core workspace"| product-routes
-    marketing-routes -->|"offers standalone learning content and checklists"| utility-routes
+    marketing-routes -->|CTA login/signup| auth-routes
+    auth-routes -->|session/guest migration| product-routes
+    product-routes -->|manage company state| company-routes
+    product-routes -->|generate/review via AI| ai-workflows
+    product-routes -->|configure account/providers| operations-routes
+    marketing-routes -->|SEO and public tools| utility-routes

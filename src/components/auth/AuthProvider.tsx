@@ -99,6 +99,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetchUserPlan();
   }, [fetchUserPlan]);
 
+  // Re-fetch plan when tab regains visibility (e.g. returning from Stripe Checkout)
+  useEffect(() => {
+    if (!session?.user) return;
+    const lastRefreshRef = { current: 0 };
+    const handleVisibility = () => {
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastRefreshRef.current > 5000
+      ) {
+        lastRefreshRef.current = Date.now();
+        fetchUserPlan();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [session?.user, fetchUserPlan]);
+
   // Initialize guest session on mount (client-side only)
   useEffect(() => {
     if (typeof window === "undefined") return;

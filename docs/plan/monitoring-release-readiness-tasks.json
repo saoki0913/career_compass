@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 1,
+  "plan": "monitoring-release-readiness",
+  "scope": "#17 release minimum",
+  "statusValues": [
+    "Todo",
+    "Doing",
+    "Blocked",
+    "Review",
+    "Done"
+  ],
+  "completionCriteria": [
+    "All repo-scoped tasks are Done.",
+    "External-only checks are documented with owner and manual steps.",
+    "Sentry error boundary capture is no-op when DSNs are absent.",
+    "Sentry event scrubbing removes raw headers, URL query/hash, breadcrumb data outside the allowlist, and prompt-like payloads.",
+    "CLI verification results and remaining provider warnings are recorded in docs.",
+    "docs/plan/execution-order.md is updated last with the actual release-readiness result.",
+    "Focused verification and git diff checks pass before commit."
+  ],
+  "lastUpdated": "2026-05-10",
+  "tasks": [
+    {
+      "id": "MRR-001",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Task Tracking",
+      "task": "Create machine-readable task tracker and updater",
+      "evidence": [
+        "docs/plan/monitoring-release-readiness-tasks.json",
+        "scripts/plan/update-monitoring-release-readiness-task-status.mjs"
+      ],
+      "acceptanceCriteria": "Task states can be updated without hand-editing JSON formatting.",
+      "updatedAt": "2026-05-09",
+      "notes": "Task tracker and updater added."
+    },
+    {
+      "id": "MRR-002",
+      "status": "Done",
+      "priority": "P0",
+      "area": "CLI Verification",
+      "task": "Record current release monitoring readiness from CLI checks",
+      "evidence": [
+        "docs/ops/MONITORING_SETUP.md",
+        "docs/release/PRODUCTION.md"
+      ],
+      "acceptanceCriteria": "Vercel, Railway health, Sentry projects, secrets check, robots, and sitemap results are documented with remaining warnings.",
+      "updatedAt": "2026-05-09",
+      "notes": "CLI baseline and remaining warnings documented."
+    },
+    {
+      "id": "MRR-003",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Frontend Observability",
+      "task": "Capture product route error boundary exceptions in Sentry",
+      "evidence": [
+        "src/app/(product)/error.tsx",
+        "src/lib/observability/client.ts"
+      ],
+      "acceptanceCriteria": "Product error boundary sends sanitized boundary metadata to Sentry and keeps user-facing UI unchanged.",
+      "updatedAt": "2026-05-09",
+      "notes": "Product error boundary now captures via Sentry adapter."
+    },
+    {
+      "id": "MRR-004",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Frontend Observability",
+      "task": "Add root global-error boundary with Sentry capture",
+      "evidence": [
+        "src/app/global-error.tsx",
+        "src/lib/observability/client.ts"
+      ],
+      "acceptanceCriteria": "Root rendering errors are captured without exposing raw error details in UI.",
+      "updatedAt": "2026-05-09",
+      "notes": "Root global-error boundary added."
+    },
+    {
+      "id": "MRR-005",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Privacy",
+      "task": "Harden Sentry event scrub allowlist",
+      "evidence": [
+        "src/lib/sentry-sanitize.ts",
+        "src/lib/sentry-sanitize.test.ts"
+      ],
+      "acceptanceCriteria": "Sentry scrub removes URL query/hash, raw headers, breadcrumb data outside the allowlist, and prompt-like values.",
+      "updatedAt": "2026-05-09",
+      "notes": "Sentry scrub allowlist hardened for request URL, headers, query, and breadcrumb data."
+    },
+    {
+      "id": "MRR-006",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Docs",
+      "task": "Document release-minimum monitoring state and manual follow-ups",
+      "evidence": [
+        "docs/ops/MONITORING_SETUP.md",
+        "docs/release/PRODUCTION.md"
+      ],
+      "acceptanceCriteria": "Docs distinguish completed release-minimum checks from deferred Loki, Crons, rollback automation, and deep health work.",
+      "updatedAt": "2026-05-09",
+      "notes": "Manual follow-ups and release-minimum state documented."
+    },
+    {
+      "id": "MRR-007",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Execution Order",
+      "task": "Update execution-order.md last",
+      "evidence": [
+        "docs/plan/execution-order.md"
+      ],
+      "acceptanceCriteria": "Execution order reflects the completed monitoring release minimum and explicitly deferred post-release monitoring work.",
+      "updatedAt": "2026-05-09",
+      "notes": "Execution order updated with monitoring release minimum and deferred P1+ scope."
+    },
+    {
+      "id": "MRR-008",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Verification",
+      "task": "Run focused verification and fix regressions",
+      "evidence": [
+        "npm run test:unit -- src/lib/sanitize.test.ts src/lib/sentry-sanitize.test.ts src/lib/logger.test.ts src/lib/observability/client.test.ts src/app/(product)/error.test.tsx src/app/global-error.test.tsx",
+        "npm run lint"
+      ],
+      "acceptanceCriteria": "Focused tests, static checks, dead-code check, and git diff checks pass or failures are documented with a blocking reason.",
+      "updatedAt": "2026-05-09",
+      "notes": "Focused tests, backend sanitizer/health tests, lint, security scan, and git diff --check completed. npx tsc --noEmit is blocked by existing unrelated dirty worktree errors in src/bff/billing/es-review-stream-policy.test.ts and src/lib/stripe/config.test.ts."
+    },
+    {
+      "id": "MRR-009",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Docs",
+      "task": "Align release monitoring docs to Sentry-first policy",
+      "evidence": [
+        "docs/ops/MONITORING_SETUP.md",
+        "docs/release/PRODUCTION.md",
+        "docs/release/EXTERNAL_SERVICES.md",
+        "docs/plan/execution-order.md"
+      ],
+      "acceptanceCriteria": "Docs make Sentry the primary release monitoring tool, remove comprehensive UptimeRobot setup as a release blocker, and keep UptimeRobot only as optional redundancy.",
+      "updatedAt": "2026-05-10",
+      "notes": "Docs aligned to the user-approved Sentry-first monitoring policy; UptimeRobot is optional redundancy only."
+    },
+    {
+      "id": "MRR-010",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Docs",
+      "task": "Record Railway shared-domain Sentry uptime limitation and defer backend monitors",
+      "evidence": [
+        "docs/ops/MONITORING_SETUP.md",
+        "docs/release/PRODUCTION.md",
+        "docs/release/EXTERNAL_SERVICES.md",
+        "docs/plan/execution-order.md"
+      ],
+      "acceptanceCriteria": "Docs state that frontend uptime monitor reached 200 check-ins, backend Railway generated-domain monitors are blocked by Sentry domain-wide limit, and backend Sentry uptime is deferred until a custom backend domain is configured.",
+      "updatedAt": "2026-05-10",
+      "notes": "Sentry rejected additional uptime monitors for *.railway.app due to the domain-wide limit. Backend /health and /health/ready remain curl-verified on the Railway generated domain, but Sentry uptime monitoring is deferred to the final ops pass after configuring a custom backend domain such as api.shupass.jp."
+    }
+  ]
+}

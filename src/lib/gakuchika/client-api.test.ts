@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchGakuchikaConversation,
@@ -7,11 +7,15 @@ import {
   resumeGakuchikaConversation,
   startGakuchikaConversation,
   streamGakuchikaConversation,
-} from "./client-api";
+} from "@/lib/gakuchika/client-api";
 
 describe("gakuchika client api", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}")));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("uses the existing gakuchika route contract with credentials", async () => {
@@ -35,11 +39,10 @@ describe("gakuchika client api", () => {
     expect(fetch).toHaveBeenNthCalledWith(
       4,
       "/api/gakuchika/gaku-1/conversation/new",
-      {
+      expect.objectContaining({
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      },
+      }),
     );
     expect(fetch).toHaveBeenNthCalledWith(
       5,
@@ -47,7 +50,6 @@ describe("gakuchika client api", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answer: "回答", sessionId: "session-1" }),
       }),
     );
@@ -57,7 +59,6 @@ describe("gakuchika client api", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionId: "session-1" }),
       }),
     );
@@ -67,9 +68,27 @@ describe("gakuchika client api", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ charLimit: 400 }),
       }),
     );
+    const streamHeaders = new Headers(
+      (fetch as ReturnType<typeof vi.fn>).mock.calls[4][1].headers,
+    );
+    expect(streamHeaders.get("Content-Type")).toBe("application/json");
+  });
+
+  it("adds csrf header to gakuchika stream POST through shared postJson", async () => {
+    vi.stubGlobal("document", { cookie: "csrf_token=gaku-csrf" });
+    vi.stubGlobal("window", {});
+
+    await streamGakuchikaConversation("gaku-1", {
+      answer: "回答",
+      sessionId: "session-1",
+    });
+
+    const init = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    const headers = new Headers(init.headers);
+    expect(headers.get("x-csrf-token")).toBe("gaku-csrf");
+    expect(headers.get("Content-Type")).toBe("application/json");
   });
 });

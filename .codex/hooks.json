@@ -49,16 +49,6 @@
             "statusMessage": "Recording edit reminders"
           }
         ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/post-tool-failure-triage.sh\"",
-            "timeout": 30
-          }
-        ]
       }
     ],
     "UserPromptSubmit": [

@@ -199,3 +199,19 @@ export function notifyDocumentStatusChanged(isPublished: boolean) {
     title: isPublished ? "ドキュメントを公開しました" : "ドキュメントを下書きに戻しました",
   });
 }
+
+export function notifyPurchaseSuccess(plan: string, isPlanConfirmed: boolean) {
+  const label = plan === "pro" ? "Pro" : plan === "standard" ? "Standard" : plan;
+  if (!isPlanConfirmed) {
+    return notifyInfo({
+      title: `${label}プランの登録を処理中です`,
+      description: "まもなく反映されます。",
+      duration: 5000,
+    });
+  }
+  return notifySuccess({
+    title: `${label}プランへの登録が完了しました`,
+    description: "クレジットが付与されました。さっそく機能を使ってみましょう。",
+    duration: 6000,
+  });
+}

@@ -277,6 +277,45 @@ describe("api/companies/[id]/interview/start", () => {
     expect(confirmReservationMock).toHaveBeenCalledWith("res-start-1");
   });
 
+  it("keeps transition_line outside persisted conversation messages", async () => {
+    const { POST } = await import("./route");
+
+    await POST(
+      new NextRequest("http://localhost:3000/api/companies/company-1/interview/start", {
+        method: "POST",
+        body: JSON.stringify({
+          selectedIndustry: "商社",
+          selectedRole: "事業企画",
+          roleTrack: "biz_general",
+          interviewFormat: "standard_behavioral",
+          selectionType: "fulltime",
+          interviewStage: "mid",
+          interviewerType: "line_manager",
+          strictnessMode: "standard",
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    const completeData = await onComplete({
+      transition_line: "前回の講評を踏まえて続けます。",
+      question: "まず自己紹介をお願いします。",
+      turn_state: { turnCount: 1, currentTopic: "自己紹介", nextAction: "ask" },
+    });
+
+    expect(saveInterviewConversationProgressMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: "assistant", content: "まず自己紹介をお願いします。" }],
+      }),
+    );
+    expect(completeData).toMatchObject({
+      messages: [{ role: "assistant", content: "まず自己紹介をお願いします。" }],
+      transitionLine: "前回の講評を踏まえて続けます。",
+    });
+  });
+
   it("returns 402 when the user has insufficient credits", async () => {
     const { POST } = await import("./route");
     reserveCreditsMock.mockResolvedValueOnce({ success: false, reservationId: "", newBalance: 0 });

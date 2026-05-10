@@ -40,6 +40,17 @@ const ALLOWED_IMAGE_EXACT = new Set([
   "public/marketing/LP/LP.png",
 ]);
 
+const FORBIDDEN_PREFIX_OVERRIDES = new Set([
+  "public/dashboard/assets/empty-state-hourglass.png",
+  "public/dashboard/assets/empty-state-clipboard.png",
+  "public/dashboard/assets/empty-state-folder.png",
+  "public/dashboard/assets/empty-state-envelope.png",
+  "public/dashboard/assets/empty-state-document.png",
+  "public/dashboard/assets/empty-state-conversation.png",
+  "public/dashboard/assets/empty-state-waiting.png",
+  "public/dashboard/assets/empty-state-trophy.png",
+]);
+
 function normalizeRepoPath(filePath) {
   return String(filePath || "").replaceAll("\\", "/").replace(/^\.\/+/u, "").trim();
 }
@@ -173,7 +184,7 @@ export async function evaluateFiles(files, { cwd = process.cwd(), source = "work
       continue;
     }
     const forbiddenPrefix = FORBIDDEN_PREFIXES.find((prefix) => file.startsWith(prefix));
-    if (forbiddenPrefix) {
+    if (forbiddenPrefix && !FORBIDDEN_PREFIX_OVERRIDES.has(file)) {
       findings.push({ file, reason: `generated/local artifact path is forbidden (${forbiddenPrefix})` });
       continue;
     }

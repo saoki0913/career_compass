@@ -30,6 +30,7 @@ logger = get_logger(__name__)
 
 FEATURE_NAMES = {
     "es_review": "ES添削",
+    "es_review_validation": "ES添削品質検証",
     "gakuchika": "ガクチカ深掘り",
     "motivation": "志望動機作成",
     "interview": "面接対策",
@@ -257,26 +258,6 @@ def _augment_system_prompt_for_provider_json(
             "\nこれは単純な構造化出力タスクです。思考や解説を書かず、"
             "回答のJSONオブジェクトを先に、かつそれだけを返してください。"
         )
-    return f"{system_prompt}{strict_note}"
-
-
-def _augment_system_prompt_for_provider_text(
-    provider: LLMProvider,
-    system_prompt: str,
-    *,
-    feature: str,
-) -> str:
-    if feature != "es_review" or provider == "anthropic":
-        return system_prompt
-
-    strict_note = (
-        "\n\n# 出力形式の厳守\n"
-        "出力は最終本文のみを返してください。"
-        "\n説明、前置き、後書き、見出し、箇条書き、コードブロック、引用符は禁止です。"
-        "\n先頭から本文を書き始め、余計なラベルを付けないでください。"
-    )
-    if provider == "google":
-        strict_note += "\n思考や解説は書かず、本文だけを返してください。"
     return f"{system_prompt}{strict_note}"
 
 
@@ -1040,12 +1021,7 @@ async def _call_openai_compatible_raw_text(
     client = await get_openai_client(for_rag=_is_rag_feature(feature))
 
     normalized_messages, _ = _normalize_chat_messages(messages, user_message)
-    effective_system_prompt = _augment_system_prompt_for_provider_text(
-        provider,
-        system_prompt,
-        feature=feature,
-    )
-    api_messages = [{"role": "system", "content": effective_system_prompt}] + normalized_messages
+    api_messages = [{"role": "system", "content": system_prompt}] + normalized_messages
 
     request_kwargs: dict[str, Any] = {
         "model": model,
@@ -1068,52 +1044,3 @@ async def _call_openai_compatible_raw_text(
         print(f"[{_provider_display_name(provider)}] 空のレスポンスを受信")
         return "", usage_summary
     return content, usage_summary
-
-
-async def _call_openai(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str,
-    response_format: ResponseFormat = "json_object",
-    json_schema: dict | None = None,
-    feature: str = "unknown",
-) -> dict | None:
-    """OpenAI Chat Completions APIを呼び出す。"""
-    result, _ = await _call_openai_compatible(
-        provider="openai",
-        system_prompt=system_prompt,
-        user_message=user_message,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        model=model,
-        response_format=response_format,
-        json_schema=json_schema,
-        feature=feature,
-    )
-    return result
-
-
-async def _call_openai_raw_text(
-    system_prompt: str,
-    user_message: str,
-    messages: list[dict] | None,
-    max_tokens: int,
-    temperature: float,
-    model: str,
-    feature: str = "unknown",
-) -> tuple[str, dict[str, int] | None]:
-    """OpenAI Chat Completions APIを呼び出し、生テキストを返す。"""
-    return await _call_openai_compatible_raw_text(
-        provider="openai",
-        system_prompt=system_prompt,
-        user_message=user_message,
-        messages=messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        model=model,
-        feature=feature,
-    )

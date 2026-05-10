@@ -37,6 +37,7 @@ from app.routers.company_info_config import (
     DDGS_CACHE_TTL,
     DDGS_CACHE_MAX_SIZE,
 )
+from app.utils.jst import now_jst
 
 try:
     from ddgs import DDGS
@@ -82,7 +83,7 @@ def _set_ddgs_cache(query: str, max_results: int, results: list[dict]):
 # ---------------------------------------------------------------------------
 
 def _get_graduation_year() -> int:
-    now = datetime.now()
+    now = now_jst()
     if now.month >= 4:
         return now.year + 2
     else:

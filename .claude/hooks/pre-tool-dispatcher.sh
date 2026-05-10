@@ -30,6 +30,10 @@ case "$TOOL" in
       run_hook "git-push-guard.sh"
     fi
 
+    if guard_command_is_git_branch_create "$CMD"; then
+      run_hook "git-branch-guard.sh"
+    fi
+
     if guard_command_has_destructive_delete "$CMD"; then
       run_hook "destructive-rm-guard.sh"
     fi
@@ -39,6 +43,9 @@ case "$TOOL" in
     fi
 
     if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit'; then
+      if [ -f "$PROJECT_DIR/.claude/hooks/quality-gate-commit-check.sh" ]; then
+        run_hook "quality-gate-commit-check.sh"
+      fi
       run_hook "commit-codex-gate.sh"
     fi
 

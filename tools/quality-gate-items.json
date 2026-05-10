@@ -1,0 +1,2094 @@
+[
+  {
+    "id": "SEC-01",
+    "category": "security",
+    "name_ja": "SQL Injection 防止",
+    "name_en": "sql-injection-prevention",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**",
+      "src/lib/db/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "Drizzle ORM のクエリビルダーを経由せず、文字列結合やテンプレートリテラルで SQL を組み立てている箇所を検出する",
+    "check_regex": "(sql\\.raw|execute\\s*\\(|\\$\\{.*\\}.*(?:SELECT|INSERT|UPDATE|DELETE|WHERE))",
+    "remediation_ja": "Drizzle ORM のクエリビルダー（db.select(), db.insert() 等）を使用し、ユーザー入力を直接 SQL 文字列に埋め込まない。やむを得ず raw SQL を使う場合は sql.placeholder() でパラメータ化する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-02",
+    "category": "security",
+    "name_ja": "XSS 防止",
+    "name_en": "xss-prevention",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/components/**",
+      "src/app/**/*.tsx"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "dangerouslySetInnerHTML をサニタイズなしで使用している箇所を検出する (JSON-LD script タグ内の用途は除外)",
+    "check_regex": null,
+    "remediation_ja": "dangerouslySetInnerHTML の使用を避け、React のテキストレンダリングを使用する。やむを得ない場合は DOMPurify 等でサニタイズしてから渡す。JSON-LD 構造化データ用途は安全",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-03",
+    "category": "security",
+    "name_ja": "CSRF 対策",
+    "name_en": "csrf-protection",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [
+      "src/app/api/webhooks/**",
+      "src/app/api/auth/**"
+    ],
+    "check_pattern": "POST/PUT/DELETE/PATCH メソッドを受け付ける API ルートで CSRF トークン検証が行われていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "mutating な API エンドポイントでは src/lib/csrf.ts の verifyCsrfToken() を呼び出す。Webhook エンドポイントは署名検証で代替する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-04",
+    "category": "security",
+    "name_ja": "認証チェック漏れ",
+    "name_en": "auth-bypass-detection",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [
+      "src/app/api/auth/**",
+      "src/app/api/webhooks/**",
+      "src/app/api/csrf/**"
+    ],
+    "check_pattern": "保護すべき API ルートで認証チェック（getSession, requireAuth 等）が行われていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "認証が必要な API ルートでは getSession() または requireAuth() を呼び出し、未認証時は 401 を返す。ゲスト対応 API では request-identity.ts の resolveRequestIdentity() を使用する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-05",
+    "category": "security",
+    "name_ja": "認可リーク防止",
+    "name_en": "authorization-leak-prevention",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "データアクセス時に所有者/テナントチェック（userId, guestId によるフィルタ）が欠落している箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "データ取得・更新時は必ず userId または guestId で所有権を検証する。db.select() の where 句に eq(table.userId, session.userId) を含める",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-06",
+    "category": "security",
+    "name_ja": "IDOR 防止",
+    "name_en": "idor-prevention",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "URL パラメータやリクエストボディの ID を所有者チェックなしでデータ検索に直接使用している箇所を検出する",
+    "check_regex": "(params\\.id|params\\.\\w+Id|request\\.query\\.\\w+[Ii]d)",
+    "remediation_ja": "URL パラメータから取得した ID でデータを検索する際は、必ず所有者チェック（userId/guestId フィルタ）を併用する。eq(table.id, params.id) だけでなく eq(table.userId, session.userId) も AND 条件に加える",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-07",
+    "category": "security",
+    "name_ja": "テナント境界違反",
+    "name_en": "tenant-boundary-violation",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "src/lib/db/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "マルチユーザー環境でデータアクセス時に userId/guestId フィルタが欠落しており、他ユーザーのデータにアクセス可能な箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "すべてのデータアクセスクエリに userId または guestId のフィルタ条件を含める。共有データを除き、テナント境界を超えたデータ取得を防止する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-08",
+    "category": "security",
+    "name_ja": "シークレット漏洩",
+    "name_en": "secret-exposure",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/*.env.example"
+    ],
+    "check_pattern": "API キー、トークン、パスワード等のシークレットがクライアントサイドコードやログ出力に含まれている箇所を検出する",
+    "check_regex": "(sk_live_|sk_test_|OPENAI_API_KEY|ANTHROPIC_API_KEY|SUPABASE_SERVICE_ROLE|password\\s*=\\s*['\"][^'\"]+['\"])",
+    "remediation_ja": "シークレットは環境変数から取得し、クライアントサイドコードに直接記述しない。NEXT_PUBLIC_ プレフィックスの環境変数にシークレットを入れない。ログ出力時はマスキングする",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": "secrets-guard"
+  },
+  {
+    "id": "SEC-09",
+    "category": "security",
+    "name_ja": "環境ファイルの Git 混入",
+    "name_en": "env-file-in-git",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "pre_commit"
+    ],
+    "file_patterns": [
+      "**/.env",
+      "**/.env.local",
+      "**/.env.production",
+      "**/credentials.json",
+      "**/serviceAccountKey.json"
+    ],
+    "exclude_patterns": [
+      "**/.env.example",
+      "**/.env.template"
+    ],
+    "check_pattern": ".env ファイルや認証情報ファイルが Git にコミットされようとしている状態を検出する",
+    "check_regex": null,
+    "remediation_ja": ".gitignore に .env* パターンを追加する。既にコミットされた場合は git rm --cached で追跡を解除し、シークレットをローテーションする",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": "check-git-hygiene"
+  },
+  {
+    "id": "SEC-10",
+    "category": "security",
+    "name_ja": "CORS 設定不備",
+    "name_en": "cors-misconfiguration",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "backend/app/main.py",
+      "src/middleware.ts",
+      "next.config.*"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "CORS の origin にワイルドカード (*) や過度に許容的な設定がされている箇所を検出する",
+    "check_regex": "(allow_origins\\s*=\\s*\\[\\s*['\"]\\*['\"]|Access-Control-Allow-Origin.*\\*)",
+    "remediation_ja": "CORS の allow_origins には本番ドメインのみを明示的に列挙する。ワイルドカードは開発環境のみに限定し、環境変数で切り替える",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-11",
+    "category": "security",
+    "name_ja": "レート制限欠如",
+    "name_en": "rate-limit-missing",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [
+      "src/app/api/health/**"
+    ],
+    "check_pattern": "公開 API エンドポイントにレート制限が設定されていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "外部からアクセス可能な API エンドポイントにはレート制限を設定する。特に認証・決済・AI 処理系のエンドポイントは厳格な制限を設ける",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-12",
+    "category": "security",
+    "name_ja": "入力バリデーション不足",
+    "name_en": "input-validation-missing",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "ユーザー入力をバリデーションなしで処理している箇所を検出する（Zod スキーマ、Pydantic モデル等によるバリデーションが欠落）",
+    "check_regex": null,
+    "remediation_ja": "API エンドポイントではリクエストボディ・クエリパラメータを Zod スキーマ（Next.js）または Pydantic モデル（FastAPI）でバリデーションする。型チェックだけでなく値の範囲・長さも検証する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-13",
+    "category": "security",
+    "name_ja": "ファイルアップロード検証不足",
+    "name_en": "unsafe-file-upload",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "ファイルアップロード処理で MIME タイプ、ファイルサイズ、拡張子のチェックが欠落している箇所を検出する",
+    "check_regex": "(upload|formData|multipart|file\\.buffer|file\\.stream)",
+    "remediation_ja": "ファイルアップロード処理では MIME タイプのホワイトリスト検証、ファイルサイズ上限チェック、拡張子検証を行う。Content-Type ヘッダーだけでなくマジックバイトも検証する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-14",
+    "category": "security",
+    "name_ja": "パストラバーサル防止",
+    "name_en": "path-traversal-prevention",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "ユーザー入力由来のファイルパスをサニタイズせずにファイルシステム操作に使用している箇所を検出する",
+    "check_regex": "(path\\.join\\(.*(?:params|query|body|req)|fs\\.(read|write|unlink|access).*(?:params|query|body)|\\.\\./)",
+    "remediation_ja": "ユーザー入力由来のパスは path.resolve() + path.relative() で正規化し、許可されたディレクトリ外へのアクセスを防止する。../ を含むパスは拒否する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-15",
+    "category": "security",
+    "name_ja": "SSRF 防止",
+    "name_en": "ssrf-prevention",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**",
+      "backend/app/utils/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "ユーザー入力の URL を許可リストなしで外部リクエストに使用している箇所を検出する",
+    "check_regex": "(fetch\\(.*(?:params|query|body|req\\.)|requests\\.get\\(.*(?:params|query|body)|httpx\\.(get|post)\\(.*(?:params|query))",
+    "remediation_ja": "外部 URL へのリクエストはドメインの許可リスト（allowlist）を用いて制限する。内部ネットワークアドレス（127.0.0.1, 10.x, 192.168.x 等）へのリクエストを拒否する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-16",
+    "category": "security",
+    "name_ja": "ログへの PII 出力防止",
+    "name_en": "pii-in-logs-prevention",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "メールアドレス、電話番号、パスワード等の個人情報がログに出力されている箇所を検出する",
+    "check_regex": "(console\\.log\\(.*(?:email|password|phone|token|secret|apiKey)|logger\\.(info|warn|error)\\(.*(?:email|password|phone|token|secret))",
+    "remediation_ja": "ログ出力時は個人情報をマスキングする。email は先頭2文字以外を *** に、トークンは先頭4文字のみ表示する。構造化ログライブラリのフィルタ機能を活用する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-17",
+    "category": "security",
+    "name_ja": "暗号化不足",
+    "name_en": "missing-encryption",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "機密データが暗号化されずに保存・送信されている箇所を検出する（DB に平文パスワード、HTTP での機密データ送信等）",
+    "check_regex": null,
+    "remediation_ja": "パスワードは bcrypt/argon2 でハッシュ化する。機密データの保存時は AES-256-GCM 等で暗号化する。外部通信は TLS を必須にする",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "SEC-18",
+    "category": "security",
+    "name_ja": "脆弱性のある依存パッケージ",
+    "name_en": "vulnerable-dependency",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "package.json",
+      "package-lock.json",
+      "requirements.txt",
+      "pyproject.toml"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "既知の CVE が報告されているパッケージが依存関係に含まれている状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "npm audit / pip-audit を実行し、脆弱性のあるパッケージを更新する。直接依存はパッチバージョンを上げ、間接依存は overrides/resolutions で対応する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-01",
+    "category": "auth",
+    "name_ja": "認証必須ページのガード漏れ",
+    "name_en": "login-required-missing",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/(protected)/**",
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [
+      "src/app/api/auth/**",
+      "src/app/api/webhooks/**",
+      "src/app/api/csrf/**",
+      "src/app/api/health/**"
+    ],
+    "check_pattern": "保護されたページや API ルートにログインなしでアクセスできる状態を検出する（middleware または route handler での認証チェック漏れ）",
+    "check_regex": null,
+    "remediation_ja": "保護されたルートでは middleware.ts で認証チェックを行うか、route handler 内で getSession() を呼び出し未認証時に redirect/401 を返す",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-02",
+    "category": "auth",
+    "name_ja": "ロールチェック欠如",
+    "name_en": "role-check-missing",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "管理者のみアクセスすべき API で admin/user ロールの検証が行われていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "管理者向け API ルートではセッションから role を取得し、admin ロールでない場合は 403 Forbidden を返す",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-03",
+    "category": "auth",
+    "name_ja": "サーバーサイド認証欠如",
+    "name_en": "server-side-auth-missing",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "クライアントサイドのみで認証を行い、API ルートで認証チェックが行われていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "認証チェックは必ずサーバーサイド（API route handler）で行う。クライアントサイドの認証状態はUX用途のみとし、データアクセスの判断に使わない",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-04",
+    "category": "auth",
+    "name_ja": "セッション有効期限未設定",
+    "name_en": "session-expiry-missing",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/lib/auth/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "セッションタイムアウトが設定されておらず、セッションが無期限に有効な状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "Better Auth の設定でセッション有効期限を設定する。アイドルタイムアウト（30分）と絶対タイムアウト（24時間）の両方を設定する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-05",
+    "category": "auth",
+    "name_ja": "トークン検証不備",
+    "name_en": "token-validation-missing",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/lib/auth/**",
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "JWT やアクセストークンの署名検証、有効期限チェック、issuer チェックが適切に行われていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "トークン検証では署名の正当性、有効期限（exp）、発行者（iss）、対象者（aud）を必ず検証する。検証ライブラリの verify 関数を使い、手動デコードだけで済ませない",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-06",
+    "category": "auth",
+    "name_ja": "リフレッシュトークンの安全でない保存",
+    "name_en": "refresh-token-insecure-storage",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "長期間有効なトークンが localStorage や通常の cookie に保存されている箇所を検出する（HttpOnly cookie 以外）",
+    "check_regex": "(localStorage\\.setItem\\(.*(?:token|refresh|jwt)|sessionStorage\\.setItem\\(.*(?:token|refresh|jwt))",
+    "remediation_ja": "リフレッシュトークンは HttpOnly, Secure, SameSite=Strict の cookie に保存する。localStorage や sessionStorage にトークンを保存しない",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-07",
+    "category": "auth",
+    "name_ja": "ログアウト処理不完全",
+    "name_en": "incomplete-logout",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/lib/auth/**",
+      "src/app/api/auth/**",
+      "src/components/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "ログアウト時にセッション、cookie、localStorage の全クリアが行われていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "ログアウト処理ではサーバーサイドのセッション無効化、HttpOnly cookie の削除、クライアントサイドの localStorage/sessionStorage のクリアをすべて行う",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-08",
+    "category": "auth",
+    "name_ja": "OAuth 設定不備",
+    "name_en": "oauth-misconfiguration",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/lib/auth/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "OAuth のリダイレクト URI が過度に許容的、またはスコープが必要以上に広い設定を検出する",
+    "check_regex": null,
+    "remediation_ja": "OAuth リダイレクト URI は本番ドメインのみ許可し、ワイルドカードを使わない。スコープは最小限（email, profile 等）に限定する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-09",
+    "category": "auth",
+    "name_ja": "削除済みユーザーのアクセス許可",
+    "name_en": "deleted-user-access",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "src/lib/auth/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "無効化または削除済みのユーザーが既存のセッションやトークンでデータにアクセスできる状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "セッション検証時にユーザーの active 状態も確認する。ユーザー無効化時は関連するすべてのセッションとトークンを無効化する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "AUTH-10",
+    "category": "auth",
+    "name_ja": "権限昇格の脆弱性",
+    "name_en": "privilege-escalation",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "一般ユーザーがリクエストパラメータの改変により管理者操作を実行できる脆弱性を検出する",
+    "check_regex": null,
+    "remediation_ja": "ロール変更、権限付与、管理者機能の API ではサーバーサイドでセッションのロールを検証する。リクエストボディの role フィールドを信頼しない",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-01",
+    "category": "payment",
+    "name_ja": "二重課金防止",
+    "name_en": "double-charging-prevention",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/webhooks/stripe/**",
+      "src/app/api/credits/**",
+      "src/lib/stripe/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "決済処理にべき等性キーが設定されておらず、リトライ時に二重課金が発生する可能性がある箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "Stripe API 呼び出し時は idempotencyKey を設定する。Webhook 処理では event.id を DB に記録し、同一イベントの重複処理を防止する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-02",
+    "category": "payment",
+    "name_ja": "Webhook 署名未検証",
+    "name_en": "webhook-signature-missing",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/webhooks/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "Stripe Webhook のリクエストで署名検証（constructEvent）が行われていない箇所を検出する",
+    "check_regex": "(stripe\\.webhooks\\.constructEvent|verifyWebhookSignature)",
+    "remediation_ja": "Webhook エンドポイントでは stripe.webhooks.constructEvent() を使用してリクエストの署名を検証する。検証失敗時は 400 を返す",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-03",
+    "category": "payment",
+    "name_ja": "権限反映漏れ",
+    "name_en": "permission-not-reflected",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/webhooks/stripe/**",
+      "src/app/api/credits/**",
+      "src/lib/stripe/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "決済成功時にユーザーの権限やクレジットが正しく更新されていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "checkout.session.completed や invoice.payment_succeeded の Webhook ハンドラで、ユーザーのプラン・クレジット・権限を DB に確実に反映する。トランザクション内で処理する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-04",
+    "category": "payment",
+    "name_ja": "解約処理不完全",
+    "name_en": "cancellation-incomplete",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/webhooks/stripe/**",
+      "src/lib/stripe/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "サブスクリプション解約時にアクセス権の取り消しが行われていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "customer.subscription.deleted の Webhook ハンドラでユーザーのプランを無料プランに戻し、有料機能へのアクセスを取り消す。解約日時を記録する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-05",
+    "category": "payment",
+    "name_ja": "返金状態未反映",
+    "name_en": "refund-not-reflected",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/webhooks/stripe/**",
+      "src/lib/stripe/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "返金処理時にユーザーの状態（クレジット、プラン）が適切に更新されていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "charge.refunded の Webhook ハンドラでクレジットの回収またはプランの調整を行う。部分返金と全額返金の両方を考慮する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-06",
+    "category": "payment",
+    "name_ja": "無料トライアル管理不備",
+    "name_en": "trial-mismanagement",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/credits/**",
+      "src/lib/stripe/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "無料トライアルの開始・終了ロジックが不正確で、無料期間の二重取得や終了後の継続利用が可能な状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "トライアル開始日時を DB に記録し、終了判定は JST 基準で行う。トライアル済みフラグを設けて再取得を防止する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-07",
+    "category": "payment",
+    "name_ja": "プラン変更処理の不備",
+    "name_en": "plan-change-unsafe",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/webhooks/stripe/**",
+      "src/lib/stripe/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "アップグレード・ダウングレード時のプロレーション計算や権限変更が正しく処理されていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "プラン変更時は Stripe のプロレーション設定を使用し、差額を正確に計算する。ダウングレード時は現在の請求期間終了まで有料機能を維持する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-08",
+    "category": "payment",
+    "name_ja": "請求情報の誤り",
+    "name_en": "billing-info-wrong",
+    "severity": "critical",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/webhooks/stripe/**",
+      "src/lib/stripe/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "法的に必要な請求情報（税額、事業者名、インボイス番号等）が不正確または欠落している箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "Stripe の Tax 機能を使用して正確な税額計算を行う。インボイスには法的に必要な全項目を含める。特定商取引法に基づく表記を確認する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-09",
+    "category": "payment",
+    "name_ja": "テストキーの本番混入",
+    "name_en": "test-key-in-production",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/*.env.example"
+    ],
+    "check_pattern": "Stripe のテストキー（sk_test_, pk_test_）が本番コードにハードコードされている箇所を検出する",
+    "check_regex": "(sk_test_[a-zA-Z0-9]+|pk_test_[a-zA-Z0-9]+)",
+    "remediation_ja": "Stripe キーは環境変数から取得する。テスト/本番の切り替えは STRIPE_SECRET_KEY 環境変数で行い、コードにキーを直接記述しない",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PAY-10",
+    "category": "payment",
+    "name_ja": "Stripe シークレットキーの露出",
+    "name_en": "stripe-secret-key-exposed",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "Stripe のシークレットキーがフロントエンドコードに含まれている箇所を検出する",
+    "check_regex": "(NEXT_PUBLIC_.*STRIPE.*SECRET|sk_live_[a-zA-Z0-9]+)",
+    "remediation_ja": "Stripe シークレットキーはサーバーサイドのみで使用する。NEXT_PUBLIC_ プレフィックスの環境変数にシークレットキーを設定しない。フロントエンドでは公開キー（pk_）のみ使用する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COR-01",
+    "category": "correctness",
+    "name_ja": "Off-by-one エラー",
+    "name_en": "off-by-one-error",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "ループ、ページネーション、日付境界の計算で ±1 のずれがある箇所を検出する（< と <= の混同、0始まりと1始まりの混同等）",
+    "check_regex": null,
+    "remediation_ja": "ループの境界条件を明示的にテストする。ページネーションでは offset = (page - 1) * limit のパターンを使う。日付範囲は開始日を含み終了日を含まない半開区間で統一する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COR-02",
+    "category": "correctness",
+    "name_ja": "Null/Undefined クラッシュ",
+    "name_en": "null-undefined-crash",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "API レスポンスの .data や result の深いプロパティアクセスで null/undefined チェックが欠落している箇所を検出する（[0] アクセスはDrizzle .returning() 等で一般的なため除外）",
+    "check_regex": "(\\.data\\.[a-zA-Z]+\\.[a-zA-Z]|result\\.[a-zA-Z]+\\.(?!length|map|filter|forEach|find|some|every|reduce|join|includes|indexOf|slice|concat))",
+    "remediation_ja": "Optional な値にはオプショナルチェーン（?.）または null チェックを使用する。API レスポンスの data フィールドは存在確認してからアクセスする",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COR-03",
+    "category": "correctness",
+    "name_ja": "型の不一致",
+    "name_en": "type-mismatch",
+    "severity": "high",
+    "check_type": "ast",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "API レスポンスの型とフロントエンドの期待する型が不一致な箇所を検出する（フィールド名の違い、number vs string 等）",
+    "check_regex": null,
+    "remediation_ja": "共通の型定義を作成し、API レスポンスとフロントエンドの型を統一する。Zod スキーマから型を生成する場合は z.infer<typeof schema> を使用する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COR-04",
+    "category": "correctness",
+    "name_ja": "条件分岐の誤り",
+    "name_en": "wrong-condition-branch",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "エッジケースで誤った if/else 分岐に入る箇所を検出する（空配列、空文字列、0、false の扱い間違い等）",
+    "check_regex": null,
+    "remediation_ja": "条件式では == ではなく === を使用する。空配列チェックは array.length === 0、空文字列チェックは str === '' で明示的に行う。Boolean 変換の暗黙的なルールに頼らない",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COR-05",
+    "category": "correctness",
+    "name_ja": "エラーハンドリング欠如",
+    "name_en": "missing-error-handling",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "非同期操作に try/catch や Error Boundary が設定されておらず、未処理のエラーが発生する可能性がある箇所を検出する。正規表現では try/catch のスコープを正確に判定できないためエージェント検査が必要",
+    "check_regex": null,
+    "remediation_ja": "すべての非同期操作を try/catch で囲む。React コンポーネントでは Error Boundary を配置する。API ルートでは createApiErrorResponse() でエラーレスポンスを返す",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COR-06",
+    "category": "correctness",
+    "name_ja": "二重処理防止",
+    "name_en": "duplicate-processing",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "同一アクションが二重送信により2回処理される可能性がある箇所を検出する（フォーム送信、API 呼び出し等）",
+    "check_regex": null,
+    "remediation_ja": "フォーム送信ボタンを処理中に無効化する。API 側ではべき等性キーまたは重複チェック（最新リクエストのタイムスタンプ比較等）を実装する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COR-07",
+    "category": "correctness",
+    "name_ja": "状態の不整合",
+    "name_en": "state-inconsistency",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "DB、キャッシュ、UI の状態が同期されておらず不整合が発生する箇所を検出する（楽観的更新の rollback 漏れ、SWR のキャッシュ更新漏れ等）",
+    "check_regex": null,
+    "remediation_ja": "DB 更新後は SWR の mutate() でキャッシュを更新する。楽観的更新を使う場合は onError で rollback 処理を実装する。トランザクション内で複数テーブルを更新する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COR-08",
+    "category": "correctness",
+    "name_ja": "べき等性違反",
+    "name_en": "idempotency-violation",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "同一リクエストを複数回送信した場合に異なる結果が生じる API を検出する（カウンタの加算、リストへの追加等）",
+    "check_regex": null,
+    "remediation_ja": "PUT/DELETE は自然にべき等にする。POST でリソース作成する場合はべき等性キーを受け取り、同一キーでの再実行時は既存リソースを返す",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "DT-01",
+    "category": "datetime",
+    "name_ja": "タイムゾーン混在",
+    "name_en": "timezone-mix",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "同一フローで UTC と JST が混在して使用されている箇所を検出する（プロジェクト規約では JST 基準）",
+    "check_regex": null,
+    "remediation_ja": "ビジネスロジックの日時処理は Asia/Tokyo (JST) を基準とする。DB 保存は UTC で行い、表示・比較時に JST に変換する。dayjs.tz('Asia/Tokyo') を使用する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "DT-02",
+    "category": "datetime",
+    "name_ja": "日付境界バグ",
+    "name_en": "date-boundary-bug",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "深夜0時、月末、年末等の境界ケースで日付計算が不正確になる箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "月末日の取得には endOf('month') を使用する。日次リセットは JST 0:00 基準で行う。うるう年、夏時間（日本は該当しないが UTC 変換元の地域）を考慮する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "DT-03",
+    "category": "datetime",
+    "name_ja": "締切判定ロジックの誤り",
+    "name_en": "deadline-logic-wrong",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "「本日まで」と「明日まで」の比較ロジックが不正確な箇所を検出する（「本日23:59まで」が翌日扱いになる等）",
+    "check_regex": null,
+    "remediation_ja": "締切判定は JST の日付単位で比較する。「本日まで」は JST の当日 23:59:59 まで有効とする。isSameOrBefore(deadline, 'day') のように日単位比較を使用する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "DT-04",
+    "category": "datetime",
+    "name_ja": "素の Date コンストラクタ使用",
+    "name_en": "bare-date-constructor",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/node_modules/**"
+    ],
+    "check_pattern": "ビジネスロジックでタイムゾーン指定なしの new Date() を使用している箇所を検出する。DB タイムスタンプ用（createdAt/updatedAt）や getJstDateKey() でラップされた使用は除外する",
+    "check_regex": "(?<!(?:createdAt|updatedAt|created_at|updated_at)\\s*[=:]\\s*)(?<!getJstDateKey\\()new Date\\(\\)",
+    "remediation_ja": "ビジネスロジックでは new Date() の代わりに dayjs().tz('Asia/Tokyo') を使用する。タイムスタンプ取得のみの用途（ログ、パフォーマンス計測）では new Date() を許容する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "DT-05",
+    "category": "datetime",
+    "name_ja": "表示フォーマットの不一致",
+    "name_en": "display-format-mismatch",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/components/**",
+      "src/app/**/*.tsx"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "日付が誤ったロケールやフォーマットで表示されている箇所を検出する（英語フォーマットで日本語 UI に表示等）",
+    "check_regex": null,
+    "remediation_ja": "日本語 UI では YYYY年M月D日 または YYYY/MM/DD 形式で表示する。dayjs の locale('ja') と format() を使用し、表示フォーマットを統一する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PERF-01",
+    "category": "performance",
+    "name_ja": "N+1 クエリ",
+    "name_en": "n-plus-one-query",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**",
+      "src/lib/db/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "ループ内でデータベースクエリを実行している箇所を検出する（for/forEach/map 内の db.select()）",
+    "check_regex": "(for\\s*\\(.*\\)\\s*\\{[^}]*(?:db\\.|await.*select|await.*query)|forEach\\([^)]*\\)\\s*=>\\s*\\{[^}]*(?:db\\.|await.*select))",
+    "remediation_ja": "ループ内のクエリを1つの IN 句クエリにまとめる。Drizzle ORM では db.select().where(inArray(table.id, ids)) を使用する。必要に応じて with 句で JOIN する",
+    "related_skill": "database-optimizer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PERF-02",
+    "category": "performance",
+    "name_ja": "不要な再レンダリング",
+    "name_en": "unnecessary-rerender",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit"
+    ],
+    "file_patterns": [
+      "src/components/**",
+      "src/app/**/*.tsx"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "状態変更なしにコンポーネントが再レンダリングされている箇所を検出する（不安定なオブジェクト参照、不要な useEffect 等）",
+    "check_regex": null,
+    "remediation_ja": "コールバック関数は useCallback で、計算結果は useMemo でメモ化する。オブジェクトリテラルを props に直接渡さない。React DevTools の Profiler で再レンダリングを確認する",
+    "related_skill": "nextjs-developer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PERF-03",
+    "category": "performance",
+    "name_ja": "冗長な API 呼び出し",
+    "name_en": "redundant-api-call",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/components/**",
+      "src/app/**/*.tsx",
+      "src/hooks/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "キャッシュを使わず同一 API を複数回呼び出している箇所を検出する（SWR の deduplication を活用していない等）",
+    "check_regex": null,
+    "remediation_ja": "SWR の useSWR() を使用してリクエストの重複排除とキャッシュを活用する。同一コンポーネントツリー内の複数箇所から同じ API を呼ぶ場合は SWR のキーを統一する",
+    "related_skill": "nextjs-developer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PERF-04",
+    "category": "performance",
+    "name_ja": "ブロッキング同期処理",
+    "name_en": "blocking-sync-operation",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "イベントループをブロックする同期 I/O 操作を検出する（fs.readFileSync, 大量データの同期処理等）",
+    "check_regex": "(readFileSync|writeFileSync|execSync|JSON\\.parse\\(fs\\.)",
+    "remediation_ja": "I/O 操作は非同期版（readFile, writeFile）を使用する。大量データの処理はストリーミングまたはワーカースレッドで行う",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PERF-05",
+    "category": "performance",
+    "name_ja": "ページネーション欠如",
+    "name_en": "missing-pagination",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "大量のデータセットを limit/offset なしで全件取得している箇所を検出する",
+    "check_regex": "(db\\.select\\(\\)(?!.*limit)(?!.*\\.limit)|findMany\\(\\{(?!.*take))",
+    "remediation_ja": "リスト取得 API では limit と offset（またはカーソルベース）のページネーションを実装する。デフォルトの limit を設定し、上限値も制限する",
+    "related_skill": "database-optimizer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PERF-06",
+    "category": "performance",
+    "name_ja": "インデックス欠如",
+    "name_en": "missing-index",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/lib/db/schema.ts",
+      "drizzle_pg/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "頻繁にクエリされるカラム（userId, guestId, createdAt 等）にデータベースインデックスが設定されていない状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "WHERE 句や JOIN で頻繁に使用されるカラムにインデックスを追加する。Drizzle ORM では index() を使用してスキーマに定義する。複合インデックスも検討する",
+    "related_skill": "database-optimizer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PERF-07",
+    "category": "performance",
+    "name_ja": "キャッシュ欠如",
+    "name_en": "missing-cache",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "再計算可能な結果をリクエストごとに毎回計算している箇所を検出する（マスタデータ、設定値等）",
+    "check_regex": null,
+    "remediation_ja": "変更頻度の低いデータにはインメモリキャッシュまたは HTTP キャッシュヘッダー（Cache-Control）を設定する。SWR の staleTime を適切に設定する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "PERF-08",
+    "category": "performance",
+    "name_ja": "メモリリーク",
+    "name_en": "memory-leak",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/components/**",
+      "src/app/**/*.tsx",
+      "src/hooks/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "コンポーネントのアンマウント時にイベントリスナーやタイマーがクリーンアップされていない箇所を検出する",
+    "check_regex": "(addEventListener(?!.*removeEventListener)|setInterval(?!.*clearInterval)|setTimeout(?!.*clearTimeout))",
+    "remediation_ja": "useEffect のクリーンアップ関数で addEventListener → removeEventListener、setInterval → clearInterval、setTimeout → clearTimeout を対にする。AbortController で fetch をキャンセルする",
+    "related_skill": "nextjs-developer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COST-01",
+    "category": "cost",
+    "name_ja": "過剰な外部 API 呼び出し",
+    "name_en": "excessive-api-calls",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**",
+      "backend/app/utils/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "不必要に外部 API（LLM、検索 API 等）を呼び出している箇所を検出する（キャッシュ可能な結果の再取得、未使用の API 呼び出し等）",
+    "check_regex": null,
+    "remediation_ja": "外部 API の呼び出し結果はキャッシュする。バッチ処理可能なリクエストはまとめて送信する。不要な API 呼び出しを削除する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COST-02",
+    "category": "cost",
+    "name_ja": "高コストモデルの過剰使用",
+    "name_en": "expensive-model-overuse",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "backend/app/routers/**",
+      "backend/app/utils/llm*.py",
+      "backend/app/prompts/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "安価なモデルで十分なタスクに高コストの LLM モデルを使用している箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "タスクの複雑度に応じてモデルを選択する。分類・抽出等の単純タスクには軽量モデル、創造的な文章生成には高品質モデルを使い分ける。llm-architect スキルの推奨に従う",
+    "related_skill": "llm-architect",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COST-03",
+    "category": "cost",
+    "name_ja": "トークンの無駄遣い",
+    "name_en": "token-waste",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "backend/app/routers/**",
+      "backend/app/utils/llm*.py",
+      "backend/app/prompts/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "LLM に送信するコンテキストに不必要な履歴や冗長な情報が含まれている箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "会話履歴は直近 N ターンに制限する。プロンプトテンプレートから不要な説明を削除する。長いコンテキストは要約してから送信する",
+    "related_skill": "prompt-engineer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COST-04",
+    "category": "cost",
+    "name_ja": "過剰な DB 操作",
+    "name_en": "excessive-db-operations",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "不必要なデータベースクエリや書き込みが行われている箇所を検出する（読み取り専用の処理での更新、未使用データの取得等）",
+    "check_regex": null,
+    "remediation_ja": "必要なカラムのみ SELECT する。不要な UPDATE を削除する。バッチ INSERT/UPDATE を使用して DB ラウンドトリップを減らす",
+    "related_skill": "database-optimizer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COST-05",
+    "category": "cost",
+    "name_ja": "リトライストーム",
+    "name_en": "retry-storm",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "失敗時に指数バックオフなしで無制限にリトライする箇所を検出する",
+    "check_regex": "(while\\s*\\(true\\)\\s*\\{[^}]*(?:retry|fetch|request)|retry.*(?:max|limit)\\s*:\\s*(?:Infinity|999|100))",
+    "remediation_ja": "リトライには最大回数（3-5回）と指数バックオフ（initial: 1s, factor: 2）を設定する。リトライ可能なエラー（5xx, タイムアウト）のみリトライし、4xx はリトライしない",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "COST-06",
+    "category": "cost",
+    "name_ja": "無料枠の悪用防止不足",
+    "name_en": "free-tier-abuse-prevention",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "無料ユーザーが高コスト機能（AI 処理等）を無制限に使用できる状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "無料ユーザーには日次/月次の使用制限を設ける。クレジット消費前にプランと残高をチェックする。CLAUDE.md のビジネスルール「成功時のみ消費」に従う",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "TST-01",
+    "category": "testing",
+    "name_ja": "ユニットテスト欠如",
+    "name_en": "missing-unit-test",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/lib/**",
+      "src/utils/**",
+      "backend/app/utils/**",
+      "backend/app/services/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/node_modules/**"
+    ],
+    "check_pattern": "新規作成された関数やモジュールに対応するテストファイルが存在しない状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "新しい関数/モジュールには対応するテストファイル（*.test.ts, *_test.py）を作成する。正常系・異常系・境界値のテストケースを含める",
+    "related_skill": "test-automator",
+    "enforced_by_hook": "tdd-enforcement-guard"
+  },
+  {
+    "id": "TST-02",
+    "category": "testing",
+    "name_ja": "認証境界テスト欠如",
+    "name_en": "missing-auth-test",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "API エンドポイントに未認証アクセスや権限不足のテストケースが存在しない状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "API テストに未認証での 401 レスポンス、権限不足での 403 レスポンス、他ユーザーのデータへのアクセス拒否のテストケースを追加する",
+    "related_skill": "test-automator",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "TST-03",
+    "category": "testing",
+    "name_ja": "エラーパステスト欠如",
+    "name_en": "missing-error-test",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**/*.test.*",
+      "backend/tests/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "テストファイルで正常系のみテストされ、エラーパス（例外発生、バリデーション失敗、タイムアウト等）がテストされていない状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "各テストファイルにエラーパスのテストケースを追加する。外部 API のエラー、バリデーション失敗、タイムアウト、ネットワークエラーをモックしてテストする",
+    "related_skill": "test-automator",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "TST-04",
+    "category": "testing",
+    "name_ja": "境界値テスト欠如",
+    "name_en": "missing-edge-case-test",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**/*.test.*",
+      "backend/tests/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "境界値（空配列、空文字列、最大値、最小値、null）のテストケースが存在しない状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "入力値の境界条件をテストする。空配列/空文字列、最大/最小値、null/undefined、上限ぴったりの値を含むテストケースを追加する",
+    "related_skill": "test-automator",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "TST-05",
+    "category": "testing",
+    "name_ja": "テストファイルの陳腐化",
+    "name_en": "test-file-out-of-sync",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**/*.test.*",
+      "backend/tests/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "テストファイルが古い API やシグネチャを参照しており、実装と同期が取れていない状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "実装を変更した際は対応するテストファイルも更新する。テストの import パスと関数シグネチャが最新の実装と一致しているか確認する",
+    "related_skill": "test-automator",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "MNT-01",
+    "category": "maintainability",
+    "name_ja": "デッドコード",
+    "name_en": "dead-code",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/node_modules/**"
+    ],
+    "check_pattern": "使用されていない関数、変数、import 文を検出する",
+    "check_regex": null,
+    "remediation_ja": "未使用の import は削除する。未使用の関数・変数は削除するか、将来使用する場合はコメントで理由を記載する。ESLint の no-unused-vars ルールを有効にする",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": "bandaid-guard"
+  },
+  {
+    "id": "MNT-02",
+    "category": "maintainability",
+    "name_ja": "ロジックの重複",
+    "name_en": "duplicate-logic",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "同一のロジックが複数箇所に重複して実装されている箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "重複ロジックを共通関数/ユーティリティに抽出する。React コンポーネントではカスタムフックに共通ロジックをまとめる。DRY 原則に従う",
+    "related_skill": "refactoring-specialist",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "MNT-03",
+    "category": "maintainability",
+    "name_ja": "巨大な関数",
+    "name_en": "fat-function",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "50行を超える関数を検出する（テストファイルを除く）",
+    "check_regex": null,
+    "remediation_ja": "50行を超える関数は責務ごとに分割する。ヘルパー関数の抽出、早期リターンパターンの適用、策略パターン等で行数を削減する",
+    "related_skill": "refactoring-specialist",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "MNT-04",
+    "category": "maintainability",
+    "name_ja": "マジックナンバー",
+    "name_en": "magic-number",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*",
+      "**/tailwind.config.*"
+    ],
+    "check_pattern": "名前付き定数なしでハードコードされた閾値や数値を検出する（0, 1, -1, HTTP ステータスコード等の自明な値を除く）",
+    "check_regex": "(===?\\s*(?:[2-9]\\d{2,}|[1-9]\\d{3,})|>\\s*(?:[2-9]\\d|[1-9]\\d{2,})|<\\s*(?:[2-9]\\d|[1-9]\\d{2,}))",
+    "remediation_ja": "ハードコードされた数値を名前付き定数に置き換える。例: const MAX_RETRY_COUNT = 3; const FREE_DAILY_LIMIT = 5; ファイル先頭または設定ファイルで定義する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "MNT-05",
+    "category": "maintainability",
+    "name_ja": "陳腐化したコメント",
+    "name_en": "stale-comment",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/**",
+      "backend/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "コメントの内容が現在の実装と一致しておらず、誤解を招く状態を検出する",
+    "check_regex": null,
+    "remediation_ja": "コードを変更した際は関連するコメントも更新する。不要になったコメントは削除する。コードで自明な内容のコメントは書かず、「なぜ」を説明するコメントを残す",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "API-01",
+    "category": "apiDesign",
+    "name_ja": "HTTP メソッドの誤用",
+    "name_en": "wrong-http-method",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "状態変更に GET メソッド、べき等な読み取りに POST メソッドを使用している箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "読み取りには GET、作成には POST、更新には PUT/PATCH、削除には DELETE を使用する。GET で副作用のある操作を行わない。べき等な操作は PUT で実装する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "API-02",
+    "category": "apiDesign",
+    "name_ja": "HTTP ステータスコードの誤用",
+    "name_en": "wrong-status-code",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "エラー時に 200 を返す、クライアントエラーに 500 を返す等、不適切な HTTP ステータスコードの使用を検出する",
+    "check_regex": "(NextResponse\\.json\\(.*error.*\\{\\s*status:\\s*200|Response\\.json\\(.*error.*\\{\\s*status:\\s*200)",
+    "remediation_ja": "正常応答は 200/201、バリデーションエラーは 400、認証エラーは 401、権限エラーは 403、未発見は 404、サーバーエラーは 500 を返す。createApiErrorResponse() を使用する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "API-03",
+    "category": "apiDesign",
+    "name_ja": "エラーレスポンス未構造化",
+    "name_en": "missing-structured-error-response",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "createApiErrorResponse() パターンを使わずに直接 JSON でエラーレスポンスを返している箇所を検出する",
+    "check_regex": "(NextResponse\\.json\\(\\s*\\{\\s*(?:error|message)\\s*:|Response\\.json\\(\\s*\\{\\s*(?:error|message)\\s*:)",
+    "remediation_ja": "エラーレスポンスは createApiErrorResponse() を使用して構造化する。userMessage（ユーザー向け）と action（次のアクション提案）を含める。X-Request-Id を付与する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "API-04",
+    "category": "apiDesign",
+    "name_ja": "リクエストバリデーション欠如",
+    "name_en": "missing-request-validation",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "post_edit",
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**"
+    ],
+    "exclude_patterns": [
+      "**/*.test.*",
+      "**/*.spec.*"
+    ],
+    "check_pattern": "リクエストボディやクエリパラメータを Zod スキーマ等でバリデーションせずに直接使用している箇所を検出する",
+    "check_regex": "(await\\s+request\\.json\\(\\)(?!.*parse|.*safeParse|.*validate))",
+    "remediation_ja": "リクエストボディは Zod スキーマの .parse() または .safeParse() でバリデーションする。バリデーションエラー時は 400 と詳細なエラーメッセージを返す",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "API-05",
+    "category": "apiDesign",
+    "name_ja": "破壊的変更の無版管理",
+    "name_en": "unversioned-breaking-change",
+    "severity": "high",
+    "check_type": "agent",
+    "applicable_at": [
+      "pre_commit",
+      "pre_pr"
+    ],
+    "file_patterns": [
+      "src/app/api/**",
+      "backend/app/routers/**"
+    ],
+    "exclude_patterns": [],
+    "check_pattern": "既存の API コントラクト（レスポンス形状、必須パラメータ、URL パス）がバージョニングなしに変更されている箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "既存 API の破壊的変更は新バージョン（v2）として追加し、旧バージョンを一定期間維持する。やむを得ない場合はフロントエンドとバックエンドを同時に更新する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "IDOR-01",
+    "category": "security",
+    "name_ja": "IDOR（安全でない直接オブジェクト参照）",
+    "name_en": "insecure-direct-object-reference",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["src/app/api/**/route.ts"],
+    "exclude_patterns": ["**/*.test.*", "**/*.spec.*"],
+    "check_pattern": "動的パラメータの API route で、URL のリソース ID に対するオーナー検証がない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "buildOwnerCondition() や buildOwnedDeadlineCondition() で所有権を検証する。URL パラメータだけでリソースにアクセスしない",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "CORS-01",
+    "category": "security",
+    "name_ja": "CORS ワイルドカード許可",
+    "name_en": "cors-wildcard-origin",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["src/app/api/**", "backend/app/**"],
+    "exclude_patterns": [],
+    "check_pattern": "CORS の Access-Control-Allow-Origin に * を設定している箇所を検出する",
+    "check_regex": "(?:Access-Control-Allow-Origin['\": ]*\\*|allow_origins\\s*=\\s*\\[\\s*['\"]?\\*['\"]?\\s*\\])",
+    "remediation_ja": "本番環境では特定のオリジンのみを許可する。src/lib/trusted-origins.ts の TRUSTED_ORIGINS を使用する",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "KEY-01",
+    "category": "security",
+    "name_ja": "汎用 API キーのハードコード",
+    "name_en": "hardcoded-api-key",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["src/**", "backend/**"],
+    "exclude_patterns": ["**/*.test.*", "**/*.spec.*"],
+    "check_pattern": "OpenAI、Anthropic、Supabase 等の API キーがソースコードにハードコードされている箇所を検出する",
+    "check_regex": "(sk-[a-zA-Z0-9]{20,}|sk-ant-[a-zA-Z0-9-]{20,}|NEXT_PUBLIC_[A-Z_]*(?:SECRET|SERVICE_ROLE))",
+    "remediation_ja": "API キーは環境変数で管理する。NEXT_PUBLIC_ プレフィックスで秘密鍵を公開しない",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": "secrets-guard"
+  },
+  {
+    "id": "VAL-01",
+    "category": "correctness",
+    "name_ja": "サーバーサイド入力バリデーション欠如",
+    "name_en": "missing-server-validation",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["src/app/api/**/route.ts"],
+    "exclude_patterns": [],
+    "check_pattern": "POST/PUT/PATCH API route でリクエストボディの入力検証（zod, yup 等）が行われていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "zod スキーマで入力を検証する。request.json() の結果を直接使わず、schema.parse() または safeParse() で検証する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "TIMEOUT-01",
+    "category": "performance",
+    "name_ja": "外部 fetch のタイムアウト未設定",
+    "name_en": "fetch-missing-timeout",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["src/**", "backend/**"],
+    "exclude_patterns": ["**/*.test.*", "**/*.spec.*"],
+    "check_pattern": "外部 API への fetch 呼び出しに AbortController/signal によるタイムアウトが設定されていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "AbortSignal.timeout() または AbortController を使って外部 fetch にタイムアウトを設定する。Python では requests.get(url, timeout=30) を使用する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "DEDUP-01",
+    "category": "correctness",
+    "name_ja": "API 二重実行防止の欠如",
+    "name_en": "missing-dedup-api",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["src/app/api/**/route.ts"],
+    "exclude_patterns": [],
+    "check_pattern": "POST API route に冪等性キーや二重実行防止のロジックがない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "Idempotency-Key ヘッダーの確認、またはデータベースのユニーク制約で二重実行を防止する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "DEDUP-02",
+    "category": "frontend",
+    "name_ja": "UI 二重送信防止の欠如",
+    "name_en": "missing-dedup-ui",
+    "severity": "medium",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["src/components/**"],
+    "exclude_patterns": ["**/*.test.*", "**/*.spec.*"],
+    "check_pattern": "フォーム送信や非同期 onClick でボタンの disabled 制御がない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "isSubmitting / isPending state でボタンを disabled にする。React Hook Form の formState.isSubmitting を活用する",
+    "related_skill": "ui-designer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "TIMEOUT-02",
+    "category": "performance",
+    "name_ja": "Python HTTP リクエストのタイムアウト未設定",
+    "name_en": "python-requests-missing-timeout",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["backend/**"],
+    "exclude_patterns": ["backend/tests/**"],
+    "check_pattern": "Python の requests/httpx ライブラリの HTTP 呼び出しに timeout パラメータが設定されていない箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "requests.get(url, timeout=30) のように timeout を明示指定する。httpx では httpx.AsyncClient(timeout=30) を使用する",
+    "related_skill": "fastapi-developer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "VAL-02",
+    "category": "correctness",
+    "name_ja": "リクエストボディ未検証アクセス",
+    "name_en": "unvalidated-body-access",
+    "severity": "high",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["src/app/api/**/route.ts"],
+    "exclude_patterns": [],
+    "check_pattern": "request.json() の結果をバリデーションなしで直接使用している箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "const body = await request.json() の後に zod schema.parse(body) で検証する",
+    "related_skill": "code-reviewer",
+    "enforced_by_hook": null
+  },
+  {
+    "id": "CORS-02",
+    "category": "security",
+    "name_ja": "credentials と CORS ワイルドカードの併用",
+    "name_en": "cors-credentials-wildcard",
+    "severity": "critical",
+    "check_type": "pattern",
+    "applicable_at": ["post_edit", "pre_commit", "pre_pr"],
+    "file_patterns": ["src/app/api/**", "backend/app/**"],
+    "exclude_patterns": [],
+    "check_pattern": "Access-Control-Allow-Credentials: true と Access-Control-Allow-Origin: * を同時に使用している箇所を検出する",
+    "check_regex": null,
+    "remediation_ja": "credentials: true を使う場合、origin を特定ドメインに限定する。ワイルドカードとの併用はブラウザがブロックする上、設定ミスのシグナル",
+    "related_skill": "security-auditor",
+    "enforced_by_hook": null
+  }
+]

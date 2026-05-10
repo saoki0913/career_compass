@@ -7,7 +7,7 @@
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
 	backend-test-live-es-review backend-test-interview-calibration \
-	deploy deploy-stage-all deploy-check deploy-migrate release-pr rollback-prod ops-status ops-auth-check ops-release-check ops-secrets-sync \
+	deploy deploy-stage-all deploy-check deploy-migrate release-pr rollback-prod ops-status ops-auth-check ops-release-check ops-secrets-sync stripe-preflight \
 	db-up db-down db-restart db-down-clean db-local-status \
 	supabase-start supabase-stop supabase-stop-clean supabase-status
 
@@ -660,7 +660,11 @@ ops-release-check:
 
 ## secret inventory / provider key drift 確認（SYNC_MODE=--apply TARGET=vercel-staging で同期）
 ops-secrets-sync:
-	zsh scripts/release/sync-career-compass-secrets.sh $${SYNC_MODE:---check} --target "$${TARGET:-all}"
+	zsh scripts/release/sync-career-compass-secrets.sh $${SYNC_MODE:---check} --target "$${TARGET:-all}" $${EXTRA_ARGS:-}
+
+## Stripe 本番 preflight（Products / Webhook / Portal / Account の整合チェック）
+stripe-preflight:
+	npm run stripe:check-live-readiness -- --json
 
 # ===========================================
 # ヘルプ
@@ -731,6 +735,7 @@ help:
 	@echo "    make ops-auth-check - provider auth の厳密確認"
 	@echo "    make ops-release-check - release 前提（auth/secrets/branch）確認"
 	@echo "    make ops-secrets-sync - secret inventory / provider key drift 確認"
+	@echo "    make stripe-preflight - Stripe 本番アカウントの整合チェック"
 	@echo ""
 	@echo "  🔧 環境・セットアップ:"
 	@echo "    make check        - 開発環境の状態確認"

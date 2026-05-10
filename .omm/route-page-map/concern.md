@@ -1,1 +1,1 @@
-Feature growth can make route discovery harder because related API, component, and page code is spread across multiple folders. The diagram should stay aligned with user-facing navigation, not just filesystem breadth.
+画面遷移と責務分担の懸念は、page/client component が API 呼び出しと状態遷移を直接抱えやすい点。`src/app/(product)/settings/page.tsx`、`src/app/(product)/gakuchika/page.tsx`、`src/components/companies/CompanyDetailPageClient.tsx`、`src/components/es/ReviewPanel.tsx` は画面構成だけでなく use case orchestration も持つ。route map はユーザー導線の一覧だけでなく、どの導線がどの application policy を呼ぶかまで追える必要がある。

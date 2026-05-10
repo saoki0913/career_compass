@@ -37,6 +37,7 @@ function buildPrevState(overrides: Partial<InterviewControllerState> = {}): Inte
     feedbackHistories: [],
     feedbackCompletionCount: 0,
     shortCoaching: null,
+    transitionLine: null,
     ...overrides,
   };
 }
@@ -86,6 +87,7 @@ describe("parseCompletePayload", () => {
     expect(result).toEqual({
       messages: [],
       questionCount: 0,
+      transitionLine: null,
       stageStatus: null,
       questionStage: null,
       focus: null,
@@ -106,6 +108,7 @@ describe("parseCompletePayload", () => {
       {
         messages: [{ role: "assistant", content: "Q1" }],
         questionCount: 3,
+        transitionLine: "次は志望理由を確認します。",
         stageStatus: { label: "中盤", phase: "main" } as unknown as InterviewStageStatus,
         questionStage: "mid",
         focus: "motivation_fit",
@@ -118,6 +121,7 @@ describe("parseCompletePayload", () => {
 
     expect(result.messages).toEqual([{ role: "assistant", content: "Q1" }]);
     expect(result.questionCount).toBe(3);
+    expect(result.transitionLine).toBe("次は志望理由を確認します。");
     expect(result.questionStage).toBe("mid");
     expect(result.focus).toBe("motivation_fit");
     expect(result.feedback).toBe(feedback);
@@ -138,6 +142,35 @@ describe("parseCompletePayload", () => {
     expect(result.messages).toEqual([]);
     expect(result.questionCount).toBe(0);
     expect(result.feedbackHistories).toBeUndefined();
+  });
+
+  it("filters malformed messages through the interview message parser", () => {
+    const result = parseCompletePayload(
+      {
+        messages: [
+          { role: "assistant", content: "  有効な質問です。  " },
+          { role: "system", content: "invalid" },
+          { role: "user", content: "" },
+          { role: "assistant", content: 123 },
+        ],
+      },
+      6,
+    );
+
+    expect(result.messages).toEqual([{ role: "assistant", content: "有効な質問です。" }]);
+  });
+
+  it("trims transitionLine separately from messages", () => {
+    const result = parseCompletePayload(
+      {
+        messages: [{ role: "assistant", content: "質問だけを残します。" }],
+        transitionLine: "  ここから職種理解を深掘ります。  ",
+      },
+      6,
+    );
+
+    expect(result.messages).toEqual([{ role: "assistant", content: "質問だけを残します。" }]);
+    expect(result.transitionLine).toBe("ここから職種理解を深掘ります。");
   });
 });
 
@@ -293,12 +326,14 @@ describe("mergeCompletePayload (common)", () => {
   it("treats null/undefined payload safely and overwrites all scalar fields with defaults", () => {
     const prev = buildPrevState({
       questionCount: 7,
+      transitionLine: "前の遷移文",
       questionStage: "mid",
       feedback: buildFeedback(),
       questionFlowCompleted: true,
     });
     const next = mergeCompletePayload(prev, null, "send", { fallbackCreditCost: 6 });
     expect(next.questionCount).toBe(0);
+    expect(next.transitionLine).toBeNull();
     expect(next.questionStage).toBeNull();
     expect(next.feedback).toBeNull();
     expect(next.questionFlowCompleted).toBe(false);

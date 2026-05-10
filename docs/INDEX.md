@@ -33,7 +33,7 @@
 | リリース・本番運用をする | [release/PRODUCTION.md](./release/PRODUCTION.md) → [release/ENV_REFERENCE.md](./release/ENV_REFERENCE.md) → provider 別 release docs → [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) |
 | テスト・commit gate を確認する | [testing/E2E.md](./testing/E2E.md) → [ops/TEST_HARNESS.md](./ops/TEST_HARNESS.md) |
 | デッドコードを削除する | [ops/DEAD_CODE_REMOVAL.md](./ops/DEAD_CODE_REMOVAL.md) → [architecture/REFACTORING_TEST_CONTRACTS.md](./architecture/REFACTORING_TEST_CONTRACTS.md) |
-| 本番リリース前の完成項目を確認する | [plan/pre-production-readiness-items-2026-05-04.md](./plan/pre-production-readiness-items-2026-05-04.md) → [release/PRODUCTION.md](./release/PRODUCTION.md) → [ops/SECURITY.md](./ops/SECURITY.md) |
+| 本番リリース前の完成項目を確認する | [plan/execution-order.md](./plan/execution-order.md) → [release/PRODUCTION.md](./release/PRODUCTION.md) → [ops/SECURITY.md](./ops/SECURITY.md) |
 
 ---
 
@@ -94,12 +94,22 @@
 
 ## プロンプト / AI 品質 (prompts/, quality/)
 
-`docs/prompts/*` は本番プロンプト正本ではなく、品質改善メモ・設問別の評価観点です。参考 ES 本文や固有表現を転載せず、本番挙動は [features/AI_PROMPTS.md](./features/AI_PROMPTS.md) と backend 実装を確認してください。
+`docs/prompts/*` は人間が LLM プロンプトをレビューし、改善方針を考えるための runtime 非連携スナップショットです。アプリ内 LLM プロンプトの正本ではなく、この配下を変更してもアプリ挙動には直接影響しません。参考 ES 本文や固有表現、secrets、PII、private fixture は転載せず、本番挙動は [features/AI_PROMPTS.md](./features/AI_PROMPTS.md) と backend 実装を確認してください。
 
 | 文書 | 説明 |
 |------|------|
-| [prompts/es-review-gakuchika.md](./prompts/es-review-gakuchika.md) | ES 添削のガクチカ設問向け品質観点・改善レビュー |
-| [prompts/es-review-intern-goals.md](./prompts/es-review-intern-goals.md) | ES 添削のインターン目標設問向け品質観点・改善レビュー |
+| [prompts/README.md](./prompts/README.md) | `docs/prompts/` の役割。人間評価用でありアプリ非連携であることの明記 |
+| [prompts/es-review/README.md](./prompts/es-review/README.md) | ES 添削評価ドキュメントの構成 |
+| [prompts/gakuchika/README.md](./prompts/gakuchika/README.md) | ガクチカ作成・深掘りプロンプト |
+| [prompts/motivation/README.md](./prompts/motivation/README.md) | 志望動機作成プロンプト |
+| [prompts/interview/README.md](./prompts/interview/README.md) | 模擬面接プロンプト |
+| [prompts/company-info/README.md](./prompts/company-info/README.md) | 企業情報・締切抽出プロンプト |
+| [prompts/rag-search/README.md](./prompts/rag-search/README.md) | RAG 検索補助プロンプト |
+| [prompts/common/README.md](./prompts/common/README.md) | JSON 修復、provider 追記、漏洩防止などの共通プロンプト面 |
+| [prompts/es-review/templates/gakuchika.md](./prompts/es-review/templates/gakuchika.md) | ES 添削のガクチカ設問向け評価観点 |
+| [prompts/es-review/templates/intern-goals.md](./prompts/es-review/templates/intern-goals.md) | ES 添削のインターン目標設問向け評価観点 |
+| [prompts/es-review/support/length-fix.md](./prompts/es-review/support/length-fix.md) | ES 添削の字数調整向け評価観点 |
+| [prompts/es-review/support/explanation.md](./prompts/es-review/support/explanation.md) | ES 添削の改善説明向け評価観点 |
 | [quality/es-review-quality-assessment-2026-04-30.md](./quality/es-review-quality-assessment-2026-04-30.md) | ES 添削品質の評価結果・改善観点 |
 
 ---

@@ -18,11 +18,11 @@ describe("HowToUseSection composite card guard", () => {
     expect(source).toContain("scroll-mt-[92px]");
   });
 
-  it("uses composite card images instead of individual person/screen assets", () => {
-    expect(source).toContain("step-register-company-nobg.png");
-    expect(source).toContain("step-ai-es-review-nobg.png");
-    expect(source).toContain("step-interview-prep-nobg.png");
-    expect(source).toContain("step-deadline-schedule-nobg.png");
+  it("uses composite card images via LP_SECTION_ASSETS registry", () => {
+    expect(source).toContain("LP_SECTION_ASSETS.howTo.stepRegisterCompany");
+    expect(source).toContain("LP_SECTION_ASSETS.howTo.stepAiEsReview");
+    expect(source).toContain("LP_SECTION_ASSETS.howTo.stepInterviewPrep");
+    expect(source).toContain("LP_SECTION_ASSETS.howTo.stepDeadlineSchedule");
     expect(source).not.toContain("person-1");
     expect(source).not.toContain("screen-company-form");
     expect(source).not.toContain("shupass-v2/howto/");
@@ -46,8 +46,8 @@ describe("HowToUseSection composite card guard", () => {
   it("uses responsive card columns at xl breakpoint for desktop horizontal row", () => {
     expect(source).not.toContain("lg:grid-cols-2");
     expect(source).toContain("xl:grid-cols-4");
-    expect(source).toContain("h-[270px]");
-    expect(source).toContain("sm:h-[300px]");
+    expect(source).toContain("h-[200px]");
+    expect(source).toContain("sm:h-[270px]");
     expect(source).toContain("xl:h-[270px]");
     expect(source).toContain("object-contain");
   });
@@ -85,7 +85,9 @@ describe("HowToUseSection composite card guard", () => {
   });
 
   it("keeps the image visually larger while tightening vertical spacing", () => {
-    expect(source).toContain('padding: "60px 0 56px"');
+    expect(source).toContain("py-10");
+    expect(source).toContain("lg:pt-[60px]");
+    expect(source).toContain("lg:pb-14");
     expect(source).toContain("mb-7 text-center sm:mb-8");
     expect(source).toContain("px-4 pb-0 pt-0");
     expect(source).toContain("leading-[1.45]");
@@ -93,8 +95,8 @@ describe("HowToUseSection composite card guard", () => {
     expect(source).toContain("h-8 w-8");
     expect(source).toContain("xl:flex");
     expect(source).not.toContain("right-[-28px]");
-    expect(source).toContain("max-h-[292px]");
-    expect(source).toContain("sm:max-h-[322px]");
+    expect(source).toContain("max-h-[220px]");
+    expect(source).toContain("sm:max-h-[292px]");
     expect(source).toContain("xl:max-h-[292px]");
     expect(source).toContain("max-w-[112%]");
     expect(source).toContain("mt-0");

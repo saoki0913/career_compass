@@ -56,7 +56,8 @@ export function useConversationPlayback<T>({
     }
 
     const timer = window.setTimeout(() => {
-      onCommit(pendingCompleteData as T);
+      if (pendingCompleteData === null) return;
+      onCommit(pendingCompleteData);
       setPendingCompleteData(null);
       setIsTextStreaming(false);
       setStreamingTargetText("");

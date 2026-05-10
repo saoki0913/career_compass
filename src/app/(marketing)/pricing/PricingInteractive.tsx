@@ -1,9 +1,10 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
+import { LOGO_ASSETS } from "@/lib/assets/image-registry";
 import {
   ArrowRight,
   Check,
@@ -175,6 +176,8 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
   const { isAuthenticated, isLoading, userPlan } = useAuth();
   const [isRoutePending, startTransition] = useTransition();
 
+  const isBusyRef = useRef(false);
+
   const [selectedPlan, setSelectedPlan] = useState<PlanType | null>("standard");
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -200,8 +203,8 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
     });
   }, [canceled, reason, source]);
 
-  const handleCheckout = useCallback(async (plan: PlanType, period: BillingPeriod) => {
-    if (plan === "free") return;
+  const handleCheckout = useCallback(async (plan: PlanType, period: BillingPeriod): Promise<boolean> => {
+    if (plan === "free") return false;
 
     setIsSubmitting(true);
     setError(null);
@@ -220,7 +223,9 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
       if (data.url) {
         trackEvent("checkout_start", { plan, period, source, reason });
         window.location.href = data.url;
+        return true;
       }
+      return false;
     } catch (checkoutError) {
       console.error("Checkout error:", checkoutError);
       setError(reportUserFacingError(checkoutError, {
@@ -228,12 +233,13 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
         userMessage: "プラン変更を開始できませんでした。",
       }, "PricingPage:checkout"));
       trackEvent("checkout_error", { plan, period, source, reason });
+      return false;
     } finally {
       setIsSubmitting(false);
     }
   }, [reason, source]);
 
-  const openBillingPortal = useCallback(async () => {
+  const openBillingPortal = useCallback(async (): Promise<boolean> => {
     setIsSubmitting(true);
     setError(null);
     try {
@@ -247,11 +253,13 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
       }
       trackEvent("portal_opened", { source: "pricing", currentPlan: currentPlan ?? "unknown" });
       window.location.href = data.url;
+      return true;
     } catch (portalError) {
       setError(reportUserFacingError(portalError, {
         code: "STRIPE_PORTAL_CREATE_FAILED",
         userMessage: "請求管理ページを開けませんでした。",
       }, "PricingPage:openBillingPortal"));
+      return false;
     } finally {
       setIsSubmitting(false);
     }
@@ -271,6 +279,9 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
   }, [handleCheckout, isAuthenticated, isLoading]);
 
   const handlePlanSelect = useCallback(async (planId: PlanType) => {
+    if (isBusyRef.current) return;
+    isBusyRef.current = true;
+
     setSelectedPlan(planId);
     const action = getPricingSelectionAction({
       currentPlan,
@@ -279,35 +290,33 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
     });
 
     if (action === "dashboard") {
-      startTransition(() => {
-        router.push("/dashboard");
-      });
-      return;
+      startTransition(() => { router.push("/dashboard"); });
+      return; // ref stays true — page is navigating
     }
 
     if (action === "free") {
       startTransition(() => {
         router.push(isAuthenticated ? "/dashboard" : "/login?redirect=/dashboard");
       });
-      return;
+      return; // ref stays true — page is navigating
     }
 
     if (action === "login") {
       localStorage.setItem("selectedPlan", planId);
       localStorage.setItem("selectedPlanPeriod", billingPeriod);
       trackEvent("checkout_intent_login", { plan: planId, period: billingPeriod });
-      startTransition(() => {
-        router.push("/login?redirect=/pricing");
-      });
-      return;
+      startTransition(() => { router.push("/login?redirect=/pricing"); });
+      return; // ref stays true — page is navigating
     }
 
     if (action === "portal") {
-      await openBillingPortal();
+      const navigated = await openBillingPortal();
+      if (!navigated) isBusyRef.current = false;
       return;
     }
 
-    await handleCheckout(planId, billingPeriod);
+    const navigated = await handleCheckout(planId, billingPeriod);
+    if (!navigated) isBusyRef.current = false;
   }, [
     billingPeriod,
     currentPlan,
@@ -324,7 +333,7 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-1 sm:gap-3">
             <Image
-              src="/marketing/logo/logo_text_clean.png"
+              src={LOGO_ASSETS.textClean}
               alt="就活Pass"
               width={144}
               height={44}

@@ -84,6 +84,23 @@ describe("getHeadersIdentity", () => {
     );
   });
 
+  it("throws in strict mode when session lookup fails even if a guest token is present", async () => {
+    const { getHeadersIdentity, RequestIdentitySessionError } = await import("@/bff/identity/request-identity");
+    getSessionMock.mockRejectedValue(new Error("Failed to get session"));
+    readGuestDeviceTokenFromCookieHeaderMock.mockReturnValue("cookie-device-token");
+
+    await expect(
+      getHeadersIdentity(
+        new Headers({
+          cookie: "guest_device_token=cookie-device-token",
+        }),
+        { sessionErrorMode: "throw" },
+      )
+    ).rejects.toBeInstanceOf(RequestIdentitySessionError);
+
+    expect(getGuestUserMock).not.toHaveBeenCalled();
+  });
+
   it("prefers the HttpOnly guest cookie and ignores a public x-device-token header by default", async () => {
     const { getHeadersIdentity } = await import("@/bff/identity/request-identity");
     getSessionMock.mockResolvedValue(null);

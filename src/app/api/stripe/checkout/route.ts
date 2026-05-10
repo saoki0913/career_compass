@@ -17,6 +17,7 @@ import { getAppUrl } from "@/lib/app-url";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { logError } from "@/lib/logger";
 import { getCsrfFailureReason } from "@/lib/csrf";
+import { createHash } from "crypto";
 
 export async function POST(req: NextRequest) {
   try {
@@ -58,6 +59,16 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Validate period
+    if (!["monthly", "annual"].includes(period)) {
+      return createApiErrorResponse(req, {
+        status: 400,
+        code: "STRIPE_CHECKOUT_INVALID_PERIOD",
+        userMessage: "お支払い期間の選択内容を確認してください。",
+        developerMessage: "Invalid billing period. Must be 'monthly' or 'annual'.",
+      });
+    }
+
     // Get price ID
     const priceId = getPriceId(plan, period);
     if (!priceId) {
@@ -79,6 +90,45 @@ export async function POST(req: NextRequest) {
       .from(subscriptions)
       .where(eq(subscriptions.userId, session.user.id))
       .limit(1);
+
+    // Block checkout if user already has an active subscription
+    if (
+      existingSubscription?.stripeSubscriptionId &&
+      existingSubscription.status &&
+      ["active", "trialing"].includes(existingSubscription.status)
+    ) {
+      return createApiErrorResponse(req, {
+        status: 409,
+        code: "STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION",
+        userMessage: "すでに有効なプランがあります。プラン変更は設定画面から行えます。",
+        developerMessage: "User already has an active subscription; use the billing portal for changes",
+      });
+    }
+
+    // Also check Stripe API for active/trialing subscriptions (handles concurrent POST before webhook fires)
+    if (existingSubscription?.stripeCustomerId) {
+      const [activeSubs, trialingSubs] = await Promise.all([
+        stripe.subscriptions.list({
+          customer: existingSubscription.stripeCustomerId,
+          status: "active",
+          limit: 1,
+        }),
+        stripe.subscriptions.list({
+          customer: existingSubscription.stripeCustomerId,
+          status: "trialing",
+          limit: 1,
+        }),
+      ]);
+
+      if (activeSubs.data.length > 0 || trialingSubs.data.length > 0) {
+        return createApiErrorResponse(req, {
+          status: 409,
+          code: "STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION",
+          userMessage: "すでに有効なプランがあります。プラン変更は設定画面から行えます。",
+          developerMessage: "Stripe customer already has an active or trialing subscription",
+        });
+      }
+    }
 
     if (existingSubscription?.stripeCustomerId) {
       stripeCustomerId = existingSubscription.stripeCustomerId;
@@ -108,6 +158,11 @@ export async function POST(req: NextRequest) {
     // (https://www.shupass.jp/terms) を設定しておく必要がある。未設定のまま
     // この API を呼ぶと Stripe 側で 400 エラーが返るため、本番デプロイ前に
     // 必ず Dashboard 側の設定を完了させること。
+    const timeBucket = Math.floor(Date.now() / (10 * 60 * 1000));
+    const idempotencyKey = createHash("sha256")
+      .update(`checkout:${session.user.id}:${plan}:${period}:${timeBucket}`)
+      .digest("hex");
+
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: stripeCustomerId,
@@ -154,7 +209,7 @@ export async function POST(req: NextRequest) {
       consent_collection: {
         terms_of_service: "required",
       },
-    });
+    }, { idempotencyKey });
 
     return NextResponse.json({
       url: checkoutSession.url,

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { computeDeadlineStatus } from "./deadline-status";
+import {
+  completeDeadlineStatusTransition,
+  computeDeadlineStatus,
+  planDeadlineStatusTransition,
+} from "./deadline-status";
 
 const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 const PAST = new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -116,5 +120,107 @@ describe("computeDeadlineStatus", () => {
     });
 
     expect(result).toBe("not_started");
+  });
+});
+
+describe("planDeadlineStatusTransition", () => {
+  const transitionedAt = new Date("2026-03-21T00:00:00.000Z");
+
+  it("marks a deadline complete and requests open task completion", () => {
+    const completedAt = new Date("2026-03-20T00:00:00.000Z");
+
+    const plan = planDeadlineStatusTransition({
+      current: {
+        completedAt: null,
+        statusOverride: null,
+        autoCompletedTaskIds: null,
+      },
+      transitionedAt,
+      requestedCompletedAt: completedAt,
+    });
+
+    expect(plan).toEqual({
+      completedAt,
+      autoCompletedTaskIds: [],
+      taskAction: { type: "complete-open-tasks" },
+    });
+
+    expect(completeDeadlineStatusTransition(plan, { autoCompletedTaskIds: ["task-1"] })).toEqual({
+      completedAt,
+      autoCompletedTaskIds: ["task-1"],
+    });
+  });
+
+  it("unmarks a completed deadline and reopens only stored auto-completed tasks", () => {
+    const plan = planDeadlineStatusTransition({
+      current: {
+        completedAt: new Date("2026-03-20T00:00:00.000Z"),
+        statusOverride: null,
+        autoCompletedTaskIds: ["task-1", "task-2"],
+      },
+      transitionedAt,
+      requestedCompletedAt: null,
+    });
+
+    expect(plan).toEqual({
+      completedAt: null,
+      autoCompletedTaskIds: null,
+      taskAction: { type: "reopen-auto-completed-tasks", taskIds: ["task-1", "task-2"] },
+    });
+  });
+
+  it("status override completed sets completedAt using the transition timestamp", () => {
+    const plan = planDeadlineStatusTransition({
+      current: {
+        completedAt: null,
+        statusOverride: null,
+        autoCompletedTaskIds: null,
+      },
+      transitionedAt,
+      requestedStatusOverride: "completed",
+    });
+
+    expect(plan).toEqual({
+      completedAt: transitionedAt,
+      statusOverride: "completed",
+      autoCompletedTaskIds: [],
+      taskAction: { type: "complete-open-tasks" },
+    });
+  });
+
+  it("clearing a completed override clears completion and reopens tracked tasks", () => {
+    const plan = planDeadlineStatusTransition({
+      current: {
+        completedAt: new Date("2026-03-20T00:00:00.000Z"),
+        statusOverride: "completed",
+        autoCompletedTaskIds: ["task-1"],
+      },
+      transitionedAt,
+      requestedStatusOverride: "in_progress",
+    });
+
+    expect(plan).toEqual({
+      completedAt: null,
+      statusOverride: "in_progress",
+      autoCompletedTaskIds: null,
+      taskAction: { type: "reopen-auto-completed-tasks", taskIds: ["task-1"] },
+    });
+  });
+
+  it("non-completed override does not clear a manually completed deadline", () => {
+    const plan = planDeadlineStatusTransition({
+      current: {
+        completedAt: new Date("2026-03-20T00:00:00.000Z"),
+        statusOverride: null,
+        autoCompletedTaskIds: ["task-1"],
+      },
+      transitionedAt,
+      requestedStatusOverride: "in_progress",
+    });
+
+    expect(plan).toEqual({
+      statusOverride: "in_progress",
+      taskAction: { type: "none" },
+    });
   });
 });

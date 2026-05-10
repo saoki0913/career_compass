@@ -1,8 +1,6 @@
-export interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
+import { parseOptionalString, parseStringArray } from "@/lib/shared";
+export type { BaseMessage as Message } from "@/lib/shared";
+export { safeParseMessages } from "@/lib/shared";
 
 export type BuildElement = "overview" | "context" | "task" | "action" | "result" | "learning";
 export type InputRichnessMode = "seed_only" | "rough_episode" | "almost_draftable";
@@ -82,7 +80,7 @@ export interface ConversationState {
   lastQuestionSignature: string | null;
   /** 面接準備完了後の「もっと深掘る」回数（サーバー・FastAPI と同期） */
   extendedDeepDiveRound: number;
-  /** サーバーサイドで計算されたコーチ進捗メッセージ (NaturalProgressStatus で表示) */
+  /** サーバーサイドで計算されたコーチ進捗メッセージ */
   coachProgressMessage: string | null;
   /**
    * サーバー側 readiness gate と整合した残り質問数推定 (int ≥ 0)。
@@ -153,10 +151,6 @@ export function getDefaultConversationState(): ConversationState {
   };
 }
 
-function normalizeString(value: unknown): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
 function normalizeMissingElements(value: unknown): BuildElement[] {
   if (!Array.isArray(value)) return [];
   const normalized: BuildElement[] = [];
@@ -172,13 +166,6 @@ function normalizeInputRichnessMode(value: unknown): InputRichnessMode | null {
   return value === "seed_only" || value === "rough_episode" || value === "almost_draftable"
     ? value
     : null;
-}
-
-function normalizeStringList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean);
 }
 
 function normalizeDraftQualityChecks(value: unknown): DraftQualityChecks {
@@ -233,39 +220,6 @@ function normalizeFocusAttemptCounts(value: unknown): Partial<Record<FocusKey, n
     next[key] = Math.floor(item);
   }
   return next;
-}
-
-function normalizeMessagesFromUnknown(parsed: unknown): Message[] {
-  if (!Array.isArray(parsed)) return [];
-
-  return parsed
-    .filter((message): message is { id?: string; role: string; content: string } =>
-      message &&
-      typeof message === "object" &&
-      (message.role === "user" || message.role === "assistant") &&
-      typeof message.content === "string",
-    )
-    .map((message) => ({
-      id: message.id || crypto.randomUUID(),
-      role: message.role as "user" | "assistant",
-      content: message.content,
-    }));
-}
-
-/** Accepts JSON string (legacy rows) or parsed jsonb array from Drizzle. */
-export function safeParseMessages(value: string | unknown): Message[] {
-  if (Array.isArray(value)) {
-    return normalizeMessagesFromUnknown(value);
-  }
-  if (typeof value !== "string") {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(value);
-    return normalizeMessagesFromUnknown(parsed);
-  } catch {
-    return [];
-  }
 }
 
 function parseLegacyState(value: Record<string, unknown>, status: string | null | undefined): ConversationState | null {
@@ -329,10 +283,10 @@ export function safeParseConversationState(value: unknown, status?: string | nul
     const legacy = parseLegacyState(parsed, status);
     if (legacy) return legacy;
 
-    const rawStage = normalizeString(parsed.stage) as ConversationStage | null;
-    const focusKeyRaw = normalizeString(parsed.focus_key ?? parsed.focusKey);
+    const rawStage = parseOptionalString(parsed.stage) as ConversationStage | null;
+    const focusKeyRaw = parseOptionalString(parsed.focus_key ?? parsed.focusKey);
     const focusKey = focusKeyRaw && isFocusKey(focusKeyRaw) ? focusKeyRaw : null;
-    const draftText = normalizeString(parsed.draft_text ?? parsed.draftText);
+    const draftText = parseOptionalString(parsed.draft_text ?? parsed.draftText);
     const stage =
       rawStage === "interview_ready" && !draftText
         ? "deep_dive_active"
@@ -344,43 +298,43 @@ export function safeParseConversationState(value: unknown, status?: string | nul
           ? stage
           : "es_building",
       focusKey,
-      progressLabel: normalizeString(parsed.progress_label ?? parsed.progressLabel),
-      answerHint: normalizeString(parsed.answer_hint ?? parsed.answerHint),
+      progressLabel: parseOptionalString(parsed.progress_label ?? parsed.progressLabel),
+      answerHint: parseOptionalString(parsed.answer_hint ?? parsed.answerHint),
       inputRichnessMode: normalizeInputRichnessMode(parsed.input_richness_mode ?? parsed.inputRichnessMode),
       missingElements: normalizeMissingElements(parsed.missing_elements ?? parsed.missingElements),
       draftQualityChecks: normalizeDraftQualityChecks(parsed.draft_quality_checks ?? parsed.draftQualityChecks),
-      causalGaps: normalizeStringList(parsed.causal_gaps ?? parsed.causalGaps),
+      causalGaps: parseStringArray(parsed.causal_gaps ?? parsed.causalGaps),
       completionChecks: normalizeCompletionChecks(parsed.completion_checks ?? parsed.completionChecks),
       readyForDraft: Boolean(parsed.ready_for_draft ?? parsed.readyForDraft),
       draftReadinessReason: String(parsed.draft_readiness_reason ?? parsed.draftReadinessReason ?? "").trim(),
       draftText,
-      draftDocumentId: normalizeString(parsed.draft_document_id ?? parsed.draftDocumentId),
+      draftDocumentId: parseOptionalString(parsed.draft_document_id ?? parsed.draftDocumentId),
       summaryStale: Boolean(parsed.summary_stale ?? parsed.summaryStale),
-      strengthTags: normalizeStringList(parsed.strength_tags ?? parsed.strengthTags),
-      issueTags: normalizeStringList(parsed.issue_tags ?? parsed.issueTags),
-      deepdiveRecommendationTags: normalizeStringList(
+      strengthTags: parseStringArray(parsed.strength_tags ?? parsed.strengthTags),
+      issueTags: parseStringArray(parsed.issue_tags ?? parsed.issueTags),
+      deepdiveRecommendationTags: parseStringArray(
         parsed.deepdive_recommendation_tags ?? parsed.deepdiveRecommendationTags,
       ),
-      credibilityRiskTags: normalizeStringList(parsed.credibility_risk_tags ?? parsed.credibilityRiskTags),
-      deepdiveStage: normalizeString(parsed.deepdive_stage ?? parsed.deepdiveStage),
+      credibilityRiskTags: parseStringArray(parsed.credibility_risk_tags ?? parsed.credibilityRiskTags),
+      deepdiveStage: parseOptionalString(parsed.deepdive_stage ?? parsed.deepdiveStage),
       deepdiveComplete: Boolean(parsed.deepdive_complete ?? parsed.deepdiveComplete),
-      completionReasons: normalizeStringList(parsed.completion_reasons ?? parsed.completionReasons),
+      completionReasons: parseStringArray(parsed.completion_reasons ?? parsed.completionReasons),
       askedFocuses: normalizeFocusList(parsed.asked_focuses ?? parsed.askedFocuses),
       resolvedFocuses: normalizeFocusList(parsed.resolved_focuses ?? parsed.resolvedFocuses),
       deferredFocuses: normalizeFocusList(parsed.deferred_focuses ?? parsed.deferredFocuses),
       blockedFocuses: normalizeFocusList(parsed.blocked_focuses ?? parsed.blockedFocuses),
-      recentQuestionTexts: normalizeStringList(parsed.recent_question_texts ?? parsed.recentQuestionTexts),
+      recentQuestionTexts: parseStringArray(parsed.recent_question_texts ?? parsed.recentQuestionTexts),
       loopBlockedFocuses: normalizeFocusList(parsed.loop_blocked_focuses ?? parsed.loopBlockedFocuses),
       focusAttemptCounts: normalizeFocusAttemptCounts(parsed.focus_attempt_counts ?? parsed.focusAttemptCounts),
-      lastQuestionSignature: normalizeString(parsed.last_question_signature ?? parsed.lastQuestionSignature),
+      lastQuestionSignature: parseOptionalString(parsed.last_question_signature ?? parsed.lastQuestionSignature),
       extendedDeepDiveRound: normalizeExtendedDeepDiveRound(
         parsed.extended_deep_dive_round ?? parsed.extendedDeepDiveRound,
       ),
-      coachProgressMessage: normalizeString(parsed.coach_progress_message ?? parsed.coachProgressMessage),
+      coachProgressMessage: parseOptionalString(parsed.coach_progress_message ?? parsed.coachProgressMessage),
       remainingQuestionsEstimate: normalizeRemainingQuestionsEstimate(
         parsed.remaining_questions_estimate ?? parsed.remainingQuestionsEstimate,
       ),
-      pausedQuestion: normalizeString(parsed.paused_question ?? parsed.pausedQuestion),
+      pausedQuestion: parseOptionalString(parsed.paused_question ?? parsed.pausedQuestion),
     };
   } catch {
     return getDefaultConversationState();

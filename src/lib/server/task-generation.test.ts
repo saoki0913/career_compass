@@ -77,7 +77,6 @@ describe("generateTasksForDeadline", () => {
     txSelectMock.mockReset();
     txInsertMock.mockReset();
 
-    dbSelectMock.mockReturnValue(makeTemplateQuery(templates));
     txInsertMock.mockReturnValue(makeInsertQuery());
     dbTransactionMock.mockImplementation(async (callback) =>
       callback({
@@ -92,7 +91,9 @@ describe("generateTasksForDeadline", () => {
   });
 
   it("generates tasks on the first call when no existing auto-generated tasks are present", async () => {
-    txSelectMock.mockReturnValue(makeExistingTasksQuery([]));
+    txSelectMock
+      .mockReturnValueOnce(makeTemplateQuery(templates))
+      .mockReturnValueOnce(makeExistingTasksQuery([]));
 
     const { generateTasksForDeadline } = await import("./task-generation");
     const result = await generateTasksForDeadline(baseParams);
@@ -105,7 +106,9 @@ describe("generateTasksForDeadline", () => {
   });
 
   it("returns an empty list when auto-generated tasks already exist for the deadline", async () => {
-    txSelectMock.mockReturnValue(makeExistingTasksQuery([{ id: "existing-task" }]));
+    txSelectMock
+      .mockReturnValueOnce(makeTemplateQuery(templates))
+      .mockReturnValueOnce(makeExistingTasksQuery([{ id: "existing-task" }]));
 
     const { generateTasksForDeadline } = await import("./task-generation");
     const result = await generateTasksForDeadline(baseParams);
@@ -115,7 +118,9 @@ describe("generateTasksForDeadline", () => {
   });
 
   it("still generates tasks for a different deadlineId", async () => {
-    txSelectMock.mockReturnValue(makeExistingTasksQuery([]));
+    txSelectMock
+      .mockReturnValueOnce(makeTemplateQuery(templates))
+      .mockReturnValueOnce(makeExistingTasksQuery([]));
 
     const { generateTasksForDeadline } = await import("./task-generation");
     const result = await generateTasksForDeadline({

@@ -61,6 +61,7 @@ export function ConversationWorkspaceShell({
   headerActions,
   mobileStatus,
   conversation,
+  conversationFooter,
   composer,
   sidebar,
 }: {
@@ -73,6 +74,7 @@ export function ConversationWorkspaceShell({
   headerActions?: HeaderAction[];
   mobileStatus?: ReactNode;
   conversation: ReactNode;
+  conversationFooter?: ReactNode;
   composer?: ReactNode;
   sidebar?: ReactNode;
 }) {
@@ -137,6 +139,11 @@ export function ConversationWorkspaceShell({
             <div className="flex-1 overflow-y-auto px-3 pt-3 sm:px-4 sm:pt-4 xl:pb-4">
               {conversation}
             </div>
+            {conversationFooter ? (
+              <div className="max-h-[48dvh] shrink-0 overflow-y-auto border-t border-border/50 p-3 sm:px-4 sm:pt-4 xl:max-h-[52dvh]">
+                {conversationFooter}
+              </div>
+            ) : null}
             {composer ? (
               <div className="shrink-0 border-t border-border/50 p-3 sm:px-4 sm:pt-4 max-xl:pb-3 xl:pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
                 {composer}

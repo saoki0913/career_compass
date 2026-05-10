@@ -237,6 +237,21 @@ function classifyGit(tokens, actions) {
   if (subcommand === "commit") {
     actions.gitCommit = true;
   }
+  if (["checkout", "switch"].includes(subcommand) && rest.some((t) => ["-b", "-c", "-B", "-C", "--create", "--create-force"].includes(t))) {
+    actions.gitBranchCreate = true;
+  }
+  if (subcommand === "branch") {
+    const nonCreateFlags = new Set(["-d", "-D", "--delete", "-m", "-M", "--move", "-l", "--list", "-a", "--all", "-r", "--remotes", "-v", "--verbose"]);
+    if (!rest.some((t) => nonCreateFlags.has(t)) && rest.some((t) => !t.startsWith("-"))) {
+      actions.gitBranchCreate = true;
+    }
+  }
+  if (subcommand === "worktree" && rest.some((t) => t === "-b" || t === "-B")) {
+    actions.gitBranchCreate = true;
+  }
+  if (subcommand === "checkout" && rest.includes("--orphan")) {
+    actions.gitBranchCreate = true;
+  }
   if (subcommand === "clean" && rest.some((token) => token.includes("x"))) {
     actions.destructiveDelete = true;
     actions.unsafeDelete = true;
@@ -497,6 +512,7 @@ function emptyActions() {
     gitPush: false,
     forcePush: false,
     gitCommit: false,
+    gitBranchCreate: false,
     releaseProvider: false,
     releaseModes: new Set(),
     testCategories: new Set(),
@@ -511,7 +527,7 @@ function emptyActions() {
 
 function mergeActions(target, source) {
   target.segments.push(...(source.segments || []));
-  for (const key of ["readsSensitivePath", "gitPush", "forcePush", "gitCommit", "releaseProvider", "destructiveDelete", "unsafeDelete", "safeDelete"]) {
+  for (const key of ["readsSensitivePath", "gitPush", "forcePush", "gitCommit", "gitBranchCreate", "releaseProvider", "destructiveDelete", "unsafeDelete", "safeDelete"]) {
     target[key] = target[key] || Boolean(source[key]);
   }
   for (const mode of source.releaseModes || []) target.releaseModes.add(mode);

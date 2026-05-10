@@ -165,30 +165,29 @@
   --lp-navy: #0b1e3a;
   --lp-cta: #2680ff;
   --lp-cta-hover: #1d6fe8;
-  --lp-surface-page: #f6f9ff;
+  --lp-surface-page: #f0f4fb;
   --lp-surface-section: #ffffff;
-  --lp-surface-muted: #f6f9ff;
-  --lp-border-default: #e5e7eb;
-  --lp-border-hairline: rgba(0, 0, 0, 0.08);
-  --lp-border-tint: rgba(0, 6, 102, 0.12);
+  --lp-surface-muted: #edf2fa;
+  --lp-border-default: #d0d7e2;
+  --lp-border-hairline: rgba(0, 0, 0, 0.12);
+  --lp-border-tint: rgba(0, 6, 102, 0.18);
   --lp-muted-text: #4b5563;
   --lp-badge-bg: #eef2ff;
-  --lp-tint-navy-soft: #e8eef9;
-  --lp-tint-cta-soft: #e8f1ff;
+  --lp-tint-navy-soft: #dce5f3;
+  --lp-tint-cta-soft: #d8eafc;
   --lp-success: #168542;
   --lp-on-dark-muted: rgba(191, 219, 254, 0.70);
   --lp-on-dark-fine: rgba(147, 197, 253, 0.50);
   --lp-hero-gradient-top: #ffffff;
   --lp-hero-gradient-mid: #ffffff;
   --lp-primary-light: #6aa9ff;
-  --lp-primary-soft: #e8f1ff;
-  --lp-bg-soft: #f5f9ff;
-  --lp-shadow-card: 0 6px 22px rgba(20, 50, 110, 0.06);
-  --lp-shadow-screenshot: 0 20px 80px rgba(0, 6, 102, 0.08);
+  --lp-primary-soft: #dbe8fb;
+  --lp-bg-soft: #eaf1fa;
+  --lp-shadow-card: 0 6px 24px rgba(20, 50, 110, 0.12);
+  --lp-shadow-screenshot: 0 20px 80px rgba(0, 6, 102, 0.14);
   --lp-shadow-btn-primary: 0 10px 22px rgba(38, 128, 255, 0.35);
-  --lp-pricing-gradient: linear-gradient(180deg, #f7faff 0%, #eaf2ff 100%);
-  --lp-surface-faq: #f5f9ff;
-  --lp-footer-bg: linear-gradient(180deg, #ffffff 0%, #f0f4fa 100%);
+  --lp-pricing-gradient: linear-gradient(180deg, #f0f5fc 0%, #e0ecfa 100%);
+  --lp-footer-bg: linear-gradient(180deg, #ffffff 0%, #e8eef8 100%);
 }
 
 .dark {

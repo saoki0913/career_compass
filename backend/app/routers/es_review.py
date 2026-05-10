@@ -17,6 +17,7 @@ import json
 import asyncio
 import math
 import time
+import inspect
 from urllib.parse import urlparse
 import os
 from contextlib import suppress
@@ -50,7 +51,6 @@ from app.utils.telemetry import (
 )
 from app.prompts.es_templates import (
     TEMPLATE_DEFS,
-    build_template_length_fix_prompt,
     build_template_rewrite_prompt,
     build_template_fallback_rewrite_prompt,
     get_template_evaluation_checks,
@@ -59,6 +59,8 @@ from app.prompts.es_templates import (
     get_template_retry_guidance,
     grounding_level_to_policy,
     get_template_rag_profile,
+    get_template_content_type_boosts,
+    get_template_source_family_priority_name,
     resolve_length_control_profile,
 )
 from app.prompts.reference_es import (
@@ -100,11 +102,8 @@ from app.services.es_review.validation import (
     _trim_to_safe_boundary,
     deterministic_compress_variant,
     _fit_rewrite_text_deterministically,
-    _candidate_has_grounding_anchor,
-    _should_validate_grounding,
     _split_candidate_sentences,
-    _contains_negative_self_eval,
-    _validate_standard_conclusion_focus,
+    _validate_rewrite_combined,
     _validate_rewrite_candidate,
 )
 from app.services.es_review.issue import (
@@ -150,18 +149,16 @@ from app.services.es_review.grounding import (
 )
 from app.services.es_review.retry import (
     REWRITE_MAX_ATTEMPTS,
-    LENGTH_FIX_REWRITE_ATTEMPTS,
     _OPENAI_ES_REVIEW_OUTPUT_TOKEN_FLOOR,
     PROMPT_USER_FACT_LIMIT,
     _dedupe_preserve_order,
+    _select_composite_retry_mode,
     _select_retry_codes,
     _primary_retry_code,
     _resolve_rewrite_focus_mode,
     _resolve_rewrite_focus_modes,
     _serialize_focus_modes,
-    _format_target_char_hint,
     _best_effort_rewrite_admissible,
-    _build_ai_smell_retry_hints,
     _rewrite_validation_degraded_hint,
     _rewrite_validation_soft_hint,
     _describe_retry_reason,
@@ -169,18 +166,15 @@ from app.services.es_review.retry import (
     _length_profile_stage_from_mode,
     _length_shortfall_bucket,
     _es_review_temperature,
-    _should_attempt_length_fix,
     _openai_es_review_output_cap,
     _rewrite_max_tokens,
     _total_rewrite_attempts,
     _normalize_timeout_fallback_clause,
     _retry_hint_from_code,
     _retry_hints_from_codes,
-    _should_short_circuit_to_length_fix,
     _is_short_answer_mode,
     _select_rewrite_prompt_context,
     _build_role_focused_second_pass_query,
-    _build_second_pass_content_type_boosts,
     _should_run_role_focused_second_pass,
 )
 from app.services.es_review.pipeline import (
@@ -217,6 +211,10 @@ from app.services.es_review.models import (
     ReviewResponse,
     CompanyReviewStatusResponse,
 )
+from app.services.es_review.template_context import build_effective_template_context
+from app.services.es_review.orchestrator import (
+    review_section_with_template as _run_review_section_with_template,
+)
 router = APIRouter(prefix="/api/es", tags=["es-review"])
 
 ReviewJSONCaller = Callable[..., Awaitable[Any]]
@@ -224,10 +222,6 @@ ReviewTextCaller = Callable[..., Awaitable[Any]]
 
 COMPANY_EVIDENCE_CARD_LIMIT = 5
 SOFT_MIN_SHORTFALL_LIMIT = 8
-LENGTH_FIX_DELTA_LIMIT = 25
-# under_min は短い生成が続くことがあるため、over_max より広い差分まで length-fix を許可する
-LENGTH_FIX_UNDER_MIN_GAP_LIMIT = 200
-TIGHT_LENGTH_FIX_DELTA_LIMIT = 45
 SSE_KEEPALIVE_INTERVAL_SECONDS = 15.0
 GENERIC_REWRITE_VALIDATION_ERROR = "条件を満たす改善案を生成できませんでした。再実行してください。"
 GENERIC_INPUT_VALIDATION_ERROR = "入力内容を確認して再実行してください。"
@@ -239,37 +233,6 @@ ROLE_SENSITIVE_TEMPLATES = {
     "post_join_goals",
     "role_course_reason",
 }
-SOURCE_FAMILY_CONTENT_TYPES = {
-    "hiring_role": {
-        "new_grad_recruitment",
-        "midcareer_recruitment",
-    },
-    "people_values": {
-        "employee_interviews",
-        "ceo_message",
-        "corporate_site",
-    },
-    "business_future": {
-        "corporate_site",
-        "press_release",
-        "midterm_plan",
-        "ir_materials",
-        "csr_sustainability",
-    },
-}
-SOURCE_BOOST_HIGH = 1.35
-SOURCE_BOOST_MEDIUM = 1.18
-SOURCE_BOOST_LOW = 0.92
-SOURCE_BOOST_DISABLED = 0.0
-PRIORITY_SOURCE_URL_BOOST = 1.25
-TEMPLATE_SOURCE_FAMILY_PRIORITIES = {
-    "company_motivation": ("business_future", "people_values", "hiring_role"),
-    "role_course_reason": ("hiring_role", "people_values", "business_future"),
-    "intern_reason": ("hiring_role", "people_values", "business_future"),
-    "intern_goals": ("people_values", "hiring_role", "business_future"),
-    "post_join_goals": ("business_future", "people_values", "hiring_role"),
-}
-
 
 def _get_company_grounding_policy(template_type: str) -> str:
     return get_template_company_grounding_policy(template_type)
@@ -333,23 +296,6 @@ def _describe_rag_reason(reason: str) -> str:
     return mapping.get(reason, reason)
 
 
-def _build_role_rag_boosts(template_type: str, role_name: str | None) -> dict[str, float] | None:
-    if template_type not in ROLE_SENSITIVE_TEMPLATES:
-        return None
-    boosts = {
-        "new_grad_recruitment": 1.26,
-        "employee_interviews": 1.22,
-        "corporate_site": 1.14,
-        "ir_materials": 0.92,
-        "midterm_plan": 0.96,
-        "press_release": 0.98,
-    }
-    if role_name:
-        boosts["new_grad_recruitment"] = 1.34
-        boosts["employee_interviews"] = 1.28
-    return boosts
-
-
 def _should_fetch_company_rag_for_template(
     template_type: str,
     *,
@@ -361,11 +307,7 @@ def _should_fetch_company_rag_for_template(
 
 
 def _template_source_family_priority_name(template_type: str) -> str | None:
-    if template_type in {"self_pr", "gakuchika", "work_values", "basic"}:
-        return "assistive_people_values"
-    if template_type in TEMPLATE_SOURCE_FAMILY_PRIORITIES:
-        return template_type
-    return None
+    return get_template_source_family_priority_name(template_type)
 
 
 def _build_template_content_type_boosts(
@@ -373,32 +315,10 @@ def _build_template_content_type_boosts(
     *,
     assistive_company_signal: bool,
 ) -> dict[str, float]:
-    if template_type in {"self_pr", "gakuchika", "work_values", "basic"}:
-        if not assistive_company_signal:
-            return {}
-        families = ("people_values",)
-    else:
-        families = TEMPLATE_SOURCE_FAMILY_PRIORITIES.get(template_type, ())
-
-    if not families:
-        return {}
-
-    family_weights = {families[0]: SOURCE_BOOST_HIGH}
-    if len(families) >= 2:
-        family_weights[families[1]] = SOURCE_BOOST_MEDIUM
-    if len(families) >= 3:
-        family_weights[families[2]] = SOURCE_BOOST_LOW
-
-    boosts: dict[str, float] = {}
-    for family_types in SOURCE_FAMILY_CONTENT_TYPES.values():
-        for content_type in family_types:
-            boosts[content_type] = SOURCE_BOOST_DISABLED
-
-    for family_name, weight in family_weights.items():
-        for content_type in SOURCE_FAMILY_CONTENT_TYPES[family_name]:
-            boosts[content_type] = max(boosts.get(content_type, SOURCE_BOOST_DISABLED), weight)
-
-    return boosts
+    return get_template_content_type_boosts(
+        template_type,
+        assistive_company_signal=assistive_company_signal,
+    )
 
 
 def _evaluate_grounding_mode(
@@ -757,20 +677,13 @@ async def review_section_with_template(
     injection_risk: str | None = None,
     progress_queue: "asyncio.Queue | None" = None,
 ) -> ReviewResponse:
-    """Review a single ES section with a rewrite-only pipeline."""
-    from app.services.es_review.orchestrator import (
-        prepare_review_context,
-        execute_rewrite_loop,
-        execute_recovery_pipeline,
-        assemble_review_response,
-    )
-
-    ctx = await prepare_review_context(
+    """Router compatibility wrapper for the ES review service use case."""
+    return await _run_review_section_with_template(
         request=request,
         rag_sources=rag_sources,
         company_rag_available=company_rag_available,
-        json_caller=json_caller,
-        text_caller=text_caller,
+        json_caller=json_caller or call_llm_with_error,
+        text_caller=text_caller or call_llm_text_with_error,
         review_feature=review_feature,
         llm_provider=llm_provider,
         llm_model=llm_model,
@@ -782,10 +695,6 @@ async def review_section_with_template(
         injection_risk=injection_risk,
         progress_queue=progress_queue,
     )
-
-    loop_result = await execute_rewrite_loop(ctx)
-    recovery = await execute_recovery_pipeline(ctx, loop_result)
-    return await assemble_review_response(ctx, loop_result, recovery)
 
 
 PROGRESS_STEPS = [
@@ -917,22 +826,46 @@ async def _generate_review_progress(
                 role_name=request.role_context.primary_role if request.role_context else None,
             )
 
-        assistive_company_signal = _company_grounding_is_assistive(
-            template_request.template_type
+        question_classification = classify_es_question(template_request.question)
+        request_compound_secondary_types = (
+            list(template_request.compound_secondary_types or [])
+            or list(template_request.secondary_template_types or [])
+        )
+        request_is_compound = (
+            bool(template_request.is_compound)
+            or bool(request_compound_secondary_types)
+            or bool(template_request.compound_variant)
+            or bool(template_request.compound_pattern_id)
+        )
+        effective_template_ctx = build_effective_template_context(
+            question_classification,
+            primary_type_override=template_request.template_type,
+            secondary_type_overrides=request_compound_secondary_types,
+            variant_override=template_request.compound_variant,
+            pattern_id_override=template_request.compound_pattern_id,
+            is_compound_override=request_is_compound or None,
+        )
+        rag_profile_type = effective_template_ctx.rag_profile_type
+        assistive_company_signal = (
+            _company_grounding_is_assistive(template_request.template_type)
+            or rag_profile_type != template_request.template_type
         ) and _question_has_assistive_company_signal(
             template_type=template_request.template_type,
             question=template_request.question,
         )
-        template_rag_profile = get_template_rag_profile(template_request.template_type)
+        template_rag_profile = get_template_rag_profile(
+            rag_profile_type,
+            assistive_company_signal=assistive_company_signal,
+        )
         template_rag_profile["content_type_boosts"] = _build_template_content_type_boosts(
-            template_request.template_type,
+            rag_profile_type,
             assistive_company_signal=assistive_company_signal,
         )
         template_rag_profile["priority_source_urls"] = list(
             dict.fromkeys(request.user_provided_corporate_urls)
         )
-        if _should_fetch_company_rag_for_template(
-            template_request.template_type,
+        if effective_template_ctx.requires_company_rag or _should_fetch_company_rag_for_template(
+            rag_profile_type,
             assistive_company_signal=assistive_company_signal,
         ):
             template_rag_profile["short_circuit"] = False
@@ -948,8 +881,8 @@ async def _generate_review_progress(
         enrichment_completed = False
         enrichment_sources_added = 0
         user_priority_urls = {url for url in request.user_provided_corporate_urls if url}
-        should_fetch_company_rag = _should_fetch_company_rag_for_template(
-            template_request.template_type,
+        should_fetch_company_rag = effective_template_ctx.requires_company_rag or _should_fetch_company_rag_for_template(
+            rag_profile_type,
             assistive_company_signal=assistive_company_signal,
         )
 
@@ -1011,7 +944,7 @@ async def _generate_review_progress(
                     source_count=len(rag_sources),
                 )
                 grounding_mode = _evaluate_grounding_mode(
-                    template_request.template_type,
+                    rag_profile_type,
                     rag_context,
                     rag_sources,
                     request.role_context.primary_role if request.role_context else template_request.role_name,
@@ -1022,7 +955,7 @@ async def _generate_review_progress(
                 )
                 initial_company_evidence_cards = _build_company_evidence_cards(
                     rag_sources,
-                    template_type=template_request.template_type,
+                    template_type=rag_profile_type,
                     question=template_request.question,
                     answer=template_request.answer,
                     role_name=primary_role,
@@ -1031,7 +964,7 @@ async def _generate_review_progress(
                     user_priority_urls=user_priority_urls,
                 )
                 initial_coverage_level, _ = _assess_company_evidence_coverage(
-                    template_type=template_request.template_type,
+                    template_type=rag_profile_type,
                     role_name=primary_role,
                     company_rag_available=company_rag_available,
                     company_evidence_cards=initial_company_evidence_cards,
@@ -1159,22 +1092,34 @@ async def _generate_review_progress(
         final_rewrite_text = result.rewrites[0] if result.rewrites else ""
         explanation_text: str | None = None
         if final_rewrite_text:
-            from app.services.es_review.explanation import generate_improvement_explanation
-
             try:
+                from app.services.es_review.explanation import generate_improvement_explanation
+
                 _queue_progress_event(
                     progress_queue,
                     step="explanation",
                     progress=92,
                     label="改善ポイントを整理中",
                 )
-                explanation_text = await generate_improvement_explanation(
-                    original_text=request.content,
-                    rewritten_text=final_rewrite_text,
-                    template_type=template_request.template_type,
-                    company_name=template_request.company_name,
-                    progress_queue=progress_queue,
-                )
+                explanation_kwargs: dict[str, Any] = {
+                    "original_text": request.content,
+                    "rewritten_text": final_rewrite_text,
+                    "template_type": template_request.template_type,
+                    "company_name": template_request.company_name,
+                    "progress_queue": progress_queue,
+                }
+                explanation_signature = inspect.signature(generate_improvement_explanation)
+                if (
+                    "evaluation_axes_override" in explanation_signature.parameters
+                    or any(
+                        parameter.kind == inspect.Parameter.VAR_KEYWORD
+                        for parameter in explanation_signature.parameters.values()
+                    )
+                ):
+                    explanation_kwargs["evaluation_axes_override"] = (
+                        effective_template_ctx.effective_evaluation_axes
+                    )
+                explanation_text = await generate_improvement_explanation(**explanation_kwargs)
             except Exception:
                 logger.warning(
                     "Explanation generation failed, continuing without it",
@@ -1201,6 +1146,11 @@ async def _generate_review_progress(
 
         yield _sse_event("complete", {
             "result": result_payload,
+            "billing_outcome": {
+                "success": bool(result.rewrites),
+                "billable": bool(result.rewrites),
+                "schema_version": 1,
+            },
             "internal_telemetry": consume_request_llm_cost_summary("es_review"),
         })
         last_stream_activity = time.monotonic()

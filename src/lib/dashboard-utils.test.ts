@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getCompanyLogoSources, getCompanyAvatarColor } from "./dashboard-utils";
+import { getCompanyLogoSources, getCompanyAvatarColor, PIPELINE_COLUMNS } from "./dashboard-utils";
 
 describe("getCompanyLogoSources", () => {
   beforeEach(() => {
@@ -130,6 +130,13 @@ describe("getCompanyLogoSources", () => {
     const result = getCompanyLogoSources(null, "https://www.google.com/s2/favicons?domain=example.co.jp&sz=64");
     expect(result?.primary).toBe("https://www.google.com/s2/favicons?domain=example.co.jp&sz=64");
     expect(result?.fallbacks).toContain("https://icons.duckduckgo.com/ip3/example.co.jp.ico");
+  });
+});
+
+describe("PIPELINE_COLUMNS", () => {
+  it("uses correct pipeline column labels", () => {
+    const labels = PIPELINE_COLUMNS.map((c) => c.label);
+    expect(labels).toEqual(["未応募", "ES・テスト", "面接・GD", "結果待ち", "内定・インターン合格"]);
   });
 });
 

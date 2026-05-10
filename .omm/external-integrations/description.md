@@ -1,1 +1,1 @@
-Provider boundaries and their responsibilities. This perspective shows which parts of the codebase rely on external services for identity, persistence, billing, calendar sync, scraping, search, and model execution.
+外部連携は Better Auth / Google OAuth、Stripe Billing、Google Calendar、Supabase/Postgres/Storage、LLM provider、Web crawl/search に分かれる。Clean Architecture 上はこれらを infrastructure driver として扱い、domain/use case が provider SDK や raw response shape を直接知らない状態が望ましい。現状は Stripe webhook、company-info fetch、RAG vector store、LLM utils などで provider 依存と application policy が同居する箇所がある。

@@ -23,7 +23,7 @@ import {
   tasks,
   userPins,
 } from "@/lib/db/schema";
-import { eq, and, lt, isNull, gte, or } from "drizzle-orm";
+import { eq, and, lt, isNull, gte, or, sql } from "drizzle-orm";
 
 const GUEST_RETENTION_DAYS = 7;
 
@@ -190,6 +190,60 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
       return null;
     }
 
+    const deleteGuestDuplicates = async () => {
+      const motivationConflicts = await tx
+        .delete(motivationConversations)
+        .where(
+          and(
+            eq(motivationConversations.guestId, guest.id),
+            sql`exists (
+              select 1
+              from "motivation_conversations" as "user_row"
+              where "user_row"."company_id" = ${motivationConversations.companyId}
+                and "user_row"."user_id" = ${userId}
+            )`,
+          ),
+        )
+        .returning({ id: motivationConversations.id });
+      const interviewConflicts = await tx
+        .delete(interviewConversations)
+        .where(
+          and(
+            eq(interviewConversations.guestId, guest.id),
+            sql`exists (
+              select 1
+              from "interview_conversations" as "user_row"
+              where "user_row"."company_id" = ${interviewConversations.companyId}
+                and "user_row"."user_id" = ${userId}
+            )`,
+          ),
+        )
+        .returning({ id: interviewConversations.id });
+      const pinConflicts = await tx
+        .delete(userPins)
+        .where(
+          and(
+            eq(userPins.guestId, guest.id),
+            sql`exists (
+              select 1
+              from "user_pins" as "user_row"
+              where "user_row"."entity_type" = ${userPins.entityType}
+                and "user_row"."entity_id" = ${userPins.entityId}
+                and "user_row"."user_id" = ${userId}
+            )`,
+          ),
+        )
+        .returning({ id: userPins.id });
+
+      return {
+        motivationConversations: motivationConflicts.length,
+        interviewConversations: interviewConflicts.length,
+        userPins: pinConflicts.length,
+      };
+    };
+
+    const conflicts = await deleteGuestDuplicates();
+
     const migrateOwner = async (
       table:
         | typeof companies
@@ -233,7 +287,7 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
     await migrateOwner(submissionItems);
     await migrateOwner(userPins);
 
-    return { guestId: guest.id, userId };
+    return { guestId: guest.id, userId, conflicts };
   });
 }
 

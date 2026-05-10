@@ -1,5 +1,6 @@
 import { LandingFooter } from "./LandingFooter";
 import { LandingHeader } from "./LandingHeader";
+import { StickyCTABar } from "./StickyCTABar";
 import { HeroSection } from "./sections/HeroSection";
 import { PainPointsSection } from "./sections/PainPointsSection";
 import { FeaturesSection } from "./sections/FeaturesSection";
@@ -22,6 +23,7 @@ export function LandingPage() {
         <LPFAQSection />
       </main>
       <LandingFooter />
+      <StickyCTABar heroSelector="[data-hero-cta]" />
     </div>
   );
 }

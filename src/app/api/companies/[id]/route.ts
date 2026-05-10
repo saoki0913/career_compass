@@ -137,6 +137,28 @@ export async function PUT(
       });
     }
 
+    if (sortOrder !== undefined && (typeof sortOrder !== "number" || !Number.isInteger(sortOrder) || sortOrder < 0)) {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "COMPANY_SORT_ORDER_INVALID",
+        userMessage: "企業の並び順を更新できませんでした。",
+        action: "ページを再読み込みして、もう一度お試しください。",
+        developerMessage: "Invalid sortOrder",
+        logContext: "update-company-validation",
+      });
+    }
+
+    if (isPinned !== undefined && typeof isPinned !== "boolean") {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "COMPANY_PIN_INVALID",
+        userMessage: "ピン留め状態を更新できませんでした。",
+        action: "ページを再読み込みして、もう一度お試しください。",
+        developerMessage: "Invalid isPinned",
+        logContext: "update-company-validation",
+      });
+    }
+
     const normalizedRecruitmentUrl = recruitmentUrl !== undefined
       ? await normalizeCompanyUrlField(request, "recruitmentUrl", recruitmentUrl)
       : null;

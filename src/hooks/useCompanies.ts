@@ -4,8 +4,8 @@
  * Hook for fetching and managing companies data
  */
 
-import { useState, useEffect, useCallback } from "react";
-import { CompanyStatus } from "@/lib/constants/status";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { CompanyStatus, type SelectionPhaseKey, getDefaultStatusForPhase } from "@/lib/constants/status";
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
@@ -89,6 +89,7 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
   const [canAddMore, setCanAddMore] = useState(() => options.initialData?.canAddMore ?? true);
   const [isLoading, setIsLoading] = useState(() => !options.initialData);
   const [error, setError] = useState<string | null>(null);
+  const statusUpdateTokens = useRef(new Map<string, number>());
 
   const fetchCompanies = useCallback(async () => {
     try {
@@ -226,6 +227,78 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
     }
   }, []);
 
+  const updateCompanyStatus = useCallback(async (companyId: string, status: CompanyStatus): Promise<boolean> => {
+    const previousCompany = companies.find((company) => company.id === companyId);
+    if (!previousCompany || previousCompany.status === status) {
+      return false;
+    }
+
+    const currentToken = (statusUpdateTokens.current.get(companyId) ?? 0) + 1;
+    statusUpdateTokens.current.set(companyId, currentToken);
+    setError(null);
+    setCompanies((prev) =>
+      prev.map((company) => (company.id === companyId ? { ...company, status } : company))
+    );
+
+    try {
+      const response = await fetch(`/api/companies/${companyId}`, {
+        method: "PUT",
+        headers: buildHeaders(),
+        credentials: "include",
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "COMPANY_STATUS_UPDATE_FAILED",
+            userMessage: "選考ステータスを更新できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: response.status >= 500,
+          },
+          "useCompanies.updateStatus"
+        );
+      }
+
+      const result: { company: Partial<Company> } = await response.json();
+      if (statusUpdateTokens.current.get(companyId) === currentToken) {
+        setCompanies((prev) =>
+          prev.map((company) =>
+            company.id === companyId ? { ...company, ...result.company } : company
+          )
+        );
+        statusUpdateTokens.current.delete(companyId);
+      }
+      return true;
+    } catch (err) {
+      if (statusUpdateTokens.current.get(companyId) === currentToken) {
+        setCompanies((prev) =>
+          prev.map((company) => (company.id === companyId ? previousCompany : company))
+        );
+        statusUpdateTokens.current.delete(companyId);
+      }
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "COMPANY_STATUS_UPDATE_FAILED",
+          userMessage: "選考ステータスを更新できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+        },
+        "useCompanies.updateStatus"
+      );
+      setError(uiError.message);
+      notifyUserFacingAppError(uiError);
+      await fetchCompanies();
+      return false;
+    }
+  }, [companies, fetchCompanies]);
+
+  const moveCompanyToPhase = useCallback(async (companyId: string, phaseKey: SelectionPhaseKey): Promise<boolean> => {
+    return updateCompanyStatus(companyId, getDefaultStatusForPhase(phaseKey));
+  }, [updateCompanyStatus]);
+
   const deleteCompany = useCallback(async (id: string): Promise<boolean> => {
     try {
       setError(null);
@@ -335,6 +408,8 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
     error,
     createCompany,
     updateCompany,
+    updateCompanyStatus,
+    moveCompanyToPhase,
     deleteCompany,
     togglePin,
     refresh: fetchCompanies,

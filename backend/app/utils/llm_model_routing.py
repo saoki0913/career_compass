@@ -19,6 +19,7 @@ class ResolvedModelTarget:
 def _build_model_config() -> dict[str, LLMModel]:
     return {
         "es_review": settings.model_es_review,
+        "es_review_validation": settings.model_es_review_validation,
         "gakuchika": settings.model_gakuchika,
         "motivation": settings.model_motivation,
         "interview": settings.model_interview,

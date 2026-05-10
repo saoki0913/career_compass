@@ -14,7 +14,10 @@ import type {
   InterviewTurnMeta,
   InterviewTurnState,
 } from "@/lib/interview/session";
-import type { InterviewShortCoaching } from "@/lib/interview/conversation";
+import {
+  safeParseInterviewMessages,
+  type InterviewShortCoaching,
+} from "@/lib/interview/conversation";
 import type {
   Feedback,
   FeedbackHistoryItem,
@@ -33,6 +36,7 @@ export type InterviewCompleteKind = "start" | "send" | "feedback" | "continue";
 export type InterviewCompletePayload = {
   messages?: unknown;
   questionCount?: unknown;
+  transitionLine?: unknown;
   stageStatus?: unknown;
   questionStage?: unknown;
   focus?: unknown;
@@ -67,6 +71,7 @@ export type InterviewControllerState = {
   // Phase 2 Stage 6: 最新 turn の short coaching (null = 非表示 / 初回ターン)。
   // Stage 8 ダッシュボードで履歴との突合表示に使う予定。現状は turn 完了ごとに最新値で上書き。
   shortCoaching: InterviewShortCoaching | null;
+  transitionLine: string | null;
 };
 
 export type InterviewCompleteMergeOptions = {
@@ -98,6 +103,12 @@ function parseShortCoachingFromPayload(value: unknown): InterviewShortCoaching |
   return { good: record.good, missing: record.missing, next_edit: record.next_edit };
 }
 
+function parseTransitionLine(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 /**
  * SSE `complete` payload を hook が扱いやすい `PendingCompleteData` 形式に正規化する。
  * 空の入力や不正な型はすべて安全な default に fallback させる。
@@ -110,8 +121,9 @@ export function parseCompletePayload(
   const feedback = (data.feedback as Feedback | null | undefined) ?? null;
   const feedbackHistoriesRaw = data.feedbackHistories;
   return {
-    messages: Array.isArray(data.messages) ? (data.messages as Message[]) : [],
+    messages: safeParseInterviewMessages(data.messages),
     questionCount: typeof data.questionCount === "number" ? data.questionCount : 0,
+    transitionLine: parseTransitionLine(data.transitionLine),
     stageStatus: (data.stageStatus as InterviewStageStatus | null | undefined) || null,
     questionStage: typeof data.questionStage === "string" ? data.questionStage : null,
     focus: typeof data.focus === "string" ? data.focus : null,
@@ -171,6 +183,7 @@ export function mergeCompletePayload(
     turnState: completeData.turnState,
     turnMeta: completeData.turnMeta ?? null,
     interviewPlan: completeData.plan ?? null,
+    transitionLine: completeData.transitionLine,
     questionFlowCompleted: completeData.questionFlowCompleted,
     creditCost: completeData.creditCost,
     feedbackHistories: nextFeedbackHistories,

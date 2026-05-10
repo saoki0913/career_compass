@@ -20,19 +20,22 @@ source "${script_dir}/career-compass-secrets-root.sh"
 
 mode="check"
 target="all"
+vercel_env_scope="both"
 cli_secret_dir=""
 repo_slug="saoki0913/career_compass"
 check_provider_drift=1
 
 usage() {
   cat <<'EOF'
-Usage: sync-career-compass-secrets.sh [--check|--apply] [--target all|vercel-staging|vercel-production|railway-staging|railway-production|github|supabase|google-oauth] [--secret-dir PATH] [--skip-provider-drift]
+Usage: sync-career-compass-secrets.sh [--check|--apply] [--target all|vercel-staging|vercel-production|railway-staging|railway-production|github|supabase|google-oauth] [--vercel-env production|preview|both] [--secret-dir PATH] [--skip-provider-drift]
 
 Secrets bundle (Vercel/Railway/supabase env files) lives under codex-company:
   Default: ${CODEX_COMPANY_SECRETS_ROOT:-$CODEX_COMPANY_ROOT/.secrets}/career_compass
   Or set CAREER_COMPASS_SECRETS_DIR to that bundle path, or pass --secret-dir.
 
 Google OAuth file: <same secrets root>/google-oauth/career_compass.env
+
+Vercel env scope defaults to both for backward compatibility.
 EOF
 }
 
@@ -46,6 +49,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --target)
       target="${2:-}"
+      shift
+      ;;
+    --vercel-env)
+      vercel_env_scope="${2:-}"
       shift
       ;;
     --secret-dir)
@@ -66,6 +73,11 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+case "$vercel_env_scope" in
+  production|preview|both) ;;
+  *) release_die "Invalid --vercel-env: ${vercel_env_scope}. Expected production, preview, or both." ;;
+esac
+
 if [[ -n "$cli_secret_dir" ]]; then
   secret_dir="$cli_secret_dir"
 elif [[ -n "${CAREER_COMPASS_SECRETS_DIR:-}" ]]; then
@@ -81,6 +93,10 @@ require_file() {
 
 should_run_target() {
   [[ "$target" == "all" || "$target" == "$1" ]]
+}
+
+should_run_vercel_env() {
+  [[ "$vercel_env_scope" == "both" || "$vercel_env_scope" == "$1" ]]
 }
 
 load_env_file() {
@@ -385,12 +401,15 @@ apply_supabase_bundle() {
   validate_env_file "$file"
   while IFS= read -r key || [[ -n "$key" ]]; do
     [[ -n "$key" ]] || continue
-    [[ "$key" == SUPABASE_ACCESS_TOKEN || "$key" == SUPABASE_ORG_ID ]] && continue
+    is_meta_key "$key" && continue
     value="$(get_env_value "$file" "$key")"
     pairs+=("${key}=${value}")
   done < <(iter_env_keys "$file")
 
-  (( ${#pairs[@]} > 0 )) || release_die "No Supabase secrets to apply"
+  if (( ${#pairs[@]} == 0 )); then
+    release_log "No Supabase runtime secrets to apply"
+    return 0
+  fi
   release_log "exec: supabase secrets set --project-ref ${SUPABASE_PRODUCTION_PROJECT_REF} [REDACTED ${#pairs[@]} keys]"
   supabase_bin="$(find_real_binary supabase)"
   [[ -n "$supabase_bin" ]] || release_die "Missing command: supabase"
@@ -410,36 +429,48 @@ if should_run_target "vercel-staging"; then
   validate_env_file "$staging_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Vercel staging env"
-    vercel_upsert_env_file "$staging_file" production "$staging_project_id" "$staging_team_id"
-    vercel_upsert_env_file "$staging_file" preview "$staging_project_id" "$staging_team_id" "develop"
+    if should_run_vercel_env "production"; then
+      vercel_upsert_env_file "$staging_file" production "$staging_project_id" "$staging_team_id"
+    fi
+    if should_run_vercel_env "preview"; then
+      vercel_upsert_env_file "$staging_file" preview "$staging_project_id" "$staging_team_id" "develop"
+    fi
     if [[ -f "$github_file" ]]; then
       release_log "Overlaying staging test-auth env from github-actions bundle"
-      vercel_upsert_selected_keys_from_file \
-        "$github_file" \
-        production \
-        "$staging_project_id" \
-        "$staging_team_id" \
-        "" \
-        "CI_E2E_AUTH_SECRET" \
-        "CI_E2E_AUTH_ENABLED" \
-        "PLAYWRIGHT_BASE_URL"
-      vercel_upsert_selected_keys_from_file \
-        "$github_file" \
-        preview \
-        "$staging_project_id" \
-        "$staging_team_id" \
-        "develop" \
-        "CI_E2E_AUTH_SECRET" \
-        "CI_E2E_AUTH_ENABLED" \
-        "PLAYWRIGHT_BASE_URL"
+      if should_run_vercel_env "production"; then
+        vercel_upsert_selected_keys_from_file \
+          "$github_file" \
+          production \
+          "$staging_project_id" \
+          "$staging_team_id" \
+          "" \
+          "CI_E2E_AUTH_SECRET" \
+          "CI_E2E_AUTH_ENABLED" \
+          "PLAYWRIGHT_BASE_URL"
+      fi
+      if should_run_vercel_env "preview"; then
+        vercel_upsert_selected_keys_from_file \
+          "$github_file" \
+          preview \
+          "$staging_project_id" \
+          "$staging_team_id" \
+          "develop" \
+          "CI_E2E_AUTH_SECRET" \
+          "CI_E2E_AUTH_ENABLED" \
+          "PLAYWRIGHT_BASE_URL"
+      fi
     fi
   else
     release_log "Checked Vercel staging env"
     if [[ "$check_provider_drift" == "1" ]]; then
-      check_vercel_key_drift "$staging_file" "Vercel staging production" production "$staging_project_id" "$staging_team_id" "" \
-        "CI_E2E_AUTH_SECRET" "CI_E2E_AUTH_ENABLED" "PLAYWRIGHT_BASE_URL"
-      check_vercel_key_drift "$staging_file" "Vercel staging preview/develop" preview "$staging_project_id" "$staging_team_id" "develop" \
-        "CI_E2E_AUTH_SECRET" "CI_E2E_AUTH_ENABLED" "PLAYWRIGHT_BASE_URL"
+      if should_run_vercel_env "production"; then
+        check_vercel_key_drift "$staging_file" "Vercel staging production" production "$staging_project_id" "$staging_team_id" "" \
+          "CI_E2E_AUTH_SECRET" "CI_E2E_AUTH_ENABLED" "PLAYWRIGHT_BASE_URL"
+      fi
+      if should_run_vercel_env "preview"; then
+        check_vercel_key_drift "$staging_file" "Vercel staging preview/develop" preview "$staging_project_id" "$staging_team_id" "develop" \
+          "CI_E2E_AUTH_SECRET" "CI_E2E_AUTH_ENABLED" "PLAYWRIGHT_BASE_URL"
+      fi
     fi
   fi
 fi
@@ -451,13 +482,21 @@ if should_run_target "vercel-production"; then
   validate_env_file "$production_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Vercel production env"
-    vercel_upsert_env_file "$production_file" production "$production_project_id" "$production_team_id"
-    vercel_upsert_env_file "$production_file" preview "$production_project_id" "$production_team_id" "develop"
+    if should_run_vercel_env "production"; then
+      vercel_upsert_env_file "$production_file" production "$production_project_id" "$production_team_id"
+    fi
+    if should_run_vercel_env "preview"; then
+      vercel_upsert_env_file "$production_file" preview "$production_project_id" "$production_team_id" "develop"
+    fi
   else
     release_log "Checked Vercel production env"
     if [[ "$check_provider_drift" == "1" ]]; then
-      check_vercel_key_drift "$production_file" "Vercel production" production "$production_project_id" "$production_team_id"
-      check_vercel_key_drift "$production_file" "Vercel production preview/develop" preview "$production_project_id" "$production_team_id" "develop"
+      if should_run_vercel_env "production"; then
+        check_vercel_key_drift "$production_file" "Vercel production" production "$production_project_id" "$production_team_id"
+      fi
+      if should_run_vercel_env "preview"; then
+        check_vercel_key_drift "$production_file" "Vercel production preview/develop" preview "$production_project_id" "$production_team_id" "develop"
+      fi
     fi
   fi
 fi

@@ -22,9 +22,9 @@ describe("HeroSection design-system guard", () => {
     expect(source).not.toContain('"#1a1a2e"');
   });
 
-  it("uses shupass reference hero assets and keeps CTAs as links", () => {
+  it("uses shupass reference hero assets via registry and keeps CTAs as links", () => {
     expect(source).toContain("lpSectionAsset");
-    expect(source).toContain("product-mockup-pc-phone.png");
+    expect(source).toContain("LP_SECTION_ASSETS.hero.productMockup");
     expect(source).toContain("hero__trust-pill");
     expect(source).toContain('href="/login"');
     expect(source).toContain('href="#features"');
@@ -44,10 +44,10 @@ describe("HeroSection design-system guard", () => {
     expect(source).not.toContain("'Inter'");
   });
 
-  it("uses material decoration assets instead of blurred orbs", () => {
-    expect(source).toContain("hero/icon-growth-chart.png");
-    expect(source).toContain("hero/icon-star.png");
-    expect(source).toContain("hero/icon-document-check.png");
+  it("uses material decoration assets via LP_SECTION_ASSETS registry", () => {
+    expect(source).toContain("LP_SECTION_ASSETS.hero.iconGrowthChart");
+    expect(source).toContain("LP_SECTION_ASSETS.hero.iconStar");
+    expect(source).toContain("LP_SECTION_ASSETS.hero.iconDocumentCheck");
     expect(source).not.toContain("filter: \"blur");
   });
 
@@ -57,10 +57,12 @@ describe("HeroSection design-system guard", () => {
 
   it("implements trust badges as HTML pills", () => {
     expect(source).toContain("grid-cols-3");
-    expect(source).toContain("min-h-[64px]");
+    expect(source).toContain("min-h-[52px]");
     expect(source).toContain("sm:min-h-[56px]");
-    expect(source).toContain("sm:h-[42px]");
-    expect(source).toContain("sm:w-[42px]");
+    expect(source).toContain("h-7");
+    expect(source).toContain("w-7");
+    expect(source).toContain("md:h-[42px]");
+    expect(source).toContain("md:w-[42px]");
     expect(source).toContain("text-[10px]");
     expect(source).not.toContain("hidden text-[12px]");
   });
@@ -83,5 +85,9 @@ describe("HeroSection design-system guard", () => {
 
   it("includes sparkle decorations", () => {
     expect(source).toContain("LpSparkleDecorations");
+  });
+
+  it("marks the primary CTA for StickyCTABar IntersectionObserver", () => {
+    expect(source).toContain("data-hero-cta");
   });
 });

@@ -69,7 +69,7 @@ fi
 
 DECISION=$(jq -r '.decision // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
 case "$DECISION" in
-  reviewed-proceed|delegate-fixes|fallback-reviewed) ;;
+  reviewed-proceed|delegate-fixes|fallback-reviewed|plugin-reviewed) ;;
   *)
     cat >&2 <<EOF
 Invalid commit review checkpoint: "$DECISION"
@@ -90,7 +90,7 @@ if [ "$KIND" != "commit-review" ]; then
   exit 2
 fi
 
-if [ "$DECISION" != "fallback-reviewed" ]; then
+if [ "$DECISION" != "fallback-reviewed" ] && [ "$DECISION" != "plugin-reviewed" ]; then
   REVIEW_REQUEST_ID=$(jq -r '.reviewRequestId // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
   REVIEW_EXECUTION_STATUS=$(jq -r '.reviewExecutionStatus // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
   REVIEW_VERDICT=$(jq -r '.reviewVerdict // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")

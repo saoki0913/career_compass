@@ -146,6 +146,10 @@ if (command === "current") {
 if (command === "checkpoint") {
   const snapshot = stagedSnapshot(project, { includeDirtyState });
   const categories = parseCategories();
+  const qgItemId = argValue("--item-id", "");
+  const qgItemSeverity = argValue("--item-severity", "");
+  const qgReason = argValue("--reason", "");
+  const qgExpiresAt = argValue("--expires-at", "");
   print({
     schemaVersion: 1,
     kind: argValue("--kind", "generic"),
@@ -157,6 +161,10 @@ if (command === "checkpoint") {
     releaseMode: argValue("--release-mode", ""),
     status: argValue("--status", ""),
     createdAt: new Date().toISOString(),
+    ...(qgItemId ? { itemId: qgItemId } : {}),
+    ...(qgItemSeverity ? { itemSeverity: qgItemSeverity } : {}),
+    ...(qgReason ? { reason: qgReason } : {}),
+    ...(qgExpiresAt ? { expiresAt: qgExpiresAt } : {}),
     ...(categories ? { categories } : {}),
     ...snapshot,
   });

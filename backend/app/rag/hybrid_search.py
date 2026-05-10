@@ -621,7 +621,7 @@ def _keyword_search(
     index = get_or_create_index(company_id, tenant_key=tenant_key)
     if not index.documents:
         try:
-            from app.rag.vector_store import update_bm25_index
+            from app.rag.bm25_refresh import update_bm25_index
 
             update_bm25_index(company_id, tenant_key)
             index = get_or_create_index(company_id, tenant_key=tenant_key)

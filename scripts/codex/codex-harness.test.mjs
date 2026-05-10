@@ -196,14 +196,25 @@ test("codex lifecycle hooks are wired for safety and quality gates", () => {
   assert.match(source, /stop-plaintext-confirm-guard\.sh/);
 });
 
-test("codex bash post-tool triage stays visually quiet on normal commands", () => {
+test("codex user-prompt router allows questions about secret file procedures", () => {
+  const result = runHook(".codex/hooks/user-prompt-submit-router.sh", JSON.stringify({
+    prompt: "How should I check codex-company/.secrets/career_compass without reading secret values?",
+  }));
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+});
+
+test("codex post-tool hooks stay limited to edit follow-ups", () => {
   const source = readFileSync(path.join(repoRoot, ".codex/hooks.json"), "utf8");
   const config = JSON.parse(source);
   const bashPostToolEntry = config.hooks.PostToolUse.find((entry) => entry.matcher === "Bash");
+  const editPostToolEntry = config.hooks.PostToolUse.find((entry) => entry.matcher === "apply_patch|Edit|Write");
 
-  assert.ok(bashPostToolEntry);
-  assert.match(bashPostToolEntry.hooks[0].command, /post-tool-failure-triage\.sh/);
-  assert.equal(bashPostToolEntry.hooks[0].statusMessage, undefined);
+  assert.equal(bashPostToolEntry, undefined);
+  assert.ok(editPostToolEntry);
+  assert.match(editPostToolEntry.hooks[0].command, /post-edit-dispatcher\.sh/);
 });
 
 test("codex pre-tool dispatcher keeps harmless bash commands quiet", () => {
@@ -535,6 +546,36 @@ test("codex permission request guard denies force push approval", () => {
   const parsed = JSON.parse(result.stdout);
   assert.equal(parsed.hookSpecificOutput.hookEventName, "PermissionRequest");
   assert.equal(parsed.hookSpecificOutput.decision.behavior, "deny");
+});
+
+test("delegate.sh isolates delegated Codex runs from user-level MCP startup", () => {
+  const source = readFileSync(path.join(repoRoot, "scripts/codex/delegate.sh"), "utf8");
+
+  assert.match(source, /CODEX_EXEC_COMMON_ARGS=\(/);
+  assert.match(source, /experimental_use_rmcp_client=false/);
+  assert.match(source, /--ignore-user-config/);
+  assert.match(source, /--ephemeral/);
+  assert.doesNotMatch(source, /mcp_servers\.context7/);
+  assert.doesNotMatch(source, /context7/);
+  assert.doesNotMatch(source, /--profile(?:\s|=)/);
+  assert.doesNotMatch(source, /features\.rmcp_client\s*=\s*true/);
+  assert.doesNotMatch(source, /experimental_use_rmcp_client\s*=\s*true/);
+
+  const caseBlock = source.match(/case "\$MODE" in([\s\S]*?)esac/);
+  assert.ok(caseBlock, "case block must exist in delegate.sh");
+
+  const modeBlocks = caseBlock[1].split(/\n\s*;;\s*\n/);
+  const expectedModes = ["plan_review", "implementation", "post_review", "imagegen"];
+
+  for (const modeName of expectedModes) {
+    const block = modeBlocks.find((b) => new RegExp(`^\\s*${modeName}\\)`).test(b));
+    assert.ok(block, `${modeName} block must exist`);
+    assert.match(
+      block,
+      /\$\{CODEX_EXEC_COMMON_ARGS\[@\]\}/,
+      `${modeName} mode must use shared Codex exec args`,
+    );
+  }
 });
 
 test("codex stop plaintext confirmation guard asks Codex to continue", () => {

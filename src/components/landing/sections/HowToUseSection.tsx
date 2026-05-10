@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { Building2, CalendarCheck, FileText, MessageSquare } from "lucide-react";
-import { lpSectionAsset } from "@/lib/marketing/lp-assets";
+import { lpSectionAsset, LP_SECTION_ASSETS } from "@/lib/assets/image-registry";
 import { LpSparkleDecorations } from "@/components/landing/shared/LpSparkleDecorations";
 
 const steps = [
@@ -9,7 +9,7 @@ const steps = [
     icon: Building2,
     title: "企業を登録",
     body: "気になる企業を追加して、管理をスタート。",
-    src: "how-to/processed/step-register-company-nobg.png",
+    src: LP_SECTION_ASSETS.howTo.stepRegisterCompany,
     footer: "気になる企業をすぐに登録。情報を一元管理できます。",
   },
   {
@@ -17,7 +17,7 @@ const steps = [
     icon: FileText,
     title: "AIでESを作成・添削",
     body: "志望動機やガクチカを整理しながら、文章をブラッシュアップ。",
-    src: "how-to/processed/step-ai-es-review-nobg.png",
+    src: LP_SECTION_ASSETS.howTo.stepAiEsReview,
     footer: "AIが内容を添削し、伝わるESに仕上げることができます。",
   },
   {
@@ -25,7 +25,7 @@ const steps = [
     icon: MessageSquare,
     title: "面接対策を進める",
     body: "LLMとのチャットで模擬面接を進め、受け答えを改善。",
-    src: "how-to/processed/step-interview-prep-nobg.png",
+    src: LP_SECTION_ASSETS.howTo.stepInterviewPrep,
     footer: "AIが回答を分析し、改善点や強みをフィードバックします。",
   },
   {
@@ -33,7 +33,7 @@ const steps = [
     icon: CalendarCheck,
     title: "締切・予定を管理",
     body: "カレンダー連携で、予定や締切をひと目で確認。",
-    src: "how-to/processed/step-deadline-schedule-nobg.png",
+    src: LP_SECTION_ASSETS.howTo.stepDeadlineSchedule,
     footer: "締切や面接予定をまとめて管理。うっかり忘れを防げます。",
   },
 ] as const;
@@ -51,9 +51,8 @@ export function HowToUseSection() {
     <section
       id="how-it-works"
       data-section="how-it-works"
-      className="relative scroll-mt-[92px] overflow-hidden bg-white"
+      className="relative scroll-mt-[92px] overflow-hidden bg-white py-10 sm:py-[52px] lg:pt-[60px] lg:pb-14"
       style={{
-        padding: "60px 0 56px",
         fontFamily:
           "'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
         fontFeatureSettings: '"palt"',
@@ -69,7 +68,7 @@ export function HowToUseSection() {
 
       <div className="relative z-10 mx-auto max-w-[1540px] px-6 sm:px-10 lg:px-12 xl:px-14">
         <div className="mb-7 text-center sm:mb-8">
-          <h2 className="text-[36px] font-black leading-[1.08] sm:text-[48px] lg:text-[56px]" style={{ color: "var(--lp-navy)", letterSpacing: "0" }}>
+          <h2 className="text-[28px] font-black leading-[1.08] sm:text-[36px] md:text-[48px] lg:text-[56px]" style={{ color: "var(--lp-navy)", letterSpacing: "0" }}>
             使い方は、<span style={{ color: "var(--lp-cta)" }}>シンプル。</span>
           </h2>
           <p className="mt-3 text-[16px] font-medium" style={{ color: "var(--lp-muted-text)" }}>
@@ -104,8 +103,8 @@ export function HowToUseSection() {
                 <p className="px-4 pb-0 pt-0 text-[15px] font-medium leading-[1.45]" style={{ color: "var(--lp-navy)" }}>
                   {step.body}
                 </p>
-                <div className="mx-3 flex h-[270px] items-center justify-center overflow-hidden rounded-[14px] bg-[#f7fbff] sm:h-[300px] xl:h-[270px]">
-                  <img src={lpSectionAsset(step.src)} alt="" role="presentation" className="max-h-[292px] w-auto max-w-[112%] object-contain sm:max-h-[322px] xl:max-h-[292px]" loading="lazy" decoding="async" />
+                <div className="mx-3 flex h-[200px] items-center justify-center overflow-hidden rounded-[14px] bg-[#f7fbff] sm:h-[270px] xl:h-[270px]">
+                  <img src={lpSectionAsset(step.src)} alt="" role="presentation" className="max-h-[220px] w-auto max-w-[112%] object-contain sm:max-h-[292px] xl:max-h-[292px]" loading="lazy" decoding="async" />
                 </div>
                 <div className="mx-3 mb-2 mt-0 rounded-[12px] border bg-white px-3 py-1.5" style={{ borderColor: "#d8eaff" }}>
                   <p className="text-[14px] font-bold leading-[1.5]" style={{ color: "var(--lp-navy)" }}>
@@ -115,7 +114,7 @@ export function HowToUseSection() {
               </article>
               {index < steps.length - 1 && (
                 <div className="flex flex-col items-center py-1 xl:hidden" aria-hidden>
-                  <span className="h-6 w-[2px]" style={{ background: "var(--lp-cta)" }} />
+                  <span className="h-4 w-[2px]" style={{ background: "var(--lp-cta)" }} />
                   <span className="h-0 w-0 border-x-[7px] border-t-[11px] border-x-transparent" style={{ borderTopColor: "var(--lp-cta)" }} />
                 </div>
               )}

@@ -1,0 +1,1 @@
+状態遷移の観点。Career Compass では deadline、billing、conversation、RAG ingest、UI transient、provider state が主要な状態主体になる。Clean Architecture 上は状態遷移の正本を domain/use case に置き、UI state と DB row と provider callback は adapter として扱うべき。現状は feature ごとに一定の分割がある一方、deadline status、conversation JSON、RAG ingest metadata、billing success-only-consumption の状態遷移が複数 route / hook / service に分散している。

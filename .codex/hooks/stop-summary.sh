@@ -21,6 +21,25 @@ else
   fi
 fi
 
+# Quality Gate session summary (fail-open)
+if [ "$STATUS_COUNT" -gt 0 ] && [ -f "$PROJECT_DIR/tools/quality-gate-check.mjs" ]; then
+  (
+    QG_OUTPUT=$(node "$PROJECT_DIR/tools/quality-gate-check.mjs" --mode=quick 2>/dev/null) || true
+    if [ -n "$QG_OUTPUT" ]; then
+      QG_TOTAL=$(echo "$QG_OUTPUT" | jq -r '.total_findings // 0' 2>/dev/null || echo "0")
+      QG_CRITICAL=$(echo "$QG_OUTPUT" | jq -r '.critical_findings // 0' 2>/dev/null || echo "0")
+      QG_HIGH=$(echo "$QG_OUTPUT" | jq -r '.high_findings // 0' 2>/dev/null || echo "0")
+      if [ "$QG_TOTAL" -gt 0 ] 2>/dev/null; then
+        echo "" >&2
+        echo "Quality Gate: ${QG_TOTAL} findings (${QG_CRITICAL} critical, ${QG_HIGH} high)" >&2
+        if [ "$QG_CRITICAL" -gt 0 ] || [ "$QG_HIGH" -gt 0 ]; then
+          echo "   -> /quality-gate-audit for detailed review" >&2
+        fi
+      fi
+    fi
+  ) || true
+fi
+
 VERIFY_OUT="/tmp/career-compass-codex-verify-status.$$"
 VERIFY_ERR="/tmp/career-compass-codex-verify-status.err"
 if node "$PROJECT_DIR/tools/run-verify-status.mjs" >"$VERIFY_OUT" 2>"$VERIFY_ERR"; then

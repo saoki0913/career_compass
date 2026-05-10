@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from types import ModuleType
 from typing import Any
@@ -45,8 +46,8 @@ SCHEDULE_LLM_MAX_OUTPUT_TOKENS = 1500
 ExtractedScheduleInfo: Any = None
 FetchRequest: Any = None
 SelectionScheduleResponse: Any = None
-_company_info_module: ModuleType | None = None
 _pdf_module: ModuleType | None = None
+_schedule_runtime: ScheduleRuntimeDependencies | None = None
 _get_graduation_year: Any = None
 _apply_schedule_source_confidence_caps: Any = None
 _classify_company_relation: Any = None
@@ -58,13 +59,21 @@ _SCHEDULE_DATE_LINE_HINT_RE = re.compile(
 )
 
 
+@dataclass(frozen=True)
+class ScheduleRuntimeDependencies:
+    fetch_page_content: Any
+    extract_schedule_with_firecrawl: Any
+    extract_schedule_text_from_bytes: Any
+    extract_schedule_with_llm: Any
+
+
 def configure_dependencies(
     *,
     models: ModuleType,
     config: ModuleType,
     candidate_scoring: ModuleType,
     url_utils: ModuleType,
-    company_info_module: ModuleType | None = None,
+    runtime: ScheduleRuntimeDependencies | None = None,
     pdf_module: ModuleType | None = None,
 ) -> None:
     """Inject router-owned dependencies without importing router modules here."""
@@ -78,7 +87,7 @@ def configure_dependencies(
     global SCHEDULE_LLM_TEXT_MAX_CHARS_EXTREME, SCHEDULE_LLM_FALLBACK_MAX_CHARS_EXTREME
     global SCHEDULE_LLM_TEXT_CONTEXT_LINES_EXTREME, SCHEDULE_EXTREME_TAIL_LINES
     global SCHEDULE_LLM_MAX_OUTPUT_TOKENS, ExtractedScheduleInfo, FetchRequest
-    global SelectionScheduleResponse, _company_info_module, _pdf_module
+    global SelectionScheduleResponse, _schedule_runtime, _pdf_module
     global _get_graduation_year, _apply_schedule_source_confidence_caps
     global _classify_company_relation, _normalize_url, _detect_other_graduation_years
     global _normalize_recruitment_source_type
@@ -103,7 +112,7 @@ def configure_dependencies(
     ExtractedScheduleInfo = models.ExtractedScheduleInfo
     FetchRequest = models.FetchRequest
     SelectionScheduleResponse = models.SelectionScheduleResponse
-    _company_info_module = company_info_module
+    _schedule_runtime = runtime
     _pdf_module = pdf_module
     _get_graduation_year = candidate_scoring._get_graduation_year
     _detect_other_graduation_years = candidate_scoring._detect_other_graduation_years
@@ -113,10 +122,10 @@ def configure_dependencies(
     _normalize_url = url_utils._normalize_url
 
 
-def _require_company_info_module() -> ModuleType:
-    if _company_info_module is None:
+def _require_schedule_runtime() -> ScheduleRuntimeDependencies:
+    if _schedule_runtime is None:
         raise RuntimeError("company_info service dependencies are not configured")
-    return _company_info_module
+    return _schedule_runtime
 
 
 def _schedule_text_chunk_matches_keyword(chunk: str) -> bool:
@@ -508,14 +517,11 @@ def _merge_schedule_info_parts(parts) -> object:
 
 async def fetch_schedule_response(request: FetchRequest, feature: str) -> SelectionScheduleResponse:
     """Fetch and extract schedule information from a URL."""
-    # Late-bound imports: resolved at call time so monkeypatching on the
-    # ``company_info`` module (used by tests) takes effect.
-    _ci = _require_company_info_module()
-
-    fetch_page_content = _ci.fetch_page_content
-    _extract_schedule_with_firecrawl = _ci._extract_schedule_with_firecrawl
-    _extract_schedule_text_from_bytes = _ci._extract_schedule_text_from_bytes
-    extract_schedule_with_llm = _ci.extract_schedule_with_llm
+    runtime = _require_schedule_runtime()
+    fetch_page_content = runtime.fetch_page_content
+    _extract_schedule_with_firecrawl = runtime.extract_schedule_with_firecrawl
+    _extract_schedule_text_from_bytes = runtime.extract_schedule_text_from_bytes
+    extract_schedule_with_llm = runtime.extract_schedule_with_llm
 
     source_metadata: dict = {
         "source_type": "other",

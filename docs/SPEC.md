@@ -288,7 +288,8 @@
 
 ### 7.2 表示要素
 - 画面構成は `DashboardPageClient` の 2 カラム product UI。左カラムに週間スケジュールと選考企業管理、右カラムに今日のタスクと独立した締切カードを配置する
-- ダッシュボードの空状態・補助イラストは `public/dashboard/assets/image_*.png` を使い、実データ（企業ロゴ、締切、タスク）は固定画像では置き換えない
+- 選考企業管理は企業一覧の看板ボードと同じ `未応募 / ES・テスト / 面接・GD / 結果待ち / 内定・インターン合格` の5分類を使う
+- ダッシュボードの空状態イラストは `src/lib/assets/image-registry.ts` の `DASHBOARD_ASSETS`（`empty-state-hourglass.png`, `empty-state-clipboard.png`）で管理し、実データ（企業ロゴ、締切、タスク）は固定画像では置き換えない
 - 今日の最重要1タスク（ワンタップで開始）
 - 通知欄（最大5件＋「他◯件」）
 - クレジット残高（残量・次回付与日。`DashboardHeader` は `/api/credits` 経由）
@@ -331,6 +332,9 @@
 
 ### 8.6 並び替え
 - 企業/応募枠の並び替え・ピン留めが可能
+- 企業一覧の初期表示は、選考ステータス別の看板ボードとする。列はダッシュボードと同じ `未応募 / ES・テスト / 面接・GD / 結果待ち / 内定・インターン合格`
+- 看板ボードでは企業カードをドラッグ・アンド・ドロップして列間移動できる。移動時は移動先列の既定ステータスへ即時更新し、詳細なステータスはカード内メニューから変更できる
+- グリッド表示は表示切替で残し、既存の検索・業界フィルタ・状態タブ・並び替えは看板ボードにも適用する
 
 ---
 
@@ -841,7 +845,7 @@
 - **ガクチカ ES 下書きの文字数**: UI で **300 / 400 / 500** 字のいずれかを選び、`POST /api/gakuchika/[id]/generate-es-draft` の `charLimit` に渡す。初期選択は素材 `charLimitType`（一覧・詳細 GET）に合わせ、ES 作成中はセレクターとセッション履歴の切り替えを無効化する
 - **ガクチカ ES 下書きの保存状態**: ES 下書き生成時に `documents` へ draft document を作成し、その ID を `conversation_state.draft_document_id` に保持する。`draft_ready` かつ `draft_text` がないセッションを resume した場合は、深掘りプロンプトではなく ES 構築プロンプトへ戻す
 - **ガクチカ ES 下書きの削除**: `POST /api/gakuchika/[id]/discard-generated-draft` はログインユーザーのみ利用可能。`sessionId` / `draft_document_id` / document 所有者が一致し、`documents.type="es"` かつ `status="draft"` の場合だけ `status="deleted"` に soft delete する。ES エディタへ移動した後の保存済み draft はこの導線では削除しない
-- **ガクチカ ES 下書きのプロンプト / 品質ゲート**: FastAPI は ES 添削と同一の `TEMPLATE_DEFS` を正とする `backend/app/prompts/es_templates.py` の **`build_template_draft_generation_prompt`（`gakuchika`）** で生成する（旧 `gakuchika.draft_generation` 管理プロンプトは廃止。Notion 必須キーからも除外）。生成後は文字数、AI 臭、本人表現の反映、評論調・抽象的な学びだけの結びを検査し、必要時は 1 回だけ retry する。結びは **「結果、OOした」** または **「結果、OOした。この経験からOOを学んだ」** の形を基本とする
+- **ガクチカ ES 下書きのプロンプト / 品質ゲート**: FastAPI は ES 添削と同一の `TEMPLATE_DEFS` を正とする `backend/app/prompts/es_templates/` の **`build_template_draft_generation_prompt`（`gakuchika`）** で生成する（旧 `gakuchika.draft_generation` 管理プロンプトは廃止。Notion 必須キーからも除外）。生成後は文字数、AI 臭、本人表現の反映、評論調・抽象的な学びだけの結びを検査し、必要時は 1 回だけ retry する。結びは **「結果、OOした」** または **「結果、OOした。この経験からOOを学んだ」** の形を基本とする
 - **進捗バー（状況・課題・行動・結果）**: 表示中の質問意図に対応する `conversation_state.focus_key` を正として表示する。回答送信中に `focus_key` を楽観的に消してバーを壊さない。SSE `hint_ready` / `field_complete` では `focus_key` / `progress_label` / `coach_progress_message` を早期反映せず、次質問の文字送り表示が完了した後に `complete` payload の state を一括反映する
 - **質問順序（ES 構築）**: 原則 **状況 → 課題 → 行動 → 結果**。サーバーは骨格が未充足のとき、LLM 出力の `focus_key` を `missing_elements` の STAR 先頭欠落に正規化して進捗表示と質問の軸を一致させる
 - `もう少し整える` を選んだ時だけ、同じセッションで会話を再開する

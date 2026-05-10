@@ -13,18 +13,18 @@ If the user does not specify an output path, keep generated artifacts under `doc
 
 ## 対象ファイル・コンポーネント
 
-- `backend/app/prompts/es_templates.py` — 9テンプレート定義、playbook、文字数制御プロファイル、リライト/ドラフト生成プロンプトビルダー
+- `backend/app/prompts/es_templates/` — 9テンプレート定義、playbook、文字数制御プロファイル、リライト/ドラフト生成プロンプトビルダー
 - `backend/app/prompts/reference_es.py` — 参考ES統計プロファイリング、品質ヒント、骨子、条件付きヒント
 - `backend/app/prompts/gakuchika_prompts.py` — ガクチカ深掘り会話プロンプト
 - `backend/app/prompts/motivation_prompts.py` — 志望動機会話プロンプト
 - `backend/app/prompts/notion_sync.py` — Notion同期関連プロンプト
 - `backend/app/utils/llm.py` — LLM呼び出し基盤、モデル解決、コスト計算
-- `private/reference_es/es_references.json` — 品質ベンチマーク（80件超の参考ES）
+- `backend/app/reference/es_review/<template>/references.jsonl` — 品質ベンチマーク（80件超の参考ES）
 
 ## ワークフロー
 
 1. 対象プロンプトの現状を読み取り、テンプレート構造・品質ヒント・バリデーションルールを把握する。
-2. 参考ESコーパス（`private/reference_es/`）の品質特性を確認し、ベンチマークとする。
+2. 参考ESコーパス（`backend/app/reference/es_review/`）の品質特性を確認し、ベンチマークとする。
 3. 改善仮説を立て、プロンプト変更案を作成する。
 4. 変更が既存の `evaluation_checks`（冒頭パターン、アンカー、フォーカスパターン）と整合することを確認する。
 5. token 使用量を見積り、コスト影響を評価する。

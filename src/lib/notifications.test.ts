@@ -133,6 +133,32 @@ describe("notifications", () => {
     });
   });
 
+  it("shows purchase success toast for confirmed plan", async () => {
+    const { notifyPurchaseSuccess } = await import("./notifications");
+
+    notifyPurchaseSuccess("pro", true);
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith({
+      tone: "success",
+      title: "Proプランへの登録が完了しました",
+      description: "クレジットが付与されました。さっそく機能を使ってみましょう。",
+      duration: 6000,
+    });
+  });
+
+  it("shows purchase processing toast when plan is not yet confirmed", async () => {
+    const { notifyPurchaseSuccess } = await import("./notifications");
+
+    notifyPurchaseSuccess("standard", false);
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith({
+      tone: "info",
+      title: "Standardプランの登録を処理中です",
+      description: "まもなく反映されます。",
+      duration: 5000,
+    });
+  });
+
   it("shows document and calendar notification helpers with short success copy", async () => {
     const {
       notifyDocumentCreated,

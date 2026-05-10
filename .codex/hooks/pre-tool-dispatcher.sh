@@ -33,6 +33,10 @@ case "$TOOL" in
       run_hook "git-push-guard.sh"
     fi
 
+    if guard_command_is_git_branch_create "$CMD"; then
+      run_hook "git-branch-guard.sh"
+    fi
+
     if guard_command_has_destructive_delete "$CMD"; then
       run_hook "destructive-rm-guard.sh"
     fi
@@ -42,6 +46,9 @@ case "$TOOL" in
     fi
 
     if guard_command_is_git_commit "$CMD"; then
+      if [ -f "$SCRIPT_DIR/quality-gate-commit-check.sh" ]; then
+        run_hook "quality-gate-commit-check.sh"
+      fi
       run_hook "commit-codex-gate.sh"
     fi
 

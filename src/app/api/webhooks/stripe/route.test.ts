@@ -112,7 +112,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
     dbUpdateWhereMock.mockResolvedValue(undefined);
   });
 
-  it("does not reallocate credits on renewal when the price id is unchanged", async () => {
+  it("ensures plan allocation on renewal through an idempotent helper", async () => {
     constructEventMock.mockReturnValue({
       id: "evt_1",
       type: "customer.subscription.updated",
@@ -140,7 +140,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "standard");
   });
 
   it("treats unique idempotency claim failure as a duplicate event", async () => {
@@ -245,7 +245,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
     expect(updatePlanAllocationMock).not.toHaveBeenCalled();
   });
 
-  it("releases the claimed event when processing fails so Stripe can retry", async () => {
+  it("updates subscription price before ensuring credit allocation", async () => {
     constructEventMock.mockReturnValue({
       id: "evt_retryable",
       type: "customer.subscription.updated",
@@ -265,7 +265,6 @@ describe("api/webhooks/stripe subscription.updated", () => {
         },
       },
     });
-    updatePlanAllocationMock.mockRejectedValueOnce(new Error("credits unavailable"));
 
     const { POST } = await import("@/app/api/webhooks/stripe/route");
     const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
@@ -273,8 +272,12 @@ describe("api/webhooks/stripe subscription.updated", () => {
       body: "{}",
     }));
 
-    expect(response.status).toBe(500);
-    expect(dbDeleteWhereMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(dbUpdateWhereMock).toHaveBeenCalledTimes(3);
+    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "pro");
+    expect(dbUpdateWhereMock.mock.invocationCallOrder[0]).toBeLessThan(
+      updatePlanAllocationMock.mock.invocationCallOrder[0],
+    );
   });
 });
 

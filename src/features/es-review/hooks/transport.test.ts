@@ -19,14 +19,13 @@ describe("es-review transport", () => {
     const seen: string[] = [];
     const result: ReviewResult = {
       rewrites: ["after"],
-      improvement_explanation: "理由を補強した",
+      improvement_explanation: "{\"version\":2,\"improvement_points\":[],\"main_changes\":[]}",
       template_review: {
         template_type: "self_pr",
         variants: [],
         keyword_sources: [
           {
             title: "source",
-            source_id: "source-1",
             source_url: "https://example.com",
             content_type: "corporate_site",
             excerpt: "evidence",
@@ -42,9 +41,9 @@ describe("es-review transport", () => {
           encoder.encode(
             [
               'data: {"type":"progress","step":"analysis","progress":42}',
-              'data: {"type":"string_chunk","path":"streaming_rewrite","text":"after"}',
-              'data: {"type":"string_chunk","path":"improvement_explanation","text":"理由を"}',
-              'data: {"type":"complete","result":{"rewrites":["after"],"improvement_explanation":"理由を補強した","template_review":{"template_type":"self_pr","variants":[],"keyword_sources":[{"title":"source","source_id":"source-1","source_url":"https://example.com","content_type":"corporate_site","excerpt":"evidence"}]}},"creditCost":7}',
+              'data: {"type":"rewrite_delta","text":"after","path":"streaming_rewrite"}',
+              'data: {"type":"explanation_complete","value":"{\\"version\\":2,\\"improvement_points\\":[],\\"main_changes\\":[]}","path":"improvement_explanation"}',
+              'data: {"type":"complete","requestId":"req-1","result":{"rewrites":["after"],"improvement_explanation":"{\\"version\\":2,\\"improvement_points\\":[],\\"main_changes\\":[]}","template_review":{"template_type":"self_pr","variants":[],"keyword_sources":[{"title":"source","source_id":"source-1","source_url":"https://example.com","content_type":"corporate_site","excerpt":"evidence"}]}},"creditCost":7}',
               "",
             ].join("\n\n"),
           ),
@@ -61,7 +60,7 @@ describe("es-review transport", () => {
       },
     });
 
-    expect(seen).toEqual(["progress", "string_chunk", "string_chunk", "complete"]);
+    expect(seen).toEqual(["progress", "rewrite_delta", "explanation_complete", "complete"]);
     expect(consumed).toEqual({
       ok: true,
       result,
@@ -69,14 +68,30 @@ describe("es-review transport", () => {
     });
   });
 
-  it("returns stream error payloads", async () => {
+  it("drops non-public fields from parsed complete payloads", async () => {
+    const { parseSSEEvent } = await import("./transport");
+
+    const event = parseSSEEvent(
+      'data: {"type":"complete","requestId":"req-1","result":{"rewrites":["after"],"template_review":{"template_type":"self_pr","variants":[],"keyword_sources":[{"source_id":"src-1","source_url":"https://example.com","content_type":"corporate_site","title":"source"}]},"review_meta":{"grounding_mode":"none","rewrite_attempt_count":3,"repair_dispatches":["x"],"fallback_reason":"debug"}}}\n\n',
+    );
+
+    expect(JSON.stringify(event)).not.toContain("source_id");
+    expect(JSON.stringify(event)).not.toContain("requestId");
+    expect(JSON.stringify(event)).not.toContain("rewrite_attempt_count");
+    expect(JSON.stringify(event)).not.toContain("repair_dispatches");
+    expect(JSON.stringify(event)).not.toContain("fallback_reason");
+  });
+
+  it("returns stream error payloads with diagnostics", async () => {
     const { consumeESReviewStream } = await import("./transport");
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         const encoder = new TextEncoder();
         controller.enqueue(
-          encoder.encode('data: {"type":"error","message":"failed"}\n\n'),
+          encoder.encode(
+            'data: {"type":"error","message":"failed","code":"ES_REVIEW_STREAM_FAILED","requestId":"req-1","action":"retry later","retryable":true,"llmErrorType":"provider_failure"}\n\n',
+          ),
         );
         controller.close();
       },
@@ -92,6 +107,9 @@ describe("es-review transport", () => {
       ok: false,
       reason: "stream_error",
       message: "failed",
+      code: "ES_REVIEW_STREAM_FAILED",
+      action: "retry later",
+      retryable: true,
     });
   });
 });

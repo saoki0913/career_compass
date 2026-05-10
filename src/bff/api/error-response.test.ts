@@ -33,4 +33,19 @@ describe("createApiErrorResponse", () => {
     });
     expect(response.headers.get("X-Request-Id")).toBe("req-structured");
   });
+
+  it("uses an explicit requestId when the caller already created one", async () => {
+    const request = new NextRequest("http://localhost:3000/api/test");
+
+    const response = createApiErrorResponse(request, {
+      status: 503,
+      code: "TEST_UNAVAILABLE",
+      userMessage: "しばらくしてからお試しください。",
+      requestId: "req-upstream",
+    });
+    const body = await response.json();
+
+    expect(body.requestId).toBe("req-upstream");
+    expect(response.headers.get("X-Request-Id")).toBe("req-upstream");
+  });
 });

@@ -294,4 +294,34 @@ describe("api/companies/[id]/interview/continue", () => {
     );
     expect(confirmReservationMock).toHaveBeenCalledWith("res-continue-1");
   });
+
+  it("keeps transition_line outside persisted continued messages", async () => {
+    const { POST } = await import("./route");
+
+    await POST(makeRequest(), { params: Promise.resolve({ id: "company-1" }) });
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    const completeData = await onComplete({
+      transition_line: "講評で弱かった点を確認します。",
+      question: "もう一度、志望理由を具体化してください。",
+      turn_state: { turnCount: 2, currentTopic: "motivation_fit", nextAction: "ask" },
+    });
+
+    expect(saveInterviewConversationProgressMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          { role: "assistant", content: "志望理由を教えてください。" },
+          { role: "user", content: "顧客課題に近い立場で働きたいです。" },
+          { role: "assistant", content: "もう一度、志望理由を具体化してください。" },
+        ],
+      }),
+    );
+    expect(completeData).toMatchObject({
+      transitionLine: "講評で弱かった点を確認します。",
+    });
+    expect(completeData.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: "もう一度、志望理由を具体化してください。",
+    });
+  });
 });
