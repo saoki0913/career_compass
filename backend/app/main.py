@@ -2,7 +2,6 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -11,6 +10,7 @@ from app.limiter import limiter
 from app.routers import health, company_info, es_review, gakuchika, motivation, interview, local_ai_live
 from app.security.internal_service import require_internal_service
 from app.security.payload_limits import JsonPayloadSizeLimitMiddleware
+from app.security.trusted_host import HealthcheckTrustedHostMiddleware
 from app.observability.sentry_setup import init_sentry
 from app.rag.metrics_exporter import start_metrics_exporter_once
 from app.utils.secure_logger import get_logger
@@ -73,7 +73,7 @@ async def llm_tokens_header_middleware(request: Request, call_next):
 # Security headers middleware (applied to all responses)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIdMiddleware)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
+app.add_middleware(HealthcheckTrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 # Reject oversized JSON bodies before any route-level allocation happens.
 app.add_middleware(JsonPayloadSizeLimitMiddleware)
 
