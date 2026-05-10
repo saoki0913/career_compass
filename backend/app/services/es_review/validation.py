@@ -246,7 +246,7 @@ def _should_attempt_semantic_compression(current_len: int, char_max: Optional[in
     if not char_max or current_len <= char_max:
         return False
     excess = current_len - char_max
-    return excess <= max(90, int(char_max * 0.22))
+    return excess <= max(90, int(char_max * 0.30))
 
 
 def _apply_semantic_compression_rules(text: str, char_max: int) -> str:
@@ -795,218 +795,15 @@ async def _validate_rewrite_combined(
     return accepted, code, reason, meta
 
 
-def _detect_ai_smell_patterns(
-    text: str,
-    user_answer: str,
-    *,
-    template_type: str = "basic",
-    char_max: int | None = None,
-) -> list[dict[str, str]]:
-    """Detect AI-like writing patterns in rewrite text."""
-    warnings: list[dict[str, str]] = []
-    if not text:
-        return warnings
-
-    sentences = [s.strip() for s in re.split(r"[。！？]", text) if s.strip()]
-    if len(sentences) >= 2:
-        ending_patterns: list[str | None] = []
-        for sentence in sentences:
-            if sentence.endswith("したい"):
-                ending_patterns.append("したい")
-            elif sentence.endswith("と考える"):
-                ending_patterns.append("と考える")
-            elif sentence.endswith("である"):
-                ending_patterns.append("である")
-            elif sentence.endswith("と考えている"):
-                ending_patterns.append("と考えている")
-            elif sentence.endswith("していきたい"):
-                ending_patterns.append("していきたい")
-            else:
-                ending_patterns.append(None)
-        for idx in range(len(ending_patterns) - 1):
-            if ending_patterns[idx] and ending_patterns[idx] == ending_patterns[idx + 1]:
-                warnings.append({
-                    "code": "repetitive_ending",
-                    "detail": f"「〜{ending_patterns[idx]}」が2文連続",
-                })
-                break
-
-        non_null_endings = [ending for ending in ending_patterns if ending is not None]
-        if len(non_null_endings) >= 3:
-            unique_ratio = len(set(non_null_endings)) / len(non_null_endings)
-            if unique_ratio < 0.5:
-                warnings.append({
-                    "code": "low_ending_diversity",
-                    "detail": (
-                        f"文末多様性が低い（一意率 {unique_ratio:.1%}、"
-                        f"{len(non_null_endings)}文中{len(set(non_null_endings))}種）"
-                    ),
-                })
-
-    ai_phrases = [
-        "関係者を巻き込みながら",
-        "多様な関係者",
-        "価値を形にする",
-        "価値を創出する",
-        "新たな価値を",
-        "幅広い視野",
-        "多角的に",
-        "包括的に",
-    ]
-    detected_phrases = [
-        phrase for phrase in ai_phrases if phrase in text and phrase not in user_answer
-    ]
-    if detected_phrases:
-        warnings.append({
-            "code": "ai_signature_phrase",
-            "detail": f"LLM特有フレーズ検出: {'、'.join(detected_phrases[:3])}",
-        })
-
-    if "関係者" in text and "関係者" not in user_answer:
-        warnings.append({
-            "code": "ai_added_kankeisha",
-            "detail": "「関係者」はユーザー元回答になく、AI追加の可能性",
-        })
-
-    vague_modifiers = ["大きな", "新たな", "多様な", "幅広い", "さまざまな"]
-    vague_count = sum(
-        1 for modifier in vague_modifiers if modifier in text and modifier not in user_answer
-    )
-    if vague_count >= 2:
-        warnings.append({
-            "code": "vague_modifier_chain",
-            "detail": f"抽象修飾語が{vague_count}箇所（ユーザー元回答になし）",
-        })
-
-    connectors = [
-        "この経験を活かし",
-        "この経験を生かし",
-        "この経験を土台に",
-        "こうした経験は",
-        "この力を生かし",
-        "この力を活かし",
-        "その経験を",
-        "こうした力を",
-    ]
-    matched_connectors = [
-        connector for connector in connectors if connector in text and connector not in user_answer
-    ]
-    if len(matched_connectors) >= 2:
-        warnings.append({
-            "code": "monotone_connector",
-            "detail": f"定型接続が{len(matched_connectors)}箇所: {'、'.join(matched_connectors[:2])}",
-        })
-
-    if sentences and len(sentences) >= 3:
-        last = sentences[-1]
-        closing_match = re.search(r"(貢献したい|挑戦したい|実現したい|成長したい)$", last.strip("。"))
-        if closing_match:
-            has_concrete = bool(
-                re.search(r"[\u4e00-\u9fff]{2,}(部門|事業|技術|分野|領域|環境|チーム)", last)
-            )
-            if not has_concrete:
-                warnings.append({
-                    "code": "ceremonial_closing",
-                    "detail": "最終文が具体語なしの定型的意気込みで締まっている",
-                })
-
-    concrete_templates = {"gakuchika", "self_pr", "company_motivation"}
-    check_concrete = template_type in concrete_templates or (
-        template_type == "work_values" and char_max is not None and char_max > 200
-    )
-    if check_concrete:
-        has_digit = bool(re.search(r"\d", text))
-        has_specific_noun = bool(re.search(
-            r"(\d+[人名件%％倍回日月年時間]|[一二三四五六七八九十百千万]\s*[人名件%倍回])",
-            text,
-        ))
-        user_had_digit = bool(re.search(r"\d", user_answer))
-        if user_had_digit and not has_digit:
-            warnings.append({
-                "code": "concrete_value_absence",
-                "detail": "元回答の数値がリライトで失われた",
-            })
-        elif not has_digit and not has_specific_noun and len(text) >= 120:
-            warnings.append({
-                "code": "concrete_value_absence",
-                "detail": "具体的な数値・固有名が不足している",
-            })
-
-    return warnings
-
-
-_AI_SMELL_PENALTIES: dict[str, float] = {
-    "repetitive_ending": 2.0,
-    "ai_signature_phrase": 2.5,
-    "vague_modifier_chain": 1.5,
-    "monotone_connector": 1.0,
-    "ceremonial_closing": 1.0,
-    "low_ending_diversity": 0.5,
-    "ai_added_kankeisha": 2.0,
-    "concrete_value_absence": 1.5,
-}
-
-_TIER2_THRESHOLDS: dict[str, dict[str, float]] = {
-    "gakuchika": {"short": 3.0, "mid_long": 3.5},
-    "self_pr": {"short": 3.0, "mid_long": 3.5},
-    "work_values": {"short": 3.0, "mid_long": 3.5},
-    "_default": {"short": 3.5, "mid_long": 4.0},
-}
-
-
-def _char_max_to_band(char_max: int | None) -> str:
-    """Map char_max to band name for AI smell threshold lookup."""
-    if not char_max or char_max <= 220:
-        return "short"
-    return "mid_long"
-
-
-def _compute_ai_smell_score(
-    warnings: list[dict[str, str]],
-    *,
-    template_type: str = "basic",
-    char_max: int | None = None,
-) -> dict[str, Any]:
-    """Compute AI smell score and tier from warning list."""
-    if not warnings:
-        return {"score": 0.0, "tier": 0, "band": _char_max_to_band(char_max), "details": []}
-
-    score = 0.0
-    details: list[str] = []
-    for warning in warnings:
-        code = warning.get("code", "")
-        penalty = _AI_SMELL_PENALTIES.get(code, 0.0)
-        if penalty > 0:
-            score += penalty
-            details.append(f"{code}={penalty}")
-
-    band = _char_max_to_band(char_max)
-    thresholds = _TIER2_THRESHOLDS.get(template_type, _TIER2_THRESHOLDS["_default"])
-    tier2_threshold = thresholds.get(band, 4.0)
-    tier = 2 if score >= tier2_threshold else 1 if score > 0 else 0
-
-    return {
-        "score": score,
-        "tier": tier,
-        "band": band,
-        "threshold": tier2_threshold,
-        "details": details,
-    }
-
-
 __all__ = [
     "FINAL_SOFT_MIN_FLOOR_RATIO",
     "SEMANTIC_COMPRESSION_RULES",
     "SHORT_ANSWER_CHAR_MAX",
     "TIGHT_LENGTH_TEMPLATES",
-    "_AI_SMELL_PENALTIES",
     "_apply_semantic_compression_rules",
     "_auto_replace_gosha",
     "_char_limit_distance",
-    "_char_max_to_band",
     "_coerce_degraded_rewrite_dearu_style",
-    "_compute_ai_smell_score",
-    "_detect_ai_smell_patterns",
     "_fit_rewrite_text_deterministically",
     "_has_unfinished_tail",
     "_is_within_char_limits",

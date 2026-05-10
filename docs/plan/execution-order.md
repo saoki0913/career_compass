@@ -102,6 +102,7 @@
 - 2026-05-07: **Track B #8 P0 全 5 Critical bugs 解消** — T-01 JST基準違反一掃 (5箇所)、T-02 KeyError crash修正、T-03 タスク生成冪等性保証、T-04 タスク巻き戻しバグ修正、T-05 HTML テーブル構造保持
 - 2026-05-09: **#17 監視 release minimum 完了** — `docs/plan/monitoring-release-readiness-tasks.json` で状態管理を開始し、product/global error boundary の Sentry capture、Sentry event scrub allowlist 強化、Vercel/Sentry/secrets/公開 health の CLI baseline を記録した。frontend Sentry は First Event 到達済み、backend Sentry は project active だが No events yet のため手動 follow-up とする。
 - 2026-05-10: **Sentry-first 外部監視の現状整理** — frontend uptime monitor は Dashboard で `Uptime` / `200` check-in まで確認済み。backend uptime は Sentry の `*.railway.app` domain-wide limit により Railway 生成ドメインでは作成できないため、`api.shupass.jp` などの独自 backend domain 設定後の最後の手作業に回す。
+- 2026-05-10: **Phase 2 Track A #3 Auth P0 release hardening 完了** — guest migration の CSRF / owner table 棚卸し / atomic claim を現状同期し、migration 衝突時の user-wins 処理、owner-conditioned mutation helper、`submissions/[id]` / `deadlines/[id]` / `calendar/events/[id]` の id+owner mutation、外部 sync の local mutation 成功後実行、高リスク mutation の session 解決例外 `503` fail-closed を実装した。#3 の P1（Owner Access Facade の広域展開、structured error 全面統一、FastAPI principal inventory）は残タスクとして継続する。
 
 **Gate**: 全 15 セキュリティタスク完了（sub-phase ごとに検証）、#8 の 5 Critical bugs 解消、Sentry で frontend エラー捕捉確認、監視 release minimum 完了。Loki / Sentry Crons / rollback provider 実行化 / `/health/deep` / slow query logger は本番リリース後の P1+ として扱う。
 

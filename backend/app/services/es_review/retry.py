@@ -224,30 +224,6 @@ def _best_effort_rewrite_admissible(
     return True
 
 
-def _build_ai_smell_retry_hints(warnings: list[dict[str, str]]) -> list[str]:
-    """Convert AI smell warnings into actionable retry hints."""
-    hints: list[str] = []
-    for warning in warnings[:2]:
-        code = warning.get("code", "")
-        if code == "repetitive_ending":
-            hints.append("文末表現を変化させる（同じ語尾を2文連続で使わない）")
-        elif code == "ai_signature_phrase":
-            detail = warning.get("detail", "")
-            hints.append(f"LLM特有フレーズを避ける: {detail}")
-        elif code == "vague_modifier_chain":
-            hints.append("「多様な」「幅広い」等の抽象修飾語を具体例に置き換える")
-        elif code == "low_ending_diversity":
-            hints.append(
-                "文末のバリエーションを増やす（「〜したい」「〜と考える」だけでなく、"
-                "「〜である」「〜だ」等も使う）"
-            )
-        elif code == "ai_added_kankeisha":
-            hints.append("「関係者」をユーザーの元表現に戻す")
-        elif code == "concrete_value_absence":
-            hints.append("元回答の数値や具体的な行動を保持し、抽象化しすぎない")
-    return hints
-
-
 def _build_hallucination_retry_hints(warnings: list[dict[str, str]]) -> list[str]:
     hints: list[str] = []
     for w in warnings[:2]:
@@ -801,7 +777,6 @@ def _should_run_role_focused_second_pass(
 __all__ = [
     "REWRITE_MAX_ATTEMPTS",
     "_best_effort_rewrite_admissible",
-    "_build_ai_smell_retry_hints",
     "_build_role_focused_second_pass_query",
     "_build_hallucination_retry_hints",
     "_dedupe_preserve_order",

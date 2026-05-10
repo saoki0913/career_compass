@@ -137,7 +137,7 @@ async def get_enhanced_context_for_review(
         if isinstance(cached, dict) and isinstance(cached.get("context"), str):
             return cached["context"]
 
-    results = await hybrid_search_company_context_enhanced(
+    results = await store.hybrid_search_company_context_enhanced(
         company_id=company_id,
         query=es_content,
         n_results=15,
@@ -214,7 +214,7 @@ async def get_enhanced_context_for_review_with_sources(
         ):
             return cached["context"], cached["sources"]
 
-    results = await hybrid_search_company_context_enhanced(
+    results = await store.hybrid_search_company_context_enhanced(
         company_id=company_id,
         query=es_content,
         n_results=15,

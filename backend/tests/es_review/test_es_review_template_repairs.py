@@ -502,7 +502,7 @@ def test_retry_hints_read_quantify_and_structure_guidance_from_template_spec() -
     assert quantify_hints
     assert any("数値" in hint or "行動動詞" in hint for hint in quantify_hints)
     assert structure_hints
-    assert any("①②" in hint or "助詞" in hint or "順序" in hint for hint in structure_hints)
+    assert any("①②" in hint or "独立した文" in hint or "句点" in hint for hint in structure_hints)
 
 
 def test_retry_hints_keep_dynamic_under_min_recovery_details_for_required_templates() -> None:
@@ -569,7 +569,7 @@ def test_rewrite_max_tokens_expands_length_focus_min_caps() -> None:
     )
 
 
-def test_under_min_recovery_profile_uses_overshoot_gap() -> None:
+def test_under_min_recovery_profile_uses_zero_gap() -> None:
     profile = resolve_length_control_profile(
         300,
         400,
@@ -579,7 +579,7 @@ def test_under_min_recovery_profile_uses_overshoot_gap() -> None:
         latest_failed_len=220,
     )
 
-    assert profile.gap < 0
+    assert profile.gap == 0
 
 
 def test_es_review_temperature_uses_provider_defaultish_setting_for_gemini() -> None:

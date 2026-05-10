@@ -4,14 +4,47 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-export function StickyCTABar() {
+type StickyCTABarProps = {
+  heroSelector?: string;
+  footerSelector?: string;
+};
+
+export function StickyCTABar({ heroSelector, footerSelector }: StickyCTABarProps = {}) {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
+    if (heroSelector) {
+      const heroEl = document.querySelector(heroSelector);
+      const footerEl = footerSelector ? document.querySelector(footerSelector) : null;
+
+      if (!heroEl) {
+        // Fallback if selector not found in DOM
+        const handleScroll = () => setVisible(window.scrollY > 600);
+        window.addEventListener("scroll", handleScroll, { passive: true });
+        return () => window.removeEventListener("scroll", handleScroll);
+      }
+
+      let heroVisible = true;
+      let footerVisible = false;
+
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.target === heroEl) heroVisible = entry.isIntersecting;
+          if (entry.target === footerEl) footerVisible = entry.isIntersecting;
+        }
+        setVisible(!heroVisible && !footerVisible);
+      });
+
+      observer.observe(heroEl);
+      if (footerEl) observer.observe(footerEl);
+      return () => observer.disconnect();
+    }
+
+    // Default scroll-based behavior (backward compat for sub-LPs)
     const handleScroll = () => setVisible(window.scrollY > 600);
     window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+  }, [heroSelector, footerSelector]);
 
   if (!visible) return null;
 
@@ -22,7 +55,7 @@ export function StickyCTABar() {
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--lp-cta)] py-3.5 text-sm text-white transition-transform active:scale-[0.98]"
         style={{ fontWeight: 600 }}
       >
-        無料で試す
+        無料で始める
         <ArrowRight className="h-4 w-4" />
       </Link>
     </div>

@@ -6,7 +6,6 @@ export {
   safeParseInterviewMessages,
   safeParseStringArrayJson,
   serializeInterviewFeedback,
-  serializeInterviewMessages,
   serializeInterviewPlan,
   serializeInterviewTurnMeta,
   serializeInterviewTurnState,

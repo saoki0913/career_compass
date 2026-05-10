@@ -162,6 +162,7 @@ export type HydratedConversation = {
 export type PendingCompleteData = {
   messages: Message[];
   questionCount: number;
+  transitionLine: string | null;
   stageStatus: InterviewStageStatus | null;
   questionStage: string | null;
   focus: string | null;
@@ -256,4 +257,101 @@ export function scoreEntries(feedback: Feedback | null) {
     ["一貫性", feedback.scores.consistency ?? 0],
     ["信頼性", feedback.scores.credibility ?? 0],
   ] as const;
+}
+
+// --- Progress display helpers (shared component integration) ---
+
+export interface TopicStage {
+  key: string;
+  label: string;
+  status: "done" | "current" | "pending";
+}
+
+export interface LifecyclePhase {
+  key: string;
+  label: string;
+  status: "done" | "current" | "pending";
+}
+
+export function buildInterviewTopicStages(
+  stageStatus: InterviewStageStatus | null,
+  questionFlowCompleted: boolean,
+): TopicStage[] {
+  if (!stageStatus) return [];
+  const covered = new Set(stageStatus.coveredTopics ?? []);
+  const current = stageStatus.currentTopicLabel;
+  const seen = new Set<string>();
+  const topics: string[] = [];
+  for (const t of [
+    ...(stageStatus.coveredTopics ?? []),
+    ...(current ? [current] : []),
+    ...(stageStatus.remainingTopics ?? []),
+  ]) {
+    if (t && !seen.has(t)) {
+      seen.add(t);
+      topics.push(t);
+    }
+  }
+  return topics.map((topic, i) => ({
+    key: `topic-${i}-${topic}`,
+    label: topic,
+    status:
+      topic === current && !questionFlowCompleted
+        ? "current"
+        : covered.has(topic)
+          ? "done"
+          : "pending",
+  }));
+}
+
+export function buildInterviewPhases(
+  hasStarted: boolean,
+  questionFlowCompleted: boolean,
+  hasFeedback: boolean,
+): LifecyclePhase[] {
+  const getStatus = (phase: string): "done" | "current" | "pending" => {
+    if (phase === "setup") return hasStarted ? "done" : "current";
+    if (phase === "questions") {
+      if (questionFlowCompleted) return "done";
+      return hasStarted ? "current" : "pending";
+    }
+    if (phase === "feedback") {
+      if (hasFeedback) return "done";
+      return questionFlowCompleted ? "current" : "pending";
+    }
+    return hasFeedback ? "done" : "pending";
+  };
+
+  return [
+    { key: "setup", label: "面接設定", status: getStatus("setup") },
+    { key: "questions", label: "質問フェーズ", status: getStatus("questions") },
+    { key: "feedback", label: "最終講評", status: getStatus("feedback") },
+    { key: "complete", label: "面接完了", status: getStatus("complete") },
+  ];
+}
+
+export function buildInterviewQuestionDisplay(
+  questionCount: number,
+  stageStatus: InterviewStageStatus | null,
+): string {
+  if (questionCount === 0) return "開始前";
+  const coveredCount = stageStatus?.coveredTopics?.length ?? 0;
+  const remainingCount = stageStatus?.remainingTopics?.length ?? 0;
+  const totalEstimate = Math.max(coveredCount + remainingCount, questionCount);
+  return `${questionCount}問目 / 約${totalEstimate}問`;
+}
+
+export function buildInterviewCoachingNarrative(
+  stageStatus: InterviewStageStatus | null,
+  questionCount: number,
+): string | null {
+  const current = stageStatus?.currentTopicLabel;
+  if (!current) {
+    return questionCount === 0 ? "初回質問を準備中" : null;
+  }
+  const covered = stageStatus?.coveredTopics ?? [];
+  if (covered.includes(current)) {
+    return `${current}の深掘りが完了しました。`;
+  }
+  return `${current}について確認しています。`;
 }

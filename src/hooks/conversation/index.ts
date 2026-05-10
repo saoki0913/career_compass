@@ -12,6 +12,13 @@ export {
   type UseConversationRuntimeOptions,
 } from "./useConversationRuntime";
 
+export {
+  useLockedOperation,
+  type LockedOperation,
+  type LockedOperationErrorMeta,
+  type LockedOperationResult,
+} from "./useLockedOperation";
+
 export { useConversationPlayback } from "./useConversationPlayback";
 export { parseSSEStream, type SSEEvent } from "./sse-stream-parser";
 export {

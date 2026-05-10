@@ -17,7 +17,7 @@ test.describe("Deadlines page (guest)", () => {
     await ensureGuestSession(page);
     await navigateTo(page, "/deadlines");
 
-    await expect(page.getByText("締切管理")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "締切管理" })).toBeVisible();
   });
 });
 
@@ -27,7 +27,7 @@ test.describe("Deadlines page (authenticated)", () => {
     test.setTimeout(60_000);
     await signInAsAuthenticatedUser(page, "/deadlines");
 
-    await expect(page.getByText("締切管理")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "締切管理" })).toBeVisible({ timeout: 10_000 });
   });
 
   test("renders deadline list with created test data", async ({ page }) => {
@@ -50,7 +50,7 @@ test.describe("Deadlines page (authenticated)", () => {
       deadlineId = deadline.id;
 
       await page.reload({ waitUntil: "domcontentloaded" });
-      await expect(page.getByText("締切管理")).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByRole("heading", { name: "締切管理" })).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText("E2Eテスト締切")).toBeVisible({ timeout: 10_000 });
     } finally {
       if (deadlineId) {
@@ -67,7 +67,7 @@ test.describe("Calendar page (authenticated)", () => {
     test.setTimeout(60_000);
     await signInAsAuthenticatedUser(page, "/calendar");
 
-    await expect(page.getByText("カレンダー").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "カレンダー" })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("日").first()).toBeVisible();
     await expect(page.getByText("月").first()).toBeVisible();
     await expect(page.getByText("火").first()).toBeVisible();
@@ -82,7 +82,7 @@ test.describe("Calendar page (authenticated)", () => {
     test.setTimeout(60_000);
     await signInAsAuthenticatedUser(page, "/calendar");
 
-    await expect(page.getByText("カレンダー").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "カレンダー" })).toBeVisible({ timeout: 10_000 });
     const settingsLink = page.getByText("設定").first();
     await expect(settingsLink).toBeVisible();
   });

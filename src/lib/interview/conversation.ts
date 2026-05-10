@@ -1,3 +1,4 @@
+import { parseOptionalString, parseStringArray, safeParseJsonValue, serializeOrNull } from "@/lib/shared";
 import {
   createInitialInterviewTurnState,
   normalizeInterviewTurnMeta,
@@ -78,28 +79,6 @@ export type InterviewFeedback = {
   score_rationale_by_axis?: Record<string, string>;
   confidence_by_axis?: Record<string, InterviewFeedbackConfidence>;
 };
-
-function parseStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    : [];
-}
-
-function parseOptionalString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
-function safeParseJsonValue(value: unknown): unknown {
-  if (value == null) return null;
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return null;
-    }
-  }
-  return value;
-}
 
 export function safeParseStringArrayJson(value: unknown): string[] {
   return parseStringArray(safeParseJsonValue(value));
@@ -263,19 +242,15 @@ export function parseInterviewPlanJson(value: unknown): InterviewPlan | null {
   return parsed ? normalizeInterviewPlanValue(parsed) : null;
 }
 
-export function serializeInterviewMessages(messages: InterviewMessage[]): InterviewMessage[] {
-  return messages;
-}
-
-export function serializeInterviewPlan(plan: InterviewPlan | null | undefined): InterviewPlan | null | undefined {
-  return plan ?? null;
+export function serializeInterviewPlan(plan: InterviewPlan | null | undefined): InterviewPlan | null {
+  return serializeOrNull(plan);
 }
 
 export function serializeInterviewTurnMeta(turnMeta: InterviewTurnMeta | null | undefined): InterviewTurnMeta | null {
-  return turnMeta ?? null;
+  return serializeOrNull(turnMeta);
 }
 
 export function serializeInterviewFeedback(feedback: InterviewFeedback | null | undefined): InterviewFeedback | null {
-  return feedback ?? null;
+  return serializeOrNull(feedback);
 }
 

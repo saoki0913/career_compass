@@ -7,20 +7,13 @@
 4. initial のみ limits 内 → initial
 5. 両方 limits 外 → initial
 
-B-2 では `_maybe_retry_for_ai_smell` が LLM 呼び出し失敗
-(`retry_llm_failed`) と 空ドラフト応答 (`retry_empty_draft`) を区別して
-`draft_selection_reason` を出すことを担保する。
+AI臭専用リトライは廃止済みのため、ここでは純粋な選択ルールだけを担保する。
 """
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
-import pytest
-
 from app.routers.motivation import (
     _build_user_origin_from_conversation,
-    _maybe_retry_for_ai_smell,
     _select_motivation_draft,
 )
 from app.routers.motivation_models import Message
@@ -171,92 +164,3 @@ class TestBuildUserOriginFromConversation:
         ]
         joined = _build_user_origin_from_conversation(history)
         assert joined == ""
-
-
-class TestMaybeRetryForAiSmellFailureModes:
-    """B-2: retry_llm_failed と retry_empty_draft を区別してテレメトリに記録する."""
-
-    @pytest.fixture(autouse=True)
-    def _stub_ai_smell_helpers(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "app.routers.motivation_retry._detect_ai_smell_patterns",
-            lambda draft, origin: [],
-        )
-        monkeypatch.setattr(
-            "app.routers.motivation_retry._compute_ai_smell_score",
-            lambda warnings, template_type, char_max: {
-                "score": 0.8,
-                "tier": 2,
-                "band": "high",
-                "details": [],
-            },
-        )
-        monkeypatch.setattr(
-            "app.routers.motivation_retry._is_within_char_limits",
-            lambda draft, lo, hi: (True, "ok"),
-        )
-        monkeypatch.setattr(
-            "app.routers.motivation_retry._build_ai_smell_retry_hints",
-            lambda warnings: [],
-        )
-
-    @pytest.mark.asyncio
-    async def test_retry_llm_failed_when_llm_call_fails(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        async def fake_call(**kwargs):
-            return SimpleNamespace(
-                success=False,
-                data=None,
-                raw_text=None,
-                error=SimpleNamespace(message="rate limited"),
-            )
-
-        monkeypatch.setattr("app.routers.motivation_retry.call_llm_with_error", fake_call)
-
-        draft, reason, telemetry = await _maybe_retry_for_ai_smell(
-            initial_draft="initial",
-            user_origin_text="origin",
-            system_prompt="sys",
-            user_prompt="user",
-            char_min=280,
-            char_max=400,
-            max_tokens=1200,
-        )
-
-        assert draft == "initial"
-        assert reason == "retry_llm_failed"
-        assert telemetry["draft_selection_reason"] == "retry_llm_failed"
-        assert telemetry["retry_llm_failed"] is True
-        assert telemetry["retry_attempted"] is True
-        assert telemetry["retry_within_limits"] is None
-
-    @pytest.mark.asyncio
-    async def test_retry_empty_draft_when_llm_returns_blank(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        async def fake_call(**kwargs):
-            return SimpleNamespace(
-                success=True,
-                data={"draft": "   "},
-                raw_text='{"draft":"   "}',
-                error=None,
-            )
-
-        monkeypatch.setattr("app.routers.motivation_retry.call_llm_with_error", fake_call)
-
-        draft, reason, telemetry = await _maybe_retry_for_ai_smell(
-            initial_draft="initial",
-            user_origin_text="origin",
-            system_prompt="sys",
-            user_prompt="user",
-            char_min=280,
-            char_max=400,
-            max_tokens=1200,
-        )
-
-        assert draft == "initial"
-        assert reason == "retry_empty_draft"
-        assert telemetry["draft_selection_reason"] == "retry_empty_draft"
-        assert telemetry["retry_llm_failed"] is False
-        assert telemetry["retry_attempted"] is True

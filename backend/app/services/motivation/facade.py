@@ -130,7 +130,6 @@ from app.services.motivation.draft import (
 )
 from app.services.motivation.retry import (
     _collect_draft_quality_failure_codes as _retry_collect_draft_quality_failure_codes,
-    _maybe_retry_for_ai_smell,  # noqa: F401
     _maybe_retry_for_draft_quality,
 )
 

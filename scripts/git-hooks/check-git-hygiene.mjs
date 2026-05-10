@@ -44,6 +44,11 @@ const FORBIDDEN_PREFIX_OVERRIDES = new Set([
   "public/dashboard/assets/empty-state-hourglass.png",
   "public/dashboard/assets/empty-state-clipboard.png",
   "public/dashboard/assets/empty-state-folder.png",
+  "public/dashboard/assets/empty-state-envelope.png",
+  "public/dashboard/assets/empty-state-document.png",
+  "public/dashboard/assets/empty-state-conversation.png",
+  "public/dashboard/assets/empty-state-waiting.png",
+  "public/dashboard/assets/empty-state-trophy.png",
 ]);
 
 function normalizeRepoPath(filePath) {

@@ -72,7 +72,7 @@ def test_review_response_model_dump_excludes_internal_meta_fields() -> None:
             rewrite_rejection_reasons=["under_min"],
             rewrite_attempt_trace=[{"stage": "retry"}],
             rewrite_total_rewrite_attempts=3,
-            ai_smell_warnings=[{"code": "repetitive_ending", "detail": "debug"}],
+            ai_smell_warnings=[{"code": "abstract_buzzword", "detail": "debug"}],
         ),
     )
 

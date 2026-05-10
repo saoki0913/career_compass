@@ -11,7 +11,11 @@ describe("settings billing boundary", () => {
   });
 
   it("keeps Stripe as the billing state transition surface", () => {
-    expect(source).toContain("/api/stripe/checkout");
     expect(source).toContain("/api/stripe/portal");
+  });
+
+  it("routes free-to-paid upgrades through the pricing page", () => {
+    expect(source).toContain("/pricing");
+    expect(source).not.toContain("/api/stripe/checkout");
   });
 });

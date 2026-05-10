@@ -85,34 +85,71 @@ def compute_shortfall_delta_band(
     return "tiny"
 
 
+def compute_retry_overshoot(
+    *,
+    char_min: int,
+    char_max: int,
+    latest_failed_length: int,
+) -> int:
+    """Compute dynamic overshoot above char_max for under_min retry.
+
+    Returns additional chars above char_max to set as generation target.
+    The generated text may exceed char_max; the caller should apply
+    SEMANTIC_COMPRESSION_RULES to bring it back within acceptance range.
+    """
+    if latest_failed_length >= char_min or char_max <= 0:
+        return 0
+    shortfall = char_min - latest_failed_length
+    if shortfall <= 0:
+        return 0
+
+    if shortfall <= 15:
+        coeff = 1.3
+    elif shortfall <= 40:
+        coeff = 1.2
+    else:
+        coeff = 1.2
+
+    if char_max <= 200:
+        scale = 0.9
+    elif char_max <= 350:
+        scale = 1.0
+    else:
+        scale = 1.1
+
+    cap = max(5, int(char_max * 0.25))
+    overshoot = min(int(shortfall * coeff * scale), cap)
+    return max(0, overshoot)
+
+
 _MODEL_FAMILY_DEFAULTS = {
     "openai_gpt5_mini": {
         _DEFAULT_STAGE_KEY: {"short": 8, "medium": 16, "long": 20},
-        _RECOVERY_STAGE_KEY: {"short": -20, "medium": -15, "long": -10},
+        _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 16, "long": 18},
         "early_length_fix_after_attempt": 2,
     },
     "openai_gpt5": {
         _DEFAULT_STAGE_KEY: {"short": 8, "medium": 14, "long": 18},
-        _RECOVERY_STAGE_KEY: {"short": -15, "medium": -12, "long": -8},
+        _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 14, "long": 16},
         "early_length_fix_after_attempt": 2,
     },
     "anthropic_claude": {
         _DEFAULT_STAGE_KEY: {"short": 8, "medium": 12, "long": 14},
-        _RECOVERY_STAGE_KEY: {"short": -15, "medium": -12, "long": -8},
+        _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 14, "long": 16},
         "early_length_fix_after_attempt": 2,
     },
     "google_gemini": {
         _DEFAULT_STAGE_KEY: {"short": 8, "medium": 12, "long": 14},
-        _RECOVERY_STAGE_KEY: {"short": -15, "medium": -12, "long": -8},
+        _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 14, "long": 16},
         "early_length_fix_after_attempt": 2,
     },
     "generic": {
         _DEFAULT_STAGE_KEY: {"short": 8, "medium": 12, "long": 14},
-        _RECOVERY_STAGE_KEY: {"short": -15, "medium": -12, "long": -8},
+        _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 14, "long": 16},
         "early_length_fix_after_attempt": 2,
     },
@@ -165,14 +202,9 @@ def resolve_length_control_profile(
             gap += 1
 
     span = max(1, char_max - (char_min or 0)) if char_max else 1
-    if gap < 0 and stage_key == _RECOVERY_STAGE_KEY:
-        overshoot = abs(gap)
-        target_upper = (char_max or 0) + overshoot
-        target_lower = (char_max or 0) + max(1, overshoot - 5)
-    else:
-        gap = max(1, min(span, gap))
-        target_upper = char_max
-        target_lower = max(char_min or 0, (char_max or 0) - gap) if char_max else char_min
+    gap = max(0, min(span, gap))
+    target_upper = char_max
+    target_lower = max(char_min or 0, (char_max or 0) - gap) if char_max else char_min
     profile_id = f"{provider_family}:{band}:{stage_key}"
     required_growth = max(0, (char_min or 0) - latest_failed_len) if char_min else 0
     return LengthControlProfile(
@@ -192,6 +224,8 @@ def resolve_length_control_profile(
 
 def _format_char_condition(char_min: Optional[int], char_max: Optional[int]) -> str:
     if char_min and char_max:
+        if char_min == char_max:
+            return f"{char_max}字"
         return f"{char_min}字〜{char_max}字"
     if char_max:
         return f"{char_max}字以内"
@@ -231,10 +265,27 @@ def resolve_length_target_plan(
     )
     target_lower = profile.target_lower
     target_upper = profile.target_upper
-    if char_max is not None and target_upper is not None and target_upper > char_max:
+
+    if (
+        stage == _RECOVERY_STAGE_KEY
+        and latest_failed_len > 0
+        and char_min is not None
+        and char_max is not None
+        and latest_failed_len < char_min
+    ):
+        overshoot = compute_retry_overshoot(
+            char_min=char_min,
+            char_max=char_max,
+            latest_failed_length=latest_failed_len,
+        )
+        if overshoot > 0:
+            target_upper = char_max + overshoot
+            target_lower = char_max
+    elif char_max is not None and target_upper is not None and target_upper > char_max:
         target_upper = char_max
         if target_lower is not None and target_lower > target_upper:
             target_lower = char_min if char_min is not None else max(0, target_upper - profile.gap)
+
     return LengthTargetPlan(
         profile=profile,
         generation_target=LengthBand(target_lower, target_upper),
@@ -312,6 +363,7 @@ def _format_length_policy_block(
     stage: str = "default",
     original_len: int = 0,
     llm_model: Optional[str] = None,
+    latest_failed_len: int = 0,
 ) -> str:
     plan = resolve_length_target_plan(
         char_min,
@@ -319,7 +371,7 @@ def _format_length_policy_block(
         stage=stage,
         original_len=original_len,
         llm_model=llm_model,
-        latest_failed_len=original_len,
+        latest_failed_len=latest_failed_len,
     )
     target_window = format_generation_target(plan)
     acceptance_band = format_acceptance_band(plan)

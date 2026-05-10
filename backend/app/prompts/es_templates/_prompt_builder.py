@@ -12,6 +12,7 @@ from app.prompts.es_quality_rules import (
 )
 
 from ._common import (
+    _format_anti_ai_phrase_block,
     _format_prose_style_block,
     get_company_honorific,
 )
@@ -245,8 +246,9 @@ def _format_gakuchika_allocation_guide(
         "- 結び動詞は「培った」「身につけた」「磨いた」のいずれかを使う（参考ES傾向: 培った>身につけた>学んだ）。「学んだ」「実感した」は使わない",
         "- 結びで「今後の仕事でも〜」「発揮していく」「活かしていく」と未来志向にしない。ガクチカの結びはその経験から何を得たかで締める",
         "- 学び・身についた能力だけで終えない。結びには経験内の成果、数字、前後差のいずれかを必ず含める",
-        "- 複数施策を①②で列挙する場合、その前に「そこで2点の施策を実施した。」のように施策数と行動意図を示す導入文を置く",
-        "- ①②の各項目は必ず独立した文にする（句点「。」で区切る）。悪い例:「①…実現させ、②…合意を得た。」→ 正しい例:「①…実現させた。②…合意を得た。」",
+        "- 複数施策を①②で列挙する場合、その前に「そこで2つの施策を実施した。」のように施策数と行動意図を示す導入文を置く",
+        "- 各施策を説明するときは「①では」を短い冒頭にして各項目を完結した文にする（句点「。」で区切る）。「①[長い活動名]では」と書くと接続節化しやすいため避ける",
+        "- 悪い例:「①XXの実施では…し、②YYでは…した。」→ 正しい例:「そこで2つの施策を実施した。①ではXXに取り組み…を実現した。②ではYYを…達成した。」",
     ]
     return "\n".join(lines)
 
@@ -556,8 +558,8 @@ def _format_self_count_instruction(
 
     _ = llm_model
     if char_min and char_max:
-        target_desc = f"{char_min}〜{char_max}字"
-        avg_target = (char_min + char_max) // 2
+        target_desc = f"{char_max}字"
+        avg_target = char_max
     elif char_max:
         target_desc = f"{char_max}字以内"
         avg_target = char_max
@@ -893,6 +895,7 @@ def build_template_draft_generation_prompt(
 {_build_contextual_rules(template_type, char_max, grounding_mode)}
 </core_style>
 {_format_prose_style_block(char_max)}
+{_format_anti_ai_phrase_block()}
 
 <template_focus>
 {template_def["description"]}
@@ -1071,12 +1074,13 @@ def build_template_rewrite_prompt(
 {_format_assistive_grounding_block(effective_company_grounding=effective_company_grounding, grounding_mode=grounding_mode, company_name=company_name)}
 {_format_deep_grounding_requirements(effective_grounding_level=effective_grounding_level, company_evidence_cards=company_evidence_cards)}
 {_format_proper_noun_policy(template_type=template_type, intern_name=intern_name, role_name=role_name)}
-{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
+{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model, latest_failed_len=latest_failed_length)}
 
 <core_style>
 {_build_contextual_rules(template_type, char_max, grounding_mode)}
 </core_style>
 {_format_prose_style_block(char_max)}
+{_format_anti_ai_phrase_block()}
 <template_focus>
 {template_def["description"]}
 </template_focus>
@@ -1241,12 +1245,13 @@ def build_template_fallback_rewrite_prompt(
 {_format_assistive_grounding_block(effective_company_grounding=effective_company_grounding, grounding_mode=grounding_mode, company_name=company_name)}
 {_format_deep_grounding_requirements(effective_grounding_level=effective_grounding_level, company_evidence_cards=company_evidence_cards)}
 {_format_proper_noun_policy(template_type=template_type, intern_name=intern_name, role_name=role_name)}
-{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
+{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model, latest_failed_len=latest_failed_length)}
 
 <core_style>
 {_build_contextual_rules(template_type, char_max, grounding_mode)}
 </core_style>
 {_format_prose_style_block(char_max)}
+{_format_anti_ai_phrase_block()}
 {_format_template_required_elements_from_spec(template_def)}
 {_format_template_evaluation_rubric_from_spec(template_def)}
 {format_template_guidance(template_type)}

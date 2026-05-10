@@ -27,6 +27,7 @@ export interface EsReviewStreamBillingContext {
   guestId: string | null;
   documentId: string;
   creditCost: number;
+  requestId?: string;
 }
 
 export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> = {
@@ -66,6 +67,30 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
       `ES添削: ${ctx.documentId}`,
     );
     if (!reservation.success) {
+      if (reservation.errorCode === "BILLING_GATE_UNAVAILABLE") {
+        const responseBody = {
+          error: {
+            code: "BILLING_GATE_UNAVAILABLE",
+            message: "Billing gate unavailable",
+            retryable: true,
+          },
+          requestId: ctx.requestId,
+        };
+
+        return {
+          reservationId: null,
+          errorResponse: new Response(
+            JSON.stringify(responseBody),
+            {
+              status: 503,
+              headers: {
+                "Content-Type": "application/json",
+                ...(ctx.requestId ? { "X-Request-Id": ctx.requestId } : {}),
+              },
+            },
+          ),
+        };
+      }
       return {
         reservationId: null,
         errorResponse: new Response(

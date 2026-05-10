@@ -63,6 +63,20 @@ export type InterviewClientCompleteData = {
   shortCoaching?: InterviewShortCoaching | null;
 };
 
+export function normalizeInterviewStreamQuestion(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function normalizeInterviewTransitionLine(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+export function buildAssistantQuestionMessages(question: string): InterviewMessage[] {
+  return question ? [{ role: "assistant", content: question }] : [];
+}
+
 function normalizeStringArrayMap(value: unknown): Record<string, string[]> | undefined {
   if (!value || typeof value !== "object") return undefined;
   const result: Record<string, string[]> = {};

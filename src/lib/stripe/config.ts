@@ -134,6 +134,34 @@ export function getCreditLowThreshold(monthlyAllocation: number): number {
 }
 
 export function validateStripePriceConfig(): void {
+  const allowTestStripeKeysInTestRuntime =
+    process.env.CI_ALLOW_TEST_STRIPE_KEYS === "1" &&
+    process.env.NODE_ENV === "test" &&
+    process.env.VITEST === "true";
+  const isProduction =
+    process.env.VERCEL_ENV === "production" &&
+    !allowTestStripeKeysInTestRuntime;
+
+  // --- Production hard gate: fatal errors that prevent server startup ---
+  if (isProduction) {
+    const secretKey = process.env.STRIPE_SECRET_KEY ?? "";
+    if (secretKey.startsWith("sk_test_")) {
+      throw new Error(
+        "[Stripe] FATAL: STRIPE_SECRET_KEY is a test key (sk_test_*) in production. " +
+          "Set a live key (sk_live_*) or remove the variable to prevent accidental test-mode billing.",
+      );
+    }
+
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+    if (!webhookSecret) {
+      throw new Error(
+        "[Stripe] FATAL: STRIPE_WEBHOOK_SECRET is missing in production. " +
+          "Webhook signature verification will fail for all incoming events.",
+      );
+    }
+  }
+
+  // --- Price env var validation (all environments) ---
   const missing: string[] = [];
 
   for (const spec of managedConfig.prices) {
@@ -144,6 +172,12 @@ export function validateStripePriceConfig(): void {
   }
 
   if (missing.length > 0) {
+    if (isProduction) {
+      throw new Error(
+        `[Stripe] FATAL: Missing or invalid price env vars in production: ${missing.join(", ")}. ` +
+          "All 4 price IDs must be set with a 'price_' prefix for checkout to function.",
+      );
+    }
     console.error(
       `[Stripe] Missing or invalid price env vars: ${missing.join(", ")}. Checkout will fail for affected plans.`,
     );

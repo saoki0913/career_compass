@@ -25,6 +25,11 @@ from app.utils.llm import (
 )
 from app.services.es_review.fact_guard import _compute_hallucination_score
 from app.services.es_review.constants import GENERIC_REWRITE_VALIDATION_ERROR
+from app.services.es_review.ai_smell import (
+    build_ai_smell_retry_hints,
+    compute_ai_smell_score,
+    detect_ai_smell_patterns,
+)
 from app.services.es_review.validation_profile import (
     STRICT_PROFILE,
     apply_information_tier_adjustments,
@@ -780,6 +785,15 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
                 last_hallucination_warnings
             )
             retry_hints = [*retry_hints, *hallucination_hints]
+        if result.best_rejected_candidate:
+            rejected_smell = detect_ai_smell_patterns(
+                result.best_rejected_candidate,
+                ctx.template_request.answer,
+                template_type=ctx.template_type,
+                char_max=ctx.char_max,
+            )
+            if rejected_smell:
+                retry_hints = [*retry_hints, *build_ai_smell_retry_hints(rejected_smell)]
         if result.retry_code == "llm_quality" and retry_reason:
             retry_hints = [*retry_hints, retry_reason]
         length_shortfall = (
@@ -1295,7 +1309,21 @@ async def assemble_review_response(
     _concrete_count = len(_re.findall(
         r"\d+[人名件%％倍回日月年時間分秒個社台冊本]|\d+", _final_text,
     ))
-    _ai_smell_tier = 0
+    _ai_smell_warnings_raw = detect_ai_smell_patterns(
+        _final_text,
+        ctx.template_request.answer,
+        template_type=ctx.template_type,
+        char_max=ctx.char_max,
+    )
+    accepted_ai_smell_warnings = [
+        warning.to_dict() for warning in _ai_smell_warnings_raw
+    ]
+    _ai_smell_result = compute_ai_smell_score(
+        _ai_smell_warnings_raw,
+        template_type=ctx.template_type,
+        char_max=ctx.char_max,
+    )
+    _ai_smell_tier = int(_ai_smell_result["tier"])
     _hallucination_warnings_for_tier = (
         recovery.accepted_hallucination_warnings if recovery.final_rewrite
         else loop_result.accepted_hallucination_warnings

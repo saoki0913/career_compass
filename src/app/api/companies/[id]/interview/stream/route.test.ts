@@ -314,6 +314,41 @@ describe("api/companies/[id]/interview/stream", () => {
     });
   });
 
+  it("keeps transition_line outside persisted turn messages", async () => {
+    const { POST } = await import("./route");
+
+    await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/stream", {
+        method: "POST",
+        body: JSON.stringify({ answer: "A2" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    const completeData = await onComplete({
+      transition_line: "回答を踏まえて深掘りします。",
+      question: "なぜ当社ですか。",
+      turn_state: { turnCount: 2, currentTopic: "志望動機", nextAction: "ask" },
+    });
+
+    expect(saveInterviewConversationProgressMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          { role: "assistant", content: "自己紹介をお願いします。" },
+          { role: "user", content: "A1" },
+          { role: "user", content: "A2" },
+          { role: "assistant", content: "なぜ当社ですか。" },
+        ],
+      }),
+    );
+    expect(completeData).toMatchObject({
+      transitionLine: "回答を踏まえて深掘りします。",
+    });
+    expect(completeData.messages.at(-1)).toEqual({ role: "assistant", content: "なぜ当社ですか。" });
+  });
+
   it("confirms reserved credits only after the streamed turn is persisted", async () => {
     const { POST } = await import("./route");
 

@@ -1,3 +1,5 @@
+import { parseOptionalString, parseStringArray } from "@/lib/shared";
+
 export const ROLE_TRACK_OPTIONS = [
   "biz_general",
   "it_product",
@@ -141,39 +143,26 @@ export function classifyInterviewRoleTrack(role: string | null | undefined): Int
   return "biz_general";
 }
 
-function normalizeStringArray(value: unknown, maxItems = 16) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is string => typeof item === "string")
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, maxItems);
-}
-
-function normalizeOptionalString(value: unknown) {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-}
-
 function normalizeCoverageState(value: unknown): InterviewCoverageState[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
     .map((item) => ({
-      topic: normalizeOptionalString(item.topic) ?? "unknown_topic",
+      topic: parseOptionalString(item.topic) ?? "unknown_topic",
       status: (
         item.status === "active" || item.status === "covered" || item.status === "exhausted"
           ? item.status
           : "pending"
       ) as InterviewCoverageStatus,
-      requiredChecklist: normalizeStringArray(item.requiredChecklist),
-      passedChecklistKeys: normalizeStringArray(item.passedChecklistKeys),
+      requiredChecklist: parseStringArray(item.requiredChecklist),
+      passedChecklistKeys: parseStringArray(item.passedChecklistKeys),
       deterministicCoveragePassed: item.deterministicCoveragePassed === true,
-      llmCoverageHint: normalizeOptionalString(item.llmCoverageHint),
+      llmCoverageHint: parseOptionalString(item.llmCoverageHint),
       deepeningCount:
         typeof item.deepeningCount === "number" && Number.isFinite(item.deepeningCount) && item.deepeningCount >= 0
           ? Math.floor(item.deepeningCount)
           : 0,
-      lastCoveredTurnId: normalizeOptionalString(item.lastCoveredTurnId),
+      lastCoveredTurnId: parseOptionalString(item.lastCoveredTurnId),
     }))
     .slice(0, 24);
 }
@@ -183,11 +172,11 @@ function normalizeRecentQuestionSummariesV2(value: unknown): InterviewRecentQues
   return value
     .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
     .map((item) => ({
-      intentKey: normalizeOptionalString(item.intentKey) ?? "unknown_intent",
-      normalizedSummary: normalizeOptionalString(item.normalizedSummary) ?? "",
-      topic: normalizeOptionalString(item.topic),
-      followupStyle: normalizeOptionalString(item.followupStyle),
-      turnId: normalizeOptionalString(item.turnId),
+      intentKey: parseOptionalString(item.intentKey) ?? "unknown_intent",
+      normalizedSummary: parseOptionalString(item.normalizedSummary) ?? "",
+      topic: parseOptionalString(item.topic),
+      followupStyle: parseOptionalString(item.followupStyle),
+      turnId: parseOptionalString(item.turnId),
     }))
     .filter((item) => item.normalizedSummary.length > 0)
     .slice(-MAX_RECENT_QUESTION_SUMMARIES);
@@ -230,23 +219,23 @@ export function normalizeInterviewTurnMeta(
   };
 
   return {
-    topic: normalizeOptionalString(raw.topic),
+    topic: parseOptionalString(raw.topic),
     turnAction:
       raw.turnAction === "shift" || raw.turn_action === "shift"
         ? "shift"
         : raw.turnAction === "ask" || raw.turn_action === "ask"
           ? "ask"
           : "deepen",
-    focusReason: normalizeOptionalString(raw.focusReason ?? raw.focus_reason),
-    depthFocus: normalizeOptionalString(raw.depthFocus ?? raw.depth_focus),
-    followupStyle: normalizeOptionalString(raw.followupStyle ?? raw.followup_style),
+    focusReason: parseOptionalString(raw.focusReason ?? raw.focus_reason),
+    depthFocus: parseOptionalString(raw.depthFocus ?? raw.depth_focus),
+    followupStyle: parseOptionalString(raw.followupStyle ?? raw.followup_style),
     shouldMoveNext: raw.shouldMoveNext === true || raw.should_move_next === true,
-    interviewSetupNote: normalizeOptionalString(raw.interviewSetupNote ?? raw.interview_setup_note),
-    intentKey: normalizeOptionalString(raw.intentKey ?? raw.intent_key),
-    formatGuardApplied: normalizeOptionalString(raw.formatGuardApplied ?? raw.format_guard_applied),
-    coverageDecision: normalizeOptionalString(raw.coverageDecision ?? raw.coverage_decision),
+    interviewSetupNote: parseOptionalString(raw.interviewSetupNote ?? raw.interview_setup_note),
+    intentKey: parseOptionalString(raw.intentKey ?? raw.intent_key),
+    formatGuardApplied: parseOptionalString(raw.formatGuardApplied ?? raw.format_guard_applied),
+    coverageDecision: parseOptionalString(raw.coverageDecision ?? raw.coverage_decision),
     checklistDelta: Array.isArray(raw.checklistDelta ?? raw.checklist_delta)
-      ? normalizeStringArray((raw.checklistDelta ?? raw.checklist_delta) as unknown[], 16)
+      ? parseStringArray((raw.checklistDelta ?? raw.checklist_delta) as unknown[], true, 16)
       : null,
   };
 }
@@ -287,16 +276,17 @@ export function normalizeInterviewTurnState(
     meta && typeof meta === "object" ? normalizeInterviewTurnMeta(meta) : null;
   const coverageState = normalizeCoverageState(value.coverageState);
   const coveredTopics =
-    normalizeStringArray(value.coveredTopics).length > 0
-      ? normalizeStringArray(value.coveredTopics)
+    parseStringArray(value.coveredTopics).length > 0
+      ? parseStringArray(value.coveredTopics)
       : coverageState
           .filter((item) => item.deterministicCoveragePassed)
           .map((item) => item.topic);
   const recentQuestionSummariesV2 =
     normalizeRecentQuestionSummariesV2(value.recentQuestionSummariesV2).length > 0
       ? normalizeRecentQuestionSummariesV2(value.recentQuestionSummariesV2)
-      : normalizeStringArray(
+      : parseStringArray(
           (value as { recentQuestionSummaries?: unknown }).recentQuestionSummaries,
+          true,
           MAX_RECENT_QUESTION_SUMMARIES,
         ).map(
           (summary, index) => ({
@@ -315,15 +305,15 @@ export function normalizeInterviewTurnState(
         : typeof raw.questionCount === "number" && Number.isFinite(raw.questionCount) && raw.questionCount >= 0
           ? Math.floor(raw.questionCount)
         : 0,
-    currentTopic: normalizeOptionalString(raw.currentTopic ?? raw.currentStage),
+    currentTopic: parseOptionalString(raw.currentTopic ?? raw.currentStage),
     coverageState,
     coveredTopics,
-    remainingTopics: normalizeStringArray(value.remainingTopics),
+    remainingTopics: parseStringArray(value.remainingTopics),
     recentQuestionSummariesV2,
     formatPhase: normalizeFormatPhase(value.formatPhase),
-    lastQuestion: normalizeOptionalString(value.lastQuestion),
-    lastAnswer: normalizeOptionalString(value.lastAnswer),
-    lastTopic: normalizeOptionalString(value.lastTopic),
+    lastQuestion: parseOptionalString(value.lastQuestion),
+    lastAnswer: parseOptionalString(value.lastAnswer),
+    lastTopic: parseOptionalString(value.lastTopic),
     currentTurnMeta,
     nextAction: value.nextAction === "feedback" ? "feedback" : "ask",
   };
@@ -358,7 +348,7 @@ const TOPIC_DISPLAY_LABELS: Record<string, string> = {
 
 export function labelTopic(topic: string): string {
   if (topic in TOPIC_DISPLAY_LABELS) return TOPIC_DISPLAY_LABELS[topic];
-  if (/[\u3000-\u9fff\uff00-\uffef]/.test(topic)) return topic;
+  if (/[　-鿿＀-￯]/.test(topic)) return topic;
   return topic.replace(/_/g, " ");
 }
 
@@ -367,14 +357,13 @@ export function getInterviewStageStatus(input: {
   coveredTopics?: string[];
   remainingTopics?: string[];
 }): InterviewStageStatus {
-  const label = normalizeOptionalString(input.currentTopicLabel);
+  const label = parseOptionalString(input.currentTopicLabel);
   return {
     currentTopicLabel: label ? labelTopic(label) : null,
-    coveredTopics: normalizeStringArray(input.coveredTopics).map(labelTopic),
-    remainingTopics: normalizeStringArray(input.remainingTopics).map(labelTopic),
+    coveredTopics: parseStringArray(input.coveredTopics).map(labelTopic),
+    remainingTopics: parseStringArray(input.remainingTopics).map(labelTopic),
   };
 }
-
 
 export function shouldChargeInterviewSession(isCompleted: boolean): boolean {
   return isCompleted;

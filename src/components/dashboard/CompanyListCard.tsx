@@ -41,20 +41,20 @@ const COLUMN_HEADER_COLORS: Record<string, string> = {
   green: "bg-emerald-500/90 text-white",
 };
 
-const COLUMN_DOT_COLORS: Record<string, string> = {
-  slate: "bg-slate-300",
-  blue: "bg-blue-300",
-  purple: "bg-purple-300",
-  amber: "bg-amber-300",
-  green: "bg-emerald-300",
-};
-
 const COLUMN_COUNT_COLORS: Record<string, string> = {
   slate: "text-slate-600",
   blue: "text-blue-600",
   purple: "text-purple-600",
   amber: "text-amber-600",
   green: "text-emerald-600",
+};
+
+const COLUMN_EMPTY_ILLUSTRATIONS: Record<string, string> = {
+  not_applied: DASHBOARD_ASSETS.emptyNotApplied,
+  es_test: DASHBOARD_ASSETS.emptyEsTest,
+  interview: DASHBOARD_ASSETS.emptyInterview,
+  waiting: DASHBOARD_ASSETS.emptyWaiting,
+  offer: DASHBOARD_ASSETS.emptyOffer,
 };
 
 interface CompanyProgressCardProps {
@@ -149,9 +149,14 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
                         </Link>
                       )}
                       {col.companies.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-4 text-center">
-                          <span className={cn("h-2 w-2 rounded-full", COLUMN_DOT_COLORS[col.color])} />
-                          <p className="mt-1.5 text-[10px] text-muted-foreground/60">--</p>
+                        <div className="flex flex-1 flex-col items-center justify-center py-2 text-center">
+                          <Image
+                            src={COLUMN_EMPTY_ILLUSTRATIONS[col.key] ?? DASHBOARD_ASSETS.emptyCompanies}
+                            alt=""
+                            width={640}
+                            height={640}
+                            className="h-14 w-14 object-contain opacity-60"
+                          />
                         </div>
                       )}
                     </div>

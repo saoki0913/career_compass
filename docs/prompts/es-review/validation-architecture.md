@@ -130,12 +130,60 @@ Attempt N:
   4. Attempt 3（最終）: lenient mode（fact_preservation のみ hard block）
 ```
 
+## AI Smell 検出（AI臭検出）
+
+LLM が生成した ES 本文に含まれる AI 特有のフレーズを検出し、品質観測とリトライヒントに活用する。
+
+SSOT: `backend/app/services/es_review/ai_smell.py`
+
+### 6カテゴリ
+
+| カテゴリ | コード | ペナルティ | 検出条件 |
+|---|---|---|---|
+| A. 抽象バズワード | `abstract_buzzword` | 2.0 | 元回答になし + 同一文に具体性なし |
+| B. 価値創出系 | `value_creation` | 2.5 | 同上 |
+| C. 成長常套句 | `growth_cliche` | 1.5 | 同上 |
+| D. 関係性抽象化 | `relation_abstract` | 2.0 | 同上 |
+| E. 儀式的結語 | `ceremonial_closing` | 1.5 | 同上 |
+| I. 空の強調 | `empty_emphasis` | 1.0 | 元回答になし（具体性チェック不要） |
+
+### 検出ロジック
+
+- **A〜E**: ユーザーの元回答にないフレーズ + 同一文内に具体性がない場合のみ検出
+- **I**: ユーザーの元回答にないフレーズの単純存在チェック
+- **具体性判定** (`_sentence_has_specificity()`): 数値+単位, カタカナ固有名詞(3文字以上), 組織固有名詞, 具体的行動動詞
+
+### スコアリングとTier
+
+- **Tier 0**: スコア 0（検出なし）
+- **Tier 1**: 0 < スコア < 閾値（軽微）
+- **Tier 2**: スコア >= 閾値（顕著）
+
+閾値はテンプレートと文字数バンド(`short` / `mid_long`)で変動する。
+
+### リトライ戦略
+
+AI臭専用リトライは行わない。他の理由（文字数、文体等）でリトライが発生した際に、AI臭ヒントを同乗させる。ES添削・motivation 両サービスで統一。
+
+### プロンプト側防御
+
+`_format_anti_ai_phrase_block()` が `ai_smell.py` の `format_anti_ai_phrase_lines()` を呼び、`<anti_ai_phrase>` ブロックをプロンプトに注入する。rewrite / fallback / draft の全プロンプトに統合済み。カテゴリ定義は SSOT から生成されるため、検出ロジックとプロンプト指示が乖離しない。
+
+### SSOT 設計
+
+`AiSmellCategoryDef` がカテゴリ定義・ペナルティ・プロンプト用短文・リトライヒント文を一元管理し、以下の消費者がすべて同じ定義から生成する:
+
+- `detect_ai_smell_patterns()` — 検出
+- `compute_ai_smell_score()` — スコアリング
+- `build_ai_smell_retry_hints()` — リトライヒント
+- `format_anti_ai_phrase_lines()` — プロンプト注入
+
 ## 3サービス共通化
 
 `_validate_rewrite_with_llm()` は ES review だけでなく以下でも使用:
 
 - **gakuchika draft**: router 内の品質チェックで呼び出し
-- **motivation draft**: `_maybe_retry_for_ai_smell()` の代替として呼び出し
+- **motivation draft**: LLM validation による品質チェック
 
 共通パラメータ:
 - `candidate`: 検証対象テキスト

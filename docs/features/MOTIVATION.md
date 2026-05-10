@@ -81,12 +81,26 @@
 | **BFF Stream** | `src/bff/motivation/stream-service.ts` | SSE 中継 + DB 保存 | -- |
 | BFF Routes | `src/bff/motivation/routes/[companyId]/` (8 ファイル) | API エントリ + 認証 + ペイロード構築 | -- |
 | BFF Billing | `src/bff/billing/motivation-stream-policy.ts` | 会話 1 ターン 1 クレジット消費 | ~65 |
-| **Frontend Lib** | `src/lib/motivation/` (19 ファイル) | 会話状態 + ペイロード + 読みモデル | ~2,161 |
+| **Frontend Lib** | `src/lib/motivation/` (19 ファイル) | 会話状態 + ペイロード + 読みモデル。`conversation-read-model-parsers.ts` の `safeParseJsonValue` は `src/lib/shared/parsers.ts` から re-export。`client-api.ts` は `buildJsonHeaders` / `withQuery` / `postJson` を `src/lib/shared/client-api.ts` から import | ~2,161 |
 | Frontend Components | `src/components/motivation/` (13 ファイル) | UI コンポーネント + テスト | ~1,449 |
 | Page | `src/app/(product)/companies/[id]/motivation/page.tsx` | ページエントリ | -- |
 | Marketing LP | `src/app/(marketing)/shiboudouki-ai/page.tsx` | 集客 LP | -- |
 
-### 2.4 SSE イベントプロトコル
+### 2.4 共有基盤 (`src/lib/shared/`)
+
+ガクチカ・志望動機・面接対策の 3 機能で共通するパーサー・シリアライザー・クライアント API ユーティリティを `src/lib/shared/` に集約している。志望動機では以下を利用する:
+
+| 共有モジュール | 志望動機での利用 |
+|---|---|
+| `JsonValue` (`types.ts`) | `client-api.ts` で型参照 |
+| `safeParseJsonValue` (`parsers.ts`) | `conversation-read-model-parsers.ts` が re-export |
+| `buildJsonHeaders` (`client-api.ts`) | `client-api.ts` で直接 import |
+| `withQuery` (`client-api.ts`) | `client-api.ts` で直接 import |
+| `postJson` (`client-api.ts`) | `client-api.ts` の POST 関数が利用 |
+
+注意: 志望動機の `Message` 型は `id` が optional であるため、共有の `BaseMessage`（`id` 必須）とは異なる独自型を維持している。`parseStringArray` も trim なし仕様のため機能ローカルに保持。
+
+### 2.5 SSE イベントプロトコル
 
 FastAPI の内部 SSE は BFF で consume-and-re-emit され、ブラウザへは公開スキーマのみ渡す。
 

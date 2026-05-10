@@ -74,7 +74,6 @@ export default function SettingsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isChangingPlan, setIsChangingPlan] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
 
   // Form state
@@ -255,47 +254,16 @@ export default function SettingsPage() {
     }
   };
 
-  const handlePlanChange = async (newPlan: string) => {
+  const handlePlanChange = (newPlan: string) => {
     if (!profile) return;
+    if (newPlan === profile.plan) return;
 
-    setIsChangingPlan(true);
-    setError(null);
-
-    try {
-      if (newPlan === profile.plan) {
-        return;
-      }
-
-      if (profile.plan !== "free") {
-        await handleOpenBillingPortal();
-        return;
-      }
-
-      if (newPlan === "standard" || newPlan === "pro") {
-        const response = await fetch("/api/stripe/checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ plan: newPlan }),
-        });
-
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "Failed to create checkout session");
-        }
-
-        const { url } = await response.json();
-        window.location.href = url;
-        return;
-      }
-    } catch (err) {
-      setError(reportUserFacingError(err, {
-        code: "STRIPE_CHECKOUT_CREATE_FAILED",
-        userMessage: "プラン変更を開始できませんでした。",
-      }, "SettingsPage:startCheckout"));
-    } finally {
-      setIsChangingPlan(false);
+    if (profile.plan !== "free") {
+      handleOpenBillingPortal();
+      return;
     }
+
+    router.push("/pricing");
   };
 
   const handleOpenBillingPortal = async () => {
@@ -614,7 +582,7 @@ export default function SettingsPage() {
                     variant="outline"
                     className="w-full"
                     onClick={() => handlePlanChange("free")}
-                    disabled={isChangingPlan}
+                    disabled={isOpeningPortal}
                   >
                     ダウングレード
                   </Button>
@@ -631,7 +599,7 @@ export default function SettingsPage() {
                 <ul className="space-y-2 text-sm mb-4">
                   <li className="flex items-center gap-2">
                     <CheckIcon />
-                    企業登録 30社
+                    企業登録 無制限
                   </li>
                   <li className="flex items-center gap-2">
                     <CheckIcon />
@@ -646,7 +614,7 @@ export default function SettingsPage() {
                   <Button
                     className="w-full"
                     onClick={() => handlePlanChange("standard")}
-                    disabled={isChangingPlan}
+                    disabled={isOpeningPortal}
                   >
                     アップグレード
                   </Button>
@@ -656,7 +624,7 @@ export default function SettingsPage() {
                     variant="outline"
                     className="w-full"
                     onClick={() => handlePlanChange("standard")}
-                    disabled={isChangingPlan}
+                    disabled={isOpeningPortal}
                   >
                     変更
                   </Button>
@@ -688,7 +656,7 @@ export default function SettingsPage() {
                   <Button
                     className="w-full"
                     onClick={() => handlePlanChange("pro")}
-                    disabled={isChangingPlan}
+                    disabled={isOpeningPortal}
                   >
                     アップグレード
                   </Button>

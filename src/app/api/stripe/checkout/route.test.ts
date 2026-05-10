@@ -149,6 +149,22 @@ describe("POST /api/stripe/checkout", () => {
     expect(checkoutPayload.custom_text.terms_of_service_acceptance.message).toContain("https://www.shupass.jp/legal");
   });
 
+  it("passes an idempotencyKey derived from user, plan, period, and time bucket", async () => {
+    const { POST } = await import("./route");
+    const request = new NextRequest("http://localhost:3000/api/stripe/checkout", {
+      method: "POST",
+      body: JSON.stringify({ plan: "pro", period: "annual" }),
+    });
+
+    await POST(request);
+
+    expect(stripeCheckoutCreateMock).toHaveBeenCalledTimes(1);
+    const opts = stripeCheckoutCreateMock.mock.calls[0][1];
+    expect(opts).toBeDefined();
+    expect(typeof opts.idempotencyKey).toBe("string");
+    expect(opts.idempotencyKey.length).toBe(64); // SHA-256 hex digest
+  });
+
   it("rejects invalid billing period before creating a customer", async () => {
     const { POST } = await import("./route");
     const request = new NextRequest("http://localhost:3000/api/stripe/checkout", {

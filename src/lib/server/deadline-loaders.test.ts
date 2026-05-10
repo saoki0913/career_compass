@@ -69,7 +69,7 @@ describe("deadline-loaders query shape", () => {
           id: "deadline-1",
           type: "es",
           title: "ES提出",
-          dueDate: new Date("2026-05-10T00:00:00.000Z"),
+          dueDate: new Date("2027-05-10T00:00:00.000Z"),
           statusOverride: null,
           isConfirmed: true,
           completedAt: null,

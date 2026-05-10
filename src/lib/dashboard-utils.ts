@@ -1,54 +1,13 @@
-import type { CompanyStatus } from "@/lib/constants/status";
-import { getStatusConfig } from "@/lib/constants/status";
+import type { CompanyStatus, SelectionPhaseConfig } from "@/lib/constants/status";
+import {
+  COMPANY_SELECTION_PHASE_COLUMNS,
+  TERMINAL_COMPANY_STATUSES,
+  getSelectionPhaseForStatus,
+  getStatusConfig,
+} from "@/lib/constants/status";
 
-export interface PipelineColumn {
-  key: string;
-  label: string;
-  color: string;
-  statuses: CompanyStatus[];
-}
-
-export const PIPELINE_COLUMNS: PipelineColumn[] = [
-  {
-    key: "not_applied",
-    label: "未応募",
-    color: "slate",
-    statuses: ["inbox", "needs_confirmation"],
-  },
-  {
-    key: "es_test",
-    label: "ES・テスト",
-    color: "blue",
-    statuses: ["info_session", "es", "web_test", "coding_test", "case_study", "group_discussion"],
-  },
-  {
-    key: "interview",
-    label: "面接中",
-    color: "purple",
-    statuses: ["interview_1", "interview_2", "final_interview"],
-  },
-  {
-    key: "waiting",
-    label: "結果待ち",
-    color: "amber",
-    statuses: ["waiting_result"],
-  },
-  {
-    key: "offer",
-    label: "内定",
-    color: "green",
-    statuses: ["offer", "summer_pass", "autumn_pass", "winter_pass"],
-  },
-];
-
-export const EXCLUDED_STATUSES: CompanyStatus[] = [
-  "es_rejected",
-  "gd_rejected",
-  "interview_1_rejected",
-  "interview_2_rejected",
-  "withdrawn",
-  "archived",
-];
+export type PipelineColumn = SelectionPhaseConfig;
+export const PIPELINE_COLUMNS = COMPANY_SELECTION_PHASE_COLUMNS;
 
 interface CompanyForPipeline {
   id: string;
@@ -75,23 +34,29 @@ export interface PipelineData {
   totalActive: number;
 }
 
+function groupCompaniesBySelectionPhase<T extends CompanyForPipeline>(
+  companies: T[],
+  options: { includeTerminal?: boolean } = {}
+): PipelineData {
+  const includeTerminal = options.includeTerminal ?? true;
+  const visibleCompanies = includeTerminal
+    ? companies
+    : companies.filter((company) => !TERMINAL_COMPANY_STATUSES.includes(company.status));
+
+  const columns = COMPANY_SELECTION_PHASE_COLUMNS.map((phase) => ({
+    key: phase.key,
+    label: phase.label,
+    color: phase.color,
+    companies: visibleCompanies.filter((company) => getSelectionPhaseForStatus(company.status).key === phase.key),
+  }));
+
+  return { columns, totalActive: visibleCompanies.length };
+}
+
 export function groupCompaniesByPipeline<T extends CompanyForPipeline>(
   companies: T[]
 ): PipelineData {
-  const active = companies.filter(
-    (c) => !EXCLUDED_STATUSES.includes(c.status)
-  );
-
-  const columns = PIPELINE_COLUMNS.map((col) => ({
-    key: col.key,
-    label: col.label,
-    color: col.color,
-    companies: active.filter((c) =>
-      (col.statuses as readonly string[]).includes(c.status)
-    ),
-  }));
-
-  return { columns, totalActive: active.length };
+  return groupCompaniesBySelectionPhase(companies, { includeTerminal: false });
 }
 
 export function getStatusLabel(status: CompanyStatus): string {

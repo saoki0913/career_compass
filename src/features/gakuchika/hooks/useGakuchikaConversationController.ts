@@ -3,7 +3,7 @@
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useOperationLock } from "@/hooks/useOperationLock";
-import { useConversationRuntime } from "@/hooks/conversation";
+import { useConversationRuntime, useLockedOperation } from "@/hooks/conversation";
 import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 import { notifyGakuchikaDraftGenerated, notifyGakuchikaInterviewReady } from "@/lib/notifications";
@@ -57,6 +57,7 @@ export function useGakuchikaConversationController({
   gakuchikaId,
 }: ControllerParams) {
   const { acquireLock, releaseLock } = useOperationLock();
+  const { run: runLockedOperation } = useLockedOperation();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [nextQuestion, setNextQuestion] = useState<string | null>(null);
@@ -339,46 +340,26 @@ export function useGakuchikaConversationController({
   }, []);
 
   const resumeSession = useCallback(async () => {
-    if (!acquireLock("深掘りを再開中")) return;
-    clearDraftModalState();
-    setIsResumingSession(true);
-    try {
-      const response = await resumeGakuchikaConversation(gakuchikaId, {
+    await runLockedOperation({
+      label: "深掘りを再開中",
+      execute: () => resumeGakuchikaConversation(gakuchikaId, {
         sessionId: currentSessionId,
-      });
-
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "GAKUCHIKA_CONVERSATION_RESUME_FAILED",
-            userMessage: "深掘りの再開に失敗しました。",
-            action: "時間を置いて、もう一度お試しください。",
-            retryable: true,
-          },
-          "GakuchikaPage.handleResumeSession",
-        );
-      }
-
-      const data = await response.json();
-
-      applySessionPayload(data);
-    } catch (err) {
-      reportUserFacingError(
-        err,
-        {
-          code: "GAKUCHIKA_CONVERSATION_RESUME_FAILED",
-          userMessage: "深掘りの再開に失敗しました。",
-          action: "時間を置いて、もう一度お試しください。",
-          retryable: true,
-        },
-        "GakuchikaPage.handleResumeSession",
-      );
-    } finally {
-      setIsResumingSession(false);
-      releaseLock();
-    }
-  }, [acquireLock, applySessionPayload, clearDraftModalState, currentSessionId, gakuchikaId, releaseLock]);
+      }),
+      errorMeta: {
+        code: "GAKUCHIKA_CONVERSATION_RESUME_FAILED",
+        userMessage: "深掘りの再開に失敗しました。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        logContext: "GakuchikaPage.handleResumeSession",
+      },
+      onStart: () => {
+        clearDraftModalState();
+        setIsResumingSession(true);
+      },
+      onSuccess: applySessionPayload,
+      onFinally: () => setIsResumingSession(false),
+    });
+  }, [applySessionPayload, clearDraftModalState, currentSessionId, gakuchikaId, runLockedOperation]);
 
   const discardDraftAndResumeSession = useCallback(async () => {
     if (!acquireLock("ES下書きを削除して深掘りを再開中")) return;

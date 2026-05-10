@@ -588,7 +588,7 @@ def test_rewrite_prompt_uses_400_char_target_window() -> None:
     assert f"今回の内部目標帯: {expected_window}" in system_prompt
 
 
-def test_rewrite_prompt_uses_tighter_target_window_on_under_min_recovery() -> None:
+def test_rewrite_prompt_uses_overshoot_target_on_under_min_recovery() -> None:
     answer = "研究で培った分析力を、事業と技術をつなぐ役割で生かしたい。"
     system_prompt, _ = build_template_rewrite_prompt(
         template_type="role_course_reason",
@@ -607,9 +607,11 @@ def test_rewrite_prompt_uses_tighter_target_window_on_under_min_recovery() -> No
         grounding_mode="role_grounded",
         length_control_mode="under_min_recovery",
         length_shortfall=22,
+        latest_failed_length=368,
     )
 
-    assert "今回の内部目標帯: 390字〜400字" in system_prompt
+    assert "strict受理帯: 390字〜400字" in system_prompt
+    assert "今回の内部目標帯: 400字〜" in system_prompt
 
 
 def test_target_window_biases_openai_mini_higher_for_short_answers() -> None:

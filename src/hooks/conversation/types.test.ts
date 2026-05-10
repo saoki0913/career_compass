@@ -8,6 +8,7 @@ import type {
   StreamEventResult,
 } from "./types";
 
+
 describe("conversation/types", () => {
   it("BaseMessage satisfies minimum shape", () => {
     const msg: BaseMessage = {

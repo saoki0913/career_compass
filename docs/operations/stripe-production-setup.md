@@ -237,12 +237,15 @@ npm run stripe:audit -- --env live --json
 
 ## 11. ロールバック計画
 
+> **注意**: 本番環境でテストキー（`sk_test_*`）を使用するロールバックは禁止。`validateStripePriceConfig()` の production hard gate がサーバー起動をブロックする。
+
 | 対象 | 手順 |
 |---|---|
 | Products / Prices | Dashboard で Archive → `stripe:sync-products -- --env live` で再作成 → env 更新 |
 | Webhook | Dashboard で削除 → `stripe:sync-webhook -- --env live` で再作成 → env 更新 |
 | Portal 設定 | `stripe:sync-portal -- --env live` で再同期 |
-| 全体的な問題 | env を `sk_test_...` に差し替えて Live 課金を一時停止 |
+| 課金一時停止 | Stripe Dashboard で全 Price を Archive → ユーザーに「メンテナンス中」表示。復旧時に `stripe:sync-products -- --env live` で再作成 |
+| 緊急時（全面停止） | Vercel で `STRIPE_SECRET_KEY` を削除 → Checkout/Portal API が 500 を返す → 復旧時にキーを再設定 |
 
 ## 12. 完了チェックリスト
 
@@ -253,6 +256,7 @@ npm run stripe:audit -- --env live --json
 - [ ] Dashboard で特商法表記 URL 設定済み（`https://www.shupass.jp/legal`）
 - [ ] Dashboard で Terms of Service URL 設定済み（`https://www.shupass.jp/terms`）
 - [ ] `npm run stripe:check-live-readiness -- --json` が `readiness: "ready"`
+- [ ] `make stripe-preflight` が `readiness: "ready"` を返すこと（Section 13 完了条件）
 - [ ] テストカードでの Checkout 決済成功
 - [ ] Webhook イベントが正常に処理される
 - [ ] Customer Portal が正常に動作する

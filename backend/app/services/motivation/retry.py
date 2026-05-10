@@ -6,15 +6,15 @@ import time
 from typing import Any, Awaitable, Callable, Optional
 
 from app.config import settings
-from app.services.es_review.retry import _build_ai_smell_retry_hints
+from app.services.es_review.ai_smell import (
+    build_ai_smell_retry_hints,
+    compute_ai_smell_score,
+    detect_ai_smell_patterns,
+)
 from app.services.es_review.validation import (
-    _compute_ai_smell_score,
-    _detect_ai_smell_patterns,
     _is_within_char_limits,
 )
 from app.services.es_review.validation_profile import LENIENT_PROFILE
-from app.utils.es_draft_text import normalize_es_draft_single_paragraph
-from app.utils.llm import call_llm_with_error
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
@@ -171,7 +171,7 @@ def _build_multipass_refinement_hints(
     """Build deterministic refinement hints for the multipass draft pass."""
     hints: list[str] = []
     if ai_smell_tier >= 2:
-        hints.extend(_build_ai_smell_retry_hints(ai_warnings))
+        hints.extend(build_ai_smell_retry_hints(ai_warnings))
     if needs_company_specificity and anchor_keywords:
         kw_preview = "、".join(anchor_keywords[:3])
         hints.append(f"企業固有要素 ({kw_preview} 等) を本文中に具体的に織り込む")
@@ -267,8 +267,8 @@ async def _apply_multipass_refinement(
     if not refined_within and initial_within_limits:
         return initial_draft, telemetry
 
-    refined_warnings = _detect_ai_smell_patterns(refined_draft, user_origin_text)
-    refined_smell = _compute_ai_smell_score(
+    refined_warnings = detect_ai_smell_patterns(refined_draft, user_origin_text)
+    refined_smell = compute_ai_smell_score(
         refined_warnings,
         template_type=template_type,
         char_max=char_max,
@@ -292,13 +292,13 @@ def _collect_draft_quality_failure_codes(
     anchor_keywords: list[str] | None = None,
 ) -> tuple[list[str], dict[str, Any], bool]:
     """Collect draft-quality failure codes with deterministic validation rules."""
-    warnings = _detect_ai_smell_patterns(
+    warnings = detect_ai_smell_patterns(
         draft_text,
         user_origin_text,
         template_type=template_type,
         char_max=char_max,
     )
-    smell_score = _compute_ai_smell_score(
+    smell_score = compute_ai_smell_score(
         warnings,
         template_type=template_type,
         char_max=char_max,
@@ -335,7 +335,7 @@ def _build_draft_quality_retry_hints(
     if "over_char_max" in codes and char_max:
         hints.append(f"冗長表現を削り、{char_max}字以内に収める")
     if "ai_smell_high" in codes:
-        hints.extend(_build_ai_smell_retry_hints(list(ai_warnings or [])))
+        hints.extend(build_ai_smell_retry_hints(list(ai_warnings or [])))
         if not ai_warnings:
             hints.append("抽象的な定型句を避け、元の言い回しと具体行動を優先する")
     if "missing_company_keywords" in codes and anchor_keywords:
@@ -472,114 +472,6 @@ def _select_motivation_draft(
     return initial_draft, "both_out_of_limits"
 
 
-async def _maybe_retry_for_ai_smell(
-    *,
-    initial_draft: str,
-    user_origin_text: str,
-    system_prompt: str,
-    user_prompt: str,
-    char_min: int,
-    char_max: int,
-    template_type: str = "company_motivation",
-    max_tokens: int,
-) -> tuple[str, str, dict[str, Any]]:
-    """Retry once for AI-smell and deterministically choose the better draft."""
-    initial_warnings = _detect_ai_smell_patterns(initial_draft, user_origin_text)
-    initial_smell_score = _compute_ai_smell_score(
-        initial_warnings,
-        template_type=template_type,
-        char_max=char_max,
-    )
-    initial_within, _ = _is_within_char_limits(initial_draft, char_min, char_max)
-
-    tier = int(initial_smell_score.get("tier", 0) or 0)
-    if tier < 2:
-        telemetry = {
-            "draft_selection_reason": "initial_only_no_retry",
-            "ai_smell_score": float(initial_smell_score.get("score", 0.0)),
-            "ai_smell_tier": tier,
-            "retry_attempted": False,
-            "initial_within_limits": initial_within,
-            "retry_within_limits": None,
-        }
-        return initial_draft, "initial_only_no_retry", telemetry
-
-    hints = _build_ai_smell_retry_hints(initial_warnings)
-    retry_system_prompt = system_prompt
-    if hints:
-        retry_system_prompt = (
-            system_prompt
-            + "\n\n## AI臭修正指示\n"
-            + "\n".join(f"- {hint}" for hint in hints)
-        )
-
-    retry_result = await call_llm_with_error(
-        system_prompt=retry_system_prompt,
-        user_message=user_prompt,
-        max_tokens=max_tokens,
-        temperature=0.35,
-        feature="motivation_draft",
-        retry_on_parse=True,
-        disable_fallback=True,
-    )
-
-    retry_draft: Optional[str] = None
-    retry_smell_score: Optional[dict[str, Any]] = None
-    retry_within: Optional[bool] = None
-    retry_llm_failed = not (retry_result.success and retry_result.data is not None)
-    retry_empty_draft = False
-    if not retry_llm_failed:
-        raw_retry_draft = str(retry_result.data.get("draft", "")).strip()
-        if raw_retry_draft:
-            retry_draft = normalize_es_draft_single_paragraph(raw_retry_draft)
-            retry_warnings = _detect_ai_smell_patterns(retry_draft, user_origin_text)
-            retry_smell_score = _compute_ai_smell_score(
-                retry_warnings,
-                template_type=template_type,
-                char_max=char_max,
-            )
-            retry_within, _ = _is_within_char_limits(retry_draft, char_min, char_max)
-        else:
-            retry_empty_draft = True
-
-    if retry_draft is None:
-        if retry_llm_failed:
-            reason = "retry_llm_failed"
-        elif retry_empty_draft:
-            reason = "retry_empty_draft"
-        else:
-            reason = "retry_failed"
-        final_draft = initial_draft
-        chosen_smell = initial_smell_score
-    else:
-        final_draft, reason = _select_motivation_draft(
-            initial_draft=initial_draft,
-            initial_smell_score=initial_smell_score,
-            initial_within_limits=initial_within,
-            retry_draft=retry_draft,
-            retry_smell_score=retry_smell_score,
-            retry_within_limits=retry_within,
-            char_min=char_min,
-            char_max=char_max,
-        )
-        retry_adopted_reasons = {"retry_better_score", "retry_within_limits"}
-        if reason in retry_adopted_reasons and retry_smell_score is not None:
-            chosen_smell = retry_smell_score
-        else:
-            chosen_smell = initial_smell_score
-
-    telemetry = {
-        "draft_selection_reason": reason,
-        "ai_smell_score": float(chosen_smell.get("score", 0.0)),
-        "ai_smell_tier": int(chosen_smell.get("tier", 0) or 0),
-        "retry_attempted": True,
-        "initial_within_limits": initial_within,
-        "retry_within_limits": retry_within,
-        "retry_llm_failed": retry_llm_failed,
-    }
-    return final_draft, reason, telemetry
-
-
 __all__ = [
     "_CONCLUSION_KEYWORDS",
     "_apply_multipass_refinement",
@@ -591,7 +483,6 @@ __all__ = [
     "_check_conclusion_first",
     "_collect_draft_quality_failure_codes",
     "_extract_company_anchor_keywords",
-    "_maybe_retry_for_ai_smell",
     "_maybe_retry_for_draft_quality",
     "_select_motivation_draft",
 ]

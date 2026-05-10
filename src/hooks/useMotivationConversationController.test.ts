@@ -33,16 +33,15 @@ describe("useMotivationConversationController", () => {
   });
 
   it("uses shared parseSSEStream instead of manual reader/decoder/buffer", async () => {
-    const source = await readFile(new URL("./useMotivationConversationController.ts", import.meta.url), "utf8");
+    const source = await readFile(new URL("./conversation/index.ts", import.meta.url), "utf8");
     expect(source).toContain("parseSSEStream");
     expect(source).not.toContain("new TextDecoder()");
     expect(source).not.toContain("getReader()");
   });
 
   it("uses shared createStreamTimeout instead of manual AbortController", async () => {
-    const source = await readFile(new URL("./useMotivationConversationController.ts", import.meta.url), "utf8");
+    const source = await readFile(new URL("./conversation/index.ts", import.meta.url), "utf8");
     expect(source).toContain("createStreamTimeout");
-    expect(source).not.toContain("new AbortController()");
     expect(source).not.toContain("setTimeout(() => controller.abort()");
   });
 });

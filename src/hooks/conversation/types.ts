@@ -1,9 +1,7 @@
+import type { BaseMessage as SharedBaseMessage } from "@/lib/shared";
 import type { SSEEvent } from "./sse-stream-parser";
 
-export interface BaseMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
+export interface BaseMessage extends SharedBaseMessage {
   isOptimistic?: boolean;
 }
 

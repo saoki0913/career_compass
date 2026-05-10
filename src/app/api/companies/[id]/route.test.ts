@@ -217,6 +217,60 @@ describe("api/companies/[id]", () => {
     expect(dbUpdateMock).not.toHaveBeenCalled();
   });
 
+  it("PUT rejects invalid status values before update", async () => {
+    const { PUT } = await import("@/app/api/companies/[id]/route");
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    hasOwnedCompanyMock.mockResolvedValue(true);
+
+    const req = new NextRequest("http://localhost:3000/api/companies/c1", {
+      method: "PUT",
+      body: JSON.stringify({ status: "screening" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PUT(req, { params: Promise.resolve({ id: "c1" }) });
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error.code).toBe("COMPANY_STATUS_INVALID");
+    expect(dbUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("PUT rejects invalid sortOrder values before update", async () => {
+    const { PUT } = await import("@/app/api/companies/[id]/route");
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    hasOwnedCompanyMock.mockResolvedValue(true);
+
+    const req = new NextRequest("http://localhost:3000/api/companies/c1", {
+      method: "PUT",
+      body: JSON.stringify({ sortOrder: -1 }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PUT(req, { params: Promise.resolve({ id: "c1" }) });
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error.code).toBe("COMPANY_SORT_ORDER_INVALID");
+    expect(dbUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("PUT rejects non-boolean isPinned values before update", async () => {
+    const { PUT } = await import("@/app/api/companies/[id]/route");
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    hasOwnedCompanyMock.mockResolvedValue(true);
+
+    const req = new NextRequest("http://localhost:3000/api/companies/c1", {
+      method: "PUT",
+      body: JSON.stringify({ isPinned: "yes" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PUT(req, { params: Promise.resolve({ id: "c1" }) });
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error.code).toBe("COMPANY_PIN_INVALID");
+    expect(dbUpdateMock).not.toHaveBeenCalled();
+  });
+
   it("DELETE returns 401 without identity", async () => {
     const { DELETE } = await import("@/app/api/companies/[id]/route");
     getRequestIdentityMock.mockResolvedValue(null);

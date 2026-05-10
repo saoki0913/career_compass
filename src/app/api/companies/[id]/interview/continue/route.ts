@@ -25,6 +25,11 @@ import {
   normalizeInterviewPersistenceError,
 } from "../persistence-errors";
 import { createInterviewUpstreamStream } from "../stream-utils";
+import {
+  buildAssistantQuestionMessages,
+  normalizeInterviewStreamQuestion,
+  normalizeInterviewTransitionLine,
+} from "../stream-shared";
 
 function buildSeedSummary(materials: Array<{ kind?: string; label: string; text: string }>) {
   return materials
@@ -160,16 +165,9 @@ export async function POST(
     },
     onComplete: async (upstreamData) => {
       try {
-        const transitionLine =
-          typeof upstreamData.transition_line === "string" &&
-          upstreamData.transition_line.trim().length > 0
-            ? upstreamData.transition_line.trim()
-            : null;
-        const question = typeof upstreamData.question === "string" ? upstreamData.question.trim() : "";
-        const assistantMessages = [
-          ...(transitionLine ? [{ role: "assistant" as const, content: transitionLine }] : []),
-          ...(question ? [{ role: "assistant" as const, content: question }] : []),
-        ];
+        const transitionLine = normalizeInterviewTransitionLine(upstreamData.transition_line);
+        const question = normalizeInterviewStreamQuestion(upstreamData.question);
+        const assistantMessages = buildAssistantQuestionMessages(question);
         const messages = [...context.conversation!.messages, ...assistantMessages];
         const turnState =
           validateInterviewTurnState(upstreamData.turn_state ?? null) ??

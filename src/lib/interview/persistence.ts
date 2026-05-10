@@ -11,7 +11,6 @@ import {
 } from "@/lib/interview/session";
 import {
   serializeInterviewFeedback,
-  serializeInterviewMessages,
   serializeInterviewPlan,
   serializeInterviewTurnMeta,
   serializeInterviewTurnState,
@@ -145,7 +144,7 @@ export async function saveInterviewConversationProgress(args: {
     const [updated] = await db
       .update(interviewConversations)
       .set({
-        messages: serializeInterviewMessages(args.messages),
+        messages: args.messages,
         status: args.status,
         ...serializedTurnState,
         interviewPlanJson: serializeInterviewPlan(args.plan),

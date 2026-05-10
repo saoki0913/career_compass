@@ -187,7 +187,6 @@
   --lp-shadow-screenshot: 0 20px 80px rgba(0, 6, 102, 0.14);
   --lp-shadow-btn-primary: 0 10px 22px rgba(38, 128, 255, 0.35);
   --lp-pricing-gradient: linear-gradient(180deg, #f0f5fc 0%, #e0ecfa 100%);
-  --lp-surface-faq: #eaf0fa;
   --lp-footer-bg: linear-gradient(180deg, #ffffff 0%, #e8eef8 100%);
 }
 

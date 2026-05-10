@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  safeParseInterviewMessages,
   safeParseInterviewFeedback,
+  safeParseInterviewMessages,
   serializeInterviewTurnState,
 } from "./conversation";
 

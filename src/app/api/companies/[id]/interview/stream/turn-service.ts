@@ -19,6 +19,11 @@ import type {
   InterviewClientCompleteData,
   UpstreamCompleteData,
 } from "../stream-shared";
+import {
+  buildAssistantQuestionMessages,
+  normalizeInterviewStreamQuestion,
+  normalizeInterviewTransitionLine,
+} from "../stream-shared";
 
 type InterviewContext = NonNullable<Awaited<ReturnType<typeof buildInterviewContext>>>;
 type InterviewConversation = NonNullable<InterviewContext["conversation"]>;
@@ -92,16 +97,9 @@ export async function completeInterviewTurnStream(args: {
   nextMessages: InterviewContextWithConversation["conversation"]["messages"];
   onPersisted?: () => Promise<void>;
 }): Promise<InterviewClientCompleteData> {
-  const transitionLine =
-    typeof args.upstreamData.transition_line === "string" &&
-    args.upstreamData.transition_line.trim().length > 0
-      ? args.upstreamData.transition_line.trim()
-      : null;
-  const question = typeof args.upstreamData.question === "string" ? args.upstreamData.question.trim() : "";
-  const assistantMessages = [
-    ...(transitionLine ? [{ role: "assistant" as const, content: transitionLine }] : []),
-    ...(question ? [{ role: "assistant" as const, content: question }] : []),
-  ];
+  const transitionLine = normalizeInterviewTransitionLine(args.upstreamData.transition_line);
+  const question = normalizeInterviewStreamQuestion(args.upstreamData.question);
+  const assistantMessages = buildAssistantQuestionMessages(question);
   const messages = [...args.nextMessages, ...assistantMessages];
   const turnState =
     validateInterviewTurnState(args.upstreamData.turn_state ?? null) ??

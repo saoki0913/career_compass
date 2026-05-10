@@ -62,15 +62,15 @@
 | STAR 進捗 | `src/components/gakuchika/STARProgressBar.tsx` | 4 要素ピル表示 |
 | 完了サマリー | `src/components/gakuchika/CompletionSummary.tsx` | 面接準備パック表示 |
 | 開始画面 | `src/components/gakuchika/GakuchikaStartScreen.tsx` | 初期導入 + 作成開始 |
-| 状態管理 | `src/lib/gakuchika/conversation-state.ts` | ConversationState 型定義 + 変換 |
+| 状態管理 | `src/lib/gakuchika/conversation-state.ts` | ConversationState 型定義 + 変換。`Message` は `src/lib/shared/types.ts` の `BaseMessage` を re-export。`parseOptionalString` / `parseStringArray` / `safeParseMessages` は `src/lib/shared/` から import |
 | SSE FSM | `src/lib/gakuchika/stream-state-machine.ts` | ストリーム状態マシン |
 | 一覧ステータス | `src/lib/gakuchika/list-status.ts` | 一覧カードのステータス正規化 |
-| クライアント API | `src/lib/gakuchika/client-api.ts` | fetch ラッパー |
+| クライアント API | `src/lib/gakuchika/client-api.ts` | fetch ラッパー。`postJson` は `src/lib/shared/client-api.ts` から import |
 | サマリー | `src/lib/gakuchika/summary.ts` | 構造化サマリーの型 + 変換 |
 | ViewModel | `src/hooks/gakuchika/useGakuchikaViewModel.ts` | re-export hub |
 | テキスト再生 | `src/hooks/useStreamingTextPlayback.ts` | 文字送りアニメーション |
 | チャットバブル | `src/components/chat/StreamingChatMessage.tsx` | ストリーミングテキスト表示 |
-| BFF Stream | `src/bff/gakuchika/[id]/conversation/stream/route.ts` | SSE 中継 + クレジット消費 |
+| BFF Stream | `src/bff/gakuchika/[id]/conversation/stream/route.ts` | 共通 stream handler 経由の SSE 中継 + 成功時クレジット確定 |
 | BFF Draft | `src/bff/gakuchika/[id]/generate-es-draft/route.ts` | ES 生成 + Reserve/Confirm |
 | BFF Summary | `src/bff/gakuchika/[id]/interview-summary/route.ts` | 構造化サマリー取得 |
 | BFF New | `src/bff/gakuchika/[id]/conversation/new/route.ts` | 新規セッション開始 |
@@ -86,7 +86,19 @@
 | Prompts | `backend/app/prompts/gakuchika_prompts.py` | テンプレート文字列 |
 | Prompt Builder | `backend/app/prompts/gakuchika_prompt_builder.py` | (system, user) 組立 |
 
-### 2.4 SSE イベントプロトコル
+### 2.4 共有基盤 (`src/lib/shared/`)
+
+ガクチカ・志望動機・面接対策の 3 機能で共通するパーサー・シリアライザー・クライアント API ユーティリティを `src/lib/shared/` に集約している。ガクチカでは以下を利用する:
+
+| 共有モジュール | ガクチカでの利用 |
+|---|---|
+| `BaseMessage` (`types.ts`) | `conversation-state.ts` が `Message` として re-export |
+| `safeParseMessages` (`parsers.ts`) | `conversation-state.ts` が re-export |
+| `parseOptionalString` (`parsers.ts`) | `conversation-state.ts` で直接 import（旧 `normalizeString`） |
+| `parseStringArray` (`parsers.ts`) | `conversation-state.ts` で直接 import（旧 `normalizeStringList`） |
+| `postJson` (`client-api.ts`) | `client-api.ts` で直接 import |
+
+### 2.5 SSE イベントプロトコル
 
 FastAPI が生成する SSE イベントを BFF がブラウザへ中継する。`internal_telemetry` は BFF 側で分離しフロントへは渡さない。
 
@@ -454,9 +466,11 @@ BFF stream/route.ts
   |
   +-- shouldConsumeCredit = !!userId
   +-- gakuchikaStreamPolicy.precheck()  -> クレジット残高確認
-  +-- fetchConfiguredUpstreamSSE()      -> FastAPI SSE 取得
-  +-- complete 受信 -> confirm()         -> 1 クレジット消費
-  +-- error/abort -> cancel()            -> no-op (予約なし)
+  +-- createConversationStreamHandler() -> FastAPI SSE 取得・中継
+  +-- complete 受信 -> 会話保存
+  +-- confirm() 成功                     -> 1 クレジット消費
+  +-- confirm() 失敗                     -> SSE complete は維持し、クレジット未消費として記録
+  +-- upstream error/abort               -> クレジット未消費
 ```
 
 ### ES 下書きクレジット処理フロー
@@ -542,7 +556,7 @@ BFF generate-es-draft/route.ts
 | | `src/lib/gakuchika/summary.ts` | ~239 |
 | | `src/lib/gakuchika/stream-state-machine.ts` | ~82 |
 | **BFF** | `src/bff/gakuchika/[id]/generate-es-draft/route.ts` | ~416 |
-| | `src/bff/gakuchika/[id]/conversation/stream/route.ts` | ~196 |
+| | `src/bff/gakuchika/[id]/conversation/stream/route.ts` | ~320 |
 | | `src/bff/gakuchika/[id]/conversation/resume/route.ts` | ~290 |
 | | `src/bff/gakuchika/[id]/interview-summary/route.ts` | ~208 |
 | | `src/bff/gakuchika/[id]/conversation/new/route.ts` | ~180 |

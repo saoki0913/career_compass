@@ -26,6 +26,24 @@ def _format_prose_style_block(char_max: int | None) -> str:
 </prose_style>"""
 
 
+def _format_anti_ai_phrase_block() -> str:
+    """Return an <anti_ai_phrase> block listing banned LLM-like expressions.
+
+    Content is generated from ai_smell._CATEGORIES (SSOT) to prevent drift.
+    """
+    from app.services.es_review.ai_smell import format_anti_ai_phrase_lines
+
+    lines = format_anti_ai_phrase_lines()
+    inner = "\n".join(f"  {line}" for line in lines)
+    return f"""
+<anti_ai_phrase>
+以下のフレーズはAI特有の定型句であり、ユーザーの元回答にない限り使用禁止:
+{inner}
+- 上記フレーズの代わりに、具体的な対象・数値・行動動詞で置き換える
+- 最終文で「〜に貢献したい」「〜に挑戦したい」と書くときは、何にどう貢献/挑戦するかを必ず具体化する
+</anti_ai_phrase>"""
+
+
 def get_company_honorific(industry: str | None) -> str:
     """Return the appropriate honorific for a company based on its industry.
 

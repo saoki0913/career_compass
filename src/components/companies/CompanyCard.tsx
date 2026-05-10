@@ -11,32 +11,21 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import type { Company } from "@/hooks/useCompanies";
 import { getStatusConfig } from "@/lib/constants/status";
+import { getCompanyNameClass, getDeadlineSummary } from "@/components/companies/company-display";
+import { CompanyLogo } from "@/components/companies/CompanyLogo";
 import {
   Calendar,
   Briefcase,
   FileText,
   ExternalLink,
+  MoreHorizontal,
   Star,
   Trash2,
 } from "lucide-react";
-
-// Deadline type labels
-const DEADLINE_TYPE_LABELS: Record<string, string> = {
-  es_submission: "ES提出",
-  web_test: "WEBテスト",
-  aptitude_test: "適性検査",
-  interview_1: "一次面接",
-  interview_2: "二次面接",
-  interview_3: "三次面接",
-  interview_final: "最終面接",
-  briefing: "説明会",
-  internship: "インターン",
-  offer_response: "内定返答",
-  other: "その他",
-};
 
 interface CompanyCardProps {
   company: Company;
@@ -48,73 +37,13 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
   const status = company.status || "inbox";
   const statusConfig = getStatusConfig(status);
 
-  // Format deadline display (compact)
-  const formatDeadline = () => {
-    const deadline = company.nearestDeadline;
-    if (!deadline) {
-      return {
-        content: <span className="text-muted-foreground text-sm">締切なし</span>,
-        bgClass: "",
-      };
-    }
-
-    const { daysLeft, type } = deadline;
-    const typeLabel = DEADLINE_TYPE_LABELS[type] || type;
-
-    // Urgency colors and backgrounds - using semantic design tokens
-    const isUrgent = daysLeft <= 3;
-    const isWarning = daysLeft > 3 && daysLeft <= 7;
-
-    const urgencyClass =
-      daysLeft < 0
-        ? "text-destructive"
-        : isUrgent
-        ? "text-destructive"
-        : isWarning
-        ? "text-warning-foreground"
-        : "text-muted-foreground";
-
-    const bgClass =
-      daysLeft < 0
-        ? "bg-destructive/10"
-        : isUrgent
-        ? "bg-destructive/10"
-        : isWarning
-        ? "bg-warning/10"
-        : "";
-
-    // Days text
-    const daysText =
-      daysLeft < 0
-        ? "期限切れ"
-        : daysLeft === 0
-        ? "今日"
-        : daysLeft === 1
-        ? "明日"
-        : `${daysLeft}日`;
-
-    return {
-      content: (
-        <div className={cn("flex items-center gap-1.5 text-sm", urgencyClass)}>
-          <Calendar className="w-3.5 h-3.5 flex-shrink-0" />
-          <span className="truncate">{typeLabel}</span>
-          <span className="font-semibold">{daysText}</span>
-        </div>
-      ),
-      bgClass,
-    };
-  };
-
-  const deadlineInfo = formatDeadline();
-
   return (
     <Link href={`/companies/${company.id}`}>
-      <Card className="h-full hover:shadow-md transition-all duration-200 hover:border-primary/30 hover:-translate-y-0.5 active:scale-[0.99] cursor-pointer group">
-        <CardContent className="p-2.5 flex flex-col h-full">
-          {/* Header: Star + Name + Delete */}
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
-              {/* Pin toggle button - Endowment Effect: personalization creates attachment */}
+      <Card className="h-full py-0 hover:shadow-md transition-all duration-200 hover:border-primary/30 hover:-translate-y-0.5 active:scale-[0.99] cursor-pointer group">
+        <CardContent className="flex h-full flex-col p-2.5">
+          {/* Action row: Star + Delete */}
+          <div className="flex items-center justify-between gap-1">
+            <div className="flex shrink-0 items-center gap-0.5">
               {onTogglePin && (
                 <button
                   type="button"
@@ -124,9 +53,7 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
                     onTogglePin(company.id, !company.isPinned);
                   }}
                   className={cn(
-                    "flex-shrink-0 p-1 -ml-1 rounded-md transition-all duration-200",
-                    "hover:scale-110 active:scale-95",
-                    "min-w-[28px] min-h-[28px] flex items-center justify-center", // Touch target 44px effective
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all duration-200 hover:scale-110 active:scale-95",
                     company.isPinned
                       ? "text-amber-500 hover:text-amber-600"
                       : "text-muted-foreground/50 hover:text-amber-400"
@@ -134,114 +61,150 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
                   title={company.isPinned ? "お気に入り解除" : "お気に入りに追加"}
                   aria-label={company.isPinned ? "お気に入り解除" : "お気に入りに追加"}
                 >
-                  <Star
-                    className={cn(
-                      "w-4 h-4 transition-all duration-200",
-                      company.isPinned && "fill-current"
-                    )}
-                  />
+                  <Star className={cn("h-3.5 w-3.5 transition-all duration-200", company.isPinned && "fill-current")} />
                 </button>
               )}
+            </div>
+            {onDeleteStart && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 shrink-0 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onDeleteStart(company.id);
+                }}
+                aria-label={`${company.name} を削除`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+
+          {/* Company info: Logo + Name/Industry/Badge */}
+          <div className="flex min-w-0 items-center gap-2.5 pb-1.5 pt-1">
+            <CompanyLogo company={company} className="h-10 w-10 shrink-0 rounded-lg" imageClassName="h-7 w-7" />
+            <div className="min-w-0 flex-1">
               <h3
-                className="min-w-0 truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary"
+                className={cn(
+                  "min-w-0 truncate whitespace-nowrap font-bold text-foreground transition-colors group-hover:text-primary",
+                  getCompanyNameClass(company.name)
+                )}
                 title={company.name}
               >
                 {company.name}
               </h3>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {onDeleteStart ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onDeleteStart(company.id);
-                  }}
-                  aria-label={`${company.name} を削除`}
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <p className="text-[11px] text-muted-foreground">
+                  {company.industry || "業界未設定"}
+                </p>
+                <Badge
+                  variant="outline"
+                  className={cn("h-[18px] whitespace-nowrap rounded-full px-1.5 py-0 text-[10px] font-medium leading-[18px]", statusConfig.bgColor, statusConfig.color)}
                 >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              ) : null}
+                  {statusConfig.label}
+                </Badge>
+              </div>
             </div>
-          </div>
-
-          {/* Meta: Industry + Status */}
-          <div className="flex items-center justify-between gap-2 mb-1.5">
-            <p className="text-xs text-muted-foreground truncate" title={company.industry || "業界未設定"}>
-              {company.industry || "業界未設定"}
-            </p>
-            <Badge
-              variant="outline"
-              className={cn("h-6 shrink-0 px-2 py-0.5 text-xs font-medium", statusConfig.bgColor, statusConfig.color)}
-            >
-              {statusConfig.label}
-            </Badge>
           </div>
 
           {/* Deadline */}
-          <div className={cn(
-            "py-1.5 px-2 -mx-2 rounded-lg mb-2",
-            deadlineInfo.bgClass || "bg-muted/30"
-          )}>
-            {deadlineInfo.content}
-          </div>
+          {(() => {
+            const deadline = getDeadlineSummary(company.nearestDeadline);
+            const bgClass = deadline
+              ? deadline.tone === "overdue" || deadline.tone === "urgent"
+                ? "bg-destructive/10"
+                : deadline.tone === "warning"
+                  ? "bg-warning/10"
+                  : "bg-muted/30"
+              : "bg-muted/30";
+            const toneClass = deadline
+              ? deadline.tone === "overdue" || deadline.tone === "urgent"
+                ? "text-destructive"
+                : deadline.tone === "warning"
+                  ? "text-warning-foreground"
+                  : "text-muted-foreground"
+              : "text-muted-foreground";
+            return (
+              <div className={cn("mb-1.5 rounded-md px-2.5 py-1.5", bgClass)}>
+                <div className={cn("flex items-center gap-1.5 text-[11px]", toneClass)}>
+                  <Calendar className="h-3 w-3 shrink-0" />
+                  {deadline ? (
+                    <>
+                      <span className="truncate">{deadline.typeLabel}</span>
+                      <span className="shrink-0 font-semibold">{deadline.daysText}</span>
+                    </>
+                  ) : (
+                    <span>締切なし</span>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
-          {/* Stats (card-specific) */}
-          <div className="flex items-center gap-3 text-sm text-muted-foreground mb-1.5">
-            <span className="flex items-center gap-1.5">
-              <Briefcase className="w-4 h-4" />
+          {/* Stats with bordered boxes */}
+          <div className="mb-1.5 flex items-center rounded-md border border-border/60 bg-background/60 p-1 text-[11px] text-muted-foreground">
+            <span className="flex min-w-0 items-center gap-1 rounded border border-border/60 bg-card px-1.5 py-0.5">
+              <Briefcase className="h-3 w-3 text-primary" />
               <span>{company.activeApplicationCount}</span>
             </span>
-            <span className="flex items-center gap-1.5">
-              <FileText className="w-4 h-4" />
+            <span className="mx-1.5 h-4 w-px bg-border/70" aria-hidden="true" />
+            <span className="flex min-w-0 items-center gap-1 rounded border border-border/60 bg-card px-1.5 py-0.5">
+              <FileText className="h-3 w-3 text-primary" />
               <span>{company.esDocumentCount}</span>
             </span>
           </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between text-sm text-muted-foreground mt-auto">
-            <span className="text-xs">
+          {/* Footer: Date + Popover menu */}
+          <div className="mt-auto flex items-center justify-between border-t border-border/60 pt-1.5 text-[11px] text-muted-foreground">
+            <span>
               更新: {new Date(company.updatedAt).toLocaleDateString("ja-JP", { year: "numeric", month: "short", day: "numeric" })}
             </span>
-            <div className="flex items-center gap-1">
-              {company.recruitmentUrl && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    if (company.recruitmentUrl) {
-                      window.open(company.recruitmentUrl, '_blank', 'noopener,noreferrer');
-                    }
-                  }}
-                  className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                  title="採用ページを開く"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">採用</span>
-                </button>
-              )}
-              {company.corporateUrl && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    if (company.corporateUrl) {
-                      window.open(company.corporateUrl, '_blank', 'noopener,noreferrer');
-                    }
-                  }}
-                  className="p-1.5 hover:text-primary rounded-md hover:bg-muted/50 opacity-60 hover:opacity-100 transition-opacity"
-                  title="企業HP"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+            {(company.recruitmentUrl || company.corporateUrl) ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 rounded text-muted-foreground hover:text-foreground"
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-48 p-1" onClick={(e) => e.stopPropagation()}>
+                  {company.recruitmentUrl && (
+                    <a
+                      href={company.recruitmentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      採用ページ
+                    </a>
+                  )}
+                  {company.corporateUrl && (
+                    <a
+                      href={company.corporateUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      企業HP
+                    </a>
+                  )}
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <div className="h-6 w-6" />
+            )}
           </div>
         </CardContent>
       </Card>

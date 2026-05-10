@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.services.es_review.llm_validation import LlmValidationResult
+from app.services.es_review.validation import _should_attempt_semantic_compression
 from app.services.es_review.validation_profile import (
     LENIENT_PROFILE,
     STRICT_PROFILE,
@@ -64,6 +65,16 @@ def test_resolve_profile() -> None:
     assert resolve_profile("gakuchika") is LENIENT_PROFILE
     assert resolve_profile("motivation") is LENIENT_PROFILE
     assert resolve_profile("es_review") is STRICT_PROFILE
+
+
+def test_semantic_compression_threshold_covers_overshoot() -> None:
+    assert _should_attempt_semantic_compression(400, None) is False
+    assert _should_attempt_semantic_compression(400, 400) is False
+    assert _should_attempt_semantic_compression(490, 400) is True
+    assert _should_attempt_semantic_compression(520, 400) is True
+    assert _should_attempt_semantic_compression(540, 400) is False
+    assert _should_attempt_semantic_compression(225, 200) is True
+    assert _should_attempt_semantic_compression(291, 200) is False
 
 
 def test_llm_validation_result_legacy_unpacking() -> None:

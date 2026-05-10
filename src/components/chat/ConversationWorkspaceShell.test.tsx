@@ -14,4 +14,15 @@ describe("ConversationWorkspaceShell", () => {
     const titleExtraIdx = source.indexOf("{titleExtra}", subtitleIdx);
     expect(titleExtraIdx).toBeGreaterThan(subtitleIdx);
   });
+
+  it("accepts a conversationFooter slot outside the scrollable conversation body", async () => {
+    const source = await readFile(new URL("./ConversationWorkspaceShell.tsx", import.meta.url), "utf8");
+    const conversationIdx = source.indexOf("{conversation}");
+    const footerIdx = source.indexOf("{conversationFooter}", conversationIdx);
+    const composerIdx = source.indexOf("{composer}", footerIdx);
+
+    expect(source).toMatch(/conversationFooter\??: ReactNode/);
+    expect(footerIdx).toBeGreaterThan(conversationIdx);
+    expect(composerIdx).toBeGreaterThan(footerIdx);
+  });
 });

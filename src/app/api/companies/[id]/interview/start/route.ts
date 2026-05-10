@@ -33,9 +33,12 @@ import {
   createInterviewPersistenceUnavailableResponse,
   normalizeInterviewPersistenceError,
 } from "../persistence-errors";
+import { createInterviewUpstreamStream } from "../stream-utils";
 import {
-  createInterviewUpstreamStream,
-} from "../stream-utils";
+  buildAssistantQuestionMessages,
+  normalizeInterviewStreamQuestion,
+  normalizeInterviewTransitionLine,
+} from "../stream-shared";
 
 function buildSeedSummary(materials: Array<{ kind?: string; label: string; text: string }>) {
   return materials
@@ -250,16 +253,9 @@ export async function POST(
     },
     onComplete: async (upstreamData) => {
       try {
-        const question = typeof upstreamData.question === "string" ? upstreamData.question.trim() : "";
-        const transitionLine =
-          typeof upstreamData.transition_line === "string" &&
-          upstreamData.transition_line.trim().length > 0
-            ? upstreamData.transition_line.trim()
-            : null;
-        const messages = [
-          ...(transitionLine ? [{ role: "assistant" as const, content: transitionLine }] : []),
-          ...(question ? [{ role: "assistant" as const, content: question }] : []),
-        ];
+        const question = normalizeInterviewStreamQuestion(upstreamData.question);
+        const transitionLine = normalizeInterviewTransitionLine(upstreamData.transition_line);
+        const messages = buildAssistantQuestionMessages(question);
         const turnStateToPersist =
           validateInterviewTurnState(upstreamData.turn_state ?? null) ??
           context.conversation?.turnState ??

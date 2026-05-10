@@ -60,13 +60,13 @@ contracts <- setup <- planning <- prompting <- generators <- endpoints
 | Main UI | `src/components/interview/InterviewPageContent.tsx` | setup-first + 会話 + 講評 |
 | Drill UI | `src/components/interview/DrillPanel.tsx` | 4 ステップ Drill stepper |
 | Dashboard | `src/components/interview/dashboard/` | Heatmap / TrendChart / RecurringIssues |
-| Session | `src/lib/interview/session.ts` | setup 分類、turnState 初期化、stageStatus |
-| Conversation | `src/lib/interview/conversation.ts` | 会話 reducer、メッセージ追加 |
+| Session | `src/lib/interview/session.ts` | setup 分類、turnState 初期化、stageStatus。`parseOptionalString` / `parseStringArray` は `src/lib/shared/` から import（旧 `normalizeOptionalString` / `normalizeStringArray`） |
+| Conversation | `src/lib/interview/conversation.ts` | 会話 reducer、メッセージ追加。`parseOptionalString` / `parseStringArray` / `safeParseJsonValue` / `serializeOrNull` は `src/lib/shared/` から import。旧 `serializeInterviewMessages`（identity 関数）は削除済み |
 | Reducers | `src/lib/interview/reducers.ts` | SSE event -> state 更新 |
 | Dashboard Logic | `src/lib/interview/dashboard.ts` | 集計ロジック（heatmap、trend） |
-| Client API | `src/lib/interview/client-api.ts` | `startInterviewDrill` / `scoreInterviewDrill` |
+| Client API | `src/lib/interview/client-api.ts` | `startInterviewDrill` / `scoreInterviewDrill`。`postJson` / `JsonValue` は `src/lib/shared/` から import |
 | Types | `src/lib/interview/types.ts` | 共通型定義 |
-| UI Helpers | `src/lib/interview/ui.ts` | `labelTopic()` / progress narrative |
+| UI Helpers | `src/lib/interview/ui.ts` | `labelTopic()` / progress narrative / `buildInterviewTopicStages()` / `buildInterviewPhases()` |
 | Context Builder | `src/lib/interview/context-builder*.ts` | BFF hydration / loaders / setup / summaries |
 | Company Seeds | `src/lib/interview/company-seeds.ts` | 業界・企業 seed 定義 |
 | Persistence | `src/lib/interview/persistence*.ts` | DB 書き込み / エラー / feedback / turn-events |
@@ -93,7 +93,22 @@ contracts <- setup <- planning <- prompting <- generators <- endpoints
 | Case Seeds | `backend/app/data/case_seeds/*.json` | CaseBrief プリセット JSON |
 | 集客 LP | `src/app/(marketing)/ai-mensetsu/page.tsx` | AI 面接対策 LP |
 
-### 2.4 SSE イベントプロトコル
+### 2.4 共有基盤 (`src/lib/shared/`)
+
+ガクチカ・志望動機・面接対策の 3 機能で共通するパーサー・シリアライザー・クライアント API ユーティリティを `src/lib/shared/` に集約している。面接対策では以下を利用する:
+
+| 共有モジュール | 面接対策での利用 |
+|---|---|
+| `JsonValue` (`types.ts`) | `client-api.ts` で型参照 |
+| `parseOptionalString` (`parsers.ts`) | `conversation.ts` / `session.ts` で直接 import（旧 `normalizeOptionalString`） |
+| `parseStringArray` (`parsers.ts`) | `conversation.ts` / `session.ts` で直接 import（旧 `normalizeStringArray`） |
+| `safeParseJsonValue` (`parsers.ts`) | `conversation.ts` で直接 import |
+| `serializeOrNull` (`serializers.ts`) | `conversation.ts` のシリアライズ関数で利用 |
+| `postJson` (`client-api.ts`) | `client-api.ts` で直接 import |
+
+旧 `serializeInterviewMessages`（identity 関数）は不要のため削除済み。共有の `BaseMessage` は `src/hooks/conversation/types.ts` の `BaseMessage` が `isOptimistic?` フィールドを追加して拡張している。
+
+### 2.5 SSE イベントプロトコル
 
 FastAPI からの SSE を BFF が中継する。`string_chunk` はローカル蓄積のみ行い、`complete` イベント後に playback を開始する。
 
@@ -409,11 +424,11 @@ evidence が空の軸は `confidence=low` 固定。`_enrich_feedback_defaults()`
 ### 8.1 コンポーネント構成
 
 ```
-InterviewPageContent (~486 行)
+InterviewPageContent
 +-- setup-first card (業界/職種/方式/選考/段階/面接官/厳しさ)
 +-- 会話表示 (useStreamingTextPlayback による文字送り)
 +-- 右カラム
-|   +-- 進捗カード (トピックピル + ライフサイクルフェーズ)
+|   +-- 進捗カード (Badge + ConversationProgressBar + ConversationPhaseBar)
 |   +-- 面接設定
 |   +-- 参考にする材料
 |   +-- 過去の最終講評 (compact + モーダル全文)
@@ -449,12 +464,21 @@ dashboard/ (~406 行)
 - スコア推移のトレンド計算
 - 繰り返し指摘される改善点の抽出
 
-### 8.4 進捗カード
+### 8.4 進捗カード（共有コンポーネント統合）
 
-- トピックピル: 確認済み (emerald + check) / 進行中 (sky) / 未着手 (muted) の 3 色バッジ
-- 内部キー（`motivation_fit` 等）は `labelTopic()` で日本語ラベル（「志望動機」等）に変換
-- ライフサイクルフェーズ: 「質問フェーズ -> フィードバック -> 面接完了」の 3 段階を done/current/pending で表示
-- 進捗ナラティブ: 「次は XX について確認します。」を `currentTopicLabel` から生成
+ガクチカ・志望動機と同じ共有コンポーネント (`ConversationProgressBar` + `ConversationPhaseBar`) を使用。
+
+- **Badge**: 業界・職種・面接方式の要約バッジをカード上部に表示
+- **ConversationProgressBar**: トピックを `TopicStage[]` にマッピング（`buildInterviewTopicStages()`）
+  - 確認済み (emerald + check) / 進行中 (sky + pulsing dot) / 未着手 (muted)
+  - `currentTopicLabel` は `questionFlowCompleted` でない限り "done" より "current" を優先
+  - 重複排除と欠落補完で `currentTopicLabel` が covered/remaining に含まれない場合も表示
+  - `columns={2}` で日本語ラベルのトランケーションを回避
+- **ConversationPhaseBar**: 4段階ライフサイクル（`buildInterviewPhases()`）
+  - 面接設定 → 質問フェーズ → 最終講評 → 面接完了
+  - DB の session status (`setup_pending` → `in_progress` → `question_flow_completed` → `feedback_completed`) に対応
+- **進捗ナラティブ**: `buildInterviewCoachingNarrative()` で `currentTopicLabel` からフッターメッセージを生成
+- **ViewModel**: `useInterviewViewModel` が `topicStages`, `interviewPhases`, `questionDisplay`, `coachingNarrative` を薄い合成層として提供。純粋ヘルパーは `src/lib/interview/ui.ts` に配置
 
 ---
 

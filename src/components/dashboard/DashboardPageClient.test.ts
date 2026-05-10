@@ -79,6 +79,15 @@ describe("DashboardPageClient", () => {
     expect(source).toContain("onToggleTask={toggleComplete}");
   });
 
+  it("imports purchase success helpers for post-checkout toast", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DashboardPageClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain("getPurchaseSuccessState");
+    expect(source).toContain("notifyPurchaseSuccess");
+    expect(source).toContain("useSearchParams");
+    expect(source).toContain("purchaseHandled");
+  });
+
   it("uses entrance animations on card sections", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./DashboardPageClient.tsx", import.meta.url), "utf8");

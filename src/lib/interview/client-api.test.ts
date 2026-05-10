@@ -13,6 +13,10 @@ import {
   startInterviewStream,
 } from "./client-api";
 
+function getFetchInit(callIndex: number): RequestInit {
+  return (fetch as ReturnType<typeof vi.fn>).mock.calls[callIndex][1] as RequestInit;
+}
+
 describe("interview client api", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}")));
@@ -45,7 +49,6 @@ describe("interview client api", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ selectedRole: "営業" }),
         signal,
       }),
@@ -90,9 +93,14 @@ describe("interview client api", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ historyId: "history-1", satisfactionScore: 4 }),
       }),
+    );
+    expect(new Headers(getFetchInit(2).headers).get("Content-Type")).toBe(
+      "application/json",
+    );
+    expect(new Headers(getFetchInit(7).headers).get("Content-Type")).toBe(
+      "application/json",
     );
   });
 });
@@ -139,9 +147,10 @@ describe("interview drill client api", () => {
       expect.objectContaining({
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
       }),
     );
+    const headers = new Headers(fetchMock.mock.calls[0][1].headers);
+    expect(headers.get("Content-Type")).toBe("application/json");
     expect(result.attemptId).toBe("drill-1");
     expect(result.retryQuestion).toContain("もう一度");
   });

@@ -144,6 +144,7 @@ export function useInterviewConversationController({
   const [sessionState, setSessionState] = useState<InterviewSessionState>(DEFAULT_SESSION_STATE);
   const [questionCount, setQuestionCount] = useState(0);
   const [questionStage, setQuestionStage] = useState<string | null>(null);
+  const [transitionLine, setTransitionLine] = useState<string | null>(null);
   const [stageStatus, setStageStatus] = useState<InterviewStageStatus | null>(null);
   const [turnState, setTurnState] = useState<InterviewTurnState | null>(null);
   const [turnMeta, setTurnMeta] = useState<InterviewTurnMeta | null>(null);
@@ -195,6 +196,7 @@ export function useInterviewConversationController({
     feedbackHistories: [],
     feedbackCompletionCount: 0,
     shortCoaching: null,
+    transitionLine: null,
   });
   useEffect(() => {
     controllerStateRef.current = {
@@ -211,6 +213,7 @@ export function useInterviewConversationController({
       feedbackHistories,
       feedbackCompletionCount,
       shortCoaching,
+      transitionLine,
     };
   }, [
     messages,
@@ -226,6 +229,7 @@ export function useInterviewConversationController({
     feedbackHistories,
     feedbackCompletionCount,
     shortCoaching,
+    transitionLine,
   ]);
 
   const flattenedRoleOptions = useMemo(
@@ -381,6 +385,7 @@ export function useInterviewConversationController({
       setQuestionCount(nextState.questionCount);
       setStageStatus(nextState.stageStatus);
       setQuestionStage(nextState.questionStage);
+      setTransitionLine(nextState.transitionLine);
       setFeedback(nextState.feedback);
       setTurnState(nextState.turnState);
       setTurnMeta(nextState.turnMeta);
@@ -596,6 +601,7 @@ export function useInterviewConversationController({
   const handleStart = useCallback(async () => {
     if (!setupComplete || isInteractionBlocked || isBusy || hasStarted) return;
     setIsSending(true);
+    setTransitionLine(null);
     try {
       await runStream("start", {
         selectedIndustry: effectiveIndustry || null,
@@ -623,6 +629,7 @@ export function useInterviewConversationController({
     setMessages(optimisticMessages);
     setAnswer("");
     setIsSending(true);
+    setTransitionLine(null);
 
     try {
       await runStream("send", { answer: optimisticMessages.at(-1)?.content });
@@ -656,6 +663,7 @@ export function useInterviewConversationController({
     if (!canContinue) return;
     const previousFeedback = feedback;
     setIsContinuing(true);
+    setTransitionLine(null);
     setFeedback(null);
     setStreamingFeedback(null);
     setQuestionFlowCompleted(false);
@@ -693,6 +701,7 @@ export function useInterviewConversationController({
       setAnswer("");
       setQuestionCount(0);
       setQuestionStage(data.conversation?.questionStage ?? null);
+      setTransitionLine(null);
       setStageStatus(data.conversation?.stageStatus ?? null);
       setTurnState(data.conversation?.turnState ?? null);
       setTurnMeta(data.conversation?.turnMeta ?? null);
@@ -789,6 +798,7 @@ export function useInterviewConversationController({
       sessionState,
       questionCount,
       questionStage,
+      transitionLine,
       stageStatus,
       turnState,
       turnMeta,

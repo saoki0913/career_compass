@@ -10,7 +10,8 @@ import { db } from "@/lib/db";
 import { submissionItems } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { createApiErrorResponse } from "@/bff/api/error-response";
-import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { getRequestIdentity, RequestIdentitySessionError } from "@/bff/identity/request-identity";
+import { buildOwnedRowCondition, mutateOwnedRow } from "@/bff/identity/owner-access";
 import { logError } from "@/lib/logger";
 import { parseBody, submissionUpdateSchema } from "@/lib/validation";
 
@@ -21,44 +22,13 @@ export async function PUT(
   try {
     const { id: submissionId } = await params;
 
-    const identity = await getRequestIdentity(request);
+    const identity = await getRequestIdentity(request, { sessionErrorMode: "throw" });
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
         code: "AUTH_REQUIRED",
         userMessage: "ログインまたはゲストセッションが必要です。",
         action: "ログインし直して、もう一度お試しください。",
-      });
-    }
-
-    const { userId, guestId } = identity;
-
-    const [item] = await db
-      .select()
-      .from(submissionItems)
-      .where(eq(submissionItems.id, submissionId))
-      .limit(1);
-
-    if (!item) {
-      return createApiErrorResponse(request, {
-        status: 404,
-        code: "SUBMISSION_NOT_FOUND",
-        userMessage: "対象の提出物が見つかりませんでした。",
-        action: "一覧を更新して、もう一度お試しください。",
-      });
-    }
-
-    // Verify ownership
-    const isOwner =
-      (userId && item.userId === userId) ||
-      (guestId && item.guestId === guestId);
-
-    if (!isOwner) {
-      return createApiErrorResponse(request, {
-        status: 403,
-        code: "SUBMISSION_ACCESS_DENIED",
-        userMessage: "この提出物を更新する権限がありません。",
-        action: "対象データを見直して、もう一度お試しください。",
       });
     }
 
@@ -87,14 +57,41 @@ export async function PUT(
     if (notes !== undefined) updateData.notes = notes?.trim() || null;
     if (fileUrl !== undefined) updateData.fileUrl = fileUrl || null;
 
-    const updated = await db
-      .update(submissionItems)
-      .set(updateData)
-      .where(eq(submissionItems.id, submissionId))
-      .returning();
+    const updateCondition = buildOwnedRowCondition(
+      eq(submissionItems.id, submissionId),
+      submissionItems,
+      identity,
+    );
+    const updated = await mutateOwnedRow(updateCondition, (condition) =>
+      db
+        .update(submissionItems)
+        .set(updateData)
+        .where(condition)
+        .returning()
+    );
 
-    return NextResponse.json({ submission: updated[0] });
+    if (!updated) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "SUBMISSION_NOT_FOUND",
+        userMessage: "対象の提出物が見つかりませんでした。",
+        action: "一覧を更新して、もう一度お試しください。",
+      });
+    }
+
+    return NextResponse.json({ submission: updated });
   } catch (error) {
+    if (error instanceof RequestIdentitySessionError) {
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "AUTH_SESSION_UNAVAILABLE",
+        userMessage: "認証情報を確認できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        error,
+        logContext: "update-submission:identity",
+      });
+    }
     logError("update-submission", error);
     return createApiErrorResponse(request, {
       status: 500,
@@ -113,7 +110,7 @@ export async function DELETE(
   try {
     const { id: submissionId } = await params;
 
-    const identity = await getRequestIdentity(request);
+    const identity = await getRequestIdentity(request, { sessionErrorMode: "throw" });
     if (!identity) {
       return createApiErrorResponse(request, {
         status: 401,
@@ -123,12 +120,23 @@ export async function DELETE(
       });
     }
 
-    const { userId, guestId } = identity;
-
+    const deleteCondition = buildOwnedRowCondition(
+      eq(submissionItems.id, submissionId),
+      submissionItems,
+      identity,
+    );
+    if (!deleteCondition) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "SUBMISSION_NOT_FOUND",
+        userMessage: "対象の提出物が見つかりませんでした。",
+        action: "一覧を更新して、もう一度お試しください。",
+      });
+    }
     const [item] = await db
       .select()
       .from(submissionItems)
-      .where(eq(submissionItems.id, submissionId))
+      .where(deleteCondition)
       .limit(1);
 
     if (!item) {
@@ -137,20 +145,6 @@ export async function DELETE(
         code: "SUBMISSION_NOT_FOUND",
         userMessage: "対象の提出物が見つかりませんでした。",
         action: "一覧を更新して、もう一度お試しください。",
-      });
-    }
-
-    // Verify ownership
-    const isOwner =
-      (userId && item.userId === userId) ||
-      (guestId && item.guestId === guestId);
-
-    if (!isOwner) {
-      return createApiErrorResponse(request, {
-        status: 403,
-        code: "SUBMISSION_ACCESS_DENIED",
-        userMessage: "この提出物を削除する権限がありません。",
-        action: "対象データを見直して、もう一度お試しください。",
       });
     }
 
@@ -165,10 +159,32 @@ export async function DELETE(
       });
     }
 
-    await db.delete(submissionItems).where(eq(submissionItems.id, submissionId));
+    const deleted = await mutateOwnedRow(deleteCondition, (condition) =>
+      db.delete(submissionItems).where(condition).returning({ id: submissionItems.id })
+    );
+
+    if (!deleted) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "SUBMISSION_NOT_FOUND",
+        userMessage: "対象の提出物が見つかりませんでした。",
+        action: "一覧を更新して、もう一度お試しください。",
+      });
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof RequestIdentitySessionError) {
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "AUTH_SESSION_UNAVAILABLE",
+        userMessage: "認証情報を確認できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        error,
+        logContext: "delete-submission:identity",
+      });
+    }
     logError("delete-submission", error);
     return createApiErrorResponse(request, {
       status: 500,

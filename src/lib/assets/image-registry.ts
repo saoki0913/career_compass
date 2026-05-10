@@ -13,6 +13,11 @@ export const DASHBOARD_ASSETS = {
   emptyDeadline: "/dashboard/assets/empty-state-hourglass.png",
   emptyTodayTasks: "/dashboard/assets/empty-state-clipboard.png",
   emptyCompanies: "/dashboard/assets/empty-state-folder.png",
+  emptyNotApplied: "/dashboard/assets/empty-state-envelope.png",
+  emptyEsTest: "/dashboard/assets/empty-state-document.png",
+  emptyInterview: "/dashboard/assets/empty-state-conversation.png",
+  emptyWaiting: "/dashboard/assets/empty-state-waiting.png",
+  emptyOffer: "/dashboard/assets/empty-state-trophy.png",
 } as const;
 
 export const LP_SECTION_ASSET_BASE = "/marketing/LP/sections" as const;

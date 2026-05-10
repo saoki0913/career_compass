@@ -28,6 +28,13 @@ describe("useCredits auth gating", () => {
     expect(shouldUseGuestFallback({ isAuthenticated: true, isAuthReady: true })).toBe(false);
   });
 
+  it("enables revalidateOnFocus so credits refresh when tab regains focus", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./useCredits.ts", import.meta.url), "utf8");
+    expect(source).toContain("revalidateOnFocus: true");
+    expect(source).not.toContain("revalidateOnFocus: false");
+  });
+
   it("uses server-provided initial data without waiting for a fetch", () => {
     const initialData = {
       type: "user" as const,

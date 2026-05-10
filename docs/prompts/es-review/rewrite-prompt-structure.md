@@ -55,7 +55,7 @@ constraints とは補完関係:
 3. 「整理した」「取り組んだ」のような抽象動詞だけで済ませず、具体的な行動を含める
 4. 同じ文末表現が連続しないよう、語尾を変化させる
 5. 「貢献する」「成長する」だけで終わらず、何にどう貢献するかを具体化する
-6. 複数の施策・エピソード・理由を書くときは (1)(2) や「1点目 / 2点目」で番号を明示する
+6. 複数の施策は①②で文中にインラインで示す（リスト化しない）。簡潔な列挙は1文内でよいが、各施策を説明する場合は「①では」を短い冒頭にして独立した文にする
 7. （テンプレート固有ルール: self_pr/work_values の抽象ラベル具体化など）
 
 ### WATCH（注意）
@@ -71,7 +71,7 @@ constraints とは補完関係:
 
 | テンプレート | 完結パターン |
 |---|---|
-| gakuchika | 「課題→施策(何をどうした)→成果(何が変わった)」 |
+| gakuchika | 「課題→施策(宣言+①では…②では…の独立文展開)→成果(何が変わった)」 |
 | company_motivation | 「根拠(経験)→企業接点→貢献像」 |
 | intern_reason | 「参加理由→経験接点→学び目標」 |
 | intern_goals | 「学びたいこと→現状の課題→成長後の姿」 |
@@ -97,7 +97,7 @@ constraints とは補完関係:
 |---|---|---|
 | 結論ファースト | `STYLE_RULES[0]` | `<core_style>` MUST |
 | 文末表現連続禁止 | `STYLE_RULES` | `<core_style>` SHOULD |
-| ナンバリング指示 | `STYLE_RULES` | `<core_style>` SHOULD（全テンプレート共通） |
+| ナンバリング指示 | `STYLE_RULES` + allocation guide | `<core_style>` SHOULD（gakuchika 固有）+ 【配分ガイド】 |
 | LLM特有フレーズ禁止 | `STYLE_RULES` | `<core_style>` WATCH |
 | 敬称ポリシー | `company_mention_rule` | `<constraints priority="target">` |
 | テンプレート完結パターン | `TEMPLATE_GUIDANCE` | 【テンプレート別ガイダンス】 |

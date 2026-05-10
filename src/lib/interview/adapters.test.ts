@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { hydrateInterviewTurnStateFromRow, serializeInterviewTurnState } from "./adapters";
+
 import type { InterviewTurnState } from "./types";
 
 describe("interview adapters", () => {
