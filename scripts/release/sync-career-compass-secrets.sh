@@ -401,7 +401,7 @@ apply_supabase_bundle() {
   validate_env_file "$file"
   while IFS= read -r key || [[ -n "$key" ]]; do
     [[ -n "$key" ]] || continue
-    [[ "$key" == SUPABASE_ACCESS_TOKEN || "$key" == SUPABASE_ORG_ID ]] && continue
+    is_meta_key "$key" && continue
     value="$(get_env_value "$file" "$key")"
     pairs+=("${key}=${value}")
   done < <(iter_env_keys "$file")
