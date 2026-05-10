@@ -406,7 +406,10 @@ apply_supabase_bundle() {
     pairs+=("${key}=${value}")
   done < <(iter_env_keys "$file")
 
-  (( ${#pairs[@]} > 0 )) || release_die "No Supabase secrets to apply"
+  if (( ${#pairs[@]} == 0 )); then
+    release_log "No Supabase runtime secrets to apply"
+    return 0
+  fi
   release_log "exec: supabase secrets set --project-ref ${SUPABASE_PRODUCTION_PROJECT_REF} [REDACTED ${#pairs[@]} keys]"
   supabase_bin="$(find_real_binary supabase)"
   [[ -n "$supabase_bin" ]] || release_die "Missing command: supabase"
