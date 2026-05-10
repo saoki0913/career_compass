@@ -6,11 +6,13 @@ describe("fetchFastApiWithPrincipal", () => {
   beforeEach(() => {
     vi.resetModules();
     process.env.CAREER_PRINCIPAL_HMAC_SECRET = "top-secret";
+    process.env.INTERNAL_API_JWT_SECRET = "internal-api-jwt-secret-for-client-tests";
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
     delete process.env.CAREER_PRINCIPAL_HMAC_SECRET;
+    delete process.env.INTERNAL_API_JWT_SECRET;
     vi.restoreAllMocks();
   });
 

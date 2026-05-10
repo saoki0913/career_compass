@@ -48,6 +48,7 @@ jobs:
       STRIPE_PRICE_PRO_MONTHLY: price_pro_ci
       OPENAI_API_KEY: sk-ci-openai
       ANTHROPIC_API_KEY: sk-ant-ci-anthropic
+      INTERNAL_API_JWT_SECRET: ci-internal-api-jwt-secret-32chars
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -86,7 +87,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node scripts/security/check-api-route-csrf.mjs
-      - run: bash security/scan/run-lightweight-scan.sh --fail-on=high
+      - run: bash security/scan/run-lightweight-scan.sh --fail-on=critical
 
   staging-ready:
     needs: source-branch

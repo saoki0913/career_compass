@@ -14,7 +14,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: dependency-diff
+        name: Detect dependency manifest changes
+        run: |
+          changed_files="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")"
+          if printf '%s\n' "$changed_files" | grep -E '^(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$' >/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Skip when dependency manifests did not change
+        if: steps.dependency-diff.outputs.run != 'true'
+        run: echo "No dependency manifest changes detected."
       # Repository must enable Dependency graph (Settings → Code security) or this step errors.
       - uses: actions/dependency-review-action@v4
+        if: steps.dependency-diff.outputs.run == 'true'
         with:
           fail-on-severity: high
