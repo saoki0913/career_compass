@@ -7,6 +7,7 @@ async function importConfig() {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe("stripe config", () => {
@@ -36,6 +37,11 @@ describe("stripe config", () => {
   });
 
   it("warns when price env vars are missing", async () => {
+    vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_ANNUAL", "");
+    vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "");
+    vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "");
+
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { validateStripePriceConfig } = await importConfig();
 
@@ -43,7 +49,6 @@ describe("stripe config", () => {
 
     expect(spy).toHaveBeenCalledOnce();
     expect(spy.mock.calls[0][0]).toContain("STRIPE_PRICE_STANDARD_MONTHLY");
-    spy.mockRestore();
   });
 
   it("computes credit low threshold as 5% of allocation with floor of 10", async () => {
@@ -71,7 +76,6 @@ describe("stripe config", () => {
     validateStripePriceConfig();
 
     expect(spy).not.toHaveBeenCalled();
-    spy.mockRestore();
   });
 });
 
