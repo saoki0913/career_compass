@@ -6,34 +6,41 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { buildOwnerCondition, requireRequestIdentity } from "@/bff/identity/owner-access";
 import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
-import { eq, and, desc, isNull, count } from "drizzle-orm";
-import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { eq, and, desc, count, type SQL } from "drizzle-orm";
+import { logError } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
-    const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    const identityResult = await requireRequestIdentity(request, {
+      codePrefix: "NOTIFICATIONS_LIST",
+      logContext: "notifications-list-auth",
+    });
+    if (!identityResult.ok) {
+      return identityResult.response;
     }
 
-    const { userId, guestId } = identity;
+    const identity = identityResult.identity;
+    const ownerCondition = buildOwnerCondition(notifications, identity);
+    if (!ownerCondition) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "NOTIFICATIONS_LIST_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        developerMessage: "Invalid owner identity",
+        logContext: "notifications-list-auth",
+      });
+    }
+
     const { searchParams } = new URL(request.url);
     const limit = Math.min(parseInt(searchParams.get("limit") || "10"), 50);
     const unreadOnly = searchParams.get("unreadOnly") === "true";
 
-    // Build where clause
-    const conditions = [];
-
-    if (userId) {
-      conditions.push(eq(notifications.userId, userId));
-    } else if (guestId) {
-      conditions.push(eq(notifications.guestId, guestId));
-    }
+    const conditions: SQL[] = [ownerCondition];
 
     if (unreadOnly) {
       conditions.push(eq(notifications.isRead, false));
@@ -42,7 +49,7 @@ export async function GET(request: NextRequest) {
     const notificationList = await db
       .select()
       .from(notifications)
-      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .where(and(...conditions))
       .orderBy(desc(notifications.createdAt))
       .limit(limit);
 
@@ -52,11 +59,7 @@ export async function GET(request: NextRequest) {
       .from(notifications)
       .where(
         and(
-          userId
-            ? eq(notifications.userId, userId)
-            : guestId
-            ? eq(notifications.guestId, guestId)
-            : isNull(notifications.id),
+          ownerCondition,
           eq(notifications.isRead, false)
         )
       );
@@ -66,49 +69,68 @@ export async function GET(request: NextRequest) {
       unreadCount: Number(unreadCountResult[0]?.unreadCount ?? 0),
     });
   } catch (error) {
-    console.error("Error fetching notifications:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("notifications-list", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "NOTIFICATIONS_LIST_FAILED",
+      userMessage: "通知を取得できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "notifications-list",
+    });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    const identityResult = await requireRequestIdentity(request, {
+      codePrefix: "NOTIFICATION_CREATE",
+      logContext: "notification-create-auth",
+      sessionErrorMode: "throw",
+    });
+    if (!identityResult.ok) {
+      return identityResult.response;
     }
 
-    const { userId, guestId } = identity;
+    const { userId, guestId } = identityResult.identity;
     const body = await request.json();
     const { type, title, message, data } = body;
 
     // Validate type
     const validTypes = ["deadline_reminder", "deadline_near", "company_fetch", "es_review", "daily_summary", "calendar_sync_failed"];
     if (!type || !validTypes.includes(type)) {
-      return NextResponse.json(
-        { error: "無効な通知タイプです" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "NOTIFICATION_INVALID_TYPE",
+        userMessage: "無効な通知タイプです。",
+        action: "通知タイプを確認してください。",
+        developerMessage: "Invalid notification type",
+        logContext: "notification-create-invalid-type",
+      });
     }
 
     if (!title || !title.trim()) {
-      return NextResponse.json(
-        { error: "タイトルは必須です" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "NOTIFICATION_TITLE_REQUIRED",
+        userMessage: "タイトルは必須です。",
+        action: "タイトルを入力してください。",
+        developerMessage: "Notification title is required",
+        logContext: "notification-create-title-required",
+      });
     }
 
     if (!message || !message.trim()) {
-      return NextResponse.json(
-        { error: "メッセージは必須です" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "NOTIFICATION_MESSAGE_REQUIRED",
+        userMessage: "メッセージは必須です。",
+        action: "メッセージを入力してください。",
+        developerMessage: "Notification message is required",
+        logContext: "notification-create-message-required",
+      });
     }
 
     const now = new Date();
@@ -132,10 +154,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ notification: newNotification[0] });
   } catch (error) {
-    console.error("Error creating notification:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("notification-create", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "NOTIFICATION_CREATE_FAILED",
+      userMessage: "通知を作成できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "notification-create",
+    });
   }
 }

@@ -147,6 +147,11 @@ export async function POST(
       gakuchika.title,
       conversationState.draftText,
       messages,
+      {
+        scope: "ai-stream",
+        actor: { kind: "user", id: identity.userId },
+        plan: "free",
+      },
     );
     const persistedSummary = {
       ...summary,

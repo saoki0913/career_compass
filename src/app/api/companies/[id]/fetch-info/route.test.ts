@@ -84,6 +84,11 @@ vi.mock("@/lib/company-info/source-compliance", () => ({
 
 vi.mock("@/lib/fastapi/client", () => ({
   fetchFastApiInternal: fetchFastApiInternalMock,
+  fetchFastApiWithPrincipal: (path: string, init?: RequestInit & { principal?: unknown }) => {
+    const { principal: _principal, ...rest } = (init || {}) as RequestInit & { principal?: unknown };
+    void _principal;
+    return fetchFastApiInternalMock(path, rest);
+  },
 }));
 
 vi.mock("@/bff/billing/company-fetch-policy", () => ({

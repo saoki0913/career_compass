@@ -27,7 +27,8 @@ import {
   logAiCreditCostSummary,
   splitInternalTelemetry,
 } from "@/lib/ai/cost-summary-log";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { createCompanyCareerPrincipal } from "@/lib/fastapi/career-principal";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import { companyFetchPolicy } from "@/bff/billing/company-fetch-policy";
 import { saveExtractedDeadlines } from "@/lib/company-info/deadline-persistence";
@@ -311,17 +312,23 @@ export async function POST(
     let fetchResult: FetchResult;
     let telemetry = null;
     try {
-      const response = await fetchFastApiInternal("/company-info/fetch-schedule", {
+      const response = await fetchFastApiWithPrincipal("/company-info/fetch-schedule", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-Request-Id": requestId,
         },
         body: JSON.stringify({
+          company_id: companyId,
           url: urlToFetch,
           company_name: company.name,
           graduation_year: effectiveGraduationYear,
           selection_type: selectionType,
+        }),
+        principal: createCompanyCareerPrincipal({
+          identity,
+          companyId,
+          plan,
         }),
       });
 

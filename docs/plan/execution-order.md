@@ -103,6 +103,7 @@
 - 2026-05-09: **#17 監視 release minimum 完了** — `docs/plan/monitoring-release-readiness-tasks.json` で状態管理を開始し、product/global error boundary の Sentry capture、Sentry event scrub allowlist 強化、Vercel/Sentry/secrets/公開 health の CLI baseline を記録した。frontend Sentry は First Event 到達済み、backend Sentry は project active だが No events yet のため手動 follow-up とする。
 - 2026-05-10: **Sentry-first 外部監視の現状整理** — frontend uptime monitor は Dashboard で `Uptime` / `200` check-in まで確認済み。backend uptime は Sentry の `*.railway.app` domain-wide limit により Railway 生成ドメインでは作成できないため、`api.shupass.jp` などの独自 backend domain 設定後の最後の手作業に回す。
 - 2026-05-10: **Phase 2 Track A #3 Auth P0 release hardening 完了** — guest migration の CSRF / owner table 棚卸し / atomic claim を現状同期し、migration 衝突時の user-wins 処理、owner-conditioned mutation helper、`submissions/[id]` / `deadlines/[id]` / `calendar/events/[id]` の id+owner mutation、外部 sync の local mutation 成功後実行、高リスク mutation の session 解決例外 `503` fail-closed を実装した。#3 の P1（Owner Access Facade の広域展開、structured error 全面統一、FastAPI principal inventory）は残タスクとして継続する。
+- 2026-05-11: **Phase 2 Track A #3 Auth P1 release-final 完了** — Owner Access facade、applications / notifications の structured error と owner-conditioned mutation、production/staging company search fallback の `503` fail-closed、company search / fetch-schedule / Gakuchika JSON AI / interview drill の `X-Career-Principal` 必須化、企業 RAG / PDF upload の usage reservation + owner-conditioned persistence service を実装した。DB migration を伴う index / partial unique / RLS policy は #5 DB/RLS pre-release に送る。
 
 **Gate**: 全 15 セキュリティタスク完了（sub-phase ごとに検証）、#8 の 5 Critical bugs 解消、Sentry で frontend エラー捕捉確認、監視 release minimum 完了。Loki / Sentry Crons / rollback provider 実行化 / `/health/deep` / slow query logger は本番リリース後の P1+ として扱う。
 
@@ -121,7 +122,7 @@
 - #3 の RequestIdentity 統一が完了してから #4 の credit owner check を安全に修正できる
 - #7 は FastAPI 側 (`backend/app/`) が主で、#3/#4 のフロントエンド BFF とは競合しにくいが、#1 SSRF 修正の安定を待つ
 
-**Gate**: RequestIdentity 統一完了、credit race condition 解消、LLM output scanning 動作、UI touch targets 全対応、法務 P0 実装完了（cookie, AI免責, 特商法）、#6/#10 計画書ドラフト完成。
+**Gate**: RequestIdentity 統一完了（#3 Auth P1 release-final 完了）、credit race condition 解消、LLM output scanning 動作、UI touch targets 全対応、法務 P0 実装完了（cookie, AI免責, 特商法）、#6/#10 計画書ドラフト完成。
 
 ---
 

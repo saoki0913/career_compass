@@ -112,7 +112,11 @@ describe("api/notifications GET", () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toBe("無効な通知タイプです");
+    expect(data.error).toMatchObject({
+      code: "NOTIFICATION_INVALID_TYPE",
+      userMessage: "無効な通知タイプです。",
+    });
+    expect(data.requestId).toBeTruthy();
     expect(dbInsertValuesMock).not.toHaveBeenCalled();
   });
 });

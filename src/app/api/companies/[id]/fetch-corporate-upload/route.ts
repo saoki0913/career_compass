@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { persistCompanyRagSourcesAfterUsageReservation } from "@/bff/company-rag/persist-sources";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
@@ -8,13 +9,12 @@ import { headers } from "next/headers";
 import {
   inferTrustedForEsReview,
   parseCorporateInfoSources,
-  serializeCorporateInfoSources,
   type CorporateInfoSource,
   upsertCorporateInfoSource,
 } from "@/lib/company-info/sources";
 import {
-  applyCompanyRagUsage,
   getRemainingCompanyRagPdfFreeUnits,
+  reserveCompanyRagUsage,
 } from "@/lib/company-info/usage";
 import {
   getCompanyRagSourceLimit,
@@ -380,8 +380,9 @@ export async function POST(
         }),
       };
 
+      let usage: Awaited<ReturnType<typeof reserveCompanyRagUsage>> | null = null;
       try {
-        const usage = await applyCompanyRagUsage({
+        usage = await reserveCompanyRagUsage({
           userId: authUser.userId,
           plan: authUser.plan,
           pages: ingestUnits,
@@ -390,14 +391,12 @@ export async function POST(
           description: `企業RAG取込(PDF): ${company.name}`,
         });
         const nextSources = upsertCorporateInfoSource(currentSources, completedSource);
-        await db
-          .update(companies)
-          .set({
-            corporateInfoUrls: serializeCorporateInfoSources(nextSources),
-            corporateInfoFetchedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(companies.id, companyId));
+        await persistCompanyRagSourcesAfterUsageReservation({
+          companyId,
+          userId: authUser.userId,
+          sources: nextSources,
+          usageReservations: [usage],
+        });
         currentSources = nextSources;
         items.push({
           fileName: file.name,
@@ -420,7 +419,7 @@ export async function POST(
           pageRoutingSummary: uploadResult.page_routing_summary ?? null,
         });
       } catch (error) {
-        console.error("Completed PDF metadata update error:", error);
+        logError("corporate-pdf-upload-metadata-update-failed", error, { companyId, sourceUrl });
         await bestEffortDeleteRag(companyId, sourceUrl, {
           userId: authUser.userId,
           plan: authUser.plan,

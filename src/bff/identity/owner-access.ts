@@ -1,12 +1,15 @@
 import { and, eq, sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import { type NextRequest } from "next/server";
 import { alias } from "drizzle-orm/pg-core";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import {
+  getRequestIdentity,
+  RequestIdentitySessionError,
+  type ActiveRequestIdentity,
+  type OwnerIdentity,
+} from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
 import { applications, companies, deadlines, documents, jobTypes } from "@/lib/db/schema";
-
-export interface OwnerIdentity {
-  userId: string | null;
-  guestId: string | null;
-}
 
 interface OwnerRecord {
   userId: string | null;
@@ -17,6 +20,24 @@ type OwnedTableColumns = {
   userId: SQLWrapper;
   guestId: SQLWrapper;
 };
+
+type RequireIdentityOptions = {
+  codePrefix: string;
+  logContext: string;
+  sessionErrorMode?: "fallback" | "throw";
+};
+
+type IdentityGuardSuccess = {
+  ok: true;
+  identity: ActiveRequestIdentity;
+};
+
+type IdentityGuardFailure = {
+  ok: false;
+  response: Response;
+};
+
+export type IdentityGuardResult = IdentityGuardSuccess | IdentityGuardFailure;
 
 export function hasValidOwnerIdentity(identity: OwnerIdentity): boolean {
   return Boolean(identity.userId) !== Boolean(identity.guestId);
@@ -56,6 +77,68 @@ export async function mutateOwnedRow<T>(
   return row ?? null;
 }
 
+export async function requireRequestIdentity(
+  request: NextRequest,
+  options: RequireIdentityOptions,
+): Promise<IdentityGuardResult> {
+  try {
+    const identity = await getRequestIdentity(request, {
+      sessionErrorMode: options.sessionErrorMode,
+    });
+    if (!identity || !hasValidOwnerIdentity(identity)) {
+      return {
+        ok: false,
+        response: createApiErrorResponse(request, {
+          status: 401,
+          code: `${options.codePrefix}_AUTH_REQUIRED`,
+          userMessage: "ログイン状態を確認して、もう一度お試しください。",
+          action: "時間を置いて再読み込みしてください。",
+          developerMessage: "Active request identity is required",
+          logContext: options.logContext,
+        }),
+      };
+    }
+    return { ok: true, identity };
+  } catch (error) {
+    if (error instanceof RequestIdentitySessionError) {
+      return {
+        ok: false,
+        response: createApiErrorResponse(request, {
+          status: 503,
+          code: `${options.codePrefix}_SESSION_UNAVAILABLE`,
+          userMessage: "ログイン状態を確認できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+          error,
+          developerMessage: "Authenticated session lookup failed",
+          logContext: options.logContext,
+        }),
+      };
+    }
+    throw error;
+  }
+}
+
+export function createOwnedResourceNotFoundResponse(
+  request: NextRequest,
+  options: {
+    code: string;
+    userMessage: string;
+    action: string;
+    logContext: string;
+    developerMessage?: string;
+  },
+): Response {
+  return createApiErrorResponse(request, {
+    status: 404,
+    code: options.code,
+    userMessage: options.userMessage,
+    action: options.action,
+    developerMessage: options.developerMessage ?? "Owned resource not found",
+    logContext: options.logContext,
+  });
+}
+
 export function buildOwnedDeadlineCondition(deadlineId: string, identity: OwnerIdentity): SQL | null {
   if (!hasValidOwnerIdentity(identity)) {
     return null;
@@ -78,6 +161,9 @@ export function buildOwnedDeadlineCondition(deadlineId: string, identity: OwnerI
 
 export function isOwnedByIdentity(record: OwnerRecord | null | undefined, identity: OwnerIdentity) {
   if (!record || !hasValidOwnerIdentity(identity)) {
+    return false;
+  }
+  if (Boolean(record.userId) === Boolean(record.guestId)) {
     return false;
   }
 

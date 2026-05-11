@@ -200,15 +200,29 @@ router = APIRouter(prefix="/company-info", tags=["company-info"])
 
 @router.post("/search-pages")
 @limiter.limit("60/minute")
-async def search_company_pages(payload: SearchPagesRequest, request: Request):
+async def search_company_pages(
+    payload: SearchPagesRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """Search for company recruitment page candidates."""
+    if not payload.company_id:
+        raise HTTPException(status_code=403, detail="company_id is required")
+    _assert_principal_owns_company(principal, payload.company_id)
     return await _search_company_pages_impl(payload, USE_HYBRID_SEARCH)
 
 
 @router.post("/fetch-schedule", response_model=SelectionScheduleResponse)
 @limiter.limit("60/minute")
-async def fetch_selection_schedule(payload: FetchRequest, request: Request):
+async def fetch_selection_schedule(
+    payload: FetchRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """Fetch and extract selection schedule information from a URL."""
+    if not payload.company_id:
+        raise HTTPException(status_code=403, detail="company_id is required")
+    _assert_principal_owns_company(principal, payload.company_id)
     return await _fetch_schedule_response(payload, feature="selection_schedule")
 
 
@@ -428,6 +442,13 @@ async def crawl_corporate_pages(
 
 @router.post("/search-corporate-pages")
 @limiter.limit("60/minute")
-async def search_corporate_pages(payload: SearchCorporatePagesRequest, request: Request):
+async def search_corporate_pages(
+    payload: SearchCorporatePagesRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
     """Search for corporate page candidates (IR, business info, etc.)."""
+    if not payload.company_id:
+        raise HTTPException(status_code=403, detail="company_id is required")
+    _assert_principal_owns_company(principal, payload.company_id)
     return await _search_corporate_pages_impl(payload, USE_HYBRID_SEARCH)

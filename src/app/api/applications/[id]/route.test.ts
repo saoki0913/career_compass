@@ -2,22 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const {
-  getRequestIdentityMock,
+  requireRequestIdentityMock,
   getOwnedApplicationRecordMock,
   dbUpdateMock,
 } = vi.hoisted(() => ({
-  getRequestIdentityMock: vi.fn(),
+  requireRequestIdentityMock: vi.fn(),
   getOwnedApplicationRecordMock: vi.fn(),
   dbUpdateMock: vi.fn(),
 }));
 
-vi.mock("@/bff/identity/request-identity", () => ({
-  getRequestIdentity: getRequestIdentityMock,
-}));
-
 vi.mock("@/bff/identity/owner-access", () => ({
   buildOwnedRowCondition: vi.fn(() => ({ owner: "condition" })),
+  createOwnedResourceNotFoundResponse: vi.fn(() =>
+    new Response(JSON.stringify({ error: { code: "APPLICATION_NOT_FOUND" }, requestId: "test-request" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json", "X-Request-Id": "test-request" },
+    }),
+  ),
   getOwnedApplicationRecord: getOwnedApplicationRecordMock,
+  requireRequestIdentity: requireRequestIdentityMock,
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -38,10 +41,13 @@ function makePutRequest(body: unknown) {
 describe("api/applications/[id] PUT", () => {
   beforeEach(() => {
     vi.resetModules();
-    getRequestIdentityMock.mockReset();
+    requireRequestIdentityMock.mockReset();
     getOwnedApplicationRecordMock.mockReset();
     dbUpdateMock.mockReset();
-    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    requireRequestIdentityMock.mockResolvedValue({
+      ok: true,
+      identity: { kind: "user", type: "user", userId: "user-1", guestId: null },
+    });
     getOwnedApplicationRecordMock.mockResolvedValue({
       id: "app-1",
       companyId: "company-1",
@@ -59,7 +65,10 @@ describe("api/applications/[id] PUT", () => {
     const data = await response.json();
 
     expect(response.status).toBe(400);
-    expect(data.error).toBe("無効な選考フェーズです");
+    expect(data.error).toMatchObject({
+      code: "APPLICATION_INVALID_PHASE",
+      userMessage: "無効な選考フェーズです。",
+    });
     expect(dbUpdateMock).not.toHaveBeenCalled();
   });
 

@@ -10,14 +10,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { applications, companies, deadlines, jobTypes } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { getRequestIdentity } from "@/bff/identity/request-identity";
-import { buildOwnedRowCondition, getOwnedApplicationRecord } from "@/bff/identity/owner-access";
+import {
+  buildOwnedRowCondition,
+  createOwnedResourceNotFoundResponse,
+  getOwnedApplicationRecord,
+  requireRequestIdentity,
+} from "@/bff/identity/owner-access";
 import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { logError } from "@/lib/logger";
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function applicationNotFoundResponse(request: NextRequest) {
+  return createOwnedResourceNotFoundResponse(request, {
+    code: "APPLICATION_NOT_FOUND",
+    userMessage: "選考が見つかりませんでした。",
+    action: "一覧に戻って、対象の選考を選び直してください。",
+    logContext: "application-not-found",
+    developerMessage: "Application not found",
+  });
 }
 
 export async function GET(
@@ -27,25 +41,19 @@ export async function GET(
   try {
     const { id: applicationId } = await params;
 
-    const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return createApiErrorResponse(request, {
-        status: 401,
-        code: "APPLICATION_DELETE_AUTH_REQUIRED",
-        userMessage: "ログイン状態を確認して、もう一度お試しください。",
-        action: "時間を置いて再読み込みしてください。",
-        developerMessage: "Authentication required",
-        logContext: "delete-application-auth",
-      });
+    const identityResult = await requireRequestIdentity(request, {
+      codePrefix: "APPLICATION_GET",
+      logContext: "get-application-auth",
+    });
+    if (!identityResult.ok) {
+      return identityResult.response;
     }
+    const identity = identityResult.identity;
 
     const application = await getOwnedApplicationRecord(applicationId, identity);
 
     if (!application) {
-      return NextResponse.json(
-        { error: "Application not found" },
-        { status: 404 }
-      );
+      return applicationNotFoundResponse(request);
     }
 
     // Get company
@@ -84,11 +92,17 @@ export async function GET(
       deadlines: deadlineList,
     });
   } catch (error) {
-    console.error("Error fetching application:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("get-application", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "APPLICATION_GET_FAILED",
+      userMessage: "選考情報を取得できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "get-application",
+    });
   }
 }
 
@@ -99,21 +113,20 @@ export async function PUT(
   try {
     const { id: applicationId } = await params;
 
-    const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    const identityResult = await requireRequestIdentity(request, {
+      codePrefix: "APPLICATION_UPDATE",
+      logContext: "update-application-auth",
+      sessionErrorMode: "throw",
+    });
+    if (!identityResult.ok) {
+      return identityResult.response;
     }
+    const identity = identityResult.identity;
 
     const existingApp = await getOwnedApplicationRecord(applicationId, identity);
 
     if (!existingApp) {
-      return NextResponse.json(
-        { error: "Application not found" },
-        { status: 404 }
-      );
+      return applicationNotFoundResponse(request);
     }
 
     const body = await request.json();
@@ -127,29 +140,41 @@ export async function PUT(
     if (type !== undefined) {
       const validTypes = ["summer_intern", "fall_intern", "winter_intern", "early", "main", "other"];
       if (!validTypes.includes(type)) {
-        return NextResponse.json(
-          { error: "無効なタイプです" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "APPLICATION_INVALID_TYPE",
+          userMessage: "無効なタイプです。",
+          action: "選考タイプを選び直してください。",
+          developerMessage: "Invalid application type",
+          logContext: "update-application-invalid-type",
+        });
       }
       updateData.type = type;
     }
     if (status !== undefined) {
       const validStatuses = ["active", "completed", "withdrawn"];
       if (!validStatuses.includes(status)) {
-        return NextResponse.json(
-          { error: "無効なステータスです" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "APPLICATION_INVALID_STATUS",
+          userMessage: "無効なステータスです。",
+          action: "選考ステータスを選び直してください。",
+          developerMessage: "Invalid application status",
+          logContext: "update-application-invalid-status",
+        });
       }
       updateData.status = status;
     }
     if (phase !== undefined) {
       if (!isStringArray(phase)) {
-        return NextResponse.json(
-          { error: "無効な選考フェーズです" },
-          { status: 400 }
-        );
+        return createApiErrorResponse(request, {
+          status: 400,
+          code: "APPLICATION_INVALID_PHASE",
+          userMessage: "無効な選考フェーズです。",
+          action: "選考フェーズを選び直してください。",
+          developerMessage: "Invalid application phase",
+          logContext: "update-application-invalid-phase",
+        });
       }
       updateData.phase = phase;
     }
@@ -157,17 +182,19 @@ export async function PUT(
       updateData.sortOrder = sortOrder;
     }
 
+    const ownedCondition = buildOwnedRowCondition(eq(applications.id, applicationId), applications, identity);
+    if (!ownedCondition) {
+      return applicationNotFoundResponse(request);
+    }
+
     const updated = await db
       .update(applications)
       .set(updateData)
-      .where(buildOwnedRowCondition(eq(applications.id, applicationId), applications, identity)!)
+      .where(ownedCondition)
       .returning();
 
     if (!updated[0]) {
-      return NextResponse.json(
-        { error: "Application not found" },
-        { status: 404 }
-      );
+      return applicationNotFoundResponse(request);
     }
 
     return NextResponse.json({
@@ -177,11 +204,17 @@ export async function PUT(
       },
     });
   } catch (error) {
-    console.error("Error updating application:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("update-application", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "APPLICATION_UPDATE_FAILED",
+      userMessage: "選考を更新できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "update-application",
+    });
   }
 }
 
@@ -192,42 +225,35 @@ export async function DELETE(
   try {
     const { id: applicationId } = await params;
 
-    const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    const identityResult = await requireRequestIdentity(request, {
+      codePrefix: "APPLICATION_DELETE",
+      logContext: "delete-application-auth",
+      sessionErrorMode: "throw",
+    });
+    if (!identityResult.ok) {
+      return identityResult.response;
     }
+    const identity = identityResult.identity;
 
     const appToDelete = await getOwnedApplicationRecord(applicationId, identity);
 
     if (!appToDelete) {
-      return createApiErrorResponse(request, {
-        status: 404,
-        code: "APPLICATION_DELETE_NOT_FOUND",
-        userMessage: "削除対象の選考が見つかりませんでした。",
-        action: "一覧に戻って、対象の選考を選び直してください。",
-        developerMessage: "Application not found",
-        logContext: "delete-application-not-found",
-      });
+      return applicationNotFoundResponse(request);
+    }
+
+    const ownedCondition = buildOwnedRowCondition(eq(applications.id, applicationId), applications, identity);
+    if (!ownedCondition) {
+      return applicationNotFoundResponse(request);
     }
 
     // Delete application (cascades to job types, deadlines, etc.)
     const deleted = await db
       .delete(applications)
-      .where(buildOwnedRowCondition(eq(applications.id, applicationId), applications, identity)!)
+      .where(ownedCondition)
       .returning({ id: applications.id });
 
     if (!deleted[0]) {
-      return createApiErrorResponse(request, {
-        status: 404,
-        code: "APPLICATION_DELETE_NOT_FOUND",
-        userMessage: "削除対象の選考が見つかりませんでした。",
-        action: "一覧に戻って、対象の選考を選び直してください。",
-        developerMessage: "Application not found",
-        logContext: "delete-application-not-found",
-      });
+      return applicationNotFoundResponse(request);
     }
 
     return NextResponse.json({ success: true });

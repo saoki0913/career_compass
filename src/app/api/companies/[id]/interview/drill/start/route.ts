@@ -2,6 +2,10 @@ import { and, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import {
+  sanitizeUpstreamUserMessage,
+  summarizeUpstreamError,
+} from "@/bff/api/upstream-error-sanitizer";
 import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
 import { getRequestIdentity, type RequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
@@ -10,7 +14,7 @@ import {
   interviewDrillAttempts,
   interviewFeedbackHistories,
 } from "@/lib/db/schema";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 
 import {
   createInterviewPersistenceUnavailableResponse,
@@ -153,6 +157,7 @@ export async function POST(
   // Resolve company summary from conversation materials (best-effort; empty string OK).
   const upstreamPayload = {
     conversation_id: conversation.id,
+    company_id: companyId,
     weakest_turn_id: weakestTurnId,
     weakest_question: weakestQuestion,
     weakest_answer: weakestAnswer,
@@ -185,22 +190,28 @@ export async function POST(
     upstreamPayload.company_name = "";
   }
 
-  const upstream = await fetchFastApiInternal("/api/interview/drill/start", {
+  const upstream = await fetchFastApiWithPrincipal("/api/interview/drill/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(upstreamPayload),
+    principal: {
+      scope: "company",
+      actor: { kind: "user", id: identity.userId },
+      companyId,
+      plan: "free",
+    },
   });
 
   if (!upstream.ok) {
     const detail = await upstream.json().catch(() => null);
+    const upstreamSummary = summarizeUpstreamError(detail);
     return createApiErrorResponse(request, {
       status: upstream.status,
       code: "INTERVIEW_DRILL_UPSTREAM_FAILED",
-      userMessage:
-        typeof detail?.detail === "string"
-          ? detail.detail
-          : "ドリルの生成に失敗しました。",
+      userMessage: sanitizeUpstreamUserMessage(detail, "ドリルの生成に失敗しました。"),
       action: "時間をおいて、もう一度お試しください。",
+      retryable: upstream.status >= 500,
+      developerMessage: upstreamSummary,
     });
   }
 

@@ -12,7 +12,9 @@ const {
   getSessionMock,
   dbSelectMock,
   dbUpdateMock,
-  applyCompanyRagUsageMock,
+  reserveCompanyRagUsageMock,
+  confirmCompanyRagUsageMock,
+  cancelCompanyRagUsageMock,
   parseCorporateInfoSourcesMock,
   checkPublicSourceComplianceMock,
   enforceRateLimitLayersMock,
@@ -21,7 +23,9 @@ const {
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
-  applyCompanyRagUsageMock: vi.fn(),
+  reserveCompanyRagUsageMock: vi.fn(),
+  confirmCompanyRagUsageMock: vi.fn(),
+  cancelCompanyRagUsageMock: vi.fn(),
   parseCorporateInfoSourcesMock: vi.fn((): CorporateInfoSourceMock[] => []),
   checkPublicSourceComplianceMock: vi.fn(async (url: string) => ({
     url,
@@ -62,7 +66,9 @@ vi.mock("@/lib/company-info/sources", () => ({
 }));
 
 vi.mock("@/lib/company-info/usage", () => ({
-  applyCompanyRagUsage: applyCompanyRagUsageMock,
+  reserveCompanyRagUsage: reserveCompanyRagUsageMock,
+  confirmCompanyRagUsage: confirmCompanyRagUsageMock,
+  cancelCompanyRagUsage: cancelCompanyRagUsageMock,
   getRemainingCompanyRagHtmlFreeUnits: vi.fn(async () => 30),
   getRemainingCompanyRagPdfFreeUnits: vi.fn(async () => 12),
 }));
@@ -142,7 +148,9 @@ describe("api/companies/[id]/fetch-corporate", () => {
     getSessionMock.mockReset();
     dbSelectMock.mockReset();
     dbUpdateMock.mockReset();
-    applyCompanyRagUsageMock.mockReset();
+    reserveCompanyRagUsageMock.mockReset();
+    confirmCompanyRagUsageMock.mockReset();
+    cancelCompanyRagUsageMock.mockReset();
     parseCorporateInfoSourcesMock.mockReset();
     checkPublicSourceComplianceMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
@@ -167,10 +175,15 @@ describe("api/companies/[id]/fetch-corporate", () => {
       .mockReturnValueOnce(makeCompanyQuery());
     dbUpdateMock.mockReturnValue({
       set: vi.fn(() => ({
-        where: vi.fn(),
+        where: vi.fn(() => ({
+          returning: vi.fn().mockResolvedValue([{ id: "company-1" }]),
+        })),
       })),
     });
-    applyCompanyRagUsageMock.mockResolvedValue({
+    reserveCompanyRagUsageMock.mockResolvedValue({
+      usageId: "usage-1",
+      reservationId: null,
+      kind: "url",
       freeUnitsApplied: 0,
       overflowUnits: 0,
       creditsDisplayed: 0,
@@ -179,7 +192,8 @@ describe("api/companies/[id]/fetch-corporate", () => {
     });
   });
 
-  it("returns 503 without saving or charging when backend reports crawl failure", async () => {
+  it("returns sanitized 503 without saving or charging when backend reports crawl failure", async () => {
+    const rawUpstreamError = "SQL failed at /internal/company-info with secret-token";
     const fetchSpy = vi.fn().mockResolvedValue({
         ok: true,
         json: vi.fn().mockResolvedValue({
@@ -187,7 +201,7 @@ describe("api/companies/[id]/fetch-corporate", () => {
           company_id: "company-1",
           pages_crawled: 0,
           chunks_stored: 0,
-          errors: ["埋め込み基盤が利用できません。"],
+          errors: [rawUpstreamError],
           url_content_types: {},
         }),
     });
@@ -211,11 +225,14 @@ describe("api/companies/[id]/fetch-corporate", () => {
     expect(data.error.code).toBe("CORPORATE_FETCH_FAILED");
     expect(data.error.userMessage).toBe("企業情報の取得に失敗しました。");
     expect(data.error.action).toBe("時間を置いて、もう一度お試しください。");
+    expect(JSON.stringify(data)).not.toContain(rawUpstreamError);
+    expect(JSON.stringify(data)).not.toContain("backendErrors");
+    expect(JSON.stringify(data)).not.toContain("secret-token");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [, fetchInit] = fetchSpy.mock.calls[0];
     const body = JSON.parse(String(fetchInit?.body ?? "{}"));
     expect(body.billing_plan).toBe("free");
-    expect(applyCompanyRagUsageMock).not.toHaveBeenCalled();
+    expect(reserveCompanyRagUsageMock).not.toHaveBeenCalled();
     expect(dbUpdateMock).not.toHaveBeenCalled();
   });
 
@@ -236,7 +253,10 @@ describe("api/companies/[id]/fetch-corporate", () => {
       ),
     );
     vi.stubGlobal("fetch", fetchSpy);
-    applyCompanyRagUsageMock.mockResolvedValue({
+    reserveCompanyRagUsageMock.mockResolvedValue({
+      usageId: "usage-1",
+      reservationId: null,
+      kind: "url",
       freeUnitsApplied: 1,
       overflowUnits: 0,
       creditsDisplayed: 0,
@@ -289,7 +309,7 @@ describe("api/companies/[id]/fetch-corporate", () => {
     expect(data.error.code).toBe("PUBLIC_SOURCE_BLOCKED");
     expect(data.error.userMessage).toContain("ログインが必要なURL");
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(applyCompanyRagUsageMock).not.toHaveBeenCalled();
+    expect(reserveCompanyRagUsageMock).not.toHaveBeenCalled();
     expect(dbUpdateMock).not.toHaveBeenCalled();
   });
 

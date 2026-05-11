@@ -305,6 +305,7 @@ def _coerce_retry_scores(raw: Any) -> dict[str, int]:
 async def interview_drill_start(
     payload: InterviewDrillStartRequest,
     request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
 ) -> InterviewDrillStartResponse:
     """最弱回答について 4 field のコーチング内容を生成する。
 
@@ -315,6 +316,10 @@ async def interview_drill_start(
         _sanitize_drill_start(payload)
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
+    if not payload.company_id:
+        raise HTTPException(status_code=403, detail="company_id is required")
+    if principal.company_id != payload.company_id:
+        raise HTTPException(status_code=403, detail="principal company mismatch")
 
     prompt = _build_drill_start_prompt(payload)
     llm_result = await call_llm_with_error(
@@ -360,6 +365,7 @@ async def interview_drill_start(
 async def interview_drill_score(
     payload: InterviewDrillScoreRequest,
     request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
 ) -> InterviewDrillScoreResponse:
     """retry_answer を 7 軸で再採点し、delta_scores (retry - original) を返す。
 
@@ -370,6 +376,10 @@ async def interview_drill_score(
         _sanitize_drill_score(payload)
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
+    if not payload.company_id:
+        raise HTTPException(status_code=403, detail="company_id is required")
+    if principal.company_id != payload.company_id:
+        raise HTTPException(status_code=403, detail="principal company mismatch")
 
     prompt = _build_drill_score_prompt(payload)
     llm_result = await call_llm_with_error(

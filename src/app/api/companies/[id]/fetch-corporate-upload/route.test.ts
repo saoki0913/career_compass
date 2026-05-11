@@ -42,7 +42,9 @@ vi.mock("@/lib/company-info/sources", () => ({
 }));
 
 vi.mock("@/lib/company-info/usage", () => ({
-  applyCompanyRagUsage: vi.fn(),
+  reserveCompanyRagUsage: vi.fn(),
+  confirmCompanyRagUsage: vi.fn(),
+  cancelCompanyRagUsage: vi.fn(),
   getRemainingCompanyRagPdfFreeUnits: vi.fn(async () => 40),
 }));
 
@@ -99,7 +101,9 @@ function makeCompanyQuery() {
 function makeUpdateQuery() {
   return {
     set: vi.fn(() => ({
-      where: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn(() => ({
+        returning: vi.fn().mockResolvedValue([{ id: "company-1" }]),
+      })),
     })),
   };
 }
@@ -179,15 +183,18 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     );
     vi.stubGlobal("fetch", fetchSpy);
 
-    const applyCompanyRagUsage = await import("@/lib/company-info/usage");
-    vi.mocked(applyCompanyRagUsage.applyCompanyRagUsage).mockResolvedValue({
+    const companyRagUsage = await import("@/lib/company-info/usage");
+    vi.mocked(companyRagUsage.reserveCompanyRagUsage).mockResolvedValue({
+      usageId: "usage-1",
+      reservationId: "reservation-1",
+      kind: "pdf",
       freeUnitsApplied: 4,
       overflowUnits: 0,
       creditsDisplayed: 1,
       creditsActuallyDeducted: 1,
       remainingFreeUnits: 6,
     });
-    vi.mocked(applyCompanyRagUsage.getRemainingCompanyRagPdfFreeUnits).mockResolvedValue(6);
+    vi.mocked(companyRagUsage.getRemainingCompanyRagPdfFreeUnits).mockResolvedValue(6);
 
     const companyInfoSources = await import("@/lib/company-info/sources");
     vi.mocked(companyInfoSources.upsertCorporateInfoSource).mockImplementation((sources) => sources);
@@ -266,6 +273,39 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     expect(backendForm.get("billing_plan")).toBe("free");
     expect(backendForm.get("remaining_free_pdf_pages")).toBe("6");
     expect(backendForm.get("source_url")).toContain("upload://corporate-pdf/company-1/");
+  });
+
+  it("does not expose raw upstream error messages when pdf estimate fails", async () => {
+    const rawUpstreamError = "Traceback from /internal/pdf with api_key=secret";
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: false,
+          errors: [rawUpstreamError],
+        }),
+        { status: 502, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const formData = new FormData();
+    formData.append("file", new File(["pdf"], "company.pdf", { type: "application/pdf" }));
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-corporate-upload/estimate/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate-upload/estimate", {
+      method: "POST",
+      body: formData,
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+    const serialized = JSON.stringify(data);
+
+    expect(response.status).toBe(502);
+    expect(data.error).toBe("PDFの見積に失敗しました。");
+    expect(serialized).not.toContain(rawUpstreamError);
+    expect(serialized).not.toContain("/internal/pdf");
+    expect(serialized).not.toContain("api_key=secret");
   });
 
   it("rejects multipart bodies whose aggregate Content-Length exceeds the cap with 413 (D-2 象限②)", async () => {

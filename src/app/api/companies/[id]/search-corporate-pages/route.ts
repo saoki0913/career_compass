@@ -7,8 +7,10 @@ import {
   applyPublicSourceComplianceToCandidates,
   filterAllowedPublicSourceUrls,
 } from "@/lib/company-info/source-compliance";
+import { isCompanySearchMockFallbackAllowed } from "@/bff/company-search/fallback";
 import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { createCompanyCareerPrincipal } from "@/lib/fastapi/career-principal";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { logError } from "@/lib/logger";
@@ -101,6 +103,7 @@ export async function POST(
     }
     let company;
     let graduationYear: number | null = null;
+    let principalPlan: "guest" | "free" | "standard" | "pro" = "guest";
     if (identity.userId) {
       company = (await db
         .select()
@@ -114,6 +117,7 @@ export async function POST(
         .where(eq(userProfiles.userId, identity.userId))
         .limit(1);
       graduationYear = profile?.graduationYear || null;
+      principalPlan = (profile?.plan || "free") as "free" | "standard" | "pro";
     } else if (identity.guestId) {
       company = (await db
         .select()
@@ -158,10 +162,11 @@ export async function POST(
     }
 
     try {
-      const response = await fetchFastApiInternal("/company-info/search-corporate-pages", {
+      const response = await fetchFastApiWithPrincipal("/company-info/search-corporate-pages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            company_id: company.id,
             company_name: company.name,
             search_type: searchType,
             content_type: contentType,  // Pass ContentType for optimized search
@@ -172,6 +177,11 @@ export async function POST(
             graduation_year: graduationYear || undefined,
             allow_snippet_match: allowSnippetMatch ?? false,
             cache_mode: cacheMode,
+          }),
+          principal: createCompanyCareerPrincipal({
+            identity,
+            companyId: company.id,
+            plan: principalPlan,
           }),
         });
 
@@ -199,6 +209,18 @@ export async function POST(
       }
     } catch (error) {
       logError("company-corporate-search-fastapi-fallback", error);
+    }
+
+    if (!isCompanySearchMockFallbackAllowed()) {
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "COMPANY_CORPORATE_SEARCH_UPSTREAM_UNAVAILABLE",
+        userMessage: "企業サイト候補を検索できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        developerMessage: "Company corporate search upstream failed",
+        logContext: "company-corporate-search-upstream-unavailable",
+      });
     }
 
     return NextResponse.json({ candidates: [] } as SearchCorporateResponse);

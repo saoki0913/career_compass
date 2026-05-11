@@ -47,6 +47,35 @@ export type CreateCareerPrincipalInput = {
   nowSeconds?: number;
 };
 
+export type PrincipalOwnerIdentity = {
+  userId: string | null;
+  guestId: string | null;
+};
+
+export function createCompanyCareerPrincipal(input: {
+  identity: PrincipalOwnerIdentity;
+  companyId: string;
+  plan: CareerPrincipalPlan;
+}): CreateCareerPrincipalInput {
+  if (input.identity.userId) {
+    return {
+      scope: "company",
+      actor: { kind: "user", id: input.identity.userId },
+      companyId: input.companyId,
+      plan: input.plan,
+    };
+  }
+  if (input.identity.guestId) {
+    return {
+      scope: "company",
+      actor: { kind: "guest", id: input.identity.guestId },
+      companyId: input.companyId,
+      plan: input.plan,
+    };
+  }
+  throw new Error("Valid owner identity is required for company principal");
+}
+
 function encodeBase64Url(value: string) {
   return Buffer.from(value)
     .toString("base64")

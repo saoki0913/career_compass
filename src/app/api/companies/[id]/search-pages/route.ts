@@ -7,8 +7,10 @@ import {
   applyPublicSourceComplianceToCandidates,
   filterAllowedPublicSourceUrls,
 } from "@/lib/company-info/source-compliance";
+import { isCompanySearchMockFallbackAllowed } from "@/bff/company-search/fallback";
 import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { createCompanyCareerPrincipal } from "@/lib/fastapi/career-principal";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { logError } from "@/lib/logger";
@@ -65,6 +67,7 @@ export async function POST(
     }
     let company;
     let graduationYear: number | null = null;
+    let principalPlan: "guest" | "free" | "standard" | "pro" = "guest";
 
     if (identity.userId) {
       company = (await db
@@ -80,6 +83,7 @@ export async function POST(
         .where(eq(userProfiles.userId, identity.userId))
         .limit(1);
       graduationYear = profile?.graduationYear || null;
+      principalPlan = (profile?.plan || "free") as "free" | "standard" | "pro";
     } else if (identity.guestId) {
       company = (await db
         .select()
@@ -126,10 +130,11 @@ export async function POST(
 
     // Try to call FastAPI for real search
     try {
-      const response = await fetchFastApiInternal("/company-info/search-pages", {
+      const response = await fetchFastApiWithPrincipal("/company-info/search-pages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          company_id: company.id,
           company_name: company.name,
           industry: company.industry,
           custom_query: customQuery,
@@ -137,6 +142,11 @@ export async function POST(
           graduation_year: graduationYear || undefined,
           selection_type: selectionType,
           allow_snippet_match: allowSnippetMatch ?? false,
+        }),
+        principal: createCompanyCareerPrincipal({
+          identity,
+          companyId: company.id,
+          plan: principalPlan,
         }),
       });
 
@@ -157,8 +167,19 @@ export async function POST(
         } satisfies SearchPagesResponse);
       }
     } catch (error) {
-      // FastAPI not available, use mock
       logError("company-search-fastapi-fallback", error);
+    }
+
+    if (!isCompanySearchMockFallbackAllowed()) {
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "COMPANY_SEARCH_UPSTREAM_UNAVAILABLE",
+        userMessage: "採用ページ候補を検索できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        developerMessage: "Company search upstream failed",
+        logContext: "company-search-upstream-unavailable",
+      });
     }
 
     // Mock response: generate plausible recruitment page candidates (10 results)

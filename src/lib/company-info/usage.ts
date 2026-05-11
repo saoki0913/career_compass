@@ -10,7 +10,7 @@ import {
   getMonthlyScheduleFetchFreeLimit,
   type PaidPlan,
 } from "@/lib/company-info/pricing";
-import { consumeCredits } from "@/lib/credits";
+import { cancelReservation, confirmReservation, reserveCredits } from "@/lib/credits";
 
 /** Drizzle 等が外側に Failed query、内側の cause に Postgres 詳細を載せるため、チェーンをまとめて見る */
 function getErrorDiagnosticText(error: unknown): string {
@@ -299,25 +299,30 @@ export async function incrementMonthlyScheduleFreeUse(userId: string): Promise<v
 
 export type CompanyRagUsageKind = "url" | "pdf";
 
+export type CompanyRagUsageReservation = {
+  usageId: string | null;
+  reservationId: string | null;
+  kind: CompanyRagUsageKind;
+  freeUnitsApplied: number;
+  overflowUnits: number;
+  creditsDisplayed: number;
+  creditsActuallyDeducted: number;
+  remainingFreeUnits: number;
+};
+
 /**
  * 企業RAGの月次無料枠（ページ）とクレジット課金を適用する。
  * - URL: URL/HTML 専用無料枠を消費し、超過ページは 1 ページ = 1 クレジット。
  * - PDF: PDF 専用無料枠を消費し、超過ページ数だけ軽量 tier credits を課金する。
  */
-export async function applyCompanyRagUsage(params: {
+export async function reserveCompanyRagUsage(params: {
   userId: string;
   plan: PaidPlan;
   pages: number;
   kind: CompanyRagUsageKind;
   referenceId?: string;
   description?: string;
-}): Promise<{
-  freeUnitsApplied: number;
-  overflowUnits: number;
-  creditsDisplayed: number;
-  creditsActuallyDeducted: number;
-  remainingFreeUnits: number;
-}> {
+}): Promise<CompanyRagUsageReservation> {
   const pagesTotal = Math.max(0, Math.floor(params.pages));
   const remainingGetter =
     params.kind === "pdf" ? getRemainingCompanyRagPdfFreeUnits : getRemainingCompanyRagHtmlFreeUnits;
@@ -328,6 +333,9 @@ export async function applyCompanyRagUsage(params: {
       creditsDisplayed: 0,
       creditsActuallyDeducted: 0,
       remainingFreeUnits: await remainingGetter(params.userId, params.plan),
+      usageId: null,
+      reservationId: null,
+      kind: params.kind,
     };
   }
 
@@ -391,16 +399,17 @@ export async function applyCompanyRagUsage(params: {
     const overflowUnits = pagesTotal - freeUnitsApplied;
     const creditsDisplayed = params.kind === "url" ? overflowUnits : calculatePdfIngestCredits(overflowUnits);
     let creditsActuallyDeducted = 0;
+    let reservationId: string | null = null;
 
     if (creditsDisplayed > 0) {
-      const consumption = await consumeCredits(
+      const reservation = await reserveCredits(
         params.userId,
         creditsDisplayed,
         "company_fetch",
         params.referenceId,
         params.description ?? "企業RAG取込",
       );
-      if (!consumption.success) {
+      if (!reservation.success) {
         const rollbackFreeUnits = params.kind === "url"
           ? {
               ragIngestUnits: sql`greatest(${companyInfoMonthlyUsage.ragIngestUnits} - ${freeUnitsApplied}, 0)`,
@@ -418,6 +427,7 @@ export async function applyCompanyRagUsage(params: {
           .where(eq(companyInfoMonthlyUsage.id, usage.id));
         throw new Error("Insufficient credits for company RAG usage");
       }
+      reservationId = reservation.reservationId;
       creditsActuallyDeducted = creditsDisplayed;
     }
 
@@ -427,6 +437,9 @@ export async function applyCompanyRagUsage(params: {
       creditsDisplayed,
       creditsActuallyDeducted,
       remainingFreeUnits: Math.max(0, freePagesRemaining - freeUnitsApplied),
+      usageId: usage.id,
+      reservationId,
+      kind: params.kind,
     };
   } catch (error) {
     return handleMissingMonthlyUsageSchemaFallback(error, () => {
@@ -441,7 +454,69 @@ export async function applyCompanyRagUsage(params: {
         creditsDisplayed,
         creditsActuallyDeducted: 0,
         remainingFreeUnits: Math.max(0, monthlyFreePages - pagesTotal),
+        usageId: null,
+        reservationId: null,
+        kind: params.kind,
       };
     });
   }
+}
+
+export async function confirmCompanyRagUsage(reservation: CompanyRagUsageReservation): Promise<void> {
+  if (reservation.reservationId) {
+    await confirmReservation(reservation.reservationId);
+  }
+}
+
+export async function cancelCompanyRagUsage(reservation: CompanyRagUsageReservation): Promise<void> {
+  if (reservation.usageId && reservation.freeUnitsApplied > 0) {
+    const rollbackFreeUnits = reservation.kind === "url"
+      ? {
+          ragIngestUnits: sql`greatest(${companyInfoMonthlyUsage.ragIngestUnits} - ${reservation.freeUnitsApplied}, 0)`,
+          ragHtmlFreeUnits: sql`greatest(${companyInfoMonthlyUsage.ragHtmlFreeUnits} - ${reservation.freeUnitsApplied}, 0)`,
+          updatedAt: new Date(),
+        }
+      : {
+          ragIngestUnits: sql`greatest(${companyInfoMonthlyUsage.ragIngestUnits} - ${reservation.freeUnitsApplied}, 0)`,
+          ragPdfFreeUnits: sql`greatest(${companyInfoMonthlyUsage.ragPdfFreeUnits} - ${reservation.freeUnitsApplied}, 0)`,
+          updatedAt: new Date(),
+        };
+    await db
+      .update(companyInfoMonthlyUsage)
+      .set(rollbackFreeUnits)
+      .where(eq(companyInfoMonthlyUsage.id, reservation.usageId));
+  }
+  if (reservation.reservationId) {
+    await cancelReservation(reservation.reservationId);
+  }
+}
+
+/**
+ * 企業RAGの月次無料枠（ページ）とクレジット課金を適用する。
+ * - URL: URL/HTML 専用無料枠を消費し、超過ページは 1 ページ = 1 クレジット。
+ * - PDF: PDF 専用無料枠を消費し、超過ページ数だけ軽量 tier credits を課金する。
+ */
+export async function applyCompanyRagUsage(params: {
+  userId: string;
+  plan: PaidPlan;
+  pages: number;
+  kind: CompanyRagUsageKind;
+  referenceId?: string;
+  description?: string;
+}): Promise<{
+  freeUnitsApplied: number;
+  overflowUnits: number;
+  creditsDisplayed: number;
+  creditsActuallyDeducted: number;
+  remainingFreeUnits: number;
+}> {
+  const reservation = await reserveCompanyRagUsage(params);
+  await confirmCompanyRagUsage(reservation);
+  return {
+    freeUnitsApplied: reservation.freeUnitsApplied,
+    overflowUnits: reservation.overflowUnits,
+    creditsDisplayed: reservation.creditsDisplayed,
+    creditsActuallyDeducted: reservation.creditsActuallyDeducted,
+    remainingFreeUnits: reservation.remainingFreeUnits,
+  };
 }

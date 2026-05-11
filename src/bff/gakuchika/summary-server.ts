@@ -1,6 +1,3 @@
-import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
-import { gakuchikaContents } from "@/lib/db/schema";
 import {
   splitInternalTelemetry,
   type InternalCostTelemetry,
@@ -11,7 +8,8 @@ import {
   type StructuredSummary,
 } from "@/lib/gakuchika/summary";
 import { type Message } from "@/bff/gakuchika";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import type { CreateCareerPrincipalInput } from "@/lib/fastapi/career-principal";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -104,9 +102,10 @@ function buildFallbackSummary(messages: Message[]): LegacySummary {
 async function requestStructuredSummary(
   gakuchikaTitle: string,
   draftText: string,
-  messages: Message[]
+  messages: Message[],
+  principal: CreateCareerPrincipalInput,
 ): Promise<{ summary: StructuredSummary; telemetry: InternalCostTelemetry | null } | null> {
-  const response = await fetchFastApiInternal("/api/gakuchika/structured-summary", {
+  const response = await fetchFastApiWithPrincipal("/api/gakuchika/structured-summary", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -117,6 +116,7 @@ async function requestStructuredSummary(
       })),
       gakuchika_title: gakuchikaTitle,
     }),
+    principal,
   });
 
   if (!response.ok) {
@@ -133,10 +133,11 @@ async function requestStructuredSummary(
 export async function generateGakuchikaSummaryWithTelemetry(
   gakuchikaTitle: string,
   draftText: string,
-  messages: Message[]
+  messages: Message[],
+  principal: CreateCareerPrincipalInput,
 ): Promise<{ summary: GakuchikaSummary; telemetry: InternalCostTelemetry | null }> {
   try {
-    const result = await requestStructuredSummary(gakuchikaTitle, draftText, messages);
+    const result = await requestStructuredSummary(gakuchikaTitle, draftText, messages, principal);
     if (result) {
       return result;
     }
@@ -145,44 +146,4 @@ export async function generateGakuchikaSummaryWithTelemetry(
   }
 
   return { summary: buildFallbackSummary(messages), telemetry: null };
-}
-
-async function generateGakuchikaSummary(
-  gakuchikaTitle: string,
-  draftText: string,
-  messages: Message[]
-): Promise<GakuchikaSummary> {
-  const result = await generateGakuchikaSummaryWithTelemetry(gakuchikaTitle, draftText, messages);
-  return result.summary;
-}
-
-async function persistGakuchikaSummary(
-  gakuchikaId: string,
-  gakuchikaTitle: string,
-  draftText: string,
-  messages: Message[],
-  metadata?: {
-    sessionId?: string | null;
-    draftDocumentId?: string | null;
-  },
-): Promise<GakuchikaSummary> {
-  const summary = await generateGakuchikaSummary(gakuchikaTitle, draftText, messages);
-  const persistedSummary =
-    metadata?.sessionId || metadata?.draftDocumentId
-      ? {
-          ...summary,
-          source_session_id: metadata.sessionId ?? null,
-          source_draft_document_id: metadata.draftDocumentId ?? null,
-        }
-      : summary;
-
-  await db
-    .update(gakuchikaContents)
-    .set({
-      summary: JSON.stringify(persistedSummary),
-      updatedAt: new Date(),
-    })
-    .where(eq(gakuchikaContents.id, gakuchikaId));
-
-  return summary;
 }

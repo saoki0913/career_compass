@@ -204,6 +204,11 @@ describe("api/gakuchika/[id]/interview-summary", () => {
       "学園祭",
       "本文",
       [{ role: "user", content: "回答" }],
+      {
+        scope: "ai-stream",
+        actor: { kind: "user", id: "user-1" },
+        plan: "free",
+      },
     );
     expect(computeTotalTokensMock).toHaveBeenCalledWith({ input_tokens_total: 10, output_tokens_total: 20 });
     expect(incrementDailyTokenCountMock).toHaveBeenCalledWith(

@@ -2,11 +2,15 @@ import { and, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import {
+  sanitizeUpstreamUserMessage,
+  summarizeUpstreamError,
+} from "@/bff/api/upstream-error-sanitizer";
 import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
 import { getRequestIdentity, type RequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
 import { companies, interviewDrillAttempts } from "@/lib/db/schema";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 
 import {
   createInterviewPersistenceUnavailableResponse,
@@ -145,6 +149,7 @@ export async function POST(
 
   const upstreamPayload = {
     conversation_id: attempt.conversationId,
+    company_id: companyId,
     weakest_turn_id: attempt.weakestTurnId ?? "",
     retry_question: attempt.retryQuestion ?? "",
     retry_answer: retryAnswer,
@@ -155,22 +160,28 @@ export async function POST(
     selected_role: null,
   };
 
-  const upstream = await fetchFastApiInternal("/api/interview/drill/score", {
+  const upstream = await fetchFastApiWithPrincipal("/api/interview/drill/score", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(upstreamPayload),
+    principal: {
+      scope: "company",
+      actor: { kind: "user", id: identity.userId },
+      companyId,
+      plan: "free",
+    },
   });
 
   if (!upstream.ok) {
     const detail = await upstream.json().catch(() => null);
+    const upstreamSummary = summarizeUpstreamError(detail);
     return createApiErrorResponse(request, {
       status: upstream.status,
       code: "INTERVIEW_DRILL_SCORE_UPSTREAM_FAILED",
-      userMessage:
-        typeof detail?.detail === "string"
-          ? detail.detail
-          : "再採点に失敗しました。",
+      userMessage: sanitizeUpstreamUserMessage(detail, "再採点に失敗しました。"),
       action: "時間をおいて、もう一度お試しください。",
+      retryable: upstream.status >= 500,
+      developerMessage: upstreamSummary,
     });
   }
 

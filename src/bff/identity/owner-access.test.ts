@@ -72,6 +72,23 @@ describe("owner-access", () => {
     ).toBe(false);
   });
 
+  it("rejects corrupt owner records with both user and guest owners", async () => {
+    const { isOwnedByIdentity } = await import("./owner-access");
+
+    expect(
+      isOwnedByIdentity(
+        { userId: "user-1", guestId: "guest-1" },
+        { userId: "user-1", guestId: null },
+      ),
+    ).toBe(false);
+    expect(
+      isOwnedByIdentity(
+        { userId: "user-1", guestId: "guest-1" },
+        { userId: null, guestId: "guest-1" },
+      ),
+    ).toBe(false);
+  });
+
   it("does not call a mutation when the owned condition is null", async () => {
     const { mutateOwnedRow } = await import("./owner-access");
     const mutate = vi.fn();

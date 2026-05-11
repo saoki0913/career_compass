@@ -882,7 +882,12 @@ async def get_next_question_stream(
 
 @router.post("/structured-summary")
 @limiter.limit("60/minute")
-async def generate_structured_summary(payload: StructuredSummaryRequest, request: Request):
+async def generate_structured_summary(
+    payload: StructuredSummaryRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("ai-stream")),
+):
+    _ = principal
     try:
         _sanitize_summary_request(payload)
     except PromptSafetyError:
@@ -954,7 +959,12 @@ async def generate_structured_summary(payload: StructuredSummaryRequest, request
 
 @router.post("/generate-es-draft", response_model=GakuchikaESDraftResponse)
 @limiter.limit("60/minute")
-async def generate_es_draft(payload: GakuchikaESDraftRequest, request: Request):
+async def generate_es_draft(
+    payload: GakuchikaESDraftRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("ai-stream")),
+):
+    _ = principal
     if not payload.conversation_history:
         raise HTTPException(status_code=400, detail="会話履歴がありません")
     if payload.char_limit not in [300, 400, 500]:

@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { persistCompanyRagSourcesAfterUsageReservation } from "@/bff/company-rag/persist-sources";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, companyPdfIngestJobs, userProfiles } from "@/lib/db/schema";
@@ -25,9 +26,10 @@ import {
   type CorporateInfoSourceType,
 } from "@/lib/company-info/sources";
 import {
-  applyCompanyRagUsage,
   getRemainingCompanyRagHtmlFreeUnits,
   getRemainingCompanyRagPdfFreeUnits,
+  reserveCompanyRagUsage,
+  type CompanyRagUsageReservation,
 } from "@/lib/company-info/usage";
 import {
   calculateCorporateCrawlUnits,
@@ -42,6 +44,7 @@ import {
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import { logError } from "@/lib/logger";
+import { summarizeUpstreamError } from "@/bff/api/upstream-error-sanitizer";
 
 // FastAPI backend URL
 interface CrawlResult {
@@ -263,15 +266,15 @@ export async function POST(
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "");
-        logError("corporate-fetch-backend-crawl-failed", new Error(errorText || "Backend request failed"), {
+        const upstreamSummary = summarizeUpstreamError(errorText) || "Backend request failed";
+        logError("corporate-fetch-backend-crawl-failed", new Error(upstreamSummary), {
           companyId,
           contentType: contentTypeResolved,
           contentChannel: contentChannelResolved,
           urls: uniqueRequestedUrls,
           status: response.status,
-          body: errorText,
         });
-        throw new Error(errorText || "Backend request failed");
+        throw new Error(upstreamSummary);
       }
 
       crawlResult = await response.json();
@@ -314,9 +317,6 @@ export async function POST(
         action: "時間を置いて、もう一度お試しください。",
         retryable: true,
         developerMessage: backendError,
-        extra: {
-          backendErrors: crawlResult.errors,
-        },
       });
     }
 
@@ -403,7 +403,16 @@ export async function POST(
         ? Math.max(1, Math.floor(Number(pdfSummary.ingest_pages)))
         : 1;
       actualUnits += isPdfSource ? ingestUnits : calculateCorporateCrawlUnits(1);
-      const usage = await applyCompanyRagUsage({
+    }
+
+    const usageReservations: CompanyRagUsageReservation[] = [];
+    for (const url of uniqueRequestedUrls) {
+      const pdfSummary = pageRoutingSummaries[url];
+      const isPdfSource = Boolean(pdfSummary);
+      const ingestUnits = isPdfSource && typeof pdfSummary?.ingest_pages === "number"
+        ? Math.max(1, Math.floor(Number(pdfSummary.ingest_pages)))
+        : 1;
+      const usage = await reserveCompanyRagUsage({
         userId,
         plan,
         pages: ingestUnits,
@@ -411,6 +420,7 @@ export async function POST(
         referenceId: companyId,
         description: `企業RAG取込(${isPdfSource ? "PDF" : "URL"}): ${company.name}`,
       });
+      usageReservations.push(usage);
       totalFreeUnitsApplied += usage.freeUnitsApplied;
       totalCreditsConsumed += usage.creditsDisplayed;
       totalActualCreditsDeducted += usage.creditsActuallyDeducted;
@@ -421,14 +431,12 @@ export async function POST(
       }
     }
 
-    await db
-      .update(companies)
-      .set({
-        corporateInfoUrls: serializeCorporateInfoSources(backfilledUrls),
-        corporateInfoFetchedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(companies.id, companyId));
+    await persistCompanyRagSourcesAfterUsageReservation({
+      companyId,
+      userId,
+      sources: backfilledUrls,
+      usageReservations,
+    });
 
     return NextResponse.json({
       success: crawlResult.success,

@@ -136,15 +136,15 @@ Status は以下だけを使う。
 | Done | P0 | Guest Migration | migration 衝突時の user 優先ポリシーを実装する | `motivation_conversations_company_user_ux`, `interview_conversations_company_user_ux`, `user_pins_user_entity_ux`, `src/lib/auth/guest.ts` | user 側を上書きしない。重複する guest 側 row は内部件数を記録して削除し、非衝突 row は移行する。公開 API レスポンスは変えない。 | 2026-05-10 |
 | Done | P0 | Owner Mutation | owner 条件付き update/delete helper を設計する | `src/bff/identity/owner-access.ts`, `src/bff/identity/owner-access.test.ts` | mutation SQL が `id + owner` 条件または transaction 内再検証を持つ。`returning().length === 0` は private resource 404 になる。 | 2026-05-10 |
 | Done | P0 | Owner Mutation | 主要 CRUD の check-then-mutate を owner 条件付き mutation へ置き換える | `companies/[id]`, `documents/[id]`, `applications/[id]`, `deadlines/[id]`, `tasks/[id]`, `submissions/[id]`, `calendar/events/[id]` | 他人 ID では update/delete が 0 件。外部 I/O、credit confirm、通知作成が起きない route test がある。deadline / calendar の外部 sync は local mutation 成功後のみ。 | 2026-05-10 |
-| Todo | P1 | BFF Interface | `Owner Access Facade` を追加する | `src/bff/identity/request-identity.ts`, `src/bff/identity/owner-access.ts`, `src/bff/api/error-response.ts` | `requireRequestIdentity(request, policy)`, `getOwnedResourceOr404(kind, id, identity)`, `assertRelatedOwner(...)` 相当の interface で route 分岐を削れる。 | 2026-05-04 |
-| Todo | P1 | BFF Interface | `buildOwnerCondition(table, identity)` を SSOT 化する | route 内の手書き `identity.userId ? ... : guestId!` | mixed identity と null identity を helper で拒否し、route 側の `guestId!` を減らす。 | 2026-05-04 |
-| Todo | P1 | Error Contract | 401/403/404 policy を route 実装へ反映する | `companies/[id]`, `submissions/[id]`, `calendar/events/[id]`, `notifications/*` | identity なしは `401`、private foreign owner は `404`、業務ルール禁止は `403`。snapshot または table-driven test で固定される。 | 2026-05-04 |
-| Todo | P1 | Error Contract | ownership-sensitive route を `createApiErrorResponse()` へ寄せる | `applications/*`, `notifications/*`, `companies/*search*`, corporate fetch 系 | `X-Request-Id` と body `requestId` が常に返る。raw `{ error: string }` は例外リストに限定される。 | 2026-05-04 |
+| Done | P1 | BFF Interface | `Owner Access Facade` を追加する | `src/bff/identity/request-identity.ts`, `src/bff/identity/owner-access.ts`, `src/bff/api/error-response.ts` | `requireRequestIdentity(request, policy)`, `getOwnedResourceOr404(kind, id, identity)`, `assertRelatedOwner(...)` 相当の interface で route 分岐を削れる。 | 2026-05-11 |
+| Done | P1 | BFF Interface | `buildOwnerCondition(table, identity)` を SSOT 化する | route 内の手書き `identity.userId ? ... : guestId!` | mixed identity と null identity を helper で拒否し、route 側の `guestId!` を減らす。 | 2026-05-11 |
+| Done | P1 | Error Contract | 401/403/404 policy を route 実装へ反映する | `companies/[id]`, `submissions/[id]`, `calendar/events/[id]`, `notifications/*` | identity なしは `401`、private foreign owner は `404`、業務ルール禁止は `403`。snapshot または table-driven test で固定される。 | 2026-05-11 |
+| Done | P1 | Error Contract | ownership-sensitive route を `createApiErrorResponse()` へ寄せる | `applications/*`, `notifications/*`, `companies/*search*`, corporate fetch 系 | `X-Request-Id` と body `requestId` が常に返る。raw `{ error: string }` は例外リストに限定される。 | 2026-05-11 |
 | Todo | P1 | CSRF | state-changing route の CSRF 適用棚卸しを作る | `src/proxy.ts`, `src/app/api/**`, `src/bff/**` | unsafe method route のうち high-risk route は proxy だけでなく route-level guard または inventory guard に含まれる。 | 2026-05-04 |
-| Todo | P1 | FastAPI Boundary | owner に関わる FastAPI 呼び出しを principal 必須にする | `src/lib/fastapi/client.ts`, corporate/search/interview/gakuchika/motivation route | actor を body だけで渡す route を棚卸しし、`fetchFastApiWithPrincipal()` または同等 helper を使う。 | 2026-05-04 |
-| Todo | P1 | Company RAG | 企業 RAG / 企業情報取得の巨大 route を責務分割する | `fetch-corporate/route.ts`, `fetch-info/route.ts` | auth/owner, billing, FastAPI proxy, persistence が service 単位に分離される。所有権と plan 解決は `RequestIdentity` 経由に統一される。 | 2026-05-04 |
-| Todo | P1 | Search Fallback | production で FastAPI 検索失敗時に mock 候補を返さない | `src/app/api/companies/[id]/search-pages/route.ts` | production/staging では structured `503`。mock は test/dev 明示に限定される。 | 2026-05-04 |
-| Todo | P2 | DB Integrity | owner mismatch 検出 SQL を運用手順に入れる | `src/lib/db/schema.ts`, `drizzle_pg/` | parent company と child resource の `user_id/guest_id` 不一致、orphan、XOR 違反を検出できる SQL が docs または script にある。 | 2026-05-04 |
+| Done | P1 | FastAPI Boundary | owner に関わる FastAPI 呼び出しを principal 必須にする | `src/lib/fastapi/client.ts`, corporate/search/interview/gakuchika/motivation route | actor を body だけで渡す route を棚卸しし、`fetchFastApiWithPrincipal()` または同等 helper を使う。 | 2026-05-11 |
+| Done | P1 | Company RAG | 企業 RAG / 企業情報取得の巨大 route を責務分割する | `fetch-corporate/route.ts`, `fetch-info/route.ts` | auth/owner, billing, FastAPI proxy, persistence が service 単位に分離される。所有権と plan 解決は `RequestIdentity` 経由に統一される。 | 2026-05-11 |
+| Done | P1 | Search Fallback | production で FastAPI 検索失敗時に mock 候補を返さない | `src/app/api/companies/[id]/search-pages/route.ts` | production/staging では structured `503`。mock は test/dev 明示に限定される。 | 2026-05-11 |
+| Done | P2 | DB Integrity | owner mismatch 検出 SQL を運用手順に入れる | `src/lib/db/schema.ts`, `drizzle_pg/` | parent company と child resource の `user_id/guest_id` 不一致、orphan、XOR 違反を検出できる SQL が docs または script にある。 | 2026-05-11 |
 | Todo | P2 | DB Integrity | partial unique / index 最適化を設計する | `motivation_conversations`, `interview_conversations`, `user_pins`, `applications` | nullable owner unique index を `WHERE user_id IS NOT NULL` / `WHERE guest_id IS NOT NULL` へ寄せる方針と migration 手順がある。`applications` owner index の必要性を判断する。 | 2026-05-04 |
 | Todo | P2 | Auth Failure | session 解決例外時の guest fallback 方針を明文化する | `src/bff/identity/request-identity.ts` | 高リスク操作では session lookup error を `503` に倒すか、現行 fallback を許すかが policy と test で固定される。 | 2026-05-04 |
 | Done | P0 | Planning | API 境界統一計画書を作成する | `docs/plan/auth-guest-ownership-api-boundary-plan.md` | 現状、設計判断、Task Board、完了条件、検証コマンドが記載されている。 | 2026-05-04 |
@@ -202,6 +202,12 @@ cd backend && pytest backend/tests/shared/test_career_principal.py backend/tests
 実装前に実データの不整合を把握する。
 
 ```sql
+-- owner integrity trigger/function の集約検出（リリース前手作業）
+select * from shupass_owner_integrity_violations() limit 50;
+
+select count(*) as owner_integrity_violation_count
+from shupass_owner_integrity_violations();
+
 -- owner XOR 違反
 select 'companies' as table_name, count(*) from companies where (user_id is null) = (guest_id is null)
 union all select 'documents', count(*) from documents where (user_id is null) = (guest_id is null)
@@ -259,4 +265,5 @@ where gu.migrated_to_user_id is not null;
 |---|---|---|
 | 2026-05-04 | Codex | 現状実装、専門サブエージェント調査、Better Auth 公式 docs 確認に基づき、API 境界統一計画を作成した。 |
 | 2026-05-10 | Codex | P0 release hardening を実装。`/api/guest/migrate` の CSRF / owner table 棚卸し / atomic claim の実装済み状態を反映し、migration 衝突時は user 側を正として duplicate guest row を内部件数記録後に削除、非衝突 row を移行する方針にした。`submissions/[id]`, `deadlines/[id]`, `calendar/events/[id]` は owner-conditioned mutation とし、foreign owner は private resource `404`、業務ルール禁止のみ `403` に固定。高リスク mutation では Better Auth session 解決例外を `503` に倒す strict identity mode を追加した。 |
+| 2026-05-11 | Codex | P1 release-final を実装。Owner Access facade を追加し、applications / notifications / company search/fetch 系を structured error と owner 条件付き mutation へ寄せた。production/staging の company search fallback は mock を返さず structured `503` にした。company search / fetch-schedule / Gakuchika JSON AI / interview drill は `X-Career-Principal` 必須にし、FastAPI 側で company scope mismatch を `403` にする。企業 RAG / PDF upload は usage reservation と owner-conditioned persistence service に分離し、ローカル保存成功後だけ confirm、失敗時 cancel にした。DB integrity は既存 `shupass_owner_integrity_violations()` と XOR 検出 SQL を release 手順で確認する運用に寄せ、追加 migration は #5 DB/RLS pre-release へ送る。 |
 | 2026-05-04 | Codex | ユーザー確認により、重点は API 境界統一、形式は実装チケット型、migration 衝突は user 優先、private resource の他人所有は原則 404 に固定した。 |

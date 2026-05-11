@@ -898,6 +898,7 @@ class InterviewDrillStartRequest(BaseModel):
     """
 
     conversation_id: str = Field(max_length=200)
+    company_id: Optional[str] = Field(default=None, max_length=200)
     weakest_turn_id: str = Field(max_length=200)
     weakest_question: str = Field(max_length=4000)
     weakest_answer: str = Field(max_length=4000)
@@ -929,6 +930,7 @@ class InterviewDrillScoreRequest(BaseModel):
     """
 
     conversation_id: str = Field(max_length=200)
+    company_id: Optional[str] = Field(default=None, max_length=200)
     weakest_turn_id: str = Field(max_length=200)
     retry_question: str = Field(max_length=4000)
     retry_answer: str = Field(max_length=4000)

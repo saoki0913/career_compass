@@ -5,26 +5,25 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import {
+  buildOwnedRowCondition,
+  createOwnedResourceNotFoundResponse,
+  requireRequestIdentity,
+} from "@/bff/identity/owner-access";
 import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { logError } from "@/lib/logger";
 
-async function verifyNotificationAccess(
-  notificationId: string,
-  userId: string | null,
-  guestId: string | null
-): Promise<boolean> {
-  const [notification] = await db
-    .select()
-    .from(notifications)
-    .where(eq(notifications.id, notificationId))
-    .limit(1);
-
-  if (!notification) return false;
-  if (userId && notification.userId === userId) return true;
-  if (guestId && notification.guestId === guestId) return true;
-  return false;
+function notificationNotFoundResponse(request: NextRequest) {
+  return createOwnedResourceNotFoundResponse(request, {
+    code: "NOTIFICATION_NOT_FOUND",
+    userMessage: "通知が見つかりませんでした。",
+    action: "通知一覧を再読み込みしてください。",
+    logContext: "notification-read-not-found",
+    developerMessage: "Notification not found",
+  });
 }
 
 export async function POST(
@@ -34,37 +33,43 @@ export async function POST(
   try {
     const { id: notificationId } = await params;
 
-    const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    const identityResult = await requireRequestIdentity(request, {
+      codePrefix: "NOTIFICATION_READ",
+      logContext: "notification-read-auth",
+      sessionErrorMode: "throw",
+    });
+    if (!identityResult.ok) {
+      return identityResult.response;
+    }
+    const identity = identityResult.identity;
+
+    const condition = buildOwnedRowCondition(eq(notifications.id, notificationId), notifications, identity);
+    if (!condition) {
+      return notificationNotFoundResponse(request);
     }
 
-    const hasAccess = await verifyNotificationAccess(
-      notificationId,
-      identity.userId,
-      identity.guestId
-    );
-    if (!hasAccess) {
-      return NextResponse.json(
-        { error: "Notification not found" },
-        { status: 404 }
-      );
-    }
-
-    await db
+    const updated = await db
       .update(notifications)
       .set({ isRead: true })
-      .where(eq(notifications.id, notificationId));
+      .where(condition)
+      .returning({ id: notifications.id });
+
+    if (!updated[0]) {
+      return notificationNotFoundResponse(request);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error marking notification as read:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("notification-read", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "NOTIFICATION_READ_FAILED",
+      userMessage: "通知を既読にできませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "notification-read",
+    });
   }
 }

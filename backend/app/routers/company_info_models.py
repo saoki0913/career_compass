@@ -8,6 +8,7 @@ from pydantic import BaseModel, HttpUrl
 
 
 class FetchRequest(BaseModel):
+    company_id: Optional[str] = None
     url: HttpUrl
     company_name: Optional[str] = None
     graduation_year: Optional[int] = None
@@ -15,6 +16,7 @@ class FetchRequest(BaseModel):
 
 
 class SearchPagesRequest(BaseModel):
+    company_id: Optional[str] = None
     company_name: str
     industry: Optional[str] = None
     custom_query: Optional[str] = None
@@ -267,6 +269,7 @@ class CrawlCorporateEstimateResponse(BaseModel):
 
 
 class SearchCorporatePagesRequest(BaseModel):
+    company_id: Optional[str] = None
     company_name: str
     search_type: str = "about"
     content_type: Optional[str] = None

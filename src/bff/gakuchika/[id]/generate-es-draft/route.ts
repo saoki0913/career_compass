@@ -34,7 +34,7 @@ import {
   serializeConversationState,
   type DraftQualityChecks,
 } from "@/bff/gakuchika";
-import { fetchFastApiInternal } from "@/lib/fastapi/client";
+import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
 import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
 import { buildGakuchikaEsSectionTitle } from "@/lib/es-review/es-document-section-titles";
@@ -246,7 +246,12 @@ export async function POST(
 
   // Call FastAPI for draft generation (retry transient 502/503 from upstream LLM/timeouts)
   try {
-    let response = await fetchFastApiInternal("/api/gakuchika/generate-es-draft", {
+    const principal = {
+      scope: "ai-stream" as const,
+      actor: { kind: "user" as const, id: userId },
+      plan: "free" as const,
+    };
+    let response = await fetchFastApiWithPrincipal("/api/gakuchika/generate-es-draft", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
       body: JSON.stringify({
@@ -256,6 +261,7 @@ export async function POST(
         known_facts: knownFacts,
         draft_material: draftMaterial,
       }),
+      principal,
     });
 
     const retryDelaysMs = [2500, 5000, 8000];
@@ -263,7 +269,7 @@ export async function POST(
       if (response.ok) break;
       if (response.status !== 502 && response.status !== 503) break;
       await new Promise((resolve) => setTimeout(resolve, retryDelaysMs[r]));
-      response = await fetchFastApiInternal("/api/gakuchika/generate-es-draft", {
+      response = await fetchFastApiWithPrincipal("/api/gakuchika/generate-es-draft", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
         body: JSON.stringify({
@@ -273,6 +279,7 @@ export async function POST(
           known_facts: knownFacts,
           draft_material: draftMaterial,
         }),
+        principal,
       });
     }
 
