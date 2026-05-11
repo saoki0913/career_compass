@@ -40,6 +40,29 @@ describe("InterviewPageContent module", () => {
     expect(source).not.toContain("InterviewLifecyclePhase");
   });
 
+  it("uses labelWeakestQuestionType for weakest question type display", async () => {
+    const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("labelWeakestQuestionType");
+    expect(source).not.toMatch(/最も弱かった設問タイプ: \{feedback\.weakest_question_type\}/);
+    expect(source).not.toMatch(/最も弱かった設問タイプ: \{selectedHistory\.weakestQuestionType\}/);
+  });
+
+  it("uses nextQuestionHint instead of shortCoaching.next_edit for hint display", async () => {
+    const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("nextQuestionHint");
+    expect(source).not.toContain("shortCoaching?.next_edit");
+    expect(source).not.toContain("shortCoaching.next_edit");
+  });
+
+  it("includes interview sheet save button after feedback", async () => {
+    const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("saveInterviewSheet");
+    expect(source).toContain("面接確認シート");
+  });
+
   it("keeps the started conversation branch free of non-chat panels", async () => {
     const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
     const startedBranchStart = source.indexOf("<div ref={conversationRef}");

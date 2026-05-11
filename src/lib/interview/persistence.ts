@@ -28,6 +28,7 @@ export {
 export {
   saveInterviewFeedbackHistory,
   saveInterviewFeedbackSatisfaction,
+  saveInterviewFeedbackSheet,
 } from "@/lib/interview/persistence-feedback";
 export type { InterviewVersionMetadata } from "@/lib/interview/persistence-version";
 

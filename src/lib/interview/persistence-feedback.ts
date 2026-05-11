@@ -129,6 +129,44 @@ export async function saveInterviewFeedbackHistory(args: {
   }
 }
 
+export async function saveInterviewFeedbackSheet(args: {
+  companyId: string;
+  identity: RequestIdentity;
+  historyId: string;
+  sheetContent: string;
+}) {
+  try {
+    const [updated] = await db
+      .update(interviewFeedbackHistories)
+      .set({
+        sheetContent: args.sheetContent,
+        sheetGeneratedAt: new Date(),
+      })
+      .where(
+        args.identity.userId
+          ? and(
+              eq(interviewFeedbackHistories.id, args.historyId),
+              eq(interviewFeedbackHistories.companyId, args.companyId),
+              eq(interviewFeedbackHistories.userId, args.identity.userId),
+            )
+          : and(
+              eq(interviewFeedbackHistories.id, args.historyId),
+              eq(interviewFeedbackHistories.companyId, args.companyId),
+              eq(interviewFeedbackHistories.guestId, args.identity.guestId!),
+            ),
+      )
+      .returning({ id: interviewFeedbackHistories.id });
+    return updated ?? null;
+  } catch (error) {
+    throw (
+      normalizeInterviewPersistenceError(error, {
+        companyId: args.companyId,
+        operation: "interview:save-feedback-sheet",
+      }) ?? error
+    );
+  }
+}
+
 export async function saveInterviewFeedbackSatisfaction(args: {
   companyId: string;
   identity: RequestIdentity;

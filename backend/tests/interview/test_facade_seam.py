@@ -67,6 +67,8 @@ FACADE_REEXPORTS: tuple[str, ...] = (
     "_build_continue_prompt",
     "_fallback_plan",
     "_fallback_short_coaching",
+    "_fallback_next_question_hint",
+    "_should_end_questions",
     "_fallback_turn_meta",
     "_build_fallback_opening_payload",
     "_build_fallback_turn_payload",

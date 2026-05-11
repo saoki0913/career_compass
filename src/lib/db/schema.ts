@@ -13,6 +13,10 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified"),
   image: text("image"),
+  role: text("role", { enum: ["user", "admin"] }).notNull().default("user"),
+  banned: boolean("banned").notNull().default(false),
+  banReason: text("ban_reason"),
+  banExpires: timestamptz("ban_expires"),
   createdAt: timestamptz("created_at").notNull().defaultNow(),
   updatedAt: timestamptz("updated_at").notNull().defaultNow(),
 });
@@ -28,6 +32,7 @@ export const sessions = pgTable(
     expiresAt: timestamptz("expires_at").notNull(),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
+    impersonatedBy: text("impersonated_by"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
@@ -180,6 +185,8 @@ export const companies = pgTable(
     check("companies_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("companies_user_id_idx").on(t.userId),
     index("companies_guest_id_idx").on(t.guestId),
+    index("companies_user_list_sort_idx").on(t.userId, t.isPinned.desc(), t.sortOrder, t.createdAt.desc()),
+    index("companies_guest_list_sort_idx").on(t.guestId, t.isPinned.desc(), t.sortOrder, t.createdAt.desc()),
   ]
 );
 
@@ -556,6 +563,12 @@ export const documents = pgTable(
     index("documents_guest_updated_at_active_idx")
       .on(t.guestId, t.updatedAt.desc())
       .where(sql`${t.status} != 'deleted'`),
+    index("documents_user_type_updated_at_active_idx")
+      .on(t.userId, t.type, t.updatedAt.desc())
+      .where(sql`${t.status} != 'deleted'`),
+    index("documents_guest_type_updated_at_active_idx")
+      .on(t.guestId, t.type, t.updatedAt.desc())
+      .where(sql`${t.status} != 'deleted'`),
   ]
 );
 
@@ -593,6 +606,8 @@ export const gakuchikaContents = pgTable(
     check("gakuchika_contents_owner_xor", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
     index("gakuchika_contents_user_id_idx").on(t.userId),
     index("gakuchika_contents_guest_id_idx").on(t.guestId),
+    index("gakuchika_contents_user_sort_updated_idx").on(t.userId, t.sortOrder, t.updatedAt.desc()),
+    index("gakuchika_contents_guest_sort_updated_idx").on(t.guestId, t.sortOrder, t.updatedAt.desc()),
   ]
 );
 
@@ -611,7 +626,10 @@ export const gakuchikaConversations = pgTable(
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
   },
-  (t) => [index("gakuchika_conversations_gakuchika_created_at_idx").on(t.gakuchikaId, t.createdAt.desc())]
+  (t) => [
+    index("gakuchika_conversations_gakuchika_created_at_idx").on(t.gakuchikaId, t.createdAt.desc()),
+    index("gakuchika_conversations_gakuchika_updated_at_idx").on(t.gakuchikaId, t.updatedAt.desc()),
+  ]
 );
 
 // AI threads table - chat threads for ES review
@@ -928,6 +946,8 @@ export const interviewFeedbackHistories = pgTable(
     promptVersion: text("prompt_version").notNull().default("unknown"),
     followupPolicyVersion: text("followup_policy_version").notNull().default("unknown"),
     caseSeedVersion: text("case_seed_version"),
+    sheetContent: text("sheet_content"),
+    sheetGeneratedAt: timestamptz("sheet_generated_at"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
   (t) => [

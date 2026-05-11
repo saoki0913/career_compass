@@ -37,6 +37,7 @@ function buildPrevState(overrides: Partial<InterviewControllerState> = {}): Inte
     feedbackHistories: [],
     feedbackCompletionCount: 0,
     shortCoaching: null,
+    nextQuestionHint: null,
     transitionLine: null,
     ...overrides,
   };
@@ -99,7 +100,18 @@ describe("parseCompletePayload", () => {
       plan: null,
       feedbackHistories: undefined,
       shortCoaching: null,
+      nextQuestionHint: null,
     });
+  });
+
+  it("parses nextQuestionHint from payload", () => {
+    const result = parseCompletePayload({ nextQuestionHint: "具体的な数字を入れて答えてください。" }, 6);
+    expect(result.nextQuestionHint).toBe("具体的な数字を入れて答えてください。");
+  });
+
+  it("returns null for non-string nextQuestionHint", () => {
+    const result = parseCompletePayload({ nextQuestionHint: 123 }, 6);
+    expect(result.nextQuestionHint).toBeNull();
   });
 
   it("uses payload fields when provided and detects questionFlowCompleted via feedback presence", () => {

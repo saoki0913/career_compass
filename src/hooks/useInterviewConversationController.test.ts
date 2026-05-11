@@ -107,4 +107,34 @@ describe("useInterviewConversationController module", () => {
       expect(returnBlock).toContain("shortCoaching,");
     });
   });
+
+  describe("nextQuestionHint state", () => {
+    it("declares nextQuestionHint useState", () => {
+      expect(source).toContain("const [nextQuestionHint, setNextQuestionHint]");
+    });
+
+    it("includes nextQuestionHint in controllerStateRef", () => {
+      expect(source).toContain("nextQuestionHint,");
+    });
+
+    it("returns nextQuestionHint in state", () => {
+      const returnBlock = source.slice(source.lastIndexOf("return {"));
+      expect(returnBlock).toContain("nextQuestionHint,");
+    });
+
+    it("syncs nextQuestionHint from reducer to local state", () => {
+      expect(source).toContain("setNextQuestionHint(nextState.nextQuestionHint)");
+    });
+  });
+
+  describe("conversationId state", () => {
+    it("declares conversationId useState", () => {
+      expect(source).toContain("const [conversationId, setConversationId]");
+    });
+
+    it("returns conversationId in state", () => {
+      const returnBlock = source.slice(source.lastIndexOf("return {"));
+      expect(returnBlock).toContain("conversationId,");
+    });
+  });
 });

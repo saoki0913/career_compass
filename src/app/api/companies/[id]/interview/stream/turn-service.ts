@@ -145,6 +145,10 @@ export async function completeInterviewTurnStream(args: {
   await args.onPersisted?.();
 
   const shortCoaching = safeParseInterviewShortCoaching(args.upstreamData.short_coaching ?? null);
+  const nextQuestionHint =
+    typeof args.upstreamData.next_question_hint === "string"
+      ? args.upstreamData.next_question_hint
+      : null;
 
   return {
     messages,
@@ -172,5 +176,6 @@ export async function completeInterviewTurnStream(args: {
     transitionLine,
     feedbackHistories: args.context.feedbackHistories,
     shortCoaching,
+    nextQuestionHint,
   };
 }

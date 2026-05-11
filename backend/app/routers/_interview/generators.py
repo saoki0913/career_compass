@@ -38,6 +38,8 @@ from app.routers._interview.contracts import (
 # to inject failures. Ruff's static analysis sees them as unused names; keep the
 # imports and silence F401 because they are intentional monkeypatch seams.
 from app.routers._interview.planning import (
+    InterviewPlanView,
+    QuestionBudgetInput,
     _backfill_feedback_linkage_from_conversation,
     _build_fallback_continue_payload,
     _build_fallback_opening_payload,  # noqa: F401 — _gen_self monkeypatch seam
@@ -48,6 +50,7 @@ from app.routers._interview.planning import (
     _derive_turn_state_for_question,  # noqa: F401 — _gen_self monkeypatch seam
     _enrich_feedback_defaults,
     _fallback_plan,
+    _fallback_next_question_hint,  # noqa: F401 — _gen_self monkeypatch seam
     _fallback_short_coaching,
     _fallback_turn_meta,
     _merge_plan_progress,  # noqa: F401 — _gen_self monkeypatch seam
@@ -59,6 +62,7 @@ from app.routers._interview.planning import (
     _normalize_turn_state,
     _opening_question_matches_format,
     _question_stage_from_turn_meta,
+    _should_end_questions,  # noqa: F401 — _gen_self monkeypatch seam
     _version_metadata,
 )
 from app.routers._interview.prompting import (
@@ -301,6 +305,40 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
         turn_state["interviewPlan"] = interview_plan
         yield _sse_event("progress", {"step": "turn", "progress": 18, "label": "直近の回答を分析中..."})
 
+        # Question budget check: end before generating next question.
+        budget_input: QuestionBudgetInput = {
+            "turnCount": int(turn_state.get("turnCount") or 0),
+            "coveredTopics": turn_state.get("coveredTopics") or [],
+            "coverageState": turn_state.get("coverageState") or [],
+        }
+        plan_view: InterviewPlanView = {
+            "must_cover_topics": interview_plan.get("must_cover_topics") or [],
+        }
+        if _gen_self._should_end_questions(budget_input, plan_view):
+            turn_state["nextAction"] = "feedback"
+            cost_summary = _gen_self.consume_request_llm_cost_summary("interview_turn")
+            yield _sse_event(
+                "complete",
+                {
+                    "data": {
+                        "question": "",
+                        "transition_line": None,
+                        "focus": "",
+                        "question_stage": "turn",
+                        "interview_plan": interview_plan,
+                        "turn_meta": turn_state.get("turnMeta") or {},
+                        "stage_status": None,
+                        "question_flow_completed": True,
+                        "turn_state": turn_state,
+                        "short_coaching": {"good": "", "missing": "", "next_edit": ""},
+                        "next_question_hint": None,
+                        **_version_metadata(setup, interview_plan),
+                    },
+                    "internal_telemetry": cost_summary,
+                },
+            )
+            return
+
         turn_prompt = _build_turn_prompt(payload, interview_plan, turn_state, turn_state.get("turnMeta") or {})
         turn_data: Optional[dict[str, Any]] = None
         try:
@@ -314,6 +352,7 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
                     "focus": "string",
                     "turn_meta": "object",
                     "plan_progress": "object",
+                    "next_question_hint": "string|null",
                 },
                 max_tokens=700,
                 temperature=0.35,
@@ -391,6 +430,13 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
         else:
             short_coaching = _gen_self._fallback_short_coaching(merged_state, turn_meta, setup)
 
+        # next_question_hint: LLM が返した場合はそれを採用、なければ fallback。
+        next_question_hint_raw = turn_data.get("next_question_hint") if isinstance(turn_data, dict) else None
+        if isinstance(next_question_hint_raw, str) and next_question_hint_raw.strip():
+            next_question_hint = next_question_hint_raw.strip()
+        else:
+            next_question_hint = _gen_self._fallback_next_question_hint(turn_meta)
+
         cost_summary = _gen_self.consume_request_llm_cost_summary("interview_turn")
         yield _sse_event(
             "complete",
@@ -406,6 +452,7 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
                     "question_flow_completed": False,
                     "turn_state": merged_state,
                     "short_coaching": short_coaching,
+                    "next_question_hint": next_question_hint,
                     **_version_metadata(setup, interview_plan),
                 },
                 "internal_telemetry": cost_summary,
@@ -608,6 +655,8 @@ __all__ = [
     "_generate_continue_progress",
     "_generate_feedback_progress",
     "_fallback_short_coaching",
+    "_fallback_next_question_hint",
+    "_should_end_questions",
     "call_llm_streaming_fields",
     "consume_request_llm_cost_summary",
 ]

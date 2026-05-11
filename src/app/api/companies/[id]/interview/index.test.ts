@@ -81,6 +81,15 @@ function makeLeftJoinWhereQuery(result: unknown[]) {
   };
 }
 
+describe("barrel exports", () => {
+  it("exports saveInterviewFeedbackSheet", async () => {
+    const source = await import("node:fs").then((fs) =>
+      fs.readFileSync(new URL("./index.ts", import.meta.url), "utf-8"),
+    );
+    expect(source).toContain("saveInterviewFeedbackSheet");
+  });
+});
+
 describe("buildInterviewContext", () => {
   beforeEach(() => {
     dbSelectMock.mockReset();

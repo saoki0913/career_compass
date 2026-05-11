@@ -49,6 +49,7 @@ export type InterviewCompletePayload = {
   feedbackHistories?: unknown;
   // Phase 2 Stage 6: turn SSE のみ含まれる。他 kind では undefined。
   shortCoaching?: unknown;
+  nextQuestionHint?: unknown;
 };
 
 /**
@@ -71,6 +72,7 @@ export type InterviewControllerState = {
   // Phase 2 Stage 6: 最新 turn の short coaching (null = 非表示 / 初回ターン)。
   // Stage 8 ダッシュボードで履歴との突合表示に使う予定。現状は turn 完了ごとに最新値で上書き。
   shortCoaching: InterviewShortCoaching | null;
+  nextQuestionHint: string | null;
   transitionLine: string | null;
 };
 
@@ -137,6 +139,7 @@ export function parseCompletePayload(
       ? (feedbackHistoriesRaw as FeedbackHistoryItem[])
       : undefined,
     shortCoaching: parseShortCoachingFromPayload(data.shortCoaching),
+    nextQuestionHint: typeof data.nextQuestionHint === "string" ? data.nextQuestionHint : null,
   };
 }
 
@@ -174,6 +177,11 @@ export function mergeCompletePayload(
       ? (completeData.shortCoaching ?? null)
       : prev.shortCoaching;
 
+  const nextQuestionHint: string | null =
+    kind === "send"
+      ? (completeData.nextQuestionHint ?? null)
+      : prev.nextQuestionHint;
+
   return {
     messages: completeData.messages,
     questionCount: completeData.questionCount,
@@ -191,6 +199,7 @@ export function mergeCompletePayload(
       ? prev.feedbackCompletionCount + 1
       : prev.feedbackCompletionCount,
     shortCoaching: nextShortCoaching,
+    nextQuestionHint: nextQuestionHint,
   };
 }
 

@@ -7,6 +7,7 @@ import {
   generateInterviewFeedbackStream,
   resetInterviewConversation,
   saveInterviewFeedbackSatisfaction,
+  saveInterviewSheet,
   scoreInterviewDrill,
   sendInterviewAnswerStream,
   startInterviewDrill,
@@ -102,6 +103,54 @@ describe("interview client api", () => {
     expect(new Headers(getFetchInit(7).headers).get("Content-Type")).toBe(
       "application/json",
     );
+  });
+});
+
+describe("interview sheet client api", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("saveInterviewSheet posts to /interview/sheet and returns sheetContent", async () => {
+    const responseBody = {
+      ok: true,
+      sheetContent: "# Sheet",
+      feedbackHistoryId: "hist-1",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(responseBody), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await saveInterviewSheet("company-1", "conv-1", "hist-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/companies/company-1/interview/sheet",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: JSON.stringify({ conversationId: "conv-1", historyId: "hist-1" }),
+      }),
+    );
+    expect(result.sheetContent).toBe("# Sheet");
+    expect(result.feedbackHistoryId).toBe("hist-1");
+  });
+
+  it("saveInterviewSheet throws on non-ok response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ userMessage: "セッションが見つかりません。" }),
+        { status: 404, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      saveInterviewSheet("company-1", "conv-1", "hist-1"),
+    ).rejects.toThrow("セッションが見つかりません。");
   });
 });
 

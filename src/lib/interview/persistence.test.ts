@@ -105,6 +105,19 @@ describe("interview persistence", () => {
     expect(updateMock).toHaveBeenCalledTimes(1);
   });
 
+  it("saveInterviewFeedbackSheet calls db.update", async () => {
+    const { saveInterviewFeedbackSheet } = await import("./persistence");
+
+    await saveInterviewFeedbackSheet({
+      companyId: "company-1",
+      identity: { userId: "user-1", guestId: null },
+      historyId: "history-1",
+      sheetContent: "# Sheet content",
+    });
+
+    expect(updateMock).toHaveBeenCalledTimes(1);
+  });
+
   it("saveInterviewConversationProgress calls db.update with turnState", async () => {
     const { saveInterviewConversationProgress } = await import("./persistence");
 

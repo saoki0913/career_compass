@@ -1,5 +1,6 @@
 from app.routers.interview import (
     CONVERSATION_HISTORY_WINDOW_TURNS,
+    INTERVIEW_TURN_SCHEMA,
     InterviewFeedbackRequest,
     InterviewStartRequest,
     InterviewTurnRequest,
@@ -243,6 +244,17 @@ def test_build_turn_prompt_mentions_depth_controls() -> None:
     # A-4: format-specific instructions are now included.
     # Phase 2 Stage 1 で行動面接のヘッダを "### 行動面接 (standard_behavioral)" に短縮。
     assert "行動面接" in prompt
+    assert "question_budget" in prompt
+    assert "目標: 12-18問" in prompt
+
+
+def test_turn_schema_requires_next_question_hint() -> None:
+    body = INTERVIEW_TURN_SCHEMA.get("schema", INTERVIEW_TURN_SCHEMA)
+    props = body.get("properties", {})
+    assert "next_question_hint" in props
+    assert props["next_question_hint"]["type"] == ["string", "null"]
+    assert "question" in props["next_question_hint"].get("description", "")
+    assert "next_question_hint" in body.get("required", [])
 
 
 def test_build_feedback_prompt_requests_weakest_turn_linkage() -> None:

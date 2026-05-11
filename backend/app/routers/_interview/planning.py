@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, TypedDict
 
 from app.prompts.interview_prompts import (
     FOLLOWUP_POLICY_VERSION,
@@ -39,6 +39,21 @@ from app.routers._interview.setup import (
     _normalize_string_list,
     _question_stage_from_turn_meta,
 )
+
+
+class QuestionBudgetInput(TypedDict, total=False):
+    turnCount: int
+    coveredTopics: list[str]
+    coverageState: list[dict[str, Any]]
+
+
+class InterviewPlanView(TypedDict, total=False):
+    must_cover_topics: list[str]
+
+
+QUESTION_SOFT_MIN = 12
+QUESTION_HARD_MAX = 18
+
 
 # ---------------------------------------------------------------------------
 # Checklist per topic — feeds coverage state
@@ -939,6 +954,48 @@ def _fallback_short_coaching(
     return result
 
 
+_NEXT_QUESTION_HINT_BY_FOLLOWUP_STYLE: dict[str, str] = {
+    "reason_check": "「なぜそうしたのか」の根拠を結論の前に 1 文置いて答えてみてください。",
+    "specificity_check": "具体的な数字や固有名詞を 1 つ以上含めて答えてみてください。",
+    "evidence_check": "主張の裏付けとなる経験や事実を 1 つ挙げて答えてみてください。",
+    "counter_hypothesis": "別の選択肢を否定した理由まで含めて答えてみてください。",
+    "consistency_check": "前の回答と矛盾しないよう、軸を意識して答えてみてください。",
+    "future_check": "入社後にどう活かすかまで視野に入れて答えてみてください。",
+    "future_vision_check": "将来像と志望理由の接続を意識して答えてみてください。",
+    "technical_difficulty_check": "技術的な判断の根拠とトレードオフを明示して答えてみてください。",
+}
+
+
+def _fallback_next_question_hint(turn_meta: dict[str, Any]) -> str | None:
+    followup_style = turn_meta.get("followup_style") if isinstance(turn_meta, dict) else None
+    if not followup_style or not isinstance(followup_style, str):
+        return None
+    return _NEXT_QUESTION_HINT_BY_FOLLOWUP_STYLE.get(followup_style.strip())
+
+
+def _should_end_questions(budget: QuestionBudgetInput, plan: InterviewPlanView) -> bool:
+    turn_count = int(budget.get("turnCount") or 0)
+    if turn_count >= QUESTION_HARD_MAX:
+        return True
+    must_cover = set(plan.get("must_cover_topics") or [])
+    covered = set(budget.get("coveredTopics") or [])
+    coverage_state = budget.get("coverageState") or []
+    all_must_covered = must_cover.issubset(covered) if must_cover else False
+    if turn_count >= QUESTION_SOFT_MIN and all_must_covered:
+        return True
+    all_exhausted = (
+        len(coverage_state) > 0
+        and all(
+            entry.get("status") in ("covered", "exhausted")
+            for entry in coverage_state
+            if isinstance(entry, dict)
+        )
+    )
+    if all_exhausted and turn_count >= 6:
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Pure helper: case scenario from interview_plan.case_brief
 # ---------------------------------------------------------------------------
@@ -1519,6 +1576,12 @@ __all__ = [
     "_fallback_turn_meta",
     "detect_answer_gap",
     "_fallback_short_coaching",
+    "_fallback_next_question_hint",
+    "_should_end_questions",
+    "QuestionBudgetInput",
+    "InterviewPlanView",
+    "QUESTION_SOFT_MIN",
+    "QUESTION_HARD_MAX",
     "_build_case_scenario_from_plan",
     "_fallback_question_by_strictness",
     "_fallback_depth_focus_by_interviewer",

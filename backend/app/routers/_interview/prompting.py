@@ -346,6 +346,24 @@ def _build_turn_prompt(
     # Phase 2 Stage 3: case format かつ plan.case_brief が詰まっている場合のみ
     # CASE BRIEF セクションを注入する (opening/turn 共通ヘルパ)。
     case_brief_section = _build_case_brief_section(interview_plan, setup)
+    turn_count = int(turn_state.get("turnCount") or 0)
+    covered_topics = turn_state.get("coveredTopics") or []
+    must_cover = interview_plan.get("must_cover_topics") or []
+    remaining_must_cover = [topic for topic in must_cover if topic not in covered_topics]
+    if remaining_must_cover:
+        question_budget = (
+            "## question_budget\n"
+            f"- 現在: {turn_count}問目 / 目標: 12-18問\n"
+            f"- 残り must_cover_topics: {json.dumps(remaining_must_cover, ensure_ascii=False)}\n"
+            "- 残り問数を意識してトピック配分を調整すること"
+        )
+    else:
+        question_budget = (
+            "## question_budget\n"
+            f"- 現在: {turn_count}問目 / 目標: 12-18問\n"
+            "- must_cover_topics: 全カバー済み\n"
+            "- 残りの質問で未深掘りの観点を補完すること"
+        )
     return _TURN_FALLBACK.format(
         company_name=payload.company_name,
         company_summary=payload.company_summary,
@@ -385,6 +403,7 @@ def _build_turn_prompt(
             (payload.turn_events if isinstance(payload, InterviewTurnRequest) else None) or [],
             ensure_ascii=False,
         ),
+        question_budget=question_budget,
     )
 
 

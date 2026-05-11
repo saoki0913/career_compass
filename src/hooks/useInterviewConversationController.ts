@@ -132,6 +132,7 @@ export function useInterviewConversationController({
   enabled: boolean;
 }) {
   const [companyName, setCompanyName] = useState("");
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [materials, setMaterials] = useState<MaterialCard[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [answer, setAnswer] = useState("");
@@ -167,6 +168,7 @@ export function useInterviewConversationController({
     useState<InterviewAvailabilityIssue | null>(null);
   const [shortCoaching, setShortCoaching] =
     useState<import("@/lib/interview/conversation").InterviewShortCoaching | null>(null);
+  const [nextQuestionHint, setNextQuestionHint] = useState<string | null>(null);
 
   const [streamingTargetText, setStreamingTargetText] = useState("");
   const [isTextStreaming, setIsTextStreaming] = useState(false);
@@ -196,6 +198,7 @@ export function useInterviewConversationController({
     feedbackHistories: [],
     feedbackCompletionCount: 0,
     shortCoaching: null,
+    nextQuestionHint: null,
     transitionLine: null,
   });
   useEffect(() => {
@@ -213,6 +216,7 @@ export function useInterviewConversationController({
       feedbackHistories,
       feedbackCompletionCount,
       shortCoaching,
+      nextQuestionHint,
       transitionLine,
     };
   }, [
@@ -229,6 +233,7 @@ export function useInterviewConversationController({
     feedbackHistories,
     feedbackCompletionCount,
     shortCoaching,
+    nextQuestionHint,
     transitionLine,
   ]);
 
@@ -327,6 +332,7 @@ export function useInterviewConversationController({
         const conversation = interviewData.conversation as HydratedConversation;
         const isLegacy = Boolean(conversation?.isLegacySession);
         setCompanyName(interviewData.company?.name || "");
+        setConversationId(conversation?.id ?? null);
         setMaterials(Array.isArray(interviewData.materials) ? interviewData.materials : []);
         setCreditCost(typeof interviewData.creditCost === "number" ? interviewData.creditCost : 6);
         setBillingCosts(interviewData.billingCosts ?? DEFAULT_BILLING_COSTS);
@@ -413,6 +419,9 @@ export function useInterviewConversationController({
       }
       if (nextState.shortCoaching !== prevState.shortCoaching) {
         setShortCoaching(nextState.shortCoaching);
+      }
+      if (nextState.nextQuestionHint !== prevState.nextQuestionHint) {
+        setNextQuestionHint(nextState.nextQuestionHint);
       }
     });
   }, []);
@@ -835,6 +844,8 @@ export function useInterviewConversationController({
       availabilityIssue,
       isInteractionBlocked,
       shortCoaching,
+      nextQuestionHint,
+      conversationId,
     },
     actions: {
       setAnswer,

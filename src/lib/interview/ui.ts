@@ -176,6 +176,7 @@ export type PendingCompleteData = {
   // Phase 2 Stage 6: turn SSE complete の short coaching (turn only, 他 kind は null)。
   // UI 表示は Stage 8 ダッシュボードと一括実装予定。現時点は state に保持のみ。
   shortCoaching?: InterviewShortCoaching | null;
+  nextQuestionHint?: string | null;
 };
 
 export function createEmptyFeedback(): Feedback {
@@ -242,6 +243,23 @@ export const ROLE_TRACK_LABELS: Record<InterviewRoleTrack, string> = {
   research_specialist: "研究 / 専門職",
   quant_finance: "クオンツ / 数理",
 };
+
+const WEAKEST_QUESTION_TYPE_LABELS: Record<string, string> = {
+  motivation: "志望動機",
+  gakuchika: "ガクチカ",
+  academic: "学業・成績",
+  research: "研究",
+  personal: "人物像",
+  career: "キャリア",
+  case: "ケース",
+  life_history: "自分史",
+  technical: "技術・専門",
+};
+
+export function labelWeakestQuestionType(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return WEAKEST_QUESTION_TYPE_LABELS[raw] ?? raw;
+}
 
 export const PREMISE_CONSISTENCY_HELP =
   "前提一致度は、回答全体で志望理由・経験・将来像の前提がどれだけ矛盾せずにつながっていたかを見る目安です。";

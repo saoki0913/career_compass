@@ -284,6 +284,7 @@ _TURN_FALLBACK = """あなたは新卒採用の面接官です。会話履歴を
 ## turn_events
 {turn_events}
 
+{question_budget}
 ## ルール
 - 直前回答を深掘りするか次論点へ移るか判断、質問は 1 問、同じ意味の質問を繰り返さない
 - question に直前回答への感想・評価を含めない。質問文のみ出力
@@ -291,6 +292,7 @@ _TURN_FALLBACK = """あなたは新卒採用の面接官です。会話履歴を
 - format 別の深掘り方針は behavioral_block の「面接方式」に従う
 - `question` / `focus` は空文字不可、`plan_progress` に covered/remaining_topics を配列で
 - `turn_meta` は topic / turn_action / focus_reason / depth_focus / followup_style / should_move_next / intent_key を必ず埋める
+- `next_question_hint` は生成した question に対する回答の観点・ポイントを書く（前回回答の評価ではなく次の質問への助言）
 
 ## 出力形式
 {{
@@ -305,7 +307,8 @@ _TURN_FALLBACK = """あなたは新卒採用の面接官です。会話履歴を
     "followup_style": "topic に合った追質問スタイル 1 つ (reason_check / specificity_check / evidence_check / counter_hypothesis / consistency_check / future_check / technical_difficulty_check 等)",
     "intent_key": "motivation_fit:company_reason_check",
     "should_move_next": false
-  }}
+  }},
+  "next_question_hint": "この質問の回答ポイント"
 }}"""
 
 _CONTINUE_FALLBACK = """あなたは新卒採用の面接官です。前回の最終講評を踏まえて、面接対策を続けるための次の質問を 1 問だけ作ってください。
@@ -630,6 +633,13 @@ INTERVIEW_TURN_SCHEMA = {
             "focus": {"type": "string"},
             "turn_meta": INTERVIEW_TURN_META_SCHEMA,
             "plan_progress": INTERVIEW_PLAN_PROGRESS_SCHEMA,
+            "next_question_hint": {
+                "type": ["string", "null"],
+                "description": (
+                    "生成した question に答える際のポイント（30-60字）。"
+                    "question の内容に直接関連させること。初回ターンは null 可"
+                ),
+            },
             # Phase 2 Stage 6: Per-turn short coaching.
             # OpenAI strict JSON: key は必須。値は object または null（会話なしの初回など）。
             # null / 不完全 object は `_fallback_short_coaching` (planning.py) で補完。
@@ -665,6 +675,7 @@ INTERVIEW_TURN_SCHEMA = {
             "turn_meta",
             "plan_progress",
             "short_coaching",
+            "next_question_hint",
         ],
     },
 }

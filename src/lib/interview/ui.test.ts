@@ -7,6 +7,7 @@ import {
   buildInterviewPhases,
   buildInterviewQuestionDisplay,
   buildInterviewCoachingNarrative,
+  labelWeakestQuestionType,
 } from "./ui";
 
 // ---------------------------------------------------------------------------
@@ -141,6 +142,41 @@ describe("buildInterviewQuestionDisplay", () => {
     };
     const result = buildInterviewQuestionDisplay(5, stageStatus);
     expect(result).toBe("5問目 / 約5問");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildInterviewCoachingNarrative
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// labelWeakestQuestionType
+// ---------------------------------------------------------------------------
+
+describe("labelWeakestQuestionType", () => {
+  it("returns null for null/undefined input", () => {
+    expect(labelWeakestQuestionType(null)).toBeNull();
+    expect(labelWeakestQuestionType(undefined)).toBeNull();
+  });
+
+  it("maps known internal keys to Japanese labels", () => {
+    expect(labelWeakestQuestionType("motivation")).toBe("志望動機");
+    expect(labelWeakestQuestionType("gakuchika")).toBe("ガクチカ");
+    expect(labelWeakestQuestionType("academic")).toBe("学業・成績");
+    expect(labelWeakestQuestionType("research")).toBe("研究");
+    expect(labelWeakestQuestionType("personal")).toBe("人物像");
+    expect(labelWeakestQuestionType("career")).toBe("キャリア");
+    expect(labelWeakestQuestionType("case")).toBe("ケース");
+    expect(labelWeakestQuestionType("life_history")).toBe("自分史");
+    expect(labelWeakestQuestionType("technical")).toBe("技術・専門");
+  });
+
+  it("passes through unknown strings unchanged", () => {
+    expect(labelWeakestQuestionType("unknown_type")).toBe("unknown_type");
+  });
+
+  it("returns empty string for empty string input", () => {
+    expect(labelWeakestQuestionType("")).toBeNull();
   });
 });
 

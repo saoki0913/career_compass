@@ -5,10 +5,8 @@ test_interview_deterministic.py — Stage C1 決定論テスト群
 全テストは独立。LLM 呼出しは行わない。
 """
 
-import asyncio
 import json
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
@@ -1511,6 +1509,99 @@ def test_turn_prompt_includes_short_coaching_reference() -> None:
         assert "30-60" in sub_desc, (
             f"short_coaching.{key}.description should hint 30-60 字 guidance, got {sub_desc!r}"
         )
+
+
+def test_fallback_next_question_hint_by_followup_style() -> None:
+    """followup_style ごとの next_question_hint fallback が決定論的に返る。"""
+    from app.routers.interview import _fallback_next_question_hint
+
+    expected_by_style = {
+        "reason_check": "「なぜそうしたのか」の根拠を結論の前に 1 文置いて答えてみてください。",
+        "specificity_check": "具体的な数字や固有名詞を 1 つ以上含めて答えてみてください。",
+        "evidence_check": "主張の裏付けとなる経験や事実を 1 つ挙げて答えてみてください。",
+        "counter_hypothesis": "別の選択肢を否定した理由まで含めて答えてみてください。",
+        "consistency_check": "前の回答と矛盾しないよう、軸を意識して答えてみてください。",
+        "future_check": "入社後にどう活かすかまで視野に入れて答えてみてください。",
+        "future_vision_check": "将来像と志望理由の接続を意識して答えてみてください。",
+        "technical_difficulty_check": "技術的な判断の根拠とトレードオフを明示して答えてみてください。",
+    }
+
+    for followup_style, expected in expected_by_style.items():
+        assert _fallback_next_question_hint({"followup_style": followup_style}) == expected
+        assert _fallback_next_question_hint({"followup_style": f"  {followup_style}  "}) == expected
+
+    assert _fallback_next_question_hint({"followup_style": "unknown_style"}) is None
+    assert _fallback_next_question_hint({}) is None
+    assert _fallback_next_question_hint({"followup_style": None}) is None
+
+
+def test_should_end_questions_hard_max() -> None:
+    """18 問に達したら must_cover の状態に関わらず終了する。"""
+    from app.routers.interview import _should_end_questions
+
+    assert _should_end_questions(
+        {"turnCount": 18, "coveredTopics": [], "coverageState": []},
+        {"must_cover_topics": ["motivation_fit"]},
+    )
+
+
+def test_should_end_questions_soft_min_when_all_must_covered() -> None:
+    """12 問以上かつ must_cover_topics が全カバー済みなら終了する。"""
+    from app.routers.interview import _should_end_questions
+
+    assert _should_end_questions(
+        {
+            "turnCount": 12,
+            "coveredTopics": ["motivation_fit", "role_understanding"],
+            "coverageState": [],
+        },
+        {"must_cover_topics": ["motivation_fit", "role_understanding"]},
+    )
+
+
+def test_should_end_questions_all_exhausted_after_six_turns() -> None:
+    """coverage_state が covered/exhausted のみで 6 問以上なら終了する。"""
+    from app.routers.interview import _should_end_questions
+
+    assert _should_end_questions(
+        {
+            "turnCount": 6,
+            "coveredTopics": [],
+            "coverageState": [
+                {"topic": "motivation_fit", "status": "covered"},
+                {"topic": "role_understanding", "status": "exhausted"},
+            ],
+        },
+        {"must_cover_topics": ["motivation_fit", "role_understanding"]},
+    )
+
+
+def test_should_end_questions_under_threshold_returns_false() -> None:
+    """soft min 前で未消化トピックがある場合は質問を続ける。"""
+    from app.routers.interview import _should_end_questions
+
+    assert not _should_end_questions(
+        {
+            "turnCount": 5,
+            "coveredTopics": ["motivation_fit"],
+            "coverageState": [
+                {"topic": "motivation_fit", "status": "covered"},
+                {"topic": "role_understanding", "status": "active"},
+            ],
+        },
+        {"must_cover_topics": ["motivation_fit", "role_understanding"]},
+    )
+    assert not _should_end_questions(
+        {
+            "turnCount": 11,
+            "coveredTopics": ["motivation_fit"],
+            "coverageState": [
+                {"topic": "motivation_fit", "status": "covered"},
+                {"topic": "role_understanding", "status": "pending"},
+            ],
+        },
+        {"must_cover_topics": ["motivation_fit", "role_understanding"]},
+    )
 
 
 # ---------------------------------------------------------------------------

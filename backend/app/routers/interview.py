@@ -106,6 +106,7 @@ from app.routers._interview.planning import (
     _enrich_feedback_defaults,
     _extract_case_seed_version,
     _fallback_improvement_for_score,
+    _fallback_next_question_hint,
     _fallback_plan,
     _fallback_preparation_for_score,
     _fallback_short_coaching,
@@ -121,7 +122,10 @@ from app.routers._interview.planning import (
     _normalize_turn_meta,
     _normalize_turn_state,
     _opening_question_matches_format,
+    _should_end_questions,
     _version_metadata,
+    InterviewPlanView,
+    QuestionBudgetInput,
 )
 from app.routers._interview.prompting import (
     _build_case_brief_section,

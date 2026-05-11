@@ -44,6 +44,7 @@ export type UpstreamCompleteData = {
   followup_policy_version?: string | null;
   case_seed_version?: string | null;
   short_coaching?: InterviewShortCoaching | null;
+  next_question_hint?: string | null;
 };
 
 export type InterviewClientCompleteData = {
@@ -61,6 +62,7 @@ export type InterviewClientCompleteData = {
   transitionLine?: string | null;
   feedbackHistories?: InterviewFeedbackHistoryItem[];
   shortCoaching?: InterviewShortCoaching | null;
+  nextQuestionHint?: string | null;
 };
 
 export function normalizeInterviewStreamQuestion(value: unknown): string {

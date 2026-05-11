@@ -51,6 +51,26 @@ export function saveInterviewFeedbackSatisfaction(
   return postJson(`/api/companies/${companyId}/interview/feedback/satisfaction`, payload);
 }
 
+export async function saveInterviewSheet(
+  companyId: string,
+  conversationId: string,
+  historyId: string,
+): Promise<{ sheetContent: string; feedbackHistoryId: string }> {
+  const response = await postJson(
+    `/api/companies/${companyId}/interview/sheet`,
+    { conversationId, historyId },
+  );
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof errorBody?.userMessage === "string"
+        ? errorBody.userMessage
+        : "面接確認シートの保存に失敗しました。",
+    );
+  }
+  return (await response.json()) as { sheetContent: string; feedbackHistoryId: string };
+}
+
 // ---------------------------------------------------------------------------
 // Phase 2 Stage 7: Weakness drill client helpers
 // ---------------------------------------------------------------------------
