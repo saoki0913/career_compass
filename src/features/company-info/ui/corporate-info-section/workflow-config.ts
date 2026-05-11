@@ -21,6 +21,8 @@ export interface CorporateInfoStatus {
   corporateInfoUrls: CorporateInfoUrl[];
   corporateInfoFetchedAt: string | null;
   ragStatus: RagStatus;
+  ragStatusUnavailable?: boolean;
+  statusReason?: string | null;
   pageLimit: number;
 }
 
@@ -33,6 +35,7 @@ export interface SearchCandidate {
   relationCompanyName?: string | null;
   complianceStatus?: "allowed" | "warning" | "blocked";
   complianceReasons?: string[];
+  requiresUserConfirmation?: boolean;
 }
 
 export interface ComplianceCheckResponse {

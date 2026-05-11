@@ -27,7 +27,7 @@ const CONFIG_ERROR_TYPES = new Set([
 ]);
 
 const CONFIG_ERROR_ACTION =
-  "管理側で AI 認証設定を確認してから、もう一度お試しください。";
+  "時間を置いて、もう一度お試しください。";
 
 function detailObject(detail: unknown): FastApiDetailObject | null {
   if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
@@ -120,7 +120,7 @@ function userMessageForFastApiError(args: {
   defaultUserMessage: string;
 }): string {
   if (args.errorType && CONFIG_ERROR_TYPES.has(args.errorType)) {
-    return "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。";
+    return "AI機能を利用できませんでした。";
   }
   if (args.errorType === "sse_concurrency_exceeded") {
     return "AI処理が同時に実行されています。完了してからもう一度お試しください。";

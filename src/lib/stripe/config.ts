@@ -1,33 +1,47 @@
 import managedConfig from "./managed-config.json";
 
-/**
- * Stripe Price Configuration
- *
- * Maps plan names to Stripe price IDs.
- * Price IDs must be set in environment variables.
- */
-
 export type PlanType = "free" | "standard" | "pro";
 export type PlanTypeWithGuest = "guest" | "free" | "standard" | "pro";
 export type BillingPeriod = "monthly" | "annual";
 
-/**
- * Stripe price IDs for each plan and billing period.
- * Set these in your .env.local file:
- *   STRIPE_PRICE_STANDARD_MONTHLY=price_xxx
- *   STRIPE_PRICE_PRO_MONTHLY=price_yyy
- */
+type ManagedPrice = {
+  envVar: string;
+  plan: string;
+  billingPeriod: string;
+  unitAmount: number;
+  lookupKey: string;
+  interval: string;
+};
+
+const allManagedPrices: ManagedPrice[] = managedConfig.products.flatMap(
+  (p: { prices: ManagedPrice[] }) => p.prices,
+);
+
+function findManagedPrice(
+  plan: Exclude<PlanType, "free">,
+  period: BillingPeriod,
+): ManagedPrice {
+  const found = allManagedPrices.find(
+    (p) => p.plan === plan && p.billingPeriod === period,
+  );
+  if (!found)
+    throw new Error(
+      `managed-config.json: price not found for ${plan}/${period}`,
+    );
+  return found;
+}
+
 export const STRIPE_PRICES: Record<
   Exclude<PlanType, "free">,
   Partial<Record<BillingPeriod, string>>
 > = {
   standard: {
-    monthly: process.env[managedConfig.prices[0].envVar] || "",
-    annual: process.env[managedConfig.prices[1].envVar] || "",
+    monthly: process.env[findManagedPrice("standard", "monthly").envVar] || "",
+    annual: process.env[findManagedPrice("standard", "annual").envVar] || "",
   },
   pro: {
-    monthly: process.env[managedConfig.prices[2].envVar] || "",
-    annual: process.env[managedConfig.prices[3].envVar] || "",
+    monthly: process.env[findManagedPrice("pro", "monthly").envVar] || "",
+    annual: process.env[findManagedPrice("pro", "annual").envVar] || "",
   },
 };
 
@@ -71,9 +85,8 @@ export const PLAN_METADATA = {
 } as const;
 
 export const ANNUAL_PLAN_PRICES: Record<Exclude<PlanType, "free">, number> = {
-  /** Standard 年額 */
-  standard: managedConfig.prices[1].unitAmount,
-  pro: managedConfig.prices[3].unitAmount,
+  standard: findManagedPrice("standard", "annual").unitAmount,
+  pro: findManagedPrice("pro", "annual").unitAmount,
 };
 
 /**
@@ -164,7 +177,7 @@ export function validateStripePriceConfig(): void {
   // --- Price env var validation (all environments) ---
   const missing: string[] = [];
 
-  for (const spec of managedConfig.prices) {
+  for (const spec of allManagedPrices) {
     const value = process.env[spec.envVar];
     if (!value || !value.startsWith("price_")) {
       missing.push(spec.envVar);

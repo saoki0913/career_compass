@@ -22,6 +22,8 @@ import { deleteSupabaseObject } from "@/lib/storage/supabase-storage";
 import { CORPORATE_DELETE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { logError } from "@/lib/logger";
 
 interface DeleteByUrlsResult {
   success: boolean;
@@ -72,8 +74,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let companyId = "unknown";
   try {
-    const { id: companyId } = await params;
+    ({ id: companyId } = await params);
 
     // Get request body
     const body = await request.json();
@@ -140,11 +143,11 @@ export async function POST(
     } catch (error) {
       if (isSecretMissingError(error)) {
         return NextResponse.json(
-          { error: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。" },
+          { error: "AI機能を利用できませんでした。" },
           { status: 503 }
         );
       }
-      console.error("Backend delete error:", error);
+      logError("corporate-url-delete-backend-failed", error, { companyId });
       return NextResponse.json(
         {
           error: "RAGデータの削除に失敗しました。しばらく後にお試しください。",
@@ -215,10 +218,14 @@ export async function POST(
       errors: deleteResult.errors,
     });
   } catch (error) {
-    console.error("Error deleting corporate URLs:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    logError("corporate-url-delete-failed", error, { companyId });
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CORPORATE_URL_DELETE_FAILED",
+      userMessage: "企業情報を削除できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+    });
   }
 }

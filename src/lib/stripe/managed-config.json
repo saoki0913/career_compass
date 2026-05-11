@@ -5,46 +5,59 @@
     "supportEmail": "support@shupass.jp",
     "supportUrl": "https://www.shupass.jp/contact",
     "websiteUrl": "https://www.shupass.jp",
-    "statementDescriptor": "SHUPASS"
+    "statementDescriptor": "SHUUKATU PASS",
+    "statementDescriptorPrefix": "SHUPASS"
   },
-  "product": {
-    "name": "就活Pass Subscription",
-    "description": "就活Pass サブスクリプション（Standard / Pro、月額・年額）。自動更新のサブスクリプションです。解約はアプリ内の設定画面または Stripe カスタマーポータルからいつでも可能で、次回更新日までは引き続きご利用いただけます。デジタルサービスの性質上、法令上必要な場合を除き返金はいたしません。ただし、二重課金・誤課金・当社の責めに帰すべき提供不能が確認された場合は、利用規約に従って返金等の対応を行います。",
-    "metadataKey": "shupass_subscription",
-    "metadataValue": "1"
-  },
-  "prices": [
+  "products": [
     {
-      "envVar": "STRIPE_PRICE_STANDARD_MONTHLY",
-      "lookupKey": "standard_monthly",
-      "unitAmount": 1490,
-      "interval": "month",
+      "name": "就活Pass Standard",
+      "description": "就活Pass Standard プラン（月額・年額）。自動更新のサブスクリプションです。解約はアプリ内の設定画面または Stripe カスタマーポータルからいつでも可能で、次回更新日までは引き続きご利用いただけます。",
       "plan": "standard",
-      "billingPeriod": "monthly"
+      "metadataKey": "shupass_plan",
+      "metadataValue": "standard",
+      "prices": [
+        {
+          "envVar": "STRIPE_PRICE_STANDARD_MONTHLY",
+          "lookupKey": "standard_monthly",
+          "unitAmount": 1490,
+          "interval": "month",
+          "plan": "standard",
+          "billingPeriod": "monthly"
+        },
+        {
+          "envVar": "STRIPE_PRICE_STANDARD_ANNUAL",
+          "lookupKey": "standard_annual",
+          "unitAmount": 14900,
+          "interval": "year",
+          "plan": "standard",
+          "billingPeriod": "annual"
+        }
+      ]
     },
     {
-      "envVar": "STRIPE_PRICE_STANDARD_ANNUAL",
-      "lookupKey": "standard_annual",
-      "unitAmount": 14900,
-      "interval": "year",
-      "plan": "standard",
-      "billingPeriod": "annual"
-    },
-    {
-      "envVar": "STRIPE_PRICE_PRO_MONTHLY",
-      "lookupKey": "pro_monthly",
-      "unitAmount": 2980,
-      "interval": "month",
+      "name": "就活Pass Pro",
+      "description": "就活Pass Pro プラン（月額・年額）。自動更新のサブスクリプションです。解約はアプリ内の設定画面または Stripe カスタマーポータルからいつでも可能で、次回更新日までは引き続きご利用いただけます。",
       "plan": "pro",
-      "billingPeriod": "monthly"
-    },
-    {
-      "envVar": "STRIPE_PRICE_PRO_ANNUAL",
-      "lookupKey": "pro_annual",
-      "unitAmount": 29800,
-      "interval": "year",
-      "plan": "pro",
-      "billingPeriod": "annual"
+      "metadataKey": "shupass_plan",
+      "metadataValue": "pro",
+      "prices": [
+        {
+          "envVar": "STRIPE_PRICE_PRO_MONTHLY",
+          "lookupKey": "pro_monthly",
+          "unitAmount": 2980,
+          "interval": "month",
+          "plan": "pro",
+          "billingPeriod": "monthly"
+        },
+        {
+          "envVar": "STRIPE_PRICE_PRO_ANNUAL",
+          "lookupKey": "pro_annual",
+          "unitAmount": 29800,
+          "interval": "year",
+          "plan": "pro",
+          "billingPeriod": "annual"
+        }
+      ]
     }
   ],
   "webhook": {

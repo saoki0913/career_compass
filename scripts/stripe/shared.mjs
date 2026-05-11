@@ -7,7 +7,7 @@ import Stripe from "stripe";
 import {
   auditManagedState,
   buildExpectedPortalPayload,
-  findManagedProduct,
+  findManagedProducts,
   planPortalSync,
   planProductSync,
   planWebhookSync,
@@ -87,10 +87,7 @@ export async function collectManagedState({ stripe }) {
 }
 
 export function buildInspectSummary({ config, state }) {
-  const managedProduct = findManagedProduct(state.products, config);
-  const managedPrices = managedProduct
-    ? state.prices.filter((price) => price.product === managedProduct.id)
-    : [];
+  const matched = findManagedProducts(state.products, config);
   const webhookMatches = state.webhookEndpoints.filter(
     (endpoint) => endpoint.url === config.webhook.url,
   );
@@ -99,22 +96,32 @@ export function buildInspectSummary({ config, state }) {
     state.portalConfigurations[0] ??
     null;
 
+  const managedProducts = matched.map(({ spec, stripeProduct }) => {
+    const managedPrices = stripeProduct
+      ? state.prices.filter((price) => price.product === stripeProduct.id)
+      : [];
+    return {
+      plan: spec.plan,
+      product: stripeProduct
+        ? {
+            id: stripeProduct.id,
+            name: stripeProduct.name,
+            metadata: stripeProduct.metadata,
+          }
+        : null,
+      prices: managedPrices.map((price) => ({
+        id: price.id,
+        unitAmount: price.unit_amount,
+        interval: price.recurring?.interval ?? null,
+        active: price.active,
+        signature: `${price.unit_amount}:${price.recurring?.interval ?? ""}`,
+      })),
+    };
+  });
+
   return {
     title: "Stripe inspect",
-    managedProduct: managedProduct
-      ? {
-          id: managedProduct.id,
-          name: managedProduct.name,
-          metadata: managedProduct.metadata,
-        }
-      : null,
-    managedPrices: managedPrices.map((price) => ({
-      id: price.id,
-      unitAmount: price.unit_amount,
-      interval: price.recurring?.interval ?? null,
-      active: price.active,
-      signature: `${price.unit_amount}:${price.recurring?.interval ?? ""}`,
-    })),
+    managedProducts,
     webhookMatches: webhookMatches.map((endpoint) => ({
       id: endpoint.id,
       url: endpoint.url,
@@ -157,37 +164,44 @@ export async function syncProducts({ stripe, config, state, dryRun }) {
     prices: state.prices,
   });
 
-  let product = findManagedProduct(state.products, config);
+  const matched = findManagedProducts(state.products, config);
   const applied = [];
 
   if (!dryRun) {
-    if (plan.product.action === "create") {
-      product = await stripe.products.create({
-        name: config.product.name,
-        description: config.product.description,
-        metadata: { [config.product.metadataKey]: config.product.metadataValue },
-      });
-      applied.push({ type: "product", action: "create", id: product.id });
-    } else if (plan.product.action === "update" && product) {
-      product = await stripe.products.update(product.id, {
-        name: config.product.name,
-        description: config.product.description,
-        metadata: { [config.product.metadataKey]: config.product.metadataValue },
-      });
-      applied.push({ type: "product", action: "update", id: product.id });
-    }
+    for (const productPlan of plan.products) {
+      const spec = productPlan.product.spec;
+      let stripeProduct =
+        matched.find((m) => m.spec.plan === spec.plan)?.stripeProduct ?? null;
 
-    for (const pricePlan of plan.prices) {
-      if (pricePlan.action !== "create") continue;
-      const created = await stripe.prices.create({
-        product: product.id,
-        currency: "jpy",
-        unit_amount: pricePlan.unitAmount,
-        recurring: { interval: pricePlan.interval },
-        metadata: { shupass_price: pricePlan.lookupKey },
-      });
-      pricePlan.existingId = created.id;
-      applied.push({ type: "price", action: "create", id: created.id, envVar: pricePlan.envVar });
+      if (productPlan.product.action === "create") {
+        stripeProduct = await stripe.products.create({
+          name: spec.name,
+          description: spec.description,
+          metadata: { [spec.metadataKey]: spec.metadataValue },
+        });
+        productPlan.product.id = stripeProduct.id;
+        applied.push({ type: "product", action: "create", id: stripeProduct.id, plan: spec.plan });
+      } else if (productPlan.product.action === "update" && stripeProduct) {
+        stripeProduct = await stripe.products.update(stripeProduct.id, {
+          name: spec.name,
+          description: spec.description,
+          metadata: { [spec.metadataKey]: spec.metadataValue },
+        });
+        applied.push({ type: "product", action: "update", id: stripeProduct.id, plan: spec.plan });
+      }
+
+      for (const pricePlan of productPlan.prices) {
+        if (pricePlan.action !== "create") continue;
+        const created = await stripe.prices.create({
+          product: stripeProduct.id,
+          currency: "jpy",
+          unit_amount: pricePlan.unitAmount,
+          recurring: { interval: pricePlan.interval },
+          metadata: { shupass_price: pricePlan.lookupKey },
+        });
+        pricePlan.existingId = created.id;
+        applied.push({ type: "price", action: "create", id: created.id, envVar: pricePlan.envVar });
+      }
     }
   }
 
@@ -245,21 +259,32 @@ export async function syncWebhook({ stripe, config, state, dryRun }) {
 }
 
 export async function syncPortal({ stripe, config, state, dryRun }) {
-  const managedProduct = findManagedProduct(state.products, config);
-  const managedPriceIds = managedProduct
-    ? state.prices
-        .filter((price) => price.product === managedProduct.id)
-        .map((price) => price.id)
-    : [];
+  const productPlan = planProductSync({
+    expectedConfig: config,
+    products: state.products,
+    prices: state.prices,
+  });
 
-  if (!managedProduct || managedPriceIds.length !== config.prices.length) {
+  const totalExpectedPrices = config.products.reduce((sum, p) => sum + p.prices.length, 0);
+  const productEntries = productPlan.products.map((entry) => ({
+    productId: entry.product.id,
+    priceIds: entry.prices
+      .map((p) => p.existingId)
+      .filter((id) => typeof id === "string"),
+  }));
+  const totalFoundPrices = productEntries.reduce((sum, e) => sum + e.priceIds.length, 0);
+
+  if (
+    productEntries.some((e) => !e.productId) ||
+    totalFoundPrices !== totalExpectedPrices
+  ) {
     return {
       ok: false,
       summary: {
         title: "Stripe sync-portal",
         action: "blocked",
       },
-      reason: "managed product または 4 Price が揃っていません。先に sync-products を実行してください。",
+      reason: `managed products または ${totalExpectedPrices} Price が揃っていません。先に sync-products を実行してください。`,
       plan: null,
       applied: [],
     };
@@ -267,8 +292,7 @@ export async function syncPortal({ stripe, config, state, dryRun }) {
 
   const plan = planPortalSync({
     expectedConfig: config,
-    productId: managedProduct?.id ?? null,
-    priceIds: managedPriceIds,
+    productEntries,
     configurations: state.portalConfigurations,
   });
   const applied = [];
@@ -280,8 +304,7 @@ export async function syncPortal({ stripe, config, state, dryRun }) {
         metadata: { shupass: "portal" },
         ...buildExpectedPortalPayload({
           expectedConfig: config,
-          productId: managedProduct?.id ?? null,
-          priceIds: managedPriceIds,
+          productEntries,
         }),
       });
       applied.push({ type: "portal", action: "create", id: created.id });
@@ -290,8 +313,7 @@ export async function syncPortal({ stripe, config, state, dryRun }) {
       await stripe.billingPortal.configurations.update(plan.id, {
         ...buildExpectedPortalPayload({
           expectedConfig: config,
-          productId: managedProduct?.id ?? null,
-          priceIds: managedPriceIds,
+          productEntries,
         }),
       });
       applied.push({ type: "portal", action: "update", id: plan.id });

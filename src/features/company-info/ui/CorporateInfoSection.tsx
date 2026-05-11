@@ -83,6 +83,8 @@ export function CorporateInfoSection({
     showConfigureStep,
     isModalBusy,
     ragStatus,
+    ragStatusUnavailable,
+    statusReason,
     hasAnyData,
     totalSources,
     pageLimit,
@@ -178,6 +180,12 @@ export function CorporateInfoSection({
             </div>
           ) : null}
 
+          {ragStatusUnavailable && (
+            <div className="mb-4 rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+              {statusReason || "企業情報の連携状況を確認できませんでした。時間を置いて再読み込みしてください。"}
+            </div>
+          )}
+
           {!hasAnyData ? (
             <div className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-5 py-10 text-center">
               <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-muted/50 text-muted-foreground">
@@ -263,7 +271,9 @@ export function CorporateInfoSection({
                 </div>
               ))}
 
-              {(sourceStatusCounts.pending > 0 || sourceStatusCounts.processing > 0) && (
+              {(sourceStatusCounts.pending > 0 ||
+                sourceStatusCounts.processing > 0 ||
+                sourceStatusCounts.failed > 0) && (
                 <div className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-4 py-3">
                   <div className="flex flex-wrap items-center gap-2">
                     {sourceStatusCounts.pending > 0 && (
@@ -276,9 +286,14 @@ export function CorporateInfoSection({
                         処理中 {sourceStatusCounts.processing}件
                       </span>
                     )}
+                    {sourceStatusCounts.failed > 0 && (
+                      <span className="inline-flex rounded-full border border-red-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-red-700">
+                        失敗 {sourceStatusCounts.failed}件
+                      </span>
+                    )}
                   </div>
                   <p className="mt-2 text-xs text-amber-900/80">
-                    カテゴリ別の件数には、自動判定前のPDFはまだ含まれません。登録済みソース一覧には反映されています。
+                    カテゴリ別の件数には、自動判定前または失敗したPDFはまだ含まれません。登録済みソース一覧で状況を確認できます。
                   </p>
                 </div>
               )}

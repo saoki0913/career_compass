@@ -108,6 +108,11 @@ function CandidateItem({
           >
             信頼度 {confidenceMeta.label}
           </span>
+          {candidate.requiresUserConfirmation && (
+            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+              取得前に確認
+            </span>
+          )}
         </div>
         {candidate.complianceStatus === "blocked" && candidate.complianceReasons?.[0] && (
           <p className="mt-1.5 text-[11px] text-destructive">{candidate.complianceReasons[0]}</p>

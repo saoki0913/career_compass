@@ -37,6 +37,8 @@
 | `UPSTASH_REDIS_REST_TOKEN` | No | Upstash Redis REST トークン |
 | `DISABLE_TOKEN_LIMIT` | No | `true` で日次トークン上限チェック全体を無効化。緊急バイパス用 |
 
+企業ロゴの取得率を上げるには `NEXT_PUBLIC_LOGO_DEV_TOKEN` を優先して設定します。Logo.dev の publishable key がない環境では、企業ドメインの favicon と頭文字 avatar へ fallback します。Brandfetch を併用する場合は `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` も設定してください。
+
 ## Railway (バックエンド)
 
 | 変数名 | 必須 | 本番値 / 説明 |

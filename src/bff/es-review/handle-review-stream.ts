@@ -127,7 +127,7 @@ export async function handleReviewStream(
         return createApiErrorResponse(request, {
           status: 503,
           code: "ES_REVIEW_AI_AUTH_NOT_CONFIGURED",
-          userMessage: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。",
+          userMessage: "AI機能を利用できませんでした。",
           action: "時間を置いて、もう一度お試しください。",
           retryable: true,
           requestId,

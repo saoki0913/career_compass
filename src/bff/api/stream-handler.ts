@@ -182,10 +182,8 @@ export function createConversationStreamHandler<TContext>(
           return createApiErrorResponse(request, {
             status: 503,
             code: "FASTAPI_SECRET_NOT_CONFIGURED",
-            userMessage:
-              "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。",
-            action:
-              "管理側で AI 認証設定を確認してから、もう一度お試しください。",
+            userMessage: "AI機能を利用できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
             error: fetchError,
             logContext: `${config.feature}-stream:secret`,
           });

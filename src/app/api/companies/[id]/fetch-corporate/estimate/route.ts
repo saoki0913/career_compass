@@ -14,6 +14,8 @@ import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-complia
 import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { logError } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -69,10 +71,11 @@ export async function POST(
   try {
     const { id: companyId } = await params;
     const body = await request.json();
-    const { urls, contentType, contentChannel } = body as {
+    const { urls, contentType, contentChannel, confirmedWarningUrls } = body as {
       urls: string[];
       contentType?: string;
       contentChannel?: "corporate_ir" | "corporate_business" | "corporate_general";
+      confirmedWarningUrls?: string[];
     };
 
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
@@ -108,6 +111,26 @@ export async function POST(
       const blockedReason =
         compliance.blockedResults[0]?.reasons[0] || "公開ページURLのみ取得できます";
       return NextResponse.json({ error: blockedReason, errors: [blockedReason] }, { status: 400 });
+    }
+    const confirmedWarningUrlSet = new Set(
+      Array.isArray(confirmedWarningUrls)
+        ? confirmedWarningUrls.map((url) => String(url).trim()).filter(Boolean)
+        : [],
+    );
+    const unconfirmedWarning = compliance.warningResults.find(
+      (result) => !confirmedWarningUrlSet.has(result.url),
+    );
+    if (unconfirmedWarning) {
+      return createApiErrorResponse(request, {
+        status: 409,
+        code: "PUBLIC_SOURCE_CONFIRMATION_REQUIRED",
+        userMessage: unconfirmedWarning.reasons[0] || "取得前にページ内容の確認が必要です。",
+        action: "ページを確認してから、もう一度取得してください。",
+        extra: {
+          warningUrl: unconfirmedWarning.url,
+          reasons: unconfirmedWarning.reasons,
+        },
+      });
     }
 
     const contentTypeResolved = contentType || detectContentTypeFromUrl(compliance.allowedUrls[0]) || "corporate_site";
@@ -183,11 +206,23 @@ export async function POST(
     });
   } catch (error) {
     if (isSecretMissingError(error)) {
-      const msg = "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。";
-      return NextResponse.json({ error: msg, errors: [msg] }, { status: 503 });
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "AI_AUTH_CONFIG_MISSING",
+        userMessage: "AI機能を利用できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        developerMessage: "AI provider credentials are missing or unavailable",
+      });
     }
-    console.error("Error estimating corporate info fetch:", error);
-    const msg = "Internal server error";
-    return NextResponse.json({ error: msg, errors: [msg] }, { status: 500 });
+    logError("corporate-fetch-estimate-failed", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CORPORATE_FETCH_ESTIMATE_FAILED",
+      userMessage: "企業情報の見積を取得できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+    });
   }
 }

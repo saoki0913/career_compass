@@ -46,7 +46,9 @@ vi.mock("@/lib/company-info/pricing", () => ({
 
 vi.mock("@/lib/company-info/source-compliance", () => ({
   filterAllowedPublicSourceUrls: vi.fn(async (urls: string[]) => ({
+    results: [],
     allowedUrls: urls,
+    warningResults: [],
     blockedResults: [],
   })),
 }));
@@ -223,5 +225,38 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
     expect(response.status).toBe(400);
     expect(data.error).toBe("社内URLは取得できません");
     expect(data.errors).toEqual([data.error]);
+  });
+
+  it("requires confirmation before estimating warning urls", async () => {
+    const { filterAllowedPublicSourceUrls } = await import("@/lib/company-info/source-compliance");
+    const warningResult = {
+      url: "https://example.com/company",
+      status: "warning" as const,
+      reasons: ["取得前にページ内容の確認が必要です。"],
+      robotsStatus: "error" as const,
+      termsStatus: "unknown" as const,
+      checkedAt: "2026-04-26T00:00:00.000Z",
+      policyVersion: "test",
+    };
+    vi.mocked(filterAllowedPublicSourceUrls).mockResolvedValueOnce({
+      allowedUrls: [warningResult.url],
+      results: [warningResult],
+      warningResults: [warningResult],
+      blockedResults: [],
+    });
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-corporate/estimate/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate/estimate", {
+      method: "POST",
+      body: JSON.stringify({ urls: [warningResult.url] }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(data.error.code).toBe("PUBLIC_SOURCE_CONFIRMATION_REQUIRED");
+    expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
   });
 });

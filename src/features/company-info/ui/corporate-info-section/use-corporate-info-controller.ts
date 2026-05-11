@@ -353,6 +353,8 @@ export function useCorporateInfoSectionController({
   const isModalBusy = isSearching || isFetching || isUploading;
   const hasReviewContext = webDraft.hasSearched || webDraft.candidates.length > 0;
   const ragStatus = status?.ragStatus;
+  const ragStatusUnavailable = status?.ragStatusUnavailable === true;
+  const statusReason = status?.statusReason ?? null;
   const hasAnyData = Boolean(status?.corporateInfoUrls && status.corporateInfoUrls.length > 0);
   const totalSources = status?.corporateInfoUrls?.length || 0;
   const pageLimit = status?.pageLimit || 0;
@@ -548,6 +550,8 @@ export function useCorporateInfoSectionController({
     hasReviewContext,
     hasPendingPdfJobs,
     ragStatus,
+    ragStatusUnavailable,
+    statusReason,
     hasAnyData,
     totalSources,
     pageLimit,

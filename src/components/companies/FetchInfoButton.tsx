@@ -35,6 +35,7 @@ interface SearchCandidate {
   relationCompanyName?: string | null;
   complianceStatus?: "allowed" | "warning" | "blocked";
   complianceReasons?: string[];
+  requiresUserConfirmation?: boolean;
 }
 
 interface SearchPagesResponse {
@@ -46,6 +47,14 @@ interface SearchPagesResponse {
 interface ComplianceCheckResponse {
   blockedResults: Array<{ url: string; reasons: string[] }>;
   warningResults: Array<{ url: string; reasons: string[] }>;
+}
+
+function getComplianceReason(reasons?: string[]) {
+  return reasons?.[0] || "公開ページURLのみ取得できます";
+}
+
+function confirmSourceWarning(reason: string) {
+  return window.confirm(`${reason}\n\nこのページを確認済みとして取得を続行しますか？`);
 }
 
 interface DeadlineSummary {
@@ -304,6 +313,7 @@ export function FetchInfoButton({
   const handleConfirmUrl = async () => {
     if (!acquireLock("採用情報を取得中")) return;
     let urlToFetch = "";
+    let confirmedWarningUrls: string[] = [];
 
     if (selectedSource === "existing" && hasRecruitmentUrl) {
       urlToFetch = "";
@@ -339,16 +349,22 @@ export function FetchInfoButton({
         if (complianceResponse.ok) {
           const complianceData: ComplianceCheckResponse = await complianceResponse.json();
           if (complianceData.blockedResults.length > 0) {
-            setError(complianceData.blockedResults[0]?.reasons[0] || "公開ページURLのみ取得できます");
+            const message = getComplianceReason(complianceData.blockedResults[0]?.reasons);
+            setError(message);
+            notifyMessage(message);
             setIsFetching(false);
             releaseLock();
             return;
           }
           if (complianceData.warningResults.length > 0) {
-            notifyMessage(
-              complianceData.warningResults[0]?.reasons[0] ||
-                "要確認: 利用規約を確認してください。",
-            );
+            const message = getComplianceReason(complianceData.warningResults[0]?.reasons);
+            notifyMessage(message);
+            if (!confirmSourceWarning(message)) {
+              setIsFetching(false);
+              releaseLock();
+              return;
+            }
+            confirmedWarningUrls = complianceData.warningResults.map((result) => result.url);
           }
         }
       } catch {
@@ -366,6 +382,7 @@ export function FetchInfoButton({
           url: urlToFetch,
           selectionType: selectionType || undefined,
           graduationYear: activeGraduationYear || resolveGraduationYear() || undefined,
+          confirmedWarningUrls,
         }),
       });
 
@@ -781,6 +798,11 @@ export function FetchInfoButton({
                               >
                                 {label}
                               </span>
+                              {candidate.requiresUserConfirmation && (
+                                <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 border border-amber-200 bg-amber-50 text-amber-700">
+                                  取得前に確認
+                                </span>
+                              )}
                             </div>
                             {(candidate.sourceType === "parent" || candidate.sourceType === "subsidiary") &&
                               candidate.relationCompanyName && (

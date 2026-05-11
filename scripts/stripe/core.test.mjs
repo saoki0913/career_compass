@@ -20,36 +20,48 @@ const expectedConfig = {
     websiteUrl: "https://www.shupass.jp",
     statementDescriptor: "SHUPASS",
   },
-  product: {
-    name: "就活Pass Subscription",
-    metadataKey: "shupass_subscription",
-    metadataValue: "1",
-    description: "就活Pass サブスクリプション（Standard / Pro、月額・年額）",
-  },
-  prices: [
+  products: [
     {
-      envVar: "STRIPE_PRICE_STANDARD_MONTHLY",
-      lookupKey: "standard_monthly",
-      unitAmount: 1490,
-      interval: "month",
+      name: "就活Pass Standard",
+      plan: "standard",
+      metadataKey: "shupass_plan",
+      metadataValue: "standard",
+      description: "就活Pass Standard プラン（月額・年額）",
+      prices: [
+        {
+          envVar: "STRIPE_PRICE_STANDARD_MONTHLY",
+          lookupKey: "standard_monthly",
+          unitAmount: 1490,
+          interval: "month",
+        },
+        {
+          envVar: "STRIPE_PRICE_STANDARD_ANNUAL",
+          lookupKey: "standard_annual",
+          unitAmount: 14900,
+          interval: "year",
+        },
+      ],
     },
     {
-      envVar: "STRIPE_PRICE_STANDARD_ANNUAL",
-      lookupKey: "standard_annual",
-      unitAmount: 14900,
-      interval: "year",
-    },
-    {
-      envVar: "STRIPE_PRICE_PRO_MONTHLY",
-      lookupKey: "pro_monthly",
-      unitAmount: 2980,
-      interval: "month",
-    },
-    {
-      envVar: "STRIPE_PRICE_PRO_ANNUAL",
-      lookupKey: "pro_annual",
-      unitAmount: 29800,
-      interval: "year",
+      name: "就活Pass Pro",
+      plan: "pro",
+      metadataKey: "shupass_plan",
+      metadataValue: "pro",
+      description: "就活Pass Pro プラン（月額・年額）",
+      prices: [
+        {
+          envVar: "STRIPE_PRICE_PRO_MONTHLY",
+          lookupKey: "pro_monthly",
+          unitAmount: 2980,
+          interval: "month",
+        },
+        {
+          envVar: "STRIPE_PRICE_PRO_ANNUAL",
+          lookupKey: "pro_annual",
+          unitAmount: 29800,
+          interval: "year",
+        },
+      ],
     },
   ],
   webhook: {
@@ -104,16 +116,20 @@ test("resolveStripeSecretKey rejects environment mismatch", () => {
   );
 });
 
-test("planProductSync creates managed product and missing prices", () => {
+test("planProductSync creates managed products and missing prices", () => {
   const plan = planProductSync({
     expectedConfig,
     products: [],
     prices: [],
   });
 
-  assert.equal(plan.product.action, "create");
+  assert.equal(plan.products.length, 2);
+  assert.equal(plan.products[0].product.action, "create");
+  assert.equal(plan.products[1].product.action, "create");
   assert.equal(plan.prices.length, 4);
   assert.ok(plan.prices.every((entry) => entry.action === "create"));
+  assert.equal(plan.products[0].prices.length, 2);
+  assert.equal(plan.products[1].prices.length, 2);
 });
 
 test("planWebhookSync updates events when endpoint exists with wrong subscriptions", () => {
@@ -140,8 +156,10 @@ test("planWebhookSync updates events when endpoint exists with wrong subscriptio
 test("planPortalSync detects default portal drift", () => {
   const plan = planPortalSync({
     expectedConfig,
-    productId: "prod_123",
-    priceIds: ["price_1", "price_2"],
+    productEntries: [
+      { productId: "prod_standard", priceIds: ["price_1", "price_2"] },
+      { productId: "prod_pro", priceIds: ["price_3", "price_4"] },
+    ],
     configurations: [
       {
         id: "bpc_123",
@@ -212,7 +230,9 @@ test("auditManagedState reports drifts and manual compliance checks", () => {
   });
 
   assert.equal(audit.ok, false);
-  assert.equal(audit.diffs.products.product.action, "create");
+  assert.equal(audit.diffs.products.products.length, 2);
+  assert.equal(audit.diffs.products.products[0].product.action, "create");
+  assert.equal(audit.diffs.products.products[1].product.action, "create");
   assert.equal(
     audit.diffs.products.prices.filter((entry) => entry.action === "create").length,
     4,

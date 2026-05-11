@@ -65,14 +65,16 @@ export function resolveStripeSecretKey({
   return key;
 }
 
-export function findManagedProduct(products, expectedConfig) {
-  return (
-    products.find(
-      (product) =>
-        product.metadata?.[expectedConfig.product.metadataKey] ===
-        expectedConfig.product.metadataValue,
-    ) ?? products.find((product) => product.name === expectedConfig.product.name) ?? null
-  );
+export function findManagedProducts(stripeProducts, expectedConfig) {
+  return expectedConfig.products.map((spec) => {
+    const match =
+      stripeProducts.find(
+        (p) => p.metadata?.[spec.metadataKey] === spec.metadataValue,
+      ) ??
+      stripeProducts.find((p) => p.name === spec.name) ??
+      null;
+    return { spec, stripeProduct: match };
+  });
 }
 
 export function planProductSync({
@@ -80,56 +82,71 @@ export function planProductSync({
   products,
   prices,
 }) {
-  const managedProduct = findManagedProduct(products, expectedConfig);
-  const productDiffs = [];
+  const matched = findManagedProducts(products, expectedConfig);
 
-  if (managedProduct) {
-    pushDiff(productDiffs, "name", managedProduct.name ?? null, expectedConfig.product.name);
-    pushDiff(
-      productDiffs,
-      "description",
-      managedProduct.description ?? null,
-      expectedConfig.product.description,
-    );
-    pushDiff(
-      productDiffs,
-      `metadata.${expectedConfig.product.metadataKey}`,
-      managedProduct.metadata?.[expectedConfig.product.metadataKey] ?? null,
-      expectedConfig.product.metadataValue,
-    );
-  }
+  const productPlans = matched.map(({ spec, stripeProduct }) => {
+    const productDiffs = [];
 
-  const productAction = managedProduct ? (productDiffs.length > 0 ? "update" : "noop") : "create";
-  const managedPrices = managedProduct
-    ? prices.filter((price) => price.product === managedProduct.id)
-    : [];
+    if (stripeProduct) {
+      pushDiff(productDiffs, "name", stripeProduct.name ?? null, spec.name);
+      pushDiff(
+        productDiffs,
+        "description",
+        stripeProduct.description ?? null,
+        spec.description,
+      );
+      pushDiff(
+        productDiffs,
+        `metadata.${spec.metadataKey}`,
+        stripeProduct.metadata?.[spec.metadataKey] ?? null,
+        spec.metadataValue,
+      );
+    }
 
-  const pricePlans = expectedConfig.prices.map((spec) => {
-    const match =
-      managedPrices.find(
-        (price) =>
-          price.currency === "jpy" &&
-          price.unit_amount === spec.unitAmount &&
-          price.recurring?.interval === spec.interval,
-      ) ?? null;
+    const productAction = stripeProduct
+      ? productDiffs.length > 0
+        ? "update"
+        : "noop"
+      : "create";
+    const managedPrices = stripeProduct
+      ? prices.filter((price) => price.product === stripeProduct.id)
+      : [];
+
+    const pricePlans = spec.prices.map((priceSpec) => {
+      const match =
+        managedPrices.find(
+          (price) =>
+            price.currency === "jpy" &&
+            price.unit_amount === priceSpec.unitAmount &&
+            price.recurring?.interval === priceSpec.interval,
+        ) ?? null;
+
+      return {
+        envVar: priceSpec.envVar,
+        lookupKey: priceSpec.lookupKey,
+        action: match ? "noop" : "create",
+        existingId: match?.id ?? null,
+        unitAmount: priceSpec.unitAmount,
+        interval: priceSpec.interval,
+      };
+    });
 
     return {
-      envVar: spec.envVar,
-      lookupKey: spec.lookupKey,
-      action: match ? "noop" : "create",
-      existingId: match?.id ?? null,
-      unitAmount: spec.unitAmount,
-      interval: spec.interval,
+      product: {
+        action: productAction,
+        id: stripeProduct?.id ?? null,
+        diffs: productDiffs,
+        spec,
+      },
+      prices: pricePlans,
     };
   });
 
+  const flatPrices = productPlans.flatMap((entry) => entry.prices);
+
   return {
-    product: {
-      action: productAction,
-      id: managedProduct?.id ?? null,
-      diffs: productDiffs,
-    },
-    prices: pricePlans,
+    products: productPlans,
+    prices: flatPrices,
   };
 }
 
@@ -160,11 +177,9 @@ export function planWebhookSync({
 
 export function buildExpectedPortalPayload({
   expectedConfig,
-  productId,
-  priceIds,
+  productEntries,
 }) {
   return {
-    active: true,
     default_return_url: expectedConfig.portal.returnUrl,
     business_profile: {
       headline: expectedConfig.portal.businessProfile.headline,
@@ -197,10 +212,9 @@ export function buildExpectedPortalPayload({
         ),
         proration_behavior:
           expectedConfig.portal.features.subscription_update.proration_behavior,
-        products:
-          productId && priceIds.length > 0
-            ? [{ product: productId, prices: sortedStrings(priceIds) }]
-            : [],
+        products: productEntries
+          .filter((e) => e.productId && e.priceIds.length > 0)
+          .map((e) => ({ product: e.productId, prices: sortedStrings(e.priceIds) })),
       },
     },
   };
@@ -255,16 +269,14 @@ function normalizePortalConfiguration(configuration) {
 
 export function planPortalSync({
   expectedConfig,
-  productId,
-  priceIds,
+  productEntries,
   configurations,
 }) {
   const configuration =
     configurations.find((entry) => entry.is_default) ?? configurations[0] ?? null;
   const expectedPayload = buildExpectedPortalPayload({
     expectedConfig,
-    productId,
-    priceIds,
+    productEntries,
   });
   const expectedComparable = normalizePortalConfiguration(expectedPayload);
   const actualComparable = normalizePortalConfiguration(configuration);
@@ -301,12 +313,8 @@ export function planPortalSync({
       actualComparable.features.customer_update.allowed_updates,
       expectedComparable.features.customer_update.allowed_updates,
     );
-    pushDiff(
-      diffs,
-      "features.subscription_update.products",
-      actualComparable.features.subscription_update.products,
-      expectedComparable.features.subscription_update.products,
-    );
+    // Stripe API accepts products on write but omits from response (API ≥ 2024-09-30).
+    // Comparing would always show drift. Verify via Dashboard instead.
     pushDiff(
       diffs,
       "features.subscription_cancel.mode",
@@ -369,7 +377,7 @@ export function getAccountDiffs({
     diffs,
     "settings.card_payments.statement_descriptor_prefix",
     account?.settings?.card_payments?.statement_descriptor_prefix ?? null,
-    expectedConfig.account.statementDescriptor,
+    expectedConfig.account.statementDescriptorPrefix ?? expectedConfig.account.statementDescriptor,
   );
 
   return diffs;
@@ -404,18 +412,19 @@ export function auditManagedState({
     products,
     prices,
   });
-  const managedProduct = findManagedProduct(products, expectedConfig);
-  const priceIds = productPlan.prices
-    .map((entry) => entry.existingId)
-    .filter((entry) => typeof entry === "string");
+  const productEntries = productPlan.products.map((entry) => ({
+    productId: entry.product.id,
+    priceIds: entry.prices
+      .map((p) => p.existingId)
+      .filter((id) => typeof id === "string"),
+  }));
   const webhookPlan = planWebhookSync({
     expectedConfig,
     endpoints: webhookEndpoints,
   });
   const portalPlan = planPortalSync({
     expectedConfig,
-    productId: managedProduct?.id ?? null,
-    priceIds,
+    productEntries,
     configurations: portalConfigurations,
   });
   const accountPlan = planAccountSync({
@@ -424,7 +433,7 @@ export function auditManagedState({
   });
 
   const productHasDiff =
-    productPlan.product.action !== "noop" ||
+    productPlan.products.some((entry) => entry.product.action !== "noop") ||
     productPlan.prices.some((entry) => entry.action !== "noop");
   const webhookHasDiff = webhookPlan.action !== "noop";
   const portalHasDiff = portalPlan.action !== "noop";
@@ -451,7 +460,8 @@ export function auditManagedState({
     });
   }
 
-  const ok = !productHasDiff && !webhookHasDiff && !portalHasDiff && !accountHasDiff;
+  // accountHasDiff is always manual (Dashboard-only), so it doesn't block auto-readiness.
+  const ok = !productHasDiff && !webhookHasDiff && !portalHasDiff;
   const nextActions = [];
 
   if (productHasDiff) nextActions.push("scripts/stripe/sync-products.mjs を実行");

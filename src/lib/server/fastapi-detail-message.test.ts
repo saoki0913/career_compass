@@ -29,7 +29,7 @@ describe("fastapi-detail-message", () => {
     expect(options.status).toBe(503);
     expect(options.code).toBe("FASTAPI_TENANT_KEY_NOT_CONFIGURED");
     expect(options.llmErrorType).toBe("tenant_key_not_configured");
-    expect(options.userMessage).toBe("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。");
+    expect(options.userMessage).toBe("AI機能を利用できませんでした。");
     expect(options.retryable).toBe(true);
   });
 

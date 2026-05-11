@@ -67,9 +67,10 @@ export async function createInterviewUpstreamStream(options: {
       return createApiErrorResponse(options.request, {
         status: 503,
         code: "AI_AUTH_CONFIG_MISSING",
-        userMessage: "AI認証設定が未完了です。",
-        action: "管理側で設定確認後に再度お試しください。",
+        userMessage: "AI機能を利用できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
         retryable: true,
+        developerMessage: "AI provider credentials are missing or unavailable",
       });
     }
     throw fetchError;

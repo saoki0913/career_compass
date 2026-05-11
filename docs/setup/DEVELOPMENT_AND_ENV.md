@@ -775,6 +775,8 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 
 ✅ = 必須、🔶 = 機能使用時に必要
 
+企業ロゴが favicon / 頭文字 avatar に落ちる場合は、まず `NEXT_PUBLIC_LOGO_DEV_TOKEN` を設定してください。Brandfetch も使う場合は `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` を追加します。どちらも未設定でもアプリは動作しますが、実ロゴの取得率は下がります。
+
 ---
 
 ## 次のステップ

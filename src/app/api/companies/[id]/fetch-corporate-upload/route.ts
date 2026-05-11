@@ -24,6 +24,8 @@ import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import type { CareerPrincipalPlan } from "@/lib/fastapi/career-principal";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { logError } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -202,8 +204,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let companyId = "unknown";
   try {
-    const { id: companyId } = await params;
+    ({ id: companyId } = await params);
 
     // Reject multipart bodies whose Content-Length already exceeds the
     // aggregate cap before we buffer any part of them into FormData.
@@ -331,11 +334,11 @@ export async function POST(
       } catch (error) {
         if (isSecretMissingError(error)) {
           return NextResponse.json(
-            { error: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。" },
+            { error: "AI機能を利用できませんでした。" },
             { status: 503 }
           );
         }
-        console.error("Backend PDF upload error:", error);
+        logError("corporate-pdf-upload-backend-failed", error, { companyId, fileName: file.name });
         items.push({
           fileName: file.name,
           status: "failed",
@@ -464,7 +467,14 @@ export async function POST(
             : "—",
     });
   } catch (error) {
-    console.error("Error uploading corporate PDF:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    logError("corporate-pdf-upload-failed", error, { companyId });
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CORPORATE_PDF_UPLOAD_FAILED",
+      userMessage: "PDFを取り込めませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+    });
   }
 }

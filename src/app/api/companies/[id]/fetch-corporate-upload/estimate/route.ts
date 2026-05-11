@@ -9,6 +9,8 @@ import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import { getRemainingCompanyRagPdfFreeUnits } from "@/lib/company-info/usage";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { logError } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -132,11 +134,18 @@ export async function POST(
   } catch (error) {
     if (isSecretMissingError(error)) {
       return NextResponse.json(
-        { error: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。" },
+        { error: "AI機能を利用できませんでした。" },
         { status: 503 }
       );
     }
-    console.error("Error estimating corporate PDF upload:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    logError("corporate-pdf-estimate-failed", error);
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "CORPORATE_PDF_ESTIMATE_FAILED",
+      userMessage: "PDFの見積を取得できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+    });
   }
 }
