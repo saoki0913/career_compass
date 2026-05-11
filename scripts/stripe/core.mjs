@@ -377,7 +377,7 @@ export function getAccountDiffs({
     diffs,
     "settings.card_payments.statement_descriptor_prefix",
     account?.settings?.card_payments?.statement_descriptor_prefix ?? null,
-    expectedConfig.account.statementDescriptor,
+    expectedConfig.account.statementDescriptorPrefix ?? expectedConfig.account.statementDescriptor,
   );
 
   return diffs;

@@ -5,7 +5,8 @@
     "supportEmail": "support@shupass.jp",
     "supportUrl": "https://www.shupass.jp/contact",
     "websiteUrl": "https://www.shupass.jp",
-    "statementDescriptor": "SHUPASS"
+    "statementDescriptor": "SHUUKATU PASS",
+    "statementDescriptorPrefix": "SHUPASS"
   },
   "products": [
     {
