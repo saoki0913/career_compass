@@ -180,7 +180,6 @@ export function buildExpectedPortalPayload({
   productEntries,
 }) {
   return {
-    active: true,
     default_return_url: expectedConfig.portal.returnUrl,
     business_profile: {
       headline: expectedConfig.portal.businessProfile.headline,
