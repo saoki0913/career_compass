@@ -546,6 +546,14 @@ content_type に応じてチャンクサイズが変わる（`get_chunk_settings
 - URL 検索、URL 取込、PDF upload を扱う
 - 実行前見積を表示する
 - `credits > 0` / `Mistral 使用` / `truncation` の時だけ確認を出す
+- 公開ページ判定で取得可否を確認できない URL は候補から除外せず、`warning` として表示し、取得実行前にユーザー確認を必須にする
+- 連携状況 API が一時的に確認できない場合は `ragStatusUnavailable` / `statusReason` を返し、画面では「確認中」の固定表示ではなく再読み込み可能な警告として表示する
+
+### ユーザー向けエラー表示
+
+- AI / FastAPI の認証・設定不足は一般ユーザーへ内部設定名を出さず、「AI機能を利用できませんでした。」に正規化する
+- 画面上の一般ユーザー向け失敗は `parseApiErrorResponse()` / `toAppUiError()` で `AppUiError` に変換し、`notifyUserFacingAppError()` でスナックバー通知する
+- `robots.txt` など取得判定の内部処理名は UI 文言に出さず、「取得前にページ内容の確認が必要です。」として表示する
 
 ---
 

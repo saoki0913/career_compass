@@ -259,7 +259,7 @@ export async function getQuestionFromFastAPI(
     if (isSecretMissingError(e)) {
       return {
         question: null,
-        error: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。",
+        error: "AI機能を利用できませんでした。",
         conversationState: null,
         nextAction: null,
         telemetry: null,

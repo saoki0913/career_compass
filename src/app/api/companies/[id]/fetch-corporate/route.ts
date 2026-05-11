@@ -104,11 +104,12 @@ export async function POST(
 
     // Get request body
     const body = await request.json();
-    const { urls, contentType, contentChannel, sourceMetadata } = body as {
+    const { urls, contentType, contentChannel, sourceMetadata, confirmedWarningUrls } = body as {
       urls: string[];
       contentType?: string; // 9-category content type (e.g., new_grad_recruitment, ir_materials)
       contentChannel?: "corporate_ir" | "corporate_business" | "corporate_general";
       sourceMetadata?: Record<string, SourceMetadataInput>;
+      confirmedWarningUrls?: string[];
     };
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
       return createApiErrorResponse(request, {
@@ -177,6 +178,11 @@ export async function POST(
       .filter((u) => u.length > 0 && !existingUrlSet.has(u));
 
     const compliance = await filterAllowedPublicSourceUrls(uniqueRequestedUrls);
+    const confirmedWarningUrlSet = new Set(
+      Array.isArray(confirmedWarningUrls)
+        ? confirmedWarningUrls.map((url) => String(url).trim()).filter(Boolean)
+        : [],
+    );
     if (compliance.blockedResults.length > 0) {
       return createApiErrorResponse(request, {
         status: 400,
@@ -188,6 +194,21 @@ export async function POST(
             url: result.url,
             reasons: result.reasons,
           })),
+        },
+      });
+    }
+    const unconfirmedWarning = compliance.warningResults.find(
+      (result) => !confirmedWarningUrlSet.has(result.url),
+    );
+    if (unconfirmedWarning) {
+      return createApiErrorResponse(request, {
+        status: 409,
+        code: "PUBLIC_SOURCE_CONFIRMATION_REQUIRED",
+        userMessage: unconfirmedWarning.reasons[0] || "取得前にページ内容の確認が必要です。",
+        action: "ページを確認してから、もう一度取得してください。",
+        extra: {
+          warningUrl: unconfirmedWarning.url,
+          reasons: unconfirmedWarning.reasons,
         },
       });
     }
@@ -259,9 +280,10 @@ export async function POST(
         return createApiErrorResponse(request, {
           status: 503,
           code: "AI_AUTH_CONFIG_MISSING",
-          userMessage: "AI認証設定が未完了です。",
-          action: "管理側で設定確認後に再度お試しください。",
+          userMessage: "AI機能を利用できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
           retryable: true,
+          developerMessage: "AI provider credentials are missing or unavailable",
         });
       }
       return createApiErrorResponse(request, {
@@ -507,6 +529,8 @@ export async function GET(
       midterm_plan_chunks: 0,
       last_updated: null as string | null,
     };
+    let ragStatusUnavailable = false;
+    let statusReason: string | null = null;
 
     try {
       const response = await fetchFastApiWithPrincipal(
@@ -522,9 +546,14 @@ export async function GET(
       );
       if (response.ok) {
         ragStatus = await response.json();
+      } else {
+        ragStatusUnavailable = true;
+        statusReason = "企業情報の連携状況を確認できませんでした。時間を置いて再読み込みしてください。";
       }
-    } catch {
-      // Ignore errors - return default status
+    } catch (error) {
+      ragStatusUnavailable = true;
+      statusReason = "企業情報の連携状況を確認できませんでした。時間を置いて再読み込みしてください。";
+      logError("corporate-fetch-rag-status-unavailable", error, { companyId });
     }
 
     const corporateInfoUrls = parseCorporateInfoSources(company.corporateInfoUrls);
@@ -627,6 +656,8 @@ export async function GET(
       companyId,
       corporateInfoUrls: backfilledUrls,
       corporateInfoFetchedAt: company.corporateInfoFetchedAt,
+      ragStatusUnavailable,
+      statusReason,
       ragStatus: {
         hasRag: ragStatus.has_rag,
         totalChunks: ragStatus.total_chunks,

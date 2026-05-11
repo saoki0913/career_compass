@@ -453,7 +453,7 @@ describe("handleReviewStream", () => {
     expect(body).toMatchObject({
       error: {
         code: "ES_REVIEW_AI_AUTH_NOT_CONFIGURED",
-        userMessage: "AI認証設定が未完了です。管理側で設定確認後に再度お試しください。",
+        userMessage: "AI機能を利用できませんでした。",
       },
       requestId: "req-1",
     });

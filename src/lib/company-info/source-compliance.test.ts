@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  applyPublicSourceComplianceToCandidates,
   checkPublicSourceCompliance,
   filterAllowedPublicSourceUrls,
 } from "@/lib/company-info/source-compliance";
@@ -49,7 +50,27 @@ describe("source-compliance", () => {
 
     expect(result.status).toBe("blocked");
     expect(result.robotsStatus).toBe("disallowed");
-    expect(result.reasons).toContain("robots.txt で自動取得が許可されていません");
+    expect(result.reasons).toContain("このページは自動取得できません。別の公開ページを選んでください。");
+  });
+
+  it("warns instead of blocking when source policy cannot be confirmed", async () => {
+    guardedFetchMock.mockImplementation(async (input: string) => {
+      if (input === "https://example.com/robots.txt") {
+        return new Response("service unavailable", { status: 503 });
+      }
+      if (input === "https://example.com" || input === "https://example.com/") {
+        return new Response("<html><body>No terms link</body></html>", { status: 200 });
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    const result = await checkPublicSourceCompliance("https://example.com/recruit");
+
+    expect(result.status).toBe("warning");
+    expect(result.robotsStatus).toBe("error");
+    expect(result.reasons).toContain(
+      "取得前にページ内容の確認が必要です。ページを開いて、公開情報として利用できることを確認してください。",
+    );
   });
 
   it("warns when terms cannot be confirmed but no prohibition is found", async () => {
@@ -67,7 +88,9 @@ describe("source-compliance", () => {
 
     expect(result.status).toBe("warning");
     expect(result.termsStatus).toBe("unknown");
-    expect(result.reasons).toContain("要確認: 利用規約を確認してください。");
+    expect(result.reasons).toContain(
+      "取得前にページ内容の確認が必要です。ページを開いて、公開情報として利用できることを確認してください。",
+    );
   });
 
   it("blocks urls when terms explicitly prohibit automated access", async () => {
@@ -91,7 +114,7 @@ describe("source-compliance", () => {
 
     expect(result.status).toBe("blocked");
     expect(result.termsStatus).toBe("blocked");
-    expect(result.reasons).toContain("利用規約で自動取得が禁止されているため取得できません");
+    expect(result.reasons).toContain("このページは自動取得できません。別の公開ページを選んでください。");
   });
 
   it("allows urls when robots permits and terms do not prohibit automated access", async () => {
@@ -151,5 +174,62 @@ describe("source-compliance", () => {
     expect(results.warningResults[0]?.url).toBe("https://example.com/recruit");
     expect(results.blockedResults).toHaveLength(1);
     expect(results.blockedResults[0]?.url).toBe("https://example.com/mypage");
+  });
+
+  it("applies compliance to candidates using normalized urls", () => {
+    const candidates = [
+      { url: "https://example.com", title: "会社情報" },
+      { url: "https://example.com/recruit", title: "採用情報" },
+      { url: "https://example.com/private", title: "会員向け" },
+    ];
+
+    const results = applyPublicSourceComplianceToCandidates(candidates, {
+      results: [
+        {
+          url: "https://example.com/",
+          status: "warning",
+          reasons: ["確認が必要です"],
+          robotsStatus: "missing",
+          termsStatus: "unknown",
+          checkedAt: "2026-05-11T00:00:00.000Z",
+          policyVersion: "test",
+        },
+        {
+          url: "https://example.com/recruit",
+          status: "allowed",
+          reasons: [],
+          robotsStatus: "allowed",
+          termsStatus: "allowed",
+          checkedAt: "2026-05-11T00:00:00.000Z",
+          policyVersion: "test",
+        },
+        {
+          url: "https://example.com/private",
+          status: "blocked",
+          reasons: ["取得できません"],
+          robotsStatus: "disallowed",
+          termsStatus: "allowed",
+          checkedAt: "2026-05-11T00:00:00.000Z",
+          policyVersion: "test",
+        },
+      ],
+      allowedUrls: ["https://example.com/", "https://example.com/recruit"],
+      warningResults: [],
+      blockedResults: [],
+    });
+
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({
+      url: "https://example.com",
+      complianceStatus: "warning",
+      complianceReasons: ["確認が必要です"],
+      requiresUserConfirmation: true,
+    });
+    expect(results[1]).toMatchObject({
+      url: "https://example.com/recruit",
+      complianceStatus: "allowed",
+      complianceReasons: [],
+      requiresUserConfirmation: false,
+    });
   });
 });

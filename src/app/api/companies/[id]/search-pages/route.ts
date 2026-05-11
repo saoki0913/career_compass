@@ -3,7 +3,10 @@ import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { readGuestDeviceToken } from "@/lib/auth/guest-cookie";
-import { filterAllowedPublicSourceUrls } from "@/lib/company-info/source-compliance";
+import {
+  applyPublicSourceComplianceToCandidates,
+  filterAllowedPublicSourceUrls,
+} from "@/lib/company-info/source-compliance";
 import { COMPANY_SEARCH_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiInternal } from "@/lib/fastapi/client";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
@@ -18,6 +21,7 @@ interface SearchCandidate {
   relationCompanyName?: string | null;
   complianceStatus?: "allowed" | "warning" | "blocked";
   complianceReasons?: string[];
+  requiresUserConfirmation?: boolean;
 }
 
 interface BackendSearchCandidate {
@@ -36,20 +40,7 @@ interface SearchPagesResponse {
 
 async function filterCompliantCandidates(candidates: SearchCandidate[]): Promise<SearchCandidate[]> {
   const compliance = await filterAllowedPublicSourceUrls(candidates.map((candidate) => candidate.url));
-  const complianceMap = new Map(compliance.results.map((result) => [result.url, result]));
-  return candidates
-    .map((candidate) => {
-      const result = complianceMap.get(candidate.url);
-      if (!result) {
-        return candidate;
-      }
-      return {
-        ...candidate,
-        complianceStatus: result.status,
-        complianceReasons: result.reasons,
-      } satisfies SearchCandidate;
-    })
-    .filter((candidate) => candidate.complianceStatus !== "blocked");
+  return applyPublicSourceComplianceToCandidates(candidates, compliance);
 }
 
 const TRUSTED_JOB_SITE_MOCKS = ["job.mynavi.jp", "job.rikunabi.com", "onecareer.jp"] as const;

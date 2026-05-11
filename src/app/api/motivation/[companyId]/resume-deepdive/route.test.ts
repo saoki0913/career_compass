@@ -427,7 +427,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     const body = await response.json();
     expect(body.error.code).toBe("FASTAPI_TENANT_KEY_NOT_CONFIGURED");
     expect(body.error.llmErrorType).toBe("tenant_key_not_configured");
-    expect(body.error.userMessage).toBe("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。");
+    expect(body.error.userMessage).toBe("AI機能を利用できませんでした。");
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 
@@ -485,7 +485,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
     const body = await response.json();
     expect(body.error.code).toBe("FASTAPI_SECRET_NOT_CONFIGURED");
-    expect(body.error.userMessage).toBe("AI認証設定が未完了です。管理側で設定確認後に再度お試しください。");
+    expect(body.error.userMessage).toBe("AI機能を利用できませんでした。");
   });
 
   it("returns 429 when deepdiveResumeCount exceeds limit", async () => {

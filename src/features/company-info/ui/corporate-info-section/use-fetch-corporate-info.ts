@@ -21,6 +21,14 @@ import { resolveCorporateContentChannel } from "./use-corporate-info-controller"
 
 const RAG_SUCCESS_SNACKBAR_DELAY_MS = 230;
 
+function getComplianceReason(reasons?: string[]) {
+  return reasons?.[0] || "公開ページURLのみ取得できます";
+}
+
+function confirmSourceWarning(reason: string) {
+  return window.confirm(`${reason}\n\nこのページを確認済みとして取得を続行しますか？`);
+}
+
 interface ParsedCustomUrls {
   urls: string[];
   invalidLines: Array<{ lineNumber: number; value: string }>;
@@ -83,20 +91,41 @@ export function useFetchCorporateInfo({
       return;
     }
 
+    let confirmedWarningUrls: string[] = [];
+    if (inputMode === "web") {
+      const warningCandidates = webDraft.candidates.filter(
+        (candidate) =>
+          webDraft.selectedUrls.includes(candidate.url) &&
+          candidate.complianceStatus === "warning",
+      );
+      if (warningCandidates.length > 0) {
+        const message = getComplianceReason(warningCandidates[0]?.complianceReasons);
+        notifyMessage(message);
+        if (!confirmSourceWarning(message)) {
+          return;
+        }
+        confirmedWarningUrls = warningCandidates.map((candidate) => candidate.url);
+      }
+    }
+
     if (inputMode === "url") {
       try {
         const complianceResponse = await checkSourceCompliance(companyId, urlsToFetch);
         if (complianceResponse.ok) {
           const complianceData: ComplianceCheckResponse = await complianceResponse.json();
           if (complianceData.blockedResults.length > 0) {
-            setError(complianceData.blockedResults[0]?.reasons[0] || "公開ページURLのみ取得できます");
+            const message = getComplianceReason(complianceData.blockedResults[0]?.reasons);
+            setError(message);
+            notifyMessage(message);
             return;
           }
           if (complianceData.warningResults.length > 0) {
-            notifyMessage(
-              complianceData.warningResults[0]?.reasons[0] ||
-                "要確認: 利用規約を確認してください。",
-            );
+            const message = getComplianceReason(complianceData.warningResults[0]?.reasons);
+            notifyMessage(message);
+            if (!confirmSourceWarning(message)) {
+              return;
+            }
+            confirmedWarningUrls = complianceData.warningResults.map((result) => result.url);
           }
         }
       } catch {
@@ -110,12 +139,21 @@ export function useFetchCorporateInfo({
         urls: urlsToFetch,
         contentType: resolvedWebContentType,
         contentChannel: resolveCorporateContentChannel(resolvedWebContentType),
+        confirmedWarningUrls,
       });
-      const data = (await response.json().catch(() => ({}))) as CrawlEstimateResult;
       if (!response.ok) {
-        const message = data.errors?.[0] ?? data.error ?? "企業情報の実行前見積に失敗しました。";
-        throw new Error(message);
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_FETCH_ESTIMATE_FAILED",
+            userMessage: "企業情報の見積を取得できませんでした。",
+            action: "しばらく待ってから、もう一度お試しください。",
+            retryable: true,
+          },
+          "CorporateInfoSection.handleFetchCorporateInfo.estimate",
+        );
       }
+      const data = (await response.json().catch(() => ({}))) as CrawlEstimateResult;
 
       let remainingHtml = Math.max(0, companyRagHtmlPagesRemaining ?? 0);
       let remainingPdf = Math.max(0, companyRagPdfPagesRemaining ?? 0);
@@ -202,6 +240,7 @@ export function useFetchCorporateInfo({
         urls: urlsToFetch,
         contentChannel,
         contentType: resolvedWebContentType,
+        confirmedWarningUrls,
       });
 
       if (response.status === 402) {
@@ -291,6 +330,7 @@ export function useFetchCorporateInfo({
     parsedCustomUrls.urls,
     resolvedWebContentType,
     releaseLock,
+    webDraft.candidates,
     webDraft.selectedUrls,
     setError,
     setFetchResult,

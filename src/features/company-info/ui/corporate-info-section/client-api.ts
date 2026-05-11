@@ -48,6 +48,7 @@ export function estimateCorporateFetch(
     urls: string[];
     contentType: ContentType;
     contentChannel: "corporate_ir" | "corporate_general";
+    confirmedWarningUrls?: string[];
   },
 ) {
   return request(`/api/companies/${companyId}/fetch-corporate/estimate`, {
@@ -63,6 +64,7 @@ export function fetchCorporateInfo(
     urls: string[];
     contentChannel: "corporate_ir" | "corporate_general";
     contentType: ContentType;
+    confirmedWarningUrls?: string[];
   },
 ) {
   return request(`/api/companies/${companyId}/fetch-corporate`, {

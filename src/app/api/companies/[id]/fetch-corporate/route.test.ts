@@ -83,7 +83,9 @@ vi.mock("@/lib/company-info/source-compliance", () => ({
       }));
 
     return {
+      results: [],
       allowedUrls: urls.filter((url) => !url.includes("/mypage")),
+      warningResults: [],
       blockedResults,
     };
   }),

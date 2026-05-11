@@ -22,6 +22,11 @@ const FALLBACK_TERMS_PATHS = [
   "/policy/",
 ];
 
+const SOURCE_CONFIRMATION_REQUIRED_REASON =
+  "取得前にページ内容の確認が必要です。ページを開いて、公開情報として利用できることを確認してください。";
+const SOURCE_BLOCKED_BY_POLICY_REASON =
+  "このページは自動取得できません。別の公開ページを選んでください。";
+
 export type PublicSourceComplianceStatus = "allowed" | "warning" | "blocked";
 export type PublicSourceRobotsStatus = "allowed" | "disallowed" | "missing" | "error";
 export type PublicSourceTermsStatus = "allowed" | "blocked" | "unknown";
@@ -41,6 +46,52 @@ export interface PublicSourceBatchResult {
   allowedUrls: string[];
   warningResults: PublicSourceCheckResult[];
   blockedResults: PublicSourceCheckResult[];
+}
+
+export interface PublicSourceComplianceCandidateFields {
+  complianceStatus: PublicSourceComplianceStatus;
+  complianceReasons: string[];
+  requiresUserConfirmation: boolean;
+}
+
+export function normalizePublicSourceComplianceUrl(input: string): string {
+  try {
+    return new URL(input).toString();
+  } catch {
+    return input;
+  }
+}
+
+export function applyPublicSourceComplianceToCandidates<TCandidate extends { url: string }>(
+  candidates: readonly TCandidate[],
+  compliance: PublicSourceBatchResult,
+): Array<TCandidate & PublicSourceComplianceCandidateFields> {
+  const complianceByUrl = new Map(
+    compliance.results.map((result) => [normalizePublicSourceComplianceUrl(result.url), result]),
+  );
+
+  return candidates.flatMap((candidate) => {
+    const result = complianceByUrl.get(normalizePublicSourceComplianceUrl(candidate.url));
+    if (!result) {
+      return [{
+        ...candidate,
+        complianceStatus: "warning",
+        complianceReasons: [SOURCE_CONFIRMATION_REQUIRED_REASON],
+        requiresUserConfirmation: true,
+      }];
+    }
+
+    if (result.status === "blocked") {
+      return [];
+    }
+
+    return [{
+      ...candidate,
+      complianceStatus: result.status,
+      complianceReasons: result.reasons,
+      requiresUserConfirmation: result.status === "warning",
+    }];
+  });
 }
 
 function buildResult(
@@ -154,7 +205,7 @@ async function checkRobots(url: URL): Promise<{
     if (!response.ok) {
       return {
         robotsStatus: "error",
-        reason: "robots.txt を確認できないため取得できません",
+        reason: SOURCE_CONFIRMATION_REQUIRED_REASON,
       };
     }
 
@@ -162,14 +213,14 @@ async function checkRobots(url: URL): Promise<{
     if (!robotsAllowsPath(robotsText, url.pathname || "/")) {
       return {
         robotsStatus: "disallowed",
-        reason: "robots.txt で自動取得が許可されていません",
+        reason: SOURCE_BLOCKED_BY_POLICY_REASON,
       };
     }
     return { robotsStatus: "allowed" };
   } catch {
     return {
       robotsStatus: "error",
-      reason: "robots.txt を確認できないため取得できません",
+      reason: SOURCE_CONFIRMATION_REQUIRED_REASON,
     };
   }
 }
@@ -204,7 +255,6 @@ async function checkTerms(url: URL): Promise<{
   reason?: string;
 }> {
   const candidates = await resolveTermsCandidateUrls(url);
-  let sawReachableTermsPage = false;
 
   for (const candidate of candidates) {
     try {
@@ -215,12 +265,11 @@ async function checkTerms(url: URL): Promise<{
       if (!response.ok) {
         continue;
       }
-      sawReachableTermsPage = true;
       const text = await response.text();
       if (termsPageProhibitsAutomation(text)) {
         return {
           termsStatus: "blocked",
-          reason: "利用規約で自動取得が禁止されているため取得できません",
+          reason: SOURCE_BLOCKED_BY_POLICY_REASON,
         };
       }
       return { termsStatus: "allowed" };
@@ -231,9 +280,7 @@ async function checkTerms(url: URL): Promise<{
 
   return {
     termsStatus: "unknown",
-    reason: sawReachableTermsPage
-      ? "要確認: 利用規約を確認してください。"
-      : "要確認: 利用規約を確認してください。",
+    reason: SOURCE_CONFIRMATION_REQUIRED_REASON,
   };
 }
 
@@ -262,7 +309,11 @@ export async function checkPublicSourceCompliance(input: string): Promise<Public
   const warningReasons: string[] = [];
   const robots = await checkRobots(url);
   if (robots.reason) {
-    blockedReasons.push(robots.reason);
+    if (robots.robotsStatus === "disallowed") {
+      blockedReasons.push(robots.reason);
+    } else {
+      warningReasons.push(robots.reason);
+    }
   }
 
   const terms = await checkTerms(url);

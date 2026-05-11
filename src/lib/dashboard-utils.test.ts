@@ -130,6 +130,7 @@ describe("getCompanyLogoSources", () => {
     const result = getCompanyLogoSources(null, "https://www.google.com/s2/favicons?domain=example.co.jp&sz=64");
     expect(result?.primary).toBe("https://www.google.com/s2/favicons?domain=example.co.jp&sz=64");
     expect(result?.fallbacks).toContain("https://icons.duckduckgo.com/ip3/example.co.jp.ico");
+    expect(result?.fallbacks).not.toContain("https://icons.duckduckgo.com/ip3/www.google.com.ico");
   });
 });
 

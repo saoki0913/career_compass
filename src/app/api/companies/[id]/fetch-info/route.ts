@@ -90,8 +90,8 @@ function userFacingScheduleFetchError(detail: unknown): {
   }
   if (t === "no_api_key") {
     return {
-      userMessage: "AI機能の設定に問題があります。",
-      action: "管理者にお問い合わせください。",
+      userMessage: "AI機能を利用できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
       retryable: false,
       llmErrorType: t,
     };
@@ -161,6 +161,9 @@ export async function POST(
     const requestUrl = body.url as string | undefined;
     const selectionType = body.selectionType as "main_selection" | "internship" | undefined;
     const graduationYear = body.graduationYear as number | undefined;
+    const confirmedWarningUrls = Array.isArray(body.confirmedWarningUrls)
+      ? new Set(body.confirmedWarningUrls.map((url: unknown) => String(url).trim()).filter(Boolean))
+      : new Set<string>();
 
     // Get identity
     const identity = await resolveFetchInfoIdentity(request);
@@ -239,6 +242,18 @@ export async function POST(
         action: "ログイン不要の公開ページURLを選び直してください。",
         extra: {
           blockedUrl: compliance.url,
+          reasons: compliance.reasons,
+        },
+      });
+    }
+    if (compliance.status === "warning" && !confirmedWarningUrls.has(compliance.url)) {
+      return createApiErrorResponse(request, {
+        status: 409,
+        code: "PUBLIC_SOURCE_CONFIRMATION_REQUIRED",
+        userMessage: compliance.reasons[0] || "取得前にページ内容の確認が必要です。",
+        action: "ページを確認してから、もう一度取得してください。",
+        extra: {
+          warningUrl: compliance.url,
           reasons: compliance.reasons,
         },
       });

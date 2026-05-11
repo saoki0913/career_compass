@@ -243,7 +243,9 @@ describe("api/companies/[id]/fetch-info", () => {
     checkPublicSourceComplianceMock.mockResolvedValueOnce({
       url: "https://example.com/recruit",
       status: "warning",
-      reasons: ["robots.txt を確認できないため取得できません"],
+      reasons: [
+        "取得前にページ内容の確認が必要です。ページを開いて、公開情報として利用できることを確認してください。",
+      ],
       robotsStatus: "error",
       termsStatus: "unknown",
       checkedAt: "2026-03-22T00:00:00.000Z",
@@ -256,6 +258,7 @@ describe("api/companies/[id]/fetch-info", () => {
       method: "POST",
       body: JSON.stringify({
         url: "https://example.com/recruit",
+        confirmedWarningUrls: ["https://example.com/recruit"],
       }),
       headers: {
         "content-type": "application/json",

@@ -136,7 +136,7 @@ function extractLogoDomains(
       ...(estimatedLogoDomains ?? []).map(normalizeDomainCandidate).filter((domain): domain is string => Boolean(domain)),
       extractHostname(corporateUrl),
       extractFaviconServiceDomain(estimatedFaviconUrl),
-      extractHostname(estimatedFaviconUrl),
+      extractNonServiceHostname(estimatedFaviconUrl),
     ].filter((domain): domain is string => Boolean(domain)))
   );
 }
@@ -162,6 +162,22 @@ function extractHostname(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
     return new URL(url).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function extractNonServiceHostname(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "www.google.com" && parsed.pathname === "/s2/favicons") {
+      return null;
+    }
+    if (parsed.hostname === "icons.duckduckgo.com" && parsed.pathname.startsWith("/ip3/")) {
+      return null;
+    }
+    return parsed.hostname;
   } catch {
     return null;
   }
