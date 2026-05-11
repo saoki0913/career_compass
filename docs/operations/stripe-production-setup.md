@@ -98,10 +98,10 @@ STRIPE_WEBHOOK_SECRET=whsec_xxx
 
 | リソース | 詳細 |
 |---|---|
-| Product | 「就活Pass Subscription」（metadata: `shupass_subscription=1`） |
-| Price x4 | Standard 月額 1,490円 / 年額 14,900円、Pro 月額 2,980円 / 年額 29,800円 |
+| Product x2 | 「就活Pass Standard」（metadata: `shupass_plan=standard`）、「就活Pass Pro」（metadata: `shupass_plan=pro`） |
+| Price x4 | Standard 月額 1,490円 / 年額 14,900円、Pro 月額 2,980円 / 年額 29,800円（各 Product に 2 Price） |
 | Webhook | `https://www.shupass.jp/api/webhooks/stripe` に対して 8 イベントを登録 |
-| Portal | Customer Portal の設定（プラン変更、キャンセル、支払い方法更新を有効化） |
+| Portal | Customer Portal の設定（プラン変更、キャンセル、支払い方法更新を有効化。2 Product 構成で interval 重複なし） |
 
 ## 5. 方法 B: 個別スクリプトで段階実行
 
