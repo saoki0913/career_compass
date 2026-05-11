@@ -313,12 +313,8 @@ export function planPortalSync({
       actualComparable.features.customer_update.allowed_updates,
       expectedComparable.features.customer_update.allowed_updates,
     );
-    pushDiff(
-      diffs,
-      "features.subscription_update.products",
-      actualComparable.features.subscription_update.products,
-      expectedComparable.features.subscription_update.products,
-    );
+    // Stripe API accepts products on write but omits from response (API ≥ 2024-09-30).
+    // Comparing would always show drift. Verify via Dashboard instead.
     pushDiff(
       diffs,
       "features.subscription_cancel.mode",
@@ -464,7 +460,8 @@ export function auditManagedState({
     });
   }
 
-  const ok = !productHasDiff && !webhookHasDiff && !portalHasDiff && !accountHasDiff;
+  // accountHasDiff is always manual (Dashboard-only), so it doesn't block auto-readiness.
+  const ok = !productHasDiff && !webhookHasDiff && !portalHasDiff;
   const nextActions = [];
 
   if (productHasDiff) nextActions.push("scripts/stripe/sync-products.mjs を実行");
