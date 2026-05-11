@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFile } from "node:fs/promises";
 import { deriveMotivationModeLabel } from "./ui";
 
 describe("deriveMotivationModeLabel", () => {
@@ -50,5 +51,15 @@ describe("deriveMotivationModeLabel", () => {
       causalGapCount: 0,
     });
     expect(label).toBe("追加で補強できます");
+  });
+});
+
+describe("motivation ui lifecycle cleanup", () => {
+  it("does not export MOTIVATION_LIFECYCLE_PHASES, getMotivationLifecyclePhase, or getMotivationPhaseStatus", async () => {
+    const source = await readFile(new URL("./ui.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("MOTIVATION_LIFECYCLE_PHASES");
+    expect(source).not.toContain("getMotivationLifecyclePhase");
+    expect(source).not.toContain("getMotivationPhaseStatus");
+    expect(source).not.toContain("MotivationLifecyclePhase");
   });
 });

@@ -4,32 +4,75 @@ import type { ConversationState } from "@/features/gakuchika/domain/conversation
 import { getConversationBadgeLabel } from "@/features/gakuchika/domain/conversation-state";
 import type { Message } from "@/features/gakuchika/domain/ui";
 
-// ---------------------------------------------------------------------------
-// Input: subset of controller state consumed by business derivations
-// ---------------------------------------------------------------------------
-
 export interface GakuchikaViewModelInput {
   messages: Message[];
   conversationState: ConversationState | null;
+  questionCount: number;
 }
-
-// ---------------------------------------------------------------------------
-// Output: derived business state
-// ---------------------------------------------------------------------------
 
 export interface GakuchikaViewModel {
-  /** Number of confirmed (non-optimistic) user messages */
   answeredCount: number;
-  /** Contextual label derived from the server-side progressLabel for ThinkingIndicator */
   thinkingContextLabel: string | null;
+  remainingLabel: string | null;
+  primaryLine: string;
+  estimatedTotal: number;
+  questionDisplay: string;
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
+function stageRemainingLabel(state: ConversationState | null): string | null {
+  if (!state) return null;
+  if (state.stage === "interview_ready") {
+    return "面接準備まで整いました。";
+  }
+  if (state.stage === "deep_dive_active") {
+    return "深掘りで論点を整理しています。";
+  }
+  if (state.stage === "draft_ready" || state.readyForDraft) {
+    return "ES 材料が揃いました。";
+  }
+  return null;
+}
+
+function estimateRemainingQuestionsText(state: ConversationState | null): string | null {
+  if (!state) return null;
+  const label = stageRemainingLabel(state);
+  if (label) return label;
+  const remaining = state.missingElements.length;
+  if (remaining === 0) return "まもなく材料が揃います。";
+  if (remaining === 1) return "あと 1 問程度で材料が揃います。";
+  if (remaining === 2) return "あと 1-2 問で材料が揃いそうです。";
+  return "STAR の材料を順に整理していきましょう。";
+}
+
+function remainingLabelFromServerCount(state: ConversationState | null, n: number): string {
+  const label = stageRemainingLabel(state);
+  if (label) return label;
+  if (n <= 0) return "まもなく材料が揃います。";
+  if (n === 1) return "あと 1 問で材料が揃います。";
+  return `あと ${n} 問で材料が揃いそうです。`;
+}
+
+function estimateTotalQuestionCount(
+  answeredCount: number,
+  label: string | null,
+  serverRemaining: number | null,
+): number {
+  const baseline = 5;
+  if (serverRemaining !== null) {
+    if (serverRemaining === 0) {
+      return Math.max(answeredCount, baseline);
+    }
+    return Math.max(baseline, answeredCount + serverRemaining);
+  }
+  const grown = Math.max(baseline, answeredCount + 2);
+  if (label && /整いました|揃いました|整理しています/.test(label)) {
+    return Math.max(answeredCount, baseline);
+  }
+  return grown;
+}
 
 export function useGakuchikaViewModel(input: GakuchikaViewModelInput): GakuchikaViewModel {
-  const { messages, conversationState } = input;
+  const { messages, conversationState, questionCount } = input;
 
   const answeredCount = useMemo(
     () =>
@@ -44,9 +87,43 @@ export function useGakuchikaViewModel(input: GakuchikaViewModelInput): Gakuchika
     [conversationState?.progressLabel],
   );
 
+  const serverRemaining = conversationState?.remainingQuestionsEstimate ?? null;
+  const effectiveRemaining =
+    typeof serverRemaining === "number" && Number.isFinite(serverRemaining) && serverRemaining >= 0
+      ? Math.floor(serverRemaining)
+      : null;
+
+  const remainingLabel = useMemo(
+    () =>
+      effectiveRemaining !== null
+        ? remainingLabelFromServerCount(conversationState, effectiveRemaining)
+        : estimateRemainingQuestionsText(conversationState),
+    [conversationState, effectiveRemaining],
+  );
+
+  const coachMessage = conversationState?.coachProgressMessage?.trim() ?? "";
+  const primaryLine = coachMessage || remainingLabel || "";
+
+  const estimatedTotal = useMemo(
+    () => estimateTotalQuestionCount(answeredCount, remainingLabel, effectiveRemaining),
+    [answeredCount, effectiveRemaining, remainingLabel],
+  );
+
+  const questionDisplay = useMemo(
+    () =>
+      answeredCount > 0
+        ? `${Math.min(answeredCount, estimatedTotal)} 問目 / 約 ${estimatedTotal} 問`
+        : "これから 1 問目",
+    [answeredCount, estimatedTotal],
+  );
+
   return {
     answeredCount,
     thinkingContextLabel,
+    remainingLabel,
+    primaryLine,
+    estimatedTotal,
+    questionDisplay,
   };
 }
 

@@ -525,15 +525,16 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     await runtimeSend(textToSend);
   }, [answer, runtimeSend]);
 
-  const handleResetConversation = useCallback(async () => {
+  const [restartDialogOpen, setRestartDialogOpen] = useState(false);
+
+  const requestResetConversation = useCallback(() => {
     if (isSending || isGeneratingDraft || isResetting || isWaitingForResponse || isTextStreaming || isStartingConversation) {
       return;
     }
+    setRestartDialogOpen(true);
+  }, [isGeneratingDraft, isResetting, isSending, isStartingConversation, isTextStreaming, isWaitingForResponse]);
 
-    if (!window.confirm("保存済みの志望動機会話を初期化して、会話をやり直します。よろしいですか？")) {
-      return;
-    }
-
+  const confirmResetConversation = useCallback(async () => {
     if (!acquireLock("会話を初期化中")) {
       notifyInfo({ title: `${activeOperationLabel || "別の操作"}が進行中です。完了までお待ちください。` });
       return;
@@ -571,6 +572,7 @@ export function useMotivationConversationController({ companyId }: { companyId: 
       );
     } finally {
       setIsResetting(false);
+      setRestartDialogOpen(false);
       releaseLock();
     }
   }, [
@@ -578,12 +580,6 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     activeOperationLabel,
     companyId,
     fetchData,
-    isGeneratingDraft,
-    isResetting,
-    isSending,
-    isStartingConversation,
-    isTextStreaming,
-    isWaitingForResponse,
     releaseLock,
     resetConversationState,
   ]);
@@ -609,7 +605,10 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     handleGenerateDraft,
     handleGenerateDraftDirect,
     handleIndustryChange,
-    handleResetConversation,
+    confirmResetConversation,
+    requestResetConversation,
+    restartDialogOpen,
+    setRestartDialogOpen,
     handleResumeDeepDive,
     handleSaveGeneratedDraft,
     handleSend,

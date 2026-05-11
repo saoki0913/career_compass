@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ThinkingIndicator, ChatMessage, ChatInput } from "@/components/chat";
+import type { ProgressStage } from "@/components/chat";
+import {
+  ThinkingIndicator,
+  ChatMessage,
+  ChatInput,
+  ConversationRestartConfirmDialog,
+  ConversationMobileStatus,
+  DraftReadyCTA,
+} from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
 import { CharLimitSelector } from "@/components/chat/CharLimitSelector";
@@ -18,7 +26,13 @@ import { MotivationSetupPanel } from "@/components/motivation/MotivationSetupPan
 import { ConversationPageSkeleton } from "@/components/skeletons/ConversationPageSkeleton";
 import { useMotivationConversationController } from "@/features/motivation/hooks/useMotivationConversationController";
 import { useMotivationViewModel } from "@/features/motivation/hooks/useMotivationViewModel";
-import { STAGE_LABELS } from "@/features/motivation/domain/ui";
+import {
+  getMotivationSlotPillStatus,
+  SLOT_PILL_LABELS,
+  STAGE_LABELS,
+  STAGE_ORDER,
+  type MotivationStageKey,
+} from "@/features/motivation/domain/ui";
 
 import { LoadingSpinner, ResetIcon } from "./motivation-icons";
 
@@ -43,7 +57,10 @@ export function MotivationConversationContent({ companyId }: { companyId: string
     handleGenerateDraft,
     handleGenerateDraftDirect,
     handleIndustryChange,
-    handleResetConversation,
+    confirmResetConversation,
+    requestResetConversation,
+    restartDialogOpen,
+    setRestartDialogOpen,
     handleResumeDeepDive,
     handleSaveGeneratedDraft,
     handleSend,
@@ -131,6 +148,17 @@ export function MotivationConversationContent({ companyId }: { companyId: string
     draftHelperText,
   } = vm;
 
+  const isDeepDive = conversationMode === "deepdive";
+  type SlotKey = Exclude<MotivationStageKey, "closing">;
+  const mobileProgressStages = useMemo<ProgressStage[]>(() => {
+    if (isDeepDive && causalGaps.length > 0) return [];
+    return (STAGE_ORDER as SlotKey[]).map((slot) => ({
+      key: slot,
+      label: SLOT_PILL_LABELS[slot],
+      status: getMotivationSlotPillStatus(slot, stageStatus),
+    }));
+  }, [causalGaps.length, isDeepDive, stageStatus]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -202,25 +230,33 @@ export function MotivationConversationContent({ companyId }: { companyId: string
           )
         }
         mobileStatus={
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            {activeStage ? (
-              <span className="text-sm font-medium text-muted-foreground">{STAGE_LABELS[activeStage]}</span>
-            ) : (
-              <span className="text-sm font-medium text-muted-foreground">{motivationModeLabel}</span>
-            )}
-            {hasSavedConversation ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleResetConversation}
-                disabled={isLocked || isSending || isGeneratingDraft || isResetting || isStartingConversation}
-                className="ml-auto h-10 w-full max-lg:ml-0 max-lg:max-w-none rounded-xl border-border/80 bg-background px-4 text-xs shadow-sm sm:ml-auto sm:w-auto"
-              >
-                <ResetIcon />
-                <span className="ml-2">{isResetting ? "初期化中..." : "会話をやり直す"}</span>
-              </Button>
-            ) : null}
-          </div>
+          <ConversationMobileStatus
+            badges={
+              activeStage ? (
+                <span className="text-sm font-medium text-muted-foreground">{STAGE_LABELS[activeStage]}</span>
+              ) : (
+                <span className="text-sm font-medium text-muted-foreground">{motivationModeLabel}</span>
+              )
+            }
+            stages={mobileProgressStages}
+            headerSubtext={`${questionCount > 0 ? `${questionCount}問目` : "これから1問目"}`}
+            footerMessage={coachingFocus}
+            columns={STAGE_ORDER.length}
+            actions={
+              hasSavedConversation ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={requestResetConversation}
+                  disabled={isLocked || isSending || isGeneratingDraft || isResetting || isStartingConversation}
+                  className="ml-auto h-10 w-full max-lg:ml-0 max-lg:max-w-none rounded-xl border-border/80 bg-background px-4 text-xs shadow-sm sm:ml-auto sm:w-auto"
+                >
+                  <ResetIcon />
+                  <span className="ml-2">{isResetting ? "初期化中..." : "会話をやり直す"}</span>
+                </Button>
+              ) : undefined
+            }
+          />
         }
         conversation={
           showSetupScreen ? (
@@ -307,37 +343,23 @@ export function MotivationConversationContent({ companyId }: { companyId: string
               )}
 
               {isDraftReady && !nextQuestion && !generatedDraft && !isGeneratingDraft && !isWaitingForResponse && !isTextStreaming && (
-                <div className="flex flex-col items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-900 sm:flex-row sm:items-center">
-                  <p className="min-w-0 flex-1">
-                    材料が揃いました。右上の「志望動機ESを作成」から任意のタイミングで生成できます。追加で深掘りして強化することもできます。
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0 border-emerald-300 text-emerald-800 hover:bg-emerald-100"
-                    onClick={handleResumeDeepDive}
-                    disabled={isSending || isLocked || isGeneratingDraft}
-                  >
-                    深掘りを続ける
-                  </Button>
-                </div>
+                <DraftReadyCTA
+                  variant="pre-draft"
+                  message="材料が揃いました。右上の「志望動機ESを作成」から任意のタイミングで生成できます。追加で深掘りして強化することもできます。"
+                  actionLabel="深掘りを続ける"
+                  onAction={handleResumeDeepDive}
+                  isActionDisabled={isSending || isLocked || isGeneratingDraft}
+                />
               )}
 
               {isDraftReady && !nextQuestion && generatedDraft && !isWaitingForResponse && !isTextStreaming && (
-                <div className="flex items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50/80 px-4 py-3">
-                  <p className="text-sm text-sky-900">
-                    ESを生成しました。さらに深掘りして強化できます。
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="shrink-0 border-sky-300 text-sky-700 hover:bg-sky-100"
-                    onClick={handleResumeDeepDive}
-                    disabled={isSending || isLocked || isGeneratingDraft}
-                  >
-                    深掘りを続ける
-                  </Button>
-                </div>
+                <DraftReadyCTA
+                  variant="post-draft"
+                  message="ESを生成しました。さらに深掘りして強化できます。"
+                  actionLabel="深掘りを続ける"
+                  onAction={handleResumeDeepDive}
+                  isActionDisabled={isSending || isLocked || isGeneratingDraft}
+                />
               )}
 
               <div ref={messagesEndRef} />
@@ -444,9 +466,19 @@ export function MotivationConversationContent({ companyId }: { companyId: string
             isResetting={isResetting}
             isStartingConversation={isStartingConversation}
             draftHelperText={draftHelperText}
-            onResetConversation={handleResetConversation}
+            onResetConversation={requestResetConversation}
           />
         }
+      />
+
+      <ConversationRestartConfirmDialog
+        isOpen={restartDialogOpen}
+        title="会話をやり直しますか？"
+        description="保存済みの志望動機会話を初期化して、新しい会話を始めます。"
+        confirmLabel="やり直す"
+        onCancel={() => setRestartDialogOpen(false)}
+        onConfirm={confirmResetConversation}
+        isConfirming={isResetting}
       />
 
       {generatedDraft ? (

@@ -184,9 +184,48 @@ preflight では、最低限次の 7 点を言語化する。
 
 `src/components/chat/ConversationPhaseBar.tsx` はライフサイクルフェーズを表示する共通コンポーネント。`phases` 配列でデータ駆動。各機能が独自のフェーズラベルを注入する。
 
-### サイドバー
+### サイドバー: `ConversationSidebar`
 
-サイドバーの中身は各機能が Fragment (`<>...</>`) で返す。`ConversationSidebarCard` をカード単位で使い、外側のラッパーは Shell が提供する。進捗表示には上記の `ConversationProgressBar` + `ConversationPhaseBar` を使う。
+`src/components/chat/ConversationSidebar.tsx` がサイドバーの共通構成を提供する composition コンポーネント。進捗表示（`ConversationProgressBar` + `ConversationPhaseBar`）、ヘルパーテキスト、リスタートボタン、バッジを内包し、各機能は `children` でドメイン固有カードを差し込む。
+
+| prop | 用途 |
+|---|---|
+| `progressStages` / `progressHeaderSubtext` / `progressFooterMessage` | 進捗バーのデータ |
+| `phases` | フェーズバーの `PhaseItem[]`（`computePhaseItems()` で生成） |
+| `helperText` | 進捗カード下部のヘルパーテキスト |
+| `badges` | AI/基本質問バッジ、業界/職種バッジ等 |
+| `progressChildren` | `CausalGapSteps` 等の進捗バー内追加コンテンツ |
+| `setupContent` | setup 中の代替表示（指定時は progress/phase を非表示） |
+| `showReset` / `onReset` / `resetDisabled` | リスタートボタン制御 |
+| `children` | セッション履歴、作成メモ、エビデンスカード等 |
+
+各機能は feature-specific wrapper を持つ:
+- ガクチカ: `GakuchikaConversationSidebar`（`src/components/gakuchika/`）
+- 志望動機: `MotivationConversationSidebar`（`src/components/motivation/`）
+
+`ConversationSidebarCard`（`ConversationWorkspaceShell.tsx` 内）をカード単位で使い、外側のラッパーは Shell が提供する。
+
+### フェーズライフサイクル: `conversation-lifecycle`
+
+`src/lib/shared/conversation-lifecycle.ts` がフェーズバーのラベルと状態計算を一元管理する。
+
+- `StandardPhaseKey`: `"questioning" | "draft_ready" | "deep_dive" | "completed"` の union 型
+- `STANDARD_PHASES`: 統一ラベル「ヒアリング中 / ES作成可 / 深掘り中 / 完了」の定義
+- `computePhaseItems(currentPhaseKey, hasDraft?)`: current phase から `PhaseItem[]` を導出
+
+各機能はドメイン stage → `StandardPhaseKey` のマッピングを持ち、`computePhaseItems()` に渡す。
+
+### リスタートダイアログ: `ConversationRestartConfirmDialog`
+
+`src/components/chat/ConversationRestartConfirmDialog.tsx` は会話やり直し確認の共通ダイアログ。`title`、`description`、`confirmLabel` でカスタマイズ可能。ガクチカ・志望動機の両方で使用。
+
+### 材料揃い CTA: `DraftReadyCTA`
+
+`src/components/chat/DraftReadyCTA.tsx` は材料が揃った時点で表示する CTA。`variant: "pre-draft" | "post-draft"` で生成前/生成後のスタイルを切り替える。
+
+### モバイルステータス: `ConversationMobileStatus`
+
+`src/components/chat/ConversationMobileStatus.tsx` はモバイル向けのインラインステータスバー。`badges`、`stages`、`actions`、collapsible `children` を持つ。
 
 ## 10. Codex 向け運用メモ
 

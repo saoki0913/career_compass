@@ -12,27 +12,31 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 
-interface GakuchikaRestartConfirmDialogProps {
+interface ConversationRestartConfirmDialogProps {
   isOpen: boolean;
-  onConfirm: () => void;
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
   onCancel: () => void;
+  onConfirm: () => void;
   isConfirming?: boolean;
 }
 
-export function GakuchikaRestartConfirmDialog({
+export function ConversationRestartConfirmDialog({
   isOpen,
-  onConfirm,
+  title = "会話をやり直しますか？",
+  description = "新しい作成セッションを開始します。進行中の会話はセッション履歴に残りますが、いまのセッションからは切り替わります。",
+  confirmLabel = "新しい会話を始める",
   onCancel,
+  onConfirm,
   isConfirming = false,
-}: GakuchikaRestartConfirmDialogProps) {
+}: ConversationRestartConfirmDialogProps) {
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && !isConfirming && onCancel()}>
       <DialogContent className="sm:max-w-md" showCloseButton={false}>
         <DialogHeader>
-          <DialogTitle>会話をやり直しますか？</DialogTitle>
-          <DialogDescription>
-            新しい作成セッションを開始します。進行中の会話はセッション履歴に残りますが、いまのセッションからは切り替わります。この操作を続行するか、キャンセルするかを選んでください。
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         <DialogFooter className="gap-2 sm:gap-2">
@@ -46,7 +50,7 @@ export function GakuchikaRestartConfirmDialog({
                 開始中...
               </>
             ) : (
-              "新しい会話を始める"
+              confirmLabel
             )}
           </Button>
         </DialogFooter>

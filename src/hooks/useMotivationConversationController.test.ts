@@ -8,7 +8,6 @@ describe("useMotivationConversationController", () => {
 
   it("does not export error or conversationLoadError state", async () => {
     const source = await readFile(new URL("./useMotivationConversationController.ts", import.meta.url), "utf8");
-    // error / conversationLoadError state vars should be removed
     expect(source).not.toMatch(/useState<string \| null>\(null\);\s*\n.*conversationLoadError/);
     expect(source).not.toContain("setConversationLoadError,");
     expect(source).not.toContain("setError,");
@@ -43,5 +42,20 @@ describe("useMotivationConversationController", () => {
     const source = await readFile(new URL("./conversation/index.ts", import.meta.url), "utf8");
     expect(source).toContain("createStreamTimeout");
     expect(source).not.toContain("setTimeout(() => controller.abort()");
+  });
+
+  it("does not use window.confirm for reset — uses dialog state instead", async () => {
+    const source = await readFile(new URL("./useMotivationConversationController.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("window.confirm");
+    expect(source).toContain("restartDialogOpen");
+    expect(source).toContain("setRestartDialogOpen");
+    expect(source).toContain("requestResetConversation");
+    expect(source).toContain("confirmResetConversation");
+  });
+
+  it("does not export handleResetConversation as a return value", async () => {
+    const source = await readFile(new URL("./useMotivationConversationController.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/^\s+handleResetConversation,$/m);
+    expect(source).not.toMatch(/const handleResetConversation/);
   });
 });

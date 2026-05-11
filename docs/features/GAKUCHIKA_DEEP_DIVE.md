@@ -58,6 +58,7 @@
 | Page (一覧) | `src/app/(product)/gakuchika/page.tsx` | 一覧表示 |
 | Page (詳細) | `src/app/(product)/gakuchika/[id]/page.tsx` | 会話 UI + 進捗 |
 | 会話 UI | `src/components/gakuchika/GakuchikaConversationContent.tsx` | メイン会話コンポーネント |
+| サイドバー | `src/components/gakuchika/GakuchikaConversationSidebar.tsx` | サイドバー（ConversationSidebar を使用） |
 | 進捗 UI | `src/components/gakuchika/NaturalProgressStatus.tsx` | コーチ進捗メッセージ + 残り質問数 |
 | STAR 進捗 | `src/components/gakuchika/STARProgressBar.tsx` | 4 要素ピル表示 |
 | 完了サマリー | `src/components/gakuchika/CompletionSummary.tsx` | 面接準備パック表示 |
@@ -67,7 +68,8 @@
 | 一覧ステータス | `src/lib/gakuchika/list-status.ts` | 一覧カードのステータス正規化 |
 | クライアント API | `src/lib/gakuchika/client-api.ts` | fetch ラッパー。`postJson` は `src/lib/shared/client-api.ts` から import |
 | サマリー | `src/lib/gakuchika/summary.ts` | 構造化サマリーの型 + 変換 |
-| ViewModel | `src/hooks/gakuchika/useGakuchikaViewModel.ts` | re-export hub |
+| ViewModel | `src/hooks/gakuchika/useGakuchikaViewModel.ts` | re-export hub。進捗表示・残り質問数のヘルパー関数を含む |
+| フェーズ定義 | `src/lib/shared/conversation-lifecycle.ts` | 共通 `StandardPhaseKey` + `computePhaseItems()` |
 | テキスト再生 | `src/hooks/useStreamingTextPlayback.ts` | 文字送りアニメーション |
 | チャットバブル | `src/components/chat/StreamingChatMessage.tsx` | ストリーミングテキスト表示 |
 | BFF Stream | `src/bff/gakuchika/[id]/conversation/stream/route.ts` | 共通 stream handler 経由の SSE 中継 + 成功時クレジット確定 |
@@ -416,11 +418,19 @@ src/app/(product)/gakuchika/[id]/page.tsx
   |     +-- useConversationRuntime + gakuchika-stream-adapter (SSE処理)
   |     +-- StreamingChatMessage (チャットバブル + カーソル)
   |     +-- GakuchikaStartScreen (初期導入)
-  |     +-- ConversationProgressBar (共通、4要素ピル: 状況/課題/行動/結果)
-  |     +-- ConversationPhaseBar (共通、ライフサイクル表示)
-  |     +-- STARProgressBar (一覧用コンパクト表示)
+  |     +-- ConversationWorkspaceShell (共通レイアウト)
+  |     +-- GakuchikaConversationSidebar (サイドバー)
+  |     |     +-- ConversationSidebar (共通サイドバー構成)
+  |     |     |     +-- ConversationProgressBar (共通、4要素ピル: 状況/課題/行動/結果)
+  |     |     |     +-- ConversationPhaseBar (共通、ライフサイクル表示)
+  |     |     +-- セッション履歴カード
+  |     |     +-- 作成メモカード
+  |     +-- ConversationMobileStatus (共通モバイルステータス)
+  |     +-- DraftReadyCTA (共通、材料揃い CTA)
   |     +-- CompletionSummary (面接準備パック)
-  |     +-- GakuchikaRestartConfirmDialog (会話やり直し確認)
+  |     +-- ConversationRestartConfirmDialog (共通、会話やり直し確認)
+  |     +-- DraftPreviewModal (共通、ES下書きプレビュー)
+  +-- STARProgressBar (一覧用コンパクト表示)
   +-- GakuchikaCard (一覧用カード)
   +-- GakuchikaGrid (一覧レイアウト)
   +-- StatusGroup (一覧ステータスグループ)
@@ -428,7 +438,7 @@ src/app/(product)/gakuchika/[id]/page.tsx
 
 ### 9.2 進捗 UI（4 要素ピル / ステータス遷移）
 
-一覧画面では `STARProgressBar` が `状況 / 課題 / 行動 / 結果` の 4 要素をコンパクト表示する。会話画面では共通 `ConversationProgressBar`（`src/components/chat/ConversationProgressBar.tsx`）が同じ 4 要素をピルで表示し、`ConversationPhaseBar` がライフサイクル（Q&A → ES作成可 → 深掘り中 → 面接準備完了）を表示する。
+一覧画面では `STARProgressBar` が `状況 / 課題 / 行動 / 結果` の 4 要素をコンパクト表示する。会話画面では共通 `ConversationProgressBar`（`src/components/chat/ConversationProgressBar.tsx`）が同じ 4 要素をピルで表示し、`ConversationPhaseBar` がライフサイクル（ヒアリング中 → ES作成可 → 深掘り中 → 完了）を表示する。フェーズラベルは志望動機と統一されており、`computePhaseItems()`（`src/lib/shared/conversation-lifecycle.ts`）が `StandardPhaseKey` から共通の `PhaseItem[]` を導出する。ガクチカでは `STAGE_TO_PHASE` マッピング（`GakuchikaConversationSidebar.tsx`）で `es_building` → `questioning`、`draft_ready` → `draft_ready`、`deep_dive_active` → `deep_dive`、`interview_ready` → `completed` に変換する。
 
 `coach_progress_message` と `remaining_questions_estimate` はサーバーから SSE で送られ、`ConversationProgressBar` の `footerMessage` / `headerSubtext` として表示する。
 
@@ -547,7 +557,8 @@ BFF generate-es-draft/route.ts
 | | `backend/app/routers/gakuchika.py` | ~1,144 |
 | **Prompts** | `backend/app/prompts/gakuchika_prompts.py` | ~536 |
 | | `backend/app/prompts/gakuchika_prompt_builder.py` | ~205 |
-| **Frontend** | `src/components/gakuchika/GakuchikaConversationContent.tsx` | ~469 |
+| **Frontend** | `src/components/gakuchika/GakuchikaConversationContent.tsx` | ~416 |
+| | `src/components/gakuchika/GakuchikaConversationSidebar.tsx` | ~153 |
 | | `src/components/gakuchika/CompletionSummary.tsx` | ~399 |
 | | `src/components/gakuchika/NaturalProgressStatus.tsx` | ~226 |
 | | `src/components/gakuchika/STARProgressBar.tsx` | ~172 |

@@ -7,4 +7,12 @@ describe("chat/index exports", () => {
     expect(source).toContain("CharLimitSelector");
     expect(source).toContain("DraftPreviewModal");
   });
+
+  it("re-exports shared conversation components", async () => {
+    const source = await readFile(new URL("./index.ts", import.meta.url), "utf8");
+    expect(source).toContain("ConversationSidebar");
+    expect(source).toContain("ConversationRestartConfirmDialog");
+    expect(source).toContain("DraftReadyCTA");
+    expect(source).toContain("ConversationMobileStatus");
+  });
 });

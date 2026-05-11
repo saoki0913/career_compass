@@ -428,12 +428,18 @@ src/app/(product)/companies/[id]/motivation/page.tsx
 MotivationConversationContent
 +-- useConversationRuntime + motivation-stream-adapter (SSE処理)
 +-- MotivationSetupPanel (業界・職種確定 UI)
++-- ConversationWorkspaceShell (共通レイアウト)
 +-- チャット UI (shared src/components/chat/)
 |     メッセージ表示 + 自由入力
 +-- MotivationConversationSidebar
-|   +-- ConversationProgressBar (共通、6スロットピル)
-|   +-- ConversationPhaseBar (共通、ライフサイクル表示)
+|   +-- ConversationSidebar (共通サイドバー構成)
+|   |     +-- ConversationProgressBar (共通、6スロットピル)
+|   |     +-- ConversationPhaseBar (共通、ライフサイクル表示)
+|   +-- CausalGapSteps / ProgressDetailSection (progressChildren)
 |   +-- MotivationEvidenceSection (参考企業情報 + ユーザー情報)
++-- ConversationMobileStatus (共通モバイルステータス)
++-- DraftReadyCTA (共通、材料揃い CTA)
++-- ConversationRestartConfirmDialog (共通、会話やり直し確認)
 +-- DraftPreviewModal (shared、ES生成完了後のモーダル)
 ```
 
@@ -448,7 +454,7 @@ MotivationConversationContent
 
 深掘りモード時は、ピルバッジの代わりに `CausalGapStep` を `children` として表示する。
 
-**フェーズトラッカー**: 共通 `ConversationPhaseBar`（`src/components/chat/ConversationPhaseBar.tsx`）が質問中 / ES作成可 / 深堀り中 / 深堀り完了 の 4 段階を表示。
+**フェーズトラッカー**: 共通 `ConversationPhaseBar`（`src/components/chat/ConversationPhaseBar.tsx`）がヒアリング中 / ES作成可 / 深掘り中 / 完了 の 4 段階を表示。フェーズラベルはガクチカと統一されており、`computePhaseItems()`（`src/lib/shared/conversation-lifecycle.ts`）が `StandardPhaseKey` から共通の `PhaseItem[]` を導出する。志望動機では `toStandardPhase()`（`MotivationConversationSidebar.tsx` 内）で `slot_fill` → `questioning`、draft_ready → `draft_ready`、deepdive → `deep_dive`、interview_ready → `completed` に変換する。
 
 **カウンター**: slot_fill 時「N問目 / 約6問」、deepdive 時「N問目 / 補強中」。
 

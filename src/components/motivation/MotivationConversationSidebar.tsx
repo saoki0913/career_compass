@@ -1,22 +1,17 @@
 "use client";
 
 import { useMemo } from "react";
-import {
-  ConversationPhaseBar,
-  ConversationProgressBar,
-  type PhaseItem,
-  type ProgressStage,
-} from "@/components/chat";
+import type { ProgressStage } from "@/components/chat";
+import { ConversationSidebar } from "@/components/chat";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ConversationSidebarCard } from "@/components/chat/ConversationWorkspaceShell";
 import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
 import {
-  getMotivationLifecyclePhase,
-  getMotivationPhaseStatus,
+  computePhaseItems,
+  type StandardPhaseKey,
+} from "@/lib/shared/conversation-lifecycle";
+import {
   getMotivationSlotPillStatus,
-  MOTIVATION_LIFECYCLE_PHASES,
   SLOT_PILL_LABELS,
   STAGE_ORDER,
   type CausalGap,
@@ -26,8 +21,6 @@ import {
   type StageStatus,
 } from "@/features/motivation/domain/ui";
 import { cn } from "@/lib/utils";
-
-import { ResetIcon } from "./motivation-icons";
 
 const SLOT_SIDEBAR_LABELS: Record<string, string> = {
   industry_reason: "業界への関心",
@@ -53,6 +46,18 @@ function formatQuestionDisplay(questionCount: number, conversationMode: Conversa
   if (questionCount === 0) return "これから1問目";
   if (conversationMode === "slot_fill") return `${questionCount}問目 / 約6問`;
   return `${questionCount}問目 / 補強中`;
+}
+
+function toStandardPhase(
+  isDraftReady: boolean,
+  conversationMode: ConversationMode,
+  hasNextQuestion: boolean,
+  hasCausalGaps: boolean,
+): StandardPhaseKey {
+  if (!isDraftReady) return "questioning";
+  if (conversationMode !== "deepdive") return "draft_ready";
+  if (hasNextQuestion || hasCausalGaps) return "deep_dive";
+  return "completed";
 }
 
 function CausalGapSteps({ gaps }: { gaps: CausalGap[] }) {
@@ -191,6 +196,7 @@ export function MotivationConversationSidebar({
 }) {
   const isDeepDive = conversationMode === "deepdive";
   const questionDisplay = formatQuestionDisplay(questionCount, conversationMode);
+
   const progressStages = useMemo<ProgressStage[]>(() => {
     if (isDeepDive && causalGaps.length > 0) {
       return [];
@@ -201,173 +207,131 @@ export function MotivationConversationSidebar({
       status: getMotivationSlotPillStatus(slot, stageStatus),
     }));
   }, [causalGaps.length, isDeepDive, stageStatus]);
-  const motivationPhases = useMemo<PhaseItem[]>(() => {
-    const currentPhase = getMotivationLifecyclePhase(
+
+  const phases = useMemo(() => {
+    const standardPhase = toStandardPhase(
       isDraftReady,
       conversationMode,
       Boolean(nextQuestion),
       causalGaps.length > 0,
     );
-    const hasDraft = Boolean(generatedDraft?.trim());
-    const phaseDefinitions: Array<{
-      key: "slot_fill" | "draft_ready" | "deep_dive_active" | "interview_ready";
-      label: string;
-    }> = [
-      { key: "slot_fill", label: "質問中" },
-      ...MOTIVATION_LIFECYCLE_PHASES.map((phase) => ({
-        key: phase.key,
-        label:
-          phase.key === "deep_dive_active"
-            ? "深掘り中"
-            : phase.key === "interview_ready"
-              ? "深掘り完了"
-              : phase.label,
-      })),
-    ];
-
-    return phaseDefinitions.map((phase) => {
-      if (phase.key === "slot_fill") {
-        return {
-          ...phase,
-          status: currentPhase === "slot_fill" ? "current" : "done",
-        };
-      }
-
-      let itemStatus = getMotivationPhaseStatus(phase.key, currentPhase);
-      if (phase.key === "draft_ready" && hasDraft && itemStatus !== "done") {
-        itemStatus = "done";
-      }
-      const label = phase.key === "draft_ready" && hasDraft ? "ES生成済み" : phase.label;
-      return { key: phase.key, label, status: itemStatus };
-    });
+    return computePhaseItems(standardPhase, Boolean(generatedDraft?.trim()));
   }, [causalGaps.length, conversationMode, generatedDraft, isDraftReady, nextQuestion]);
 
-  return (
+  const badges = (
     <>
-      <ConversationSidebarCard
-          title="進捗"
-          actions={
-            hasSavedConversation ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onResetConversation}
-                disabled={isLocked || isSending || isGeneratingDraft || isResetting || isStartingConversation}
-                className="h-9 rounded-xl border-border/80 bg-background px-3 text-xs shadow-sm"
-              >
-                <ResetIcon />
-                <span className="ml-2">{isResetting ? "初期化中..." : "会話をやり直す"}</span>
-              </Button>
-            ) : undefined
-          }
-        >
-          <div className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              {effectiveIndustry ? (
-                <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
-                  業界: {effectiveIndustry}
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="px-3 py-1 text-[11px]">
-                  業界未確定
-                </Badge>
-              )}
-              {selectedRoleName ? (
-                <Badge variant="soft-primary" className="px-3 py-1 text-[11px]">
-                  職種: {selectedRoleName}
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="px-3 py-1 text-[11px]">
-                  職種未選択
-                </Badge>
-              )}
-              {generatedDraft ? (
-                <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
-                  ES下書き生成済み
-                </Badge>
-              ) : null}
-            </div>
+      {effectiveIndustry ? (
+        <Badge variant="soft-info" className="px-3 py-1 text-[11px]">
+          業界: {effectiveIndustry}
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="px-3 py-1 text-[11px]">
+          業界未確定
+        </Badge>
+      )}
+      {selectedRoleName ? (
+        <Badge variant="soft-primary" className="px-3 py-1 text-[11px]">
+          職種: {selectedRoleName}
+        </Badge>
+      ) : (
+        <Badge variant="outline" className="px-3 py-1 text-[11px]">
+          職種未選択
+        </Badge>
+      )}
+      {generatedDraft ? (
+        <Badge variant="soft-success" className="px-3 py-1 text-[11px]">
+          ES下書き生成済み
+        </Badge>
+      ) : null}
+    </>
+  );
 
-            {showSetupScreen ? (
-              <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
-                <p className="text-sm font-medium text-foreground">開始前の設定</p>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  業界と職種を確定すると、この企業向けに質問が始まります。
-                </p>
-              </div>
-            ) : (
-              <>
-                <ConversationProgressBar
-                  stages={progressStages}
-                  headerSubtext={questionDisplay}
-                  footerMessage={coachingFocus}
-                >
-                  {isDeepDive && causalGaps.length > 0 ? <CausalGapSteps gaps={causalGaps} /> : null}
-                  <ProgressDetailSection
-                    currentSlotLabel={currentSlotLabel}
-                    currentIntentLabel={currentIntentLabel}
-                    nextAdvanceCondition={nextAdvanceCondition}
-                  />
-                </ConversationProgressBar>
-                <ConversationPhaseBar phases={motivationPhases} />
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {draftHelperText}
-                </p>
-              </>
-            )}
-          </div>
-        </ConversationSidebarCard>
+  const setupContent = showSetupScreen ? (
+    <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+      <p className="text-sm font-medium text-foreground">開始前の設定</p>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+        業界と職種を確定すると、この企業向けに質問が始まります。
+      </p>
+    </div>
+  ) : undefined;
 
+  const progressChildren = !showSetupScreen ? (
+    <>
+      {isDeepDive && causalGaps.length > 0 ? <CausalGapSteps gaps={causalGaps} /> : null}
+      <ProgressDetailSection
+        currentSlotLabel={currentSlotLabel}
+        currentIntentLabel={currentIntentLabel}
+        nextAdvanceCondition={nextAdvanceCondition}
+      />
+    </>
+  ) : undefined;
+
+  return (
+    <ConversationSidebar
+      progressStages={progressStages}
+      progressHeaderSubtext={questionDisplay}
+      progressFooterMessage={coachingFocus}
+      progressColumns={STAGE_ORDER.length}
+      phases={phases}
+      helperText={draftHelperText}
+      badges={badges}
+      progressChildren={progressChildren}
+      setupContent={setupContent}
+      showReset={hasSavedConversation}
+      onReset={onResetConversation}
+      resetDisabled={isLocked || isSending || isGeneratingDraft || isResetting || isStartingConversation}
+      isResetting={isResetting}
+    >
+      <Card className="border-border/50">
+        <CardHeader className="px-3.5 py-2.5">
+          <CardTitle className="text-sm font-medium">参考にした企業情報</CardTitle>
+        </CardHeader>
+        <CardContent className="px-3.5 pb-3.5 pt-0">
+          {evidenceCards.length > 0 || evidenceSummary ? (
+            <MotivationEvidenceSection
+              evidenceCards={evidenceCards}
+              evidenceSummary={evidenceSummary}
+              compact
+              showHeader={false}
+            />
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              質問に使った企業情報の要点が、ここに簡潔に表示されます。
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {userEvidenceCards.length > 0 || Object.keys(slotSummaries).length > 0 ? (
         <Card className="border-border/50">
           <CardHeader className="px-3.5 py-2.5">
-            <CardTitle className="text-sm font-medium">参考にした企業情報</CardTitle>
+            <CardTitle className="text-sm font-medium">参考にしたユーザー情報</CardTitle>
           </CardHeader>
-          <CardContent className="px-3.5 pb-3.5 pt-0">
-            {evidenceCards.length > 0 || evidenceSummary ? (
+          <CardContent className="space-y-2 px-3.5 pb-3.5 pt-0">
+            {userEvidenceCards.length > 0 ? (
               <MotivationEvidenceSection
-                evidenceCards={evidenceCards}
-                evidenceSummary={evidenceSummary}
+                evidenceCards={userEvidenceCards}
+                evidenceSummary={null}
                 compact
                 showHeader={false}
               />
             ) : (
-              <p className="text-xs text-muted-foreground">
-                質問に使った企業情報の要点が、ここに簡潔に表示されます。
-              </p>
+              SLOT_DISPLAY_ORDER.filter((s) => slotSummaries[s]).map((slot) => (
+                <div key={slot}>
+                  <p className="text-[11px] font-medium text-muted-foreground">
+                    {SLOT_SIDEBAR_LABELS[slot] || "確認済みの情報"}
+                  </p>
+                  <p className="text-xs leading-5 text-foreground/80">
+                    {slotSummaries[slot].length > 80
+                      ? `${slotSummaries[slot].slice(0, 80)}...`
+                      : slotSummaries[slot]}
+                  </p>
+                </div>
+              ))
             )}
           </CardContent>
         </Card>
-
-        {userEvidenceCards.length > 0 || Object.keys(slotSummaries).length > 0 ? (
-          <Card className="border-border/50">
-            <CardHeader className="px-3.5 py-2.5">
-              <CardTitle className="text-sm font-medium">参考にしたユーザー情報</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2 px-3.5 pb-3.5 pt-0">
-              {userEvidenceCards.length > 0 ? (
-                <MotivationEvidenceSection
-                  evidenceCards={userEvidenceCards}
-                  evidenceSummary={null}
-                  compact
-                  showHeader={false}
-                />
-              ) : (
-                SLOT_DISPLAY_ORDER.filter((s) => slotSummaries[s]).map((slot) => (
-                  <div key={slot}>
-                    <p className="text-[11px] font-medium text-muted-foreground">
-                      {SLOT_SIDEBAR_LABELS[slot] || "確認済みの情報"}
-                    </p>
-                    <p className="text-xs leading-5 text-foreground/80">
-                      {slotSummaries[slot].length > 80
-                        ? `${slotSummaries[slot].slice(0, 80)}...`
-                        : slotSummaries[slot]}
-                    </p>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        ) : null}
-    </>
+      ) : null}
+    </ConversationSidebar>
   );
 }

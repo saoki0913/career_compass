@@ -135,30 +135,6 @@ export function getMotivationSlotPillStatus(
   return "pending";
 }
 
-// ---------------------------------------------------------------------------
-// Motivation lifecycle phases
-// ---------------------------------------------------------------------------
-
-export type MotivationLifecyclePhase = "slot_fill" | "draft_ready" | "deep_dive_active" | "interview_ready";
-
-export function getMotivationLifecyclePhase(
-  isDraftReady: boolean,
-  conversationMode: ConversationMode,
-  hasNextQuestion: boolean,
-  hasCausalGaps: boolean,
-): MotivationLifecyclePhase {
-  if (!isDraftReady) return "slot_fill";
-  if (conversationMode !== "deepdive") return "draft_ready";
-  if (hasNextQuestion || hasCausalGaps) return "deep_dive_active";
-  return "interview_ready";
-}
-
-export const MOTIVATION_LIFECYCLE_PHASES = [
-  { key: "draft_ready", label: "ES作成可" },
-  { key: "deep_dive_active", label: "深堀り中" },
-  { key: "interview_ready", label: "面接準備完了" },
-] as const;
-
 export function deriveMotivationModeLabel(params: {
   conversationMode: ConversationMode;
   questionCount: number;
@@ -176,15 +152,3 @@ export function deriveMotivationModeLabel(params: {
   return "材料をもう少し揃えています";
 }
 
-export function getMotivationPhaseStatus(
-  phaseKey: "draft_ready" | "deep_dive_active" | "interview_ready",
-  currentPhase: MotivationLifecyclePhase,
-): PillStatus {
-  const TABLE: Record<MotivationLifecyclePhase, Record<string, PillStatus>> = {
-    slot_fill:        { draft_ready: "current", deep_dive_active: "pending", interview_ready: "pending" },
-    draft_ready:      { draft_ready: "done",    deep_dive_active: "pending", interview_ready: "pending" },
-    deep_dive_active: { draft_ready: "done",    deep_dive_active: "current", interview_ready: "pending" },
-    interview_ready:  { draft_ready: "done",    deep_dive_active: "done",    interview_ready: "done" },
-  };
-  return TABLE[currentPhase]?.[phaseKey] ?? "pending";
-}

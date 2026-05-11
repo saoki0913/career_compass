@@ -5,3 +5,7 @@ export { CharLimitSelector } from "./CharLimitSelector";
 export { DraftPreviewModal } from "./DraftPreviewModal";
 export { ConversationProgressBar, type ProgressStage } from "./ConversationProgressBar";
 export { ConversationPhaseBar, type PhaseItem } from "./ConversationPhaseBar";
+export { ConversationSidebar } from "./ConversationSidebar";
+export { ConversationRestartConfirmDialog } from "./ConversationRestartConfirmDialog";
+export { DraftReadyCTA } from "./DraftReadyCTA";
+export { ConversationMobileStatus } from "./ConversationMobileStatus";

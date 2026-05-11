@@ -49,4 +49,22 @@ describe("MotivationConversationContent", () => {
   it("isDraftReady banner allows optional ES timing", () => {
     expect(true).toBe(true);
   });
+
+  it("uses ConversationRestartConfirmDialog instead of window.confirm", async () => {
+    const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
+    expect(source).toContain("ConversationRestartConfirmDialog");
+    expect(source).toContain("restartDialogOpen");
+    expect(source).toContain("confirmResetConversation");
+    expect(source).not.toContain("handleResetConversation");
+  });
+
+  it("uses ConversationMobileStatus for mobile status bar", async () => {
+    const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
+    expect(source).toContain("ConversationMobileStatus");
+  });
+
+  it("uses DraftReadyCTA for draft-ready banners", async () => {
+    const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
+    expect(source).toContain("DraftReadyCTA");
+  });
 });
