@@ -22,6 +22,7 @@ import { PdfUploadStep } from "./corporate-info-section/PdfUploadStep";
 import { RegisteredSourcesModal } from "./corporate-info-section/RegisteredSourcesModal";
 import { RagDetailModal } from "./corporate-info-section/RagDetailModal";
 import { DeleteConfirmDialog } from "./corporate-info-section/DeleteConfirmDialog";
+import { FetchConfirmDialog } from "./corporate-info-section/FetchConfirmDialog";
 import { type InputMode, type ModalStep } from "./corporate-info-section/workflow-config";
 
 export interface CorporateInfoSectionProps {
@@ -55,11 +56,15 @@ export function CorporateInfoSection({
     showRagModal,
     isSearching,
     isFetching,
+    fetchPhase,
+    pendingConfirmation,
     webDraft,
     urlDraft,
     pdfDraft,
     fetchResult,
     isUploading,
+    pdfFetchPhase,
+    pendingPdfConfirmation,
     pdfUploadProgress,
     pdfPageEstimates,
     pdfEstimate,
@@ -76,7 +81,7 @@ export function CorporateInfoSection({
     parsedCustomUrls,
     orderedCandidates,
     allCandidateUrls,
-    resolvedWebContentType,
+    resolvedFetchContentType,
     activeModalStep,
     isResultDisplayed,
     showWebReviewStep,
@@ -104,7 +109,11 @@ export function CorporateInfoSection({
     handleTypeSearch,
     handleCustomSearch,
     handleFetchCorporateInfo,
+    handleConfirmFetch,
+    handleCancelFetch,
     handleUploadPdf,
+    handleConfirmPdfUpload,
+    handleCancelPdfUpload,
     handleModeSwitch,
     toggleUrl,
     toggleUrlForDelete,
@@ -115,6 +124,32 @@ export function CorporateInfoSection({
     setUrlDraft,
     setPdfDraft,
   } = controller;
+
+  const webFetchButtonContent =
+    fetchPhase === "estimating" ? (
+      <>
+        <LoadingSpinner />
+        <span className="ml-2">見積中...</span>
+      </>
+    ) : fetchPhase === "fetching" ? (
+      <>
+        <LoadingSpinner />
+        <span className="ml-2">取得中...</span>
+      </>
+    ) : null;
+
+  const pdfUploadButtonContent =
+    pdfFetchPhase === "estimating" ? (
+      <>
+        <LoadingSpinner />
+        <span className="ml-2">見積中...</span>
+      </>
+    ) : pdfFetchPhase === "fetching" ? (
+      <>
+        <LoadingSpinner />
+        <span className="ml-2">取り込み中...</span>
+      </>
+    ) : null;
 
   if (isLoading) {
     return (
@@ -439,7 +474,7 @@ export function CorporateInfoSection({
                         isModalBusy={isModalBusy}
                         orderedCandidates={orderedCandidates}
                         allCandidateUrls={allCandidateUrls}
-                        resolvedWebContentType={resolvedWebContentType}
+                        resolvedFetchContentType={resolvedFetchContentType}
                         handleTypeSearch={handleTypeSearch}
                         handleCustomSearch={handleCustomSearch}
                         handleStepNavigation={handleStepNavigation}
@@ -502,38 +537,30 @@ export function CorporateInfoSection({
                     {showWebReviewStep && (
                       <Button
                         size="sm"
+                        className="transition-all"
                         onClick={handleFetchCorporateInfo}
-                        disabled={isFetching || isUploading || webDraft.selectedUrls.length === 0}
+                        disabled={
+                          fetchPhase !== "idle" ||
+                          isUploading ||
+                          webDraft.selectedUrls.length === 0
+                        }
                       >
-                        {isFetching ? (
-                          <>
-                            <LoadingSpinner />
-                            <span className="ml-2">取得中...</span>
-                          </>
-                        ) : (
-                          "選択したURLを取得"
-                        )}
+                        {webFetchButtonContent || "選択したURLを取得"}
                       </Button>
                     )}
                     {showConfigureStep && inputMode === "url" && (
                       <Button
                         size="sm"
+                        className="transition-all"
                         onClick={handleFetchCorporateInfo}
                         disabled={
-                          isFetching ||
+                          fetchPhase !== "idle" ||
                           isUploading ||
                           parsedCustomUrls.urls.length === 0 ||
                           parsedCustomUrls.invalidLines.length > 0
                         }
                       >
-                        {isFetching ? (
-                          <>
-                            <LoadingSpinner />
-                            <span className="ml-2">取得中...</span>
-                          </>
-                        ) : (
-                          "URLから取得"
-                        )}
+                        {webFetchButtonContent || "URLから取得"}
                       </Button>
                     )}
                     {showConfigureStep &&
@@ -548,23 +575,17 @@ export function CorporateInfoSection({
                             onClick={() => {
                               document.getElementById(pdfUploadInputId)?.click();
                             }}
-                            disabled={isUploading}
+                            disabled={isUploading || pdfFetchPhase !== "idle"}
                           >
                             追加選択
                           </Button>
                           <Button
                             size="sm"
+                            className="transition-all"
                             onClick={() => { void handleUploadPdf(); }}
-                            disabled={isUploading}
+                            disabled={isUploading || pdfFetchPhase !== "idle"}
                           >
-                            {isUploading ? (
-                              <>
-                                <LoadingSpinner />
-                                <span className="ml-2">取り込み中...</span>
-                              </>
-                            ) : (
-                              `${pdfDraft.uploadFiles.length}件を取り込む`
-                            )}
+                            {pdfUploadButtonContent || `${pdfDraft.uploadFiles.length}件を取り込む`}
                           </Button>
                         </>
                       )}
@@ -605,6 +626,18 @@ export function CorporateInfoSection({
           onConfirm={handleDeleteUrls}
         />
       )}
+
+      <FetchConfirmDialog
+        confirmation={pendingConfirmation}
+        onConfirm={() => { void handleConfirmFetch(); }}
+        onCancel={handleCancelFetch}
+      />
+
+      <FetchConfirmDialog
+        confirmation={pendingPdfConfirmation}
+        onConfirm={() => { void handleConfirmPdfUpload(); }}
+        onCancel={handleCancelPdfUpload}
+      />
     </>
   );
 }

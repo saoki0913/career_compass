@@ -7,9 +7,15 @@ import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import { shouldCloseCorporateFetchModalOnSuccess } from "@/lib/company-info/fetch-ui";
 import { getPdfPageCountFromFile } from "@/lib/company-info/pdf-page-count";
 import { estimateCorporatePdfUpload, uploadCorporatePdf } from "./client-api";
-import { formatEstimateSummary, pdfFileKey } from "./workflow-helpers";
+import { pdfFileKey } from "./workflow-helpers";
 import {
   type BatchUploadItem,
+  CONTENT_TYPE_TO_CHANNEL,
+  type ContentType,
+  type CorporateFetchPlan,
+  type CrawlEstimateResult,
+  type FetchConfirmation,
+  type FetchPhase,
   type FetchResult,
   type ModalStep,
   type PdfDraft,
@@ -50,6 +56,9 @@ export function usePdfUpload({
   setIsStepTransitioning,
 }: UsePdfUploadArgs) {
   const [isUploading, setIsUploading] = useState(false);
+  const [pdfFetchPhase, setPdfFetchPhase] = useState<FetchPhase>("idle");
+  const [pendingPdfConfirmation, setPendingPdfConfirmation] =
+    useState<FetchConfirmation | null>(null);
   const [pdfUploadProgress, setPdfUploadProgress] = useState<PdfFileProgress[] | null>(null);
   const [pdfPageEstimates, setPdfPageEstimates] = useState<Record<string, number | null>>({});
   const [pdfEstimate, setPdfEstimate] = useState<PdfEstimateResult | null>(null);
@@ -190,43 +199,51 @@ export function usePdfUpload({
     pdfUploadFileSignature,
   ]);
 
-  const handleUploadPdf = useCallback(async () => {
-    if (pdfDraft.uploadFiles.length === 0) {
-      setError("PDFファイルを選択してください");
-      return;
-    }
-    if (pdfEstimateLoading || !pdfEstimate) {
-      setError("PDFの実行前見積を取得中です。しばらく待ってからもう一度お試しください。");
-      return;
-    }
-    if (pdfEstimate.requires_confirmation) {
-      const totalPages = pdfDraft.uploadFiles.reduce((sum, file) => {
-        const key = pdfFileKey(file);
-        return sum + Math.max(pdfPageEstimates[key] ?? 0, 0);
-      }, 0);
-      const routing = pdfEstimate.page_routing_summary;
-      const confirmText = [
-        "PDFの取り込みを実行します。",
-        formatEstimateSummary({
-          totalPages,
-          localPages: routing?.local_pages ?? 0,
-          googlePages: pdfEstimate.estimated_google_ocr_pages,
-          mistralPages: pdfEstimate.estimated_mistral_ocr_pages,
-          freePages: pdfEstimate.estimated_free_pdf_pages,
-          credits: pdfEstimate.estimated_credits,
-          willTruncate: pdfEstimate.will_truncate,
-        }),
-        pdfEstimate.processing_notice_ja || "",
-        "続行しますか？",
-      ]
-        .filter(Boolean)
-        .join("\n");
-      if (!window.confirm(confirmText)) {
-        return;
-      }
-    }
-    if (!acquireLock("企業情報PDFを取り込み中")) return;
+  const buildPdfConfirmation = useCallback((): FetchConfirmation | null => {
+    if (!pdfEstimate || pdfDraft.uploadFiles.length === 0) return null;
+    const totalPages = pdfDraft.uploadFiles.reduce((sum, file) => {
+      const key = pdfFileKey(file);
+      return sum + Math.max(pdfPageEstimates[key] ?? 0, 0);
+    }, 0);
+    const firstFile = pdfDraft.uploadFiles[0];
+    const firstContentType = firstFile
+      ? pdfDraft.uploadFileContentTypes[pdfFileKey(firstFile)] || DEFAULT_PDF_UPLOAD_CONTENT_TYPE
+      : DEFAULT_PDF_UPLOAD_CONTENT_TYPE;
+    const contentType = firstContentType as ContentType;
+    const plan: CorporateFetchPlan = {
+      inputMode: "pdf",
+      urls: pdfDraft.uploadFiles.map(
+        (file) => `upload://corporate-pdf/${companyId}/${pdfFileKey(file)}`,
+      ),
+      contentType,
+      contentChannel: CONTENT_TYPE_TO_CHANNEL[contentType] || "corporate_general",
+      confirmedWarningUrls: [],
+    };
+    const estimate: CrawlEstimateResult = {
+      success: pdfEstimate.success,
+      estimated_pages_crawled: totalPages,
+      estimated_html_pages: 0,
+      estimated_pdf_pages: totalPages,
+      estimated_free_html_pages: 0,
+      estimated_free_pdf_pages: pdfEstimate.estimated_free_pdf_pages,
+      estimated_credits: pdfEstimate.estimated_credits,
+      estimated_google_ocr_pages: pdfEstimate.estimated_google_ocr_pages,
+      estimated_mistral_ocr_pages: pdfEstimate.estimated_mistral_ocr_pages,
+      will_truncate: pdfEstimate.will_truncate,
+      requires_confirmation: pdfEstimate.requires_confirmation,
+      errors: pdfEstimate.errors,
+    };
+    return { kind: "cost_estimate", estimate, plan };
+  }, [companyId, pdfDraft.uploadFileContentTypes, pdfDraft.uploadFiles, pdfEstimate, pdfPageEstimates]);
 
+  const executePdfUpload = useCallback(async () => {
+    if (!acquireLock("企業情報PDFを取り込み中")) {
+      setPdfFetchPhase("idle");
+      return;
+    }
+
+    setPendingPdfConfirmation(null);
+    setPdfFetchPhase("fetching");
     setIsUploading(true);
     setError(null);
     setFetchResult(null);
@@ -421,6 +438,7 @@ export function usePdfUpload({
       notifyUserFacingAppError(uiError);
     } finally {
       setIsUploading(false);
+      setPdfFetchPhase("idle");
       releaseLock();
     }
   }, [
@@ -430,9 +448,6 @@ export function usePdfUpload({
     fetchStatus,
     pdfDraft.uploadFileContentTypes,
     pdfDraft.uploadFiles,
-    pdfEstimate,
-    pdfEstimateLoading,
-    pdfPageEstimates,
     releaseLock,
     setError,
     setFetchResult,
@@ -441,13 +456,59 @@ export function usePdfUpload({
     setIsStepTransitioning,
   ]);
 
+  const handleUploadPdf = useCallback(async () => {
+    setPdfFetchPhase("estimating");
+    if (pdfDraft.uploadFiles.length === 0) {
+      setError("PDFファイルを選択してください");
+      setPdfFetchPhase("idle");
+      return;
+    }
+    if (pdfEstimateLoading || !pdfEstimate) {
+      setError("PDFの実行前見積を取得中です。しばらく待ってからもう一度お試しください。");
+      setPdfFetchPhase("idle");
+      return;
+    }
+    if (pdfEstimate.requires_confirmation) {
+      const confirmation = buildPdfConfirmation();
+      if (confirmation) {
+        setError(null);
+        setPendingPdfConfirmation(confirmation);
+        setPdfFetchPhase("confirming");
+        return;
+      }
+    }
+    await executePdfUpload();
+  }, [
+    buildPdfConfirmation,
+    executePdfUpload,
+    pdfDraft.uploadFiles,
+    pdfEstimateLoading,
+    pdfEstimate,
+    setError,
+  ]);
+
+  const handleConfirmPdfUpload = useCallback(async () => {
+    if (!pendingPdfConfirmation) return;
+    setPendingPdfConfirmation(null);
+    await executePdfUpload();
+  }, [executePdfUpload, pendingPdfConfirmation]);
+
+  const handleCancelPdfUpload = useCallback(() => {
+    setPendingPdfConfirmation(null);
+    setPdfFetchPhase("idle");
+  }, []);
+
   return {
     isUploading,
+    pdfFetchPhase,
+    pendingPdfConfirmation,
     pdfUploadProgress,
     setPdfUploadProgress,
     pdfPageEstimates,
     pdfEstimate,
     pdfEstimateLoading,
     handleUploadPdf,
+    handleConfirmPdfUpload,
+    handleCancelPdfUpload,
   };
 }

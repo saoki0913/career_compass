@@ -28,7 +28,7 @@ interface WebSearchStepProps {
   isModalBusy: boolean;
   orderedCandidates: SearchCandidate[];
   allCandidateUrls: string[];
-  resolvedWebContentType: ContentType | null;
+  resolvedFetchContentType: ContentType | null;
   handleTypeSearch: (allowSnippetMatch?: boolean) => Promise<void>;
   handleCustomSearch: () => Promise<void>;
   handleStepNavigation: (step: ModalStep) => void;
@@ -135,7 +135,7 @@ export function WebSearchStep({
   isModalBusy,
   orderedCandidates,
   allCandidateUrls,
-  resolvedWebContentType,
+  resolvedFetchContentType,
   handleTypeSearch,
   handleCustomSearch,
   handleStepNavigation,
@@ -241,9 +241,9 @@ export function WebSearchStep({
                 <ArrowLeftIcon />
                 条件に戻る
               </button>
-              {resolvedWebContentType && (
+              {resolvedFetchContentType && (
                 <span className="inline-flex items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] font-medium text-foreground">
-                  {CONTENT_TYPE_LABELS[resolvedWebContentType]}
+                  {CONTENT_TYPE_LABELS[resolvedFetchContentType]}
                 </span>
               )}
               <span className="text-[11px] text-muted-foreground">

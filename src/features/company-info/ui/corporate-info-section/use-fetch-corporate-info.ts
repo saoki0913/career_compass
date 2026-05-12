@@ -7,11 +7,13 @@ import { notifyMessage, notifySuccess } from "@/lib/notifications";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import { shouldCloseCorporateFetchModalOnSuccess } from "@/lib/company-info/fetch-ui";
 import { checkSourceCompliance, estimateCorporateFetch, fetchCorporateInfo } from "./client-api";
-import { formatEstimateSummary } from "./workflow-helpers";
 import {
   type ComplianceCheckResponse,
   type ContentType,
+  type CorporateFetchPlan,
   type CrawlEstimateResult,
+  type FetchConfirmation,
+  type FetchPhase,
   type FetchResult,
   type InputMode,
   type ModalStep,
@@ -23,10 +25,6 @@ const RAG_SUCCESS_SNACKBAR_DELAY_MS = 230;
 
 function getComplianceReason(reasons?: string[]) {
   return reasons?.[0] || "公開ページURLのみ取得できます";
-}
-
-function confirmSourceWarning(reason: string) {
-  return window.confirm(`${reason}\n\nこのページを確認済みとして取得を続行しますか？`);
 }
 
 interface ParsedCustomUrls {
@@ -41,7 +39,7 @@ interface UseFetchCorporateInfoArgs {
   webDraft: WebDraft;
   inputMode: InputMode;
   parsedCustomUrls: ParsedCustomUrls;
-  resolvedWebContentType: ContentType | null;
+  resolvedFetchContentType: ContentType | null;
   acquireLock: (reason: string) => boolean;
   releaseLock: () => void;
   fetchStatus: () => Promise<void>;
@@ -58,7 +56,7 @@ export function useFetchCorporateInfo({
   webDraft,
   inputMode,
   parsedCustomUrls,
-  resolvedWebContentType,
+  resolvedFetchContentType,
   acquireLock,
   releaseLock,
   fetchStatus,
@@ -67,180 +65,27 @@ export function useFetchCorporateInfo({
   setFetchResult,
   setModalStep,
 }: UseFetchCorporateInfoArgs) {
-  const [isFetching, setIsFetching] = useState(false);
+  const [fetchPhase, setFetchPhase] = useState<FetchPhase>("idle");
+  const [pendingConfirmation, setPendingConfirmation] = useState<FetchConfirmation | null>(null);
 
-  const handleFetchCorporateInfo = useCallback(async () => {
-    let urlsToFetch = [...webDraft.selectedUrls];
+  const releaseToIdle = useCallback(() => {
+    setPendingConfirmation(null);
+    setFetchPhase("idle");
+    releaseLock();
+  }, [releaseLock]);
 
-    if (inputMode === "url") {
-      if (parsedCustomUrls.invalidLines.length > 0) {
-        setError(
-          "URLの形式が正しくない行があります。http:// または https:// で始まるURLを1行ずつ入力してください。",
-        );
-        return;
-      }
-      urlsToFetch = parsedCustomUrls.urls;
-    }
-
-    if (urlsToFetch.length === 0) {
-      setError(inputMode === "url" ? "URLを入力してください" : "URLを選択してください");
-      return;
-    }
-    if (!resolvedWebContentType) {
-      setError("コンテンツ種別を選択してください");
-      return;
-    }
-
-    let confirmedWarningUrls: string[] = [];
-    if (inputMode === "web") {
-      const warningCandidates = webDraft.candidates.filter(
-        (candidate) =>
-          webDraft.selectedUrls.includes(candidate.url) &&
-          candidate.complianceStatus === "warning",
-      );
-      if (warningCandidates.length > 0) {
-        const message = getComplianceReason(warningCandidates[0]?.complianceReasons);
-        notifyMessage(message);
-        if (!confirmSourceWarning(message)) {
-          return;
-        }
-        confirmedWarningUrls = warningCandidates.map((candidate) => candidate.url);
-      }
-    }
-
-    if (inputMode === "url") {
-      try {
-        const complianceResponse = await checkSourceCompliance(companyId, urlsToFetch);
-        if (complianceResponse.ok) {
-          const complianceData: ComplianceCheckResponse = await complianceResponse.json();
-          if (complianceData.blockedResults.length > 0) {
-            const message = getComplianceReason(complianceData.blockedResults[0]?.reasons);
-            setError(message);
-            notifyMessage(message);
-            return;
-          }
-          if (complianceData.warningResults.length > 0) {
-            const message = getComplianceReason(complianceData.warningResults[0]?.reasons);
-            notifyMessage(message);
-            if (!confirmSourceWarning(message)) {
-              return;
-            }
-            confirmedWarningUrls = complianceData.warningResults.map((result) => result.url);
-          }
-        }
-      } catch {
-        // Fall through to server-side validation.
-      }
-    }
-
-    let estimateResult: CrawlEstimateResult | null = null;
-    try {
-      const response = await estimateCorporateFetch(companyId, {
-        urls: urlsToFetch,
-        contentType: resolvedWebContentType,
-        contentChannel: resolveCorporateContentChannel(resolvedWebContentType),
-        confirmedWarningUrls,
-      });
-      if (!response.ok) {
-        throw await parseApiErrorResponse(
-          response,
-          {
-            code: "CORPORATE_FETCH_ESTIMATE_FAILED",
-            userMessage: "企業情報の見積を取得できませんでした。",
-            action: "しばらく待ってから、もう一度お試しください。",
-            retryable: true,
-          },
-          "CorporateInfoSection.handleFetchCorporateInfo.estimate",
-        );
-      }
-      const data = (await response.json().catch(() => ({}))) as CrawlEstimateResult;
-
-      let remainingHtml = Math.max(0, companyRagHtmlPagesRemaining ?? 0);
-      let remainingPdf = Math.max(0, companyRagPdfPagesRemaining ?? 0);
-      let estimatedFreeHtmlPages = 0;
-      let estimatedFreePdfPages = 0;
-      let estimatedCredits = 0;
-      for (const url of urlsToFetch) {
-        const summary = data.page_routing_summaries?.[url];
-        const ingestPages =
-          summary && typeof summary.ingest_pages === "number"
-            ? Math.max(0, Math.floor(summary.ingest_pages as number))
-            : 1;
-        if (summary && typeof summary.ingest_pages === "number") {
-          const freeApplied = Math.min(ingestPages, remainingPdf);
-          estimatedFreePdfPages += freeApplied;
-          remainingPdf -= freeApplied;
-          estimatedCredits += calculatePdfIngestCredits(ingestPages - freeApplied);
-        } else {
-          const freeApplied = Math.min(1, remainingHtml);
-          estimatedFreeHtmlPages += freeApplied;
-          remainingHtml -= freeApplied;
-          estimatedCredits += Math.max(0, 1 - freeApplied);
-        }
-      }
-
-      estimateResult = {
-        ...data,
-        estimated_free_html_pages: estimatedFreeHtmlPages,
-        estimated_free_pdf_pages: estimatedFreePdfPages,
-        estimated_credits: estimatedCredits,
-        requires_confirmation:
-          estimatedCredits > 0 ||
-          (data.estimated_mistral_ocr_pages ?? 0) > 0 ||
-          data.will_truncate,
-      };
-      if (estimateResult.requires_confirmation) {
-        const confirmText = [
-          "企業情報の取得を実行します。",
-          formatEstimateSummary({
-            totalPages: estimateResult.estimated_pages_crawled,
-            localPages: Math.max(
-              0,
-              estimateResult.estimated_pages_crawled -
-                estimateResult.estimated_google_ocr_pages -
-                estimateResult.estimated_mistral_ocr_pages,
-            ),
-            googlePages: estimateResult.estimated_google_ocr_pages,
-            mistralPages: estimateResult.estimated_mistral_ocr_pages,
-            freePages:
-              estimateResult.estimated_free_html_pages + estimateResult.estimated_free_pdf_pages,
-            credits: estimateResult.estimated_credits,
-            willTruncate: estimateResult.will_truncate,
-          }),
-          "続行しますか？",
-        ].join("\n");
-        if (!window.confirm(confirmText)) {
-          return;
-        }
-      }
-    } catch (err) {
-      const uiError = toAppUiError(
-        err,
-        {
-          code: "CORPORATE_FETCH_FAILED",
-          userMessage: "企業情報の見積を取得できませんでした。",
-          action: "しばらく待ってから、もう一度お試しください。",
-          retryable: true,
-        },
-        "CorporateInfoSection.handleFetchCorporateInfo",
-      );
-      setError(uiError.message);
-      notifyUserFacingAppError(uiError);
-      return;
-    }
-    if (!acquireLock("企業情報ページを取得中")) return;
-
-    setIsFetching(true);
+  const executeFetchPlan = useCallback(async (plan: CorporateFetchPlan) => {
+    setPendingConfirmation(null);
+    setFetchPhase("fetching");
     setError(null);
     setFetchResult(null);
 
     try {
-      const contentChannel = resolveCorporateContentChannel(resolvedWebContentType);
       const response = await fetchCorporateInfo(companyId, {
-        urls: urlsToFetch,
-        contentChannel,
-        contentType: resolvedWebContentType,
-        confirmedWarningUrls,
+        urls: plan.urls,
+        contentChannel: plan.contentChannel,
+        contentType: plan.contentType,
+        confirmedWarningUrls: plan.confirmedWarningUrls,
       });
 
       if (response.status === 402) {
@@ -315,27 +160,228 @@ export function useFetchCorporateInfo({
       setError(uiError.message);
       notifyUserFacingAppError(uiError);
     } finally {
-      setIsFetching(false);
+      setPendingConfirmation(null);
+      setFetchPhase("idle");
       releaseLock();
     }
   }, [
-    acquireLock,
-    companyId,
-    companyRagHtmlPagesRemaining,
-    companyRagPdfPagesRemaining,
     closeModal,
+    companyId,
     fetchStatus,
-    inputMode,
-    parsedCustomUrls.invalidLines.length,
-    parsedCustomUrls.urls,
-    resolvedWebContentType,
     releaseLock,
-    webDraft.candidates,
-    webDraft.selectedUrls,
     setError,
     setFetchResult,
     setModalStep,
   ]);
 
-  return { isFetching, handleFetchCorporateInfo };
+  const estimateFetchPlan = useCallback(async (plan: CorporateFetchPlan) => {
+    setFetchPhase("estimating");
+
+    try {
+      const response = await estimateCorporateFetch(companyId, {
+        urls: plan.urls,
+        contentType: plan.contentType,
+        contentChannel: plan.contentChannel,
+        confirmedWarningUrls: plan.confirmedWarningUrls,
+      });
+      if (!response.ok) {
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "CORPORATE_FETCH_ESTIMATE_FAILED",
+            userMessage: "企業情報の見積を取得できませんでした。",
+            action: "しばらく待ってから、もう一度お試しください。",
+            retryable: true,
+          },
+          "CorporateInfoSection.handleFetchCorporateInfo.estimate",
+        );
+      }
+      const data = (await response.json().catch(() => ({}))) as CrawlEstimateResult;
+
+      let remainingHtml = Math.max(0, companyRagHtmlPagesRemaining ?? 0);
+      let remainingPdf = Math.max(0, companyRagPdfPagesRemaining ?? 0);
+      let estimatedFreeHtmlPages = 0;
+      let estimatedFreePdfPages = 0;
+      let estimatedCredits = 0;
+      for (const url of plan.urls) {
+        const summary = data.page_routing_summaries?.[url];
+        const ingestPages =
+          summary && typeof summary.ingest_pages === "number"
+            ? Math.max(0, Math.floor(summary.ingest_pages as number))
+            : 1;
+        if (summary && typeof summary.ingest_pages === "number") {
+          const freeApplied = Math.min(ingestPages, remainingPdf);
+          estimatedFreePdfPages += freeApplied;
+          remainingPdf -= freeApplied;
+          estimatedCredits += calculatePdfIngestCredits(ingestPages - freeApplied);
+        } else {
+          const freeApplied = Math.min(1, remainingHtml);
+          estimatedFreeHtmlPages += freeApplied;
+          remainingHtml -= freeApplied;
+          estimatedCredits += Math.max(0, 1 - freeApplied);
+        }
+      }
+
+      const estimateResult: CrawlEstimateResult = {
+        ...data,
+        estimated_free_html_pages: estimatedFreeHtmlPages,
+        estimated_free_pdf_pages: estimatedFreePdfPages,
+        estimated_credits: estimatedCredits,
+        requires_confirmation:
+          estimatedCredits > 0 ||
+          (data.estimated_mistral_ocr_pages ?? 0) > 0 ||
+          data.will_truncate,
+      };
+
+      if (estimateResult.requires_confirmation) {
+        setPendingConfirmation({ kind: "cost_estimate", estimate: estimateResult, plan });
+        setFetchPhase("confirming");
+        return;
+      }
+
+      await executeFetchPlan(plan);
+    } catch (err) {
+      const uiError = toAppUiError(
+        err,
+        {
+          code: "CORPORATE_FETCH_FAILED",
+          userMessage: "企業情報の見積を取得できませんでした。",
+          action: "しばらく待ってから、もう一度お試しください。",
+          retryable: true,
+        },
+        "CorporateInfoSection.handleFetchCorporateInfo",
+      );
+      setError(uiError.message);
+      notifyUserFacingAppError(uiError);
+      releaseToIdle();
+    }
+  }, [
+    companyId,
+    companyRagHtmlPagesRemaining,
+    companyRagPdfPagesRemaining,
+    executeFetchPlan,
+    releaseToIdle,
+    setError,
+  ]);
+
+  const handleFetchCorporateInfo = useCallback(async () => {
+    if (!acquireLock("企業情報ページを取得準備中")) return;
+    setPendingConfirmation(null);
+    setFetchPhase("estimating");
+    setError(null);
+
+    let urlsToFetch = [...webDraft.selectedUrls];
+
+    if (inputMode === "url") {
+      if (parsedCustomUrls.invalidLines.length > 0) {
+        setError(
+          "URLの形式が正しくない行があります。http:// または https:// で始まるURLを1行ずつ入力してください。",
+        );
+        releaseToIdle();
+        return;
+      }
+      urlsToFetch = parsedCustomUrls.urls;
+    }
+
+    if (urlsToFetch.length === 0) {
+      setError(inputMode === "url" ? "URLを入力してください" : "URLを選択してください");
+      releaseToIdle();
+      return;
+    }
+    if (!resolvedFetchContentType) {
+      setError("コンテンツ種別を選択してください");
+      releaseToIdle();
+      return;
+    }
+
+    const plan: CorporateFetchPlan = {
+      inputMode,
+      urls: urlsToFetch,
+      contentType: resolvedFetchContentType,
+      contentChannel: resolveCorporateContentChannel(resolvedFetchContentType),
+      confirmedWarningUrls: [],
+    };
+
+    let confirmedWarningUrls: string[] = [];
+    if (inputMode === "web") {
+      const warningCandidates = webDraft.candidates.filter(
+        (candidate) =>
+          webDraft.selectedUrls.includes(candidate.url) &&
+          candidate.complianceStatus === "warning",
+      );
+      if (warningCandidates.length > 0) {
+        const message = getComplianceReason(warningCandidates[0]?.complianceReasons);
+        notifyMessage(message);
+        confirmedWarningUrls = warningCandidates.map((candidate) => candidate.url);
+        const warningPlan = { ...plan, confirmedWarningUrls };
+        setPendingConfirmation({ kind: "source_warning", reason: message, plan: warningPlan });
+        setFetchPhase("confirming");
+        return;
+      }
+    }
+
+    if (inputMode === "url") {
+      try {
+        const complianceResponse = await checkSourceCompliance(companyId, urlsToFetch);
+        if (complianceResponse.ok) {
+          const complianceData: ComplianceCheckResponse = await complianceResponse.json();
+          if (complianceData.blockedResults.length > 0) {
+            const message = getComplianceReason(complianceData.blockedResults[0]?.reasons);
+            setError(message);
+            notifyMessage(message);
+            releaseToIdle();
+            return;
+          }
+          if (complianceData.warningResults.length > 0) {
+            const message = getComplianceReason(complianceData.warningResults[0]?.reasons);
+            notifyMessage(message);
+            confirmedWarningUrls = complianceData.warningResults.map((result) => result.url);
+            const warningPlan = { ...plan, confirmedWarningUrls };
+            setPendingConfirmation({ kind: "source_warning", reason: message, plan: warningPlan });
+            setFetchPhase("confirming");
+            return;
+          }
+        }
+      } catch {
+        // Fall through to server-side validation.
+      }
+    }
+
+    await estimateFetchPlan({ ...plan, confirmedWarningUrls });
+  }, [
+    acquireLock,
+    companyId,
+    estimateFetchPlan,
+    inputMode,
+    parsedCustomUrls.invalidLines.length,
+    parsedCustomUrls.urls,
+    releaseToIdle,
+    resolvedFetchContentType,
+    webDraft.candidates,
+    webDraft.selectedUrls,
+    setError,
+  ]);
+
+  const handleConfirmFetch = useCallback(async () => {
+    const confirmation = pendingConfirmation;
+    if (!confirmation) return;
+    setPendingConfirmation(null);
+    if (confirmation.kind === "source_warning") {
+      await estimateFetchPlan(confirmation.plan);
+      return;
+    }
+    await executeFetchPlan(confirmation.plan);
+  }, [estimateFetchPlan, executeFetchPlan, pendingConfirmation]);
+
+  const handleCancelFetch = useCallback(() => {
+    releaseToIdle();
+  }, [releaseToIdle]);
+
+  return {
+    fetchPhase,
+    pendingConfirmation,
+    handleFetchCorporateInfo,
+    handleConfirmFetch,
+    handleCancelFetch,
+  };
 }

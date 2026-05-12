@@ -236,7 +236,10 @@ export function useCorporateInfoSectionController({
     () => parseUrlListInput(urlDraft.customUrlInput),
     [urlDraft.customUrlInput],
   );
-  const resolvedWebContentType = webDraft.lastContentType || webDraft.selectedContentType;
+  const resolvedFetchContentType: ContentType | null =
+    inputMode === "url"
+      ? urlDraft.contentType
+      : (webDraft.lastContentType || webDraft.selectedContentType);
 
   // --- Sub-hooks (called unconditionally at top level per React rules) ---
   const { isSearching, handleTypeSearch, handleCustomSearch } = useCorporateSearch({
@@ -250,14 +253,20 @@ export function useCorporateInfoSectionController({
     setModalStep,
   });
 
-  const { isFetching, handleFetchCorporateInfo } = useFetchCorporateInfo({
+  const {
+    fetchPhase,
+    pendingConfirmation,
+    handleFetchCorporateInfo,
+    handleConfirmFetch,
+    handleCancelFetch,
+  } = useFetchCorporateInfo({
     companyId,
     companyRagHtmlPagesRemaining,
     companyRagPdfPagesRemaining,
     webDraft,
     inputMode,
     parsedCustomUrls,
-    resolvedWebContentType,
+    resolvedFetchContentType,
     acquireLock,
     releaseLock,
     fetchStatus,
@@ -266,15 +275,20 @@ export function useCorporateInfoSectionController({
     setFetchResult,
     setModalStep,
   });
+  const isFetching = fetchPhase !== "idle";
 
   const {
     isUploading,
+    pdfFetchPhase,
+    pendingPdfConfirmation,
     pdfUploadProgress,
     setPdfUploadProgress,
     pdfPageEstimates,
     pdfEstimate,
     pdfEstimateLoading,
     handleUploadPdf,
+    handleConfirmPdfUpload,
+    handleCancelPdfUpload,
   } = usePdfUpload({
     companyId,
     companyRagPdfPagesRemaining,
@@ -350,7 +364,8 @@ export function useCorporateInfoSectionController({
   const isResultDisplayed = displayedStep === "result";
   const showWebReviewStep = inputMode === "web" && activeModalStep === "review";
   const showConfigureStep = activeModalStep === "configure";
-  const isModalBusy = isSearching || isFetching || isUploading;
+  const isModalBusy =
+    isSearching || fetchPhase !== "idle" || pdfFetchPhase !== "idle" || isUploading;
   const hasReviewContext = webDraft.hasSearched || webDraft.candidates.length > 0;
   const ragStatus = status?.ragStatus;
   const ragStatusUnavailable = status?.ragStatusUnavailable === true;
@@ -524,6 +539,8 @@ export function useCorporateInfoSectionController({
     pdfDraft,
     fetchResult,
     isUploading,
+    pdfFetchPhase,
+    pendingPdfConfirmation,
     pdfUploadProgress,
     pdfPageEstimates,
     pdfEstimate,
@@ -541,7 +558,9 @@ export function useCorporateInfoSectionController({
     parsedCustomUrls,
     orderedCandidates,
     allCandidateUrls,
-    resolvedWebContentType,
+    resolvedFetchContentType,
+    fetchPhase,
+    pendingConfirmation,
     activeModalStep,
     isResultDisplayed,
     showWebReviewStep,
@@ -570,7 +589,11 @@ export function useCorporateInfoSectionController({
     handleTypeSearch,
     handleCustomSearch,
     handleFetchCorporateInfo,
+    handleConfirmFetch,
+    handleCancelFetch,
     handleUploadPdf,
+    handleConfirmPdfUpload,
+    handleCancelPdfUpload,
     handleModeSwitch,
     toggleUrl,
     toggleUrlForDelete,

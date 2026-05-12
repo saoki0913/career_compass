@@ -122,6 +122,12 @@ export interface PdfEstimateResult {
   errors?: string[];
 }
 
+export type PageRoutingSummary = {
+  ingest_pages?: number;
+  route?: string;
+  content_type?: string;
+};
+
 export interface CrawlEstimateResult {
   success: boolean;
   estimated_pages_crawled: number;
@@ -137,7 +143,7 @@ export interface CrawlEstimateResult {
   /** Next API のエラー応答（単数）。`errors` と併用されうる */
   error?: string;
   errors?: string[];
-  page_routing_summaries?: Record<string, Record<string, unknown>>;
+  page_routing_summaries?: Record<string, PageRoutingSummary & Record<string, unknown>>;
 }
 
 export const CONTENT_TYPE_TO_CHANNEL: Record<ContentType, "corporate_ir" | "corporate_general"> = {
@@ -200,6 +206,19 @@ export type InputMode = "web" | "url" | "pdf";
 export type ModalStep = "configure" | "review" | "result";
 export type WebModalStep = Exclude<ModalStep, "result">;
 export type WebSearchKind = "type" | "custom";
+export type FetchPhase = "idle" | "estimating" | "confirming" | "fetching";
+
+export type CorporateFetchPlan = {
+  inputMode: InputMode;
+  urls: string[];
+  contentType: ContentType;
+  contentChannel: "corporate_ir" | "corporate_general";
+  confirmedWarningUrls: string[];
+};
+
+export type FetchConfirmation =
+  | { kind: "source_warning"; reason: string; plan: CorporateFetchPlan }
+  | { kind: "cost_estimate"; estimate: CrawlEstimateResult; plan: CorporateFetchPlan };
 
 export interface WebDraft {
   selectedContentType: ContentType | null;
@@ -215,6 +234,7 @@ export interface WebDraft {
 
 export interface UrlDraft {
   customUrlInput: string;
+  contentType: ContentType | null;
 }
 
 export interface PdfDraft {
@@ -239,6 +259,7 @@ export function createInitialWebDraft(): WebDraft {
 export function createInitialUrlDraft(): UrlDraft {
   return {
     customUrlInput: "",
+    contentType: null,
   };
 }
 

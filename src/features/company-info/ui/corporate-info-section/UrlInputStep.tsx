@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useMemo } from "react";
+import { detectContentTypeFromUrl } from "@/lib/company-info/sources";
 import { cn } from "@/lib/utils";
-import type { UrlDraft } from "./workflow-config";
+import { CONTENT_TYPE_OPTIONS, type ContentType, type UrlDraft } from "./workflow-config";
 
 interface ParsedCustomUrls {
   urls: string[];
@@ -24,6 +26,21 @@ export function UrlInputStep({
   isFetching,
   isUploading,
 }: UrlInputStepProps) {
+  const detectedContentType = useMemo<ContentType | null>(() => {
+    if (parsedCustomUrls.urls.length === 0) return null;
+    const detectedTypes = parsedCustomUrls.urls.map((url) => detectContentTypeFromUrl(url));
+    const [firstType] = detectedTypes;
+    if (!firstType) return null;
+    return detectedTypes.every((type) => type === firstType) ? firstType : null;
+  }, [parsedCustomUrls.urls]);
+
+  useEffect(() => {
+    setUrlDraft({
+      customUrlInput: urlDraft.customUrlInput,
+      contentType: detectedContentType,
+    });
+  }, [detectedContentType, setUrlDraft, urlDraft.customUrlInput]);
+
   return (
     <div className="space-y-2 rounded-lg border border-border/60 bg-background/80 p-3">
       <div>
@@ -38,6 +55,7 @@ export function UrlInputStep({
         onChange={(e) =>
           setUrlDraft({
             customUrlInput: e.target.value,
+            contentType: urlDraft.contentType,
           })
         }
         placeholder={"https://example.com/recruit\nhttps://example.com/company\nhttps://example.com/ir"}
@@ -48,6 +66,31 @@ export function UrlInputStep({
         disabled={isFetching || isUploading}
         spellCheck={false}
       />
+
+      <label className="block space-y-1.5">
+        <span className="text-xs font-medium text-muted-foreground">コンテンツ種別</span>
+        <select
+          value={urlDraft.contentType ?? ""}
+          onChange={(e) =>
+            setUrlDraft({
+              customUrlInput: urlDraft.customUrlInput,
+              contentType: e.target.value ? (e.target.value as ContentType) : null,
+            })
+          }
+          className={cn(
+            "h-10 w-full rounded-lg border border-border bg-background px-3 text-sm transition-colors",
+            "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20",
+          )}
+          disabled={isFetching || isUploading}
+        >
+          <option value="">自動推定 (URLから判定)</option>
+          {CONTENT_TYPE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span className="rounded-full border border-border/60 bg-muted/20 px-2.5 py-1">
