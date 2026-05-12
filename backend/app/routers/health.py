@@ -18,6 +18,7 @@ async def readiness_check():
     started_at = time.monotonic()
     failed: list[str] = []
     warnings: list[str] = []
+    circuits = {}
 
     try:
         from app.config import settings  # noqa: PLC0415
@@ -51,6 +52,24 @@ async def readiness_check():
         warnings.append("provider_credentials_unavailable")
         logger.warning("Readiness check warning: llm provider credentials unavailable")
 
+    try:
+        from app.utils.llm_client_registry import get_circuit_breaker
+
+        for provider in ("anthropic", "openai"):
+            cb = get_circuit_breaker(provider)
+            if cb is not None:
+                circuits[provider] = {
+                    "state": "open" if cb.is_open() else "closed",
+                    "failures": cb.failures,
+                    "threshold": cb.threshold,
+                }
+                if cb.is_open():
+                    warnings.append(f"{provider}_circuit_open")
+        if circuits and all(c.get("state") == "open" for c in circuits.values() if c):
+            warnings.append("all_llm_circuits_open")
+    except Exception:
+        logger.warning("Readiness check: circuit breaker status unavailable", exc_info=True)
+
     elapsed_ms = round((time.monotonic() - started_at) * 1000, 2)
     if failed:
         return JSONResponse(
@@ -59,6 +78,7 @@ async def readiness_check():
                 "status": "not_ready",
                 "failed": failed,
                 "warnings": warnings,
+                "circuits": circuits,
                 "elapsed_ms": elapsed_ms,
             },
         )
@@ -66,5 +86,6 @@ async def readiness_check():
     return {
         "status": "ready",
         "warnings": warnings,
+        "circuits": circuits,
         "elapsed_ms": elapsed_ms,
     }

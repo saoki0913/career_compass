@@ -15,12 +15,19 @@ _call_claude, _json_repair_*）だけは循環インポートを避けるため�
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Callable, Optional
+from typing import Any, AsyncGenerator, Callable, Literal, Optional
 
 from anthropic import APIError as AnthropicAPIError
 
+from app.utils.cancellation import CancellationTokenLike
+from app.utils.llm_call_guard import guard_llm_call
+
 from app.config import settings
-from app.utils.llm_client_registry import get_circuit_breaker
+from app.utils.llm_client_registry import (
+    is_provider_circuit_open,
+    record_provider_failure,
+    record_provider_success,
+)
 from app.utils.llm_model_routing import (
     LLMModel,
     ResponseFormat,
@@ -46,12 +53,21 @@ logger = get_logger(__name__)
 
 OUTPUT_GUARD_BUFFER_CHARS = 512
 
+StreamFieldEventType = Literal[
+    "chunk",
+    "string_chunk",
+    "field_complete",
+    "array_item_complete",
+    "complete",
+    "error",
+]
+
 
 @dataclass
 class StreamFieldEvent:
     """Event emitted during token-level streaming."""
 
-    type: str  # "chunk", "string_chunk", "field_complete", "array_item_complete", "complete", "error"
+    type: StreamFieldEventType
     path: str = ""  # e.g., "scores", "top3.0", "rewrites.1"
     text: str = ""  # For chunk/string_chunk events
     value: object = None  # For field_complete/array_item_complete events
@@ -107,6 +123,22 @@ async def call_llm_streaming(
         model = get_model_config().get(feature, "claude-sonnet")
 
     target = _resolve_model_target(feature, model)
+
+    # Circuit breaker check: fall back to non-streaming if provider circuit is open.
+    if is_provider_circuit_open(target.provider):
+        _log(
+            feature,
+            f"{target.provider} circuit open, falling back to non-streaming",
+            WARNING,
+        )
+        return await call_llm_with_error(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=model,
+            feature=feature,
+        )
 
     # Only Anthropic models support token streaming in this implementation
     if target.provider != "anthropic":
@@ -192,6 +224,7 @@ async def call_llm_streaming(
         result = _parse_json_response(accumulated)
         if result is not None:
             _log(feature, f"{model_display} ストリーミング成功", SUCCESS)
+            record_provider_success("anthropic")
             return LLMResult(
                 success=True,
                 data=result,
@@ -221,6 +254,7 @@ async def call_llm_streaming(
         error_type, detail = _classify_anthropic_error(e)
         error = _create_error(error_type, "anthropic", feature, detail)
         _log(feature, f"Anthropic ストリーミングエラー: {detail}", ERROR)
+        record_provider_failure("anthropic")
         return LLMResult(success=False, error=error)
 
     except Exception as e:
@@ -247,6 +281,7 @@ async def call_llm_streaming_fields(
     use_responses_api: bool = False,
     attempt_repair_on_parse_failure: bool = True,
     partial_required_fields: tuple[str, ...] | None = None,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> AsyncGenerator[StreamFieldEvent, None]:
     """Stream LLM response with incremental JSON field extraction.
 
@@ -280,6 +315,34 @@ async def call_llm_streaming_fields(
 
     target = _resolve_model_target(feature, model)
 
+    # Circuit breaker check: fall back to non-streaming if provider circuit is open.
+    if is_provider_circuit_open(target.provider):
+        _log(
+            feature,
+            f"{target.provider} circuit open, falling back to non-streaming",
+            WARNING,
+        )
+        result = await call_llm_with_error(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            model=model,
+            feature=feature,
+            response_format=response_format,
+            json_schema=json_schema,
+            use_responses_api=use_responses_api,
+            cancellation_token=cancellation_token,
+        )
+        yield StreamFieldEvent(type="complete", result=result)
+        return
+
+    guard_result = guard_llm_call(cancellation_token, feature, target.provider)
+    if guard_result is not None:
+        yield StreamFieldEvent(type="complete", result=guard_result)
+        return
+
     # Non-Anthropic models: fall back to non-streaming
     if target.provider != "anthropic":
         result = await call_llm_with_error(
@@ -292,6 +355,7 @@ async def call_llm_streaming_fields(
             response_format=response_format,
             json_schema=json_schema,
             use_responses_api=use_responses_api,
+            cancellation_token=cancellation_token,
         )
         yield StreamFieldEvent(type="complete", result=result)
         return
@@ -306,7 +370,6 @@ async def call_llm_streaming_fields(
         stream_string_fields=stream_string_fields,
     )
     partial_required_fields = partial_required_fields or ()
-    anthropic_circuit = get_circuit_breaker("anthropic")
 
     try:
         usage_summary: dict[str, int] | None = None
@@ -343,6 +406,8 @@ async def call_llm_streaming_fields(
             on_complete=_capture_usage,
         ):
             pending_feed += chunk
+            if cancellation_token is not None and cancellation_token.is_cancelled:
+                break
             leakage_error = _leakage_error_if_detected(text=extractor.get_accumulated() + pending_feed, feature=feature)
             if leakage_error is not None:
                 _emit_output_leakage_event(
@@ -419,7 +484,7 @@ async def call_llm_streaming_fields(
         result = _parse_json_response(accumulated)
         if result is not None:
             _log(feature, f"{model_display} フィールドストリーミング成功", SUCCESS)
-            anthropic_circuit.record_success()
+            record_provider_success("anthropic")
             yield StreamFieldEvent(
                 type="complete",
                 result=LLMResult(
@@ -530,7 +595,7 @@ async def call_llm_streaming_fields(
         error_type, detail = _classify_anthropic_error(e)
         error = _create_error(error_type, "anthropic", feature, detail)
         _log(feature, f"Anthropic フィールドストリーミングエラー: {detail}", ERROR)
-        anthropic_circuit.record_failure()
+        record_provider_failure("anthropic")
         yield StreamFieldEvent(
             type="error",
             result=LLMResult(success=False, error=error),
