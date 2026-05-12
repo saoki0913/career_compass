@@ -12,6 +12,7 @@ import { computePhaseItems } from "@/lib/shared/conversation-lifecycle";
 import type { StandardPhaseKey } from "@/lib/shared/conversation-lifecycle";
 import { getConversationBadgeLabel } from "@/lib/gakuchika/conversation-state";
 import type { ConversationState } from "@/lib/gakuchika/conversation-state";
+import type { Session } from "@/features/gakuchika/domain/ui";
 
 const STAGE_TO_PHASE: Record<string, StandardPhaseKey> = {
   es_building: "questioning",
@@ -29,7 +30,7 @@ interface GakuchikaConversationSidebarProps {
   helperText: string;
   conversationState: ConversationState | null;
   generatedDraft: boolean;
-  sessions: Array<{ id: string; status: "in_progress" | "completed"; conversationState: any }>;
+  sessions: Session[];
   currentSessionId: string | null;
   gakuchikaTitle: string;
   gakuchikaContent: string | null;
