@@ -1,6 +1,10 @@
 import { sql } from "drizzle-orm";
 import { type AnyPgColumn, pgTable, text, integer, boolean, timestamp, index, uniqueIndex, check, jsonb } from "drizzle-orm/pg-core";
 import { ES_DOCUMENT_CATEGORIES } from "@/lib/es-document-category";
+import type { InterviewFeedback, InterviewFeedbackScores } from "@/lib/interview/conversation";
+import type { InterviewPlan } from "@/lib/interview/plan";
+import type { InterviewTurnState, InterviewTurnMeta } from "@/lib/interview/session";
+import type { InterviewSheetData } from "@/lib/interview/sheet-builder";
 
 const timestamptz = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 export type JsonRecord = Record<string, unknown>;
@@ -187,41 +191,6 @@ export const companies = pgTable(
     index("companies_guest_id_idx").on(t.guestId),
     index("companies_user_list_sort_idx").on(t.userId, t.isPinned.desc(), t.sortOrder, t.createdAt.desc()),
     index("companies_guest_list_sort_idx").on(t.guestId, t.isPinned.desc(), t.sortOrder, t.createdAt.desc()),
-  ]
-);
-
-export const companyPdfIngestJobs = pgTable(
-  "company_pdf_ingest_jobs",
-  {
-    id: text("id").primaryKey(),
-    companyId: text("company_id")
-      .notNull()
-      .references(() => companies.id, { onDelete: "cascade" }),
-    sourceUrl: text("source_url").notNull(),
-    storageBucket: text("storage_bucket").notNull(),
-    storagePath: text("storage_path").notNull(),
-    fileName: text("file_name").notNull(),
-    status: text("status", {
-      enum: ["pending", "processing", "completed", "failed"],
-    })
-      .notNull()
-      .default("pending"),
-    attempts: integer("attempts").notNull().default(0),
-    lastError: text("last_error"),
-    detectedContentType: text("detected_content_type"),
-    secondaryContentTypes: text("secondary_content_types"),
-    chunksStored: integer("chunks_stored").notNull().default(0),
-    extractedChars: integer("extracted_chars").notNull().default(0),
-    extractionMethod: text("extraction_method"),
-    createdAt: timestamptz("created_at").notNull().defaultNow(),
-    startedAt: timestamptz("started_at"),
-    completedAt: timestamptz("completed_at"),
-    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
-  },
-  (t) => [
-    index("company_pdf_ingest_jobs_company_status_idx").on(t.companyId, t.status),
-    uniqueIndex("company_pdf_ingest_jobs_source_url_ux").on(t.sourceUrl),
-    index("company_pdf_ingest_jobs_created_at_idx").on(t.createdAt),
   ]
 );
 
@@ -893,10 +862,10 @@ export const interviewConversations = pgTable(
     interviewStage: text("interview_stage"),
     interviewerType: text("interviewer_type"),
     strictnessMode: text("strictness_mode"),
-    interviewPlanJson: jsonb("interview_plan_json").$type<unknown>(),
-    turnStateJson: jsonb("turn_state_json").$type<unknown>(),
-    turnMetaJson: jsonb("turn_meta_json").$type<unknown>(),
-    activeFeedbackDraft: jsonb("active_feedback_draft").$type<unknown>(),
+    interviewPlanJson: jsonb("interview_plan_json").$type<InterviewPlan>(),
+    turnStateJson: jsonb("turn_state_json").$type<InterviewTurnState>(),
+    turnMetaJson: jsonb("turn_meta_json").$type<InterviewTurnMeta>(),
+    activeFeedbackDraft: jsonb("active_feedback_draft").$type<InterviewFeedback>(),
     currentFeedbackId: text("current_feedback_id"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
@@ -924,7 +893,7 @@ export const interviewFeedbackHistories = pgTable(
       .notNull()
       .references(() => companies.id, { onDelete: "cascade" }),
     overallComment: text("overall_comment").notNull(),
-    scores: jsonb("scores").$type<unknown>().notNull().default(sql`'{}'::jsonb`),
+    scores: jsonb("scores").$type<InterviewFeedbackScores>().notNull().default(sql`'{}'::jsonb`),
     strengths: jsonb("strengths").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     improvements: jsonb("improvements").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     consistencyRisks: jsonb("consistency_risks").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
@@ -946,7 +915,7 @@ export const interviewFeedbackHistories = pgTable(
     promptVersion: text("prompt_version").notNull().default("unknown"),
     followupPolicyVersion: text("followup_policy_version").notNull().default("unknown"),
     caseSeedVersion: text("case_seed_version"),
-    sheetDataJson: jsonb("sheet_data_json").$type<unknown>(),
+    sheetDataJson: jsonb("sheet_data_json").$type<InterviewSheetData>(),
     sheetContent: text("sheet_content"),
     sheetGeneratedAt: timestamptz("sheet_generated_at"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),

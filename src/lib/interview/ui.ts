@@ -11,6 +11,7 @@ import type {
   InterviewerType,
 } from "@/lib/interview/session";
 import type { InterviewShortCoaching } from "@/lib/interview/conversation";
+import type { InterviewSheetData } from "@/lib/interview/sheet-builder";
 
 export const INDUSTRY_SELECT_UNSET = "__interview_industry_unset__";
 export const ROLE_SELECT_UNSET = "__interview_role_unset__";
@@ -72,7 +73,7 @@ export type FeedbackHistoryItem = {
   scoreEvidenceByAxis?: Record<string, string[]>;
   scoreRationaleByAxis?: Record<string, string>;
   confidenceByAxis?: Record<string, string>;
-  sheetDataJson?: unknown;
+  sheetDataJson?: InterviewSheetData | null;
   sheetContent?: string | null;
   sourceQuestionCount: number;
   createdAt: string;

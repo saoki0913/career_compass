@@ -10,6 +10,7 @@ import type {
   InterviewFeedback,
   InterviewMessage,
 } from "@/lib/interview/conversation";
+import type { InterviewSheetData } from "@/lib/interview/sheet-builder";
 import { normalizeInterviewPersistenceError } from "@/lib/interview/persistence-errors";
 import { buildFeedbackOwnerWhere } from "@/lib/interview/persistence-owner";
 import {
@@ -136,7 +137,7 @@ export async function saveInterviewFeedbackSheet(args: {
   identity: RequestIdentity;
   historyId: string;
   sheetContent: string;
-  sheetDataJson?: unknown;
+  sheetDataJson?: InterviewSheetData | null;
 }) {
   try {
     const [updated] = await db
