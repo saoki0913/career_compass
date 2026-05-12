@@ -25,6 +25,7 @@ from app.services.motivation.context import (
     _looks_like_role_reason,
     _normalize_conversation_context,
     _normalize_slot_state_map,
+    detect_touched_slot,
 )
 from app.services.motivation.models import DeepDiveGap
 
@@ -113,6 +114,8 @@ def _compute_deterministic_causal_gaps(context: dict[str, Any] | None) -> list[d
 
 
 def _determine_next_turn(context: dict[str, Any] | None) -> dict[str, Any]:
+    raw_context = context if isinstance(context, dict) else {}
+    last_user_answer = str(raw_context.get("lastUserAnswer") or "").strip()
     normalized = _normalize_conversation_context(context)
     mode = normalized.get("conversationMode") or CONVERSATION_MODE_SLOT_FILL
     if mode == CONVERSATION_MODE_DEEPDIVE:
@@ -154,6 +157,16 @@ def _determine_next_turn(context: dict[str, Any] | None) -> dict[str, Any]:
             "target_slot": None,
             "intent": None,
             "next_advance_condition": "一定回数まで確認したため、いったんESの作成に進めます。",
+        }
+    touched = detect_touched_slot(last_user_answer) if last_user_answer else None
+    if touched and states.get(touched) != "locked":
+        return {
+            "mode": CONVERSATION_MODE_SLOT_FILL,
+            "unlock": False,
+            "unlock_reason": None,
+            "target_slot": touched,
+            "intent": SLOT_FILL_INTENTS[touched],
+            "next_advance_condition": NEXT_ADVANCE_CONDITION_BY_SLOT[touched],
         }
     for stage in REQUIRED_MOTIVATION_STAGES:
         if states.get(stage) != "locked":

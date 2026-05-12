@@ -13,6 +13,9 @@ import {
   verifyGakuchikaAccess,
   type ConversationState,
 } from "@/bff/gakuchika";
+
+const FALLBACK_RESUME_QUESTION =
+  "もう少し詳しく教えていただけますか？具体的にどのような場面が印象に残っていますか？";
 import {
   getRequestId,
   logAiCreditCostSummary,
@@ -181,13 +184,40 @@ export async function POST(
           creditsUsed: 0,
           telemetry: result.telemetry,
         });
-        return NextResponse.json(
-          { error: result.error || "次の質問の生成に失敗しました" },
-          { status: 503 }
-        );
-      }
+        messages = [
+          ...messages,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            content: FALLBACK_RESUME_QUESTION,
+          },
+        ];
+        conversationState = stateForApi;
+        nextAction = "ask";
+        status = "in_progress";
+        finalQuestionCount = questionCount + 1;
 
-      if (result.question) {
+        await db
+          .update(gakuchikaConversations)
+          .set({
+            messages,
+            questionCount: finalQuestionCount,
+            status,
+            starScores: serializeConversationState(conversationState),
+            updatedAt: new Date(),
+          })
+          .where(eq(gakuchikaConversations.id, sessionId));
+      } else {
+
+      const lastAssistantMsg = messages.length > 0
+        ? [...messages].reverse().find((m) => m.role === "assistant")
+        : null;
+      const isDuplicateQuestion =
+        result.question &&
+        lastAssistantMsg &&
+        lastAssistantMsg.content.trim() === result.question.trim();
+
+      if (result.question && !isDuplicateQuestion) {
         messages = [
           ...messages,
           {
@@ -204,6 +234,9 @@ export async function POST(
             ...result.conversationState,
             extendedDeepDiveRound:
               result.conversationState.extendedDeepDiveRound ?? stateForApi.extendedDeepDiveRound,
+            resolvedFocuses: [...new Set([...stateForApi.resolvedFocuses, ...(result.conversationState.resolvedFocuses ?? [])])],
+            askedFocuses: [...new Set([...stateForApi.askedFocuses, ...(result.conversationState.askedFocuses ?? [])])],
+            deferredFocuses: [...new Set([...stateForApi.deferredFocuses, ...(result.conversationState.deferredFocuses ?? [])])],
           }
         : stateForApi;
       if (conversationState.stage === "interview_ready" && !conversationState.draftText) {
@@ -237,6 +270,7 @@ export async function POST(
       });
       void incrementDailyTokenCount(identity, computeTotalTokens(result.telemetry));
       }
+      }
     }
 
     const allConversations = await db
@@ -265,6 +299,8 @@ export async function POST(
     const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "assistant");
     nextAction = getGakuchikaNextAction(conversationState);
 
+    const { draftQualityChecks: _dqc, ...clientState } = conversationState;
+
     return NextResponse.json({
       conversation: {
         id: sessionId,
@@ -276,7 +312,7 @@ export async function POST(
       questionCount: finalQuestionCount,
       isCompleted: isInterviewReady(conversationState),
       isInterviewReady: isInterviewReady(conversationState),
-      conversationState,
+      conversationState: clientState,
       nextAction,
       isAIPowered: true,
       gakuchikaContent: gakuchika.content,

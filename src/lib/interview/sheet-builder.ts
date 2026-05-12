@@ -31,6 +31,54 @@ export interface SheetBuildInput {
   generatedAt: Date;
 }
 
+// ---------------------------------------------------------------------------
+// Structured sheet data (SSOT for SheetViewer UI)
+// ---------------------------------------------------------------------------
+
+export interface InterviewSheetScoreEntry {
+  axis: string;
+  axisKey: keyof Feedback["scores"];
+  score: number;
+  evidence: string[];
+  rationale: string | null;
+  confidence: string | null;
+}
+
+export interface InterviewSheetQAPair {
+  questionNumber: number;
+  question: string;
+  answer: string;
+}
+
+export interface InterviewSheetWeakest {
+  questionType: string;
+  question: string;
+  answer: string;
+}
+
+export interface InterviewSheetData {
+  companyName: string;
+  selectedRole: string | null;
+  generatedAt: string;
+  setup: {
+    interviewFormat: string;
+    selectionType: string;
+    interviewStage: string;
+    interviewerType: string;
+    strictnessMode: string;
+  };
+  scores: InterviewSheetScoreEntry[];
+  overallComment: string;
+  strengths: string[];
+  improvements: string[];
+  consistencyRisks: string[];
+  qaPairs: InterviewSheetQAPair[];
+  improvedAnswer: string;
+  weakestQuestion: InterviewSheetWeakest | null;
+  nextPreparation: string[];
+  premiseConsistency: number | null;
+}
+
 const SCORE_AXES: Array<[keyof Feedback["scores"], string]> = [
   ["company_fit", "企業適合"],
   ["role_fit", "職種適合"],
@@ -152,4 +200,74 @@ export function buildInterviewSheetMarkdown(input: SheetBuildInput): string {
 
   sections.push("");
   return sections.join("\n");
+}
+
+function buildQAPairsStructured(messages: Message[]): InterviewSheetQAPair[] {
+  const pairs: InterviewSheetQAPair[] = [];
+  let questionNum = 0;
+  let pendingQuestion: string | null = null;
+
+  for (const msg of messages) {
+    if (msg.role === "assistant") {
+      questionNum++;
+      pendingQuestion = msg.content;
+    } else if (msg.role === "user" && pendingQuestion !== null) {
+      pairs.push({
+        questionNumber: questionNum,
+        question: pendingQuestion,
+        answer: msg.content,
+      });
+      pendingQuestion = null;
+    }
+  }
+  return pairs;
+}
+
+export function buildInterviewSheetData(input: SheetBuildInput): InterviewSheetData {
+  const { companyName, setup, selectedRole, messages, feedback, generatedAt } = input;
+
+  const evidenceMap = feedback.score_evidence_by_axis ?? {};
+  const rationaleMap = feedback.score_rationale_by_axis ?? {};
+  const confidenceMap = feedback.confidence_by_axis ?? {};
+
+  const scores: InterviewSheetScoreEntry[] = SCORE_AXES.map(([key, label]) => ({
+    axis: label,
+    axisKey: key,
+    score: typeof feedback.scores[key] === "number" ? feedback.scores[key] : 0,
+    evidence: evidenceMap[key] ?? [],
+    rationale: rationaleMap[key] ?? null,
+    confidence: confidenceMap[key] ?? null,
+  }));
+
+  const hasWeakest = feedback.weakest_question_type || feedback.weakest_question_snapshot;
+  const weakestQuestion: InterviewSheetWeakest | null = hasWeakest
+    ? {
+        questionType: labelWeakestQuestionType(feedback.weakest_question_type) ?? "",
+        question: feedback.weakest_question_snapshot ?? "",
+        answer: feedback.weakest_answer_snapshot ?? "",
+      }
+    : null;
+
+  return {
+    companyName,
+    selectedRole,
+    generatedAt: generatedAt.toISOString(),
+    setup: {
+      interviewFormat: INTERVIEW_FORMAT_LABELS[setup.interviewFormat],
+      selectionType: SELECTION_TYPE_LABELS[setup.selectionType],
+      interviewStage: INTERVIEW_STAGE_LABELS[setup.interviewStage],
+      interviewerType: INTERVIEWER_TYPE_LABELS[setup.interviewerType],
+      strictnessMode: STRICTNESS_MODE_LABELS[setup.strictnessMode],
+    },
+    scores,
+    overallComment: feedback.overall_comment,
+    strengths: feedback.strengths,
+    improvements: feedback.improvements,
+    consistencyRisks: feedback.consistency_risks,
+    qaPairs: buildQAPairsStructured(messages),
+    improvedAnswer: feedback.improved_answer,
+    weakestQuestion,
+    nextPreparation: feedback.next_preparation,
+    premiseConsistency: typeof feedback.premise_consistency === "number" ? feedback.premise_consistency : null,
+  };
 }

@@ -51,8 +51,8 @@ class InterviewPlanView(TypedDict, total=False):
     must_cover_topics: list[str]
 
 
-QUESTION_SOFT_MIN = 12
-QUESTION_HARD_MAX = 18
+QUESTION_SOFT_MIN = 13
+QUESTION_HARD_MAX = 17
 
 
 # ---------------------------------------------------------------------------
@@ -963,14 +963,34 @@ _NEXT_QUESTION_HINT_BY_FOLLOWUP_STYLE: dict[str, str] = {
     "future_check": "入社後にどう活かすかまで視野に入れて答えてみてください。",
     "future_vision_check": "将来像と志望理由の接続を意識して答えてみてください。",
     "technical_difficulty_check": "技術的な判断の根拠とトレードオフを明示して答えてみてください。",
+    "value_alignment_check": "自分の価値観と、そこで選んだ行動がどうつながるか意識して答えてみてください。",
+    "impact_check": "取り組みの成果が周囲やチームにどんな影響を与えたか添えて答えてみてください。",
+    "learning_check": "その経験から何を学び、次にどう活かしたかまで含めて答えてみてください。",
+}
+
+
+_NEXT_QUESTION_HINT_BY_TOPIC: dict[str, str] = {
+    "motivation_fit": "「なぜこの会社か」を自分の経験と結び付けて答えてみてください。",
+    "role_understanding": "その職種で求められるスキルと自分の強みの接点を意識して答えてみてください。",
+    "leadership": "チームを動かすために工夫した具体的な行動を入れて答えてみてください。",
+    "teamwork": "メンバーとの関わり方で特に意識したポイントを添えて答えてみてください。",
+    "gakuchika": "「何をしたか」だけでなく「なぜそうしたか」まで含めて答えてみてください。",
+    "career": "将来やりたいことと、いま志望する企業・職種がどうつながるか意識して答えてみてください。",
+    "self_pr": "強みを裏付ける具体的なエピソードを 1 つ添えて答えてみてください。",
+    "strengths": "その強みが発揮された場面を、数字や固有名詞を入れて答えてみてください。",
 }
 
 
 def _fallback_next_question_hint(turn_meta: dict[str, Any]) -> str | None:
     followup_style = turn_meta.get("followup_style") if isinstance(turn_meta, dict) else None
-    if not followup_style or not isinstance(followup_style, str):
-        return None
-    return _NEXT_QUESTION_HINT_BY_FOLLOWUP_STYLE.get(followup_style.strip())
+    if followup_style and isinstance(followup_style, str):
+        hint = _NEXT_QUESTION_HINT_BY_FOLLOWUP_STYLE.get(followup_style.strip())
+        if hint:
+            return hint
+    topic = turn_meta.get("topic") if isinstance(turn_meta, dict) else None
+    if topic and isinstance(topic, str):
+        return _NEXT_QUESTION_HINT_BY_TOPIC.get(topic.strip())
+    return None
 
 
 def _should_end_questions(budget: QuestionBudgetInput, plan: InterviewPlanView) -> bool:
@@ -1577,6 +1597,7 @@ __all__ = [
     "detect_answer_gap",
     "_fallback_short_coaching",
     "_fallback_next_question_hint",
+    "_NEXT_QUESTION_HINT_BY_TOPIC",
     "_should_end_questions",
     "QuestionBudgetInput",
     "InterviewPlanView",

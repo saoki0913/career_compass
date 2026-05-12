@@ -182,9 +182,13 @@ export function useGakuchikaConversationController({
         setIsCompleted(conversationData.isCompleted || false);
         setIsInterviewReadyState(Boolean(conversationData.isInterviewReady));
         setIsAIPowered(conversationData.isAIPowered ?? true);
-        setConversationState(conversationData.conversationState || getDefaultConversationState());
+        const restoredState = conversationData.conversationState || getDefaultConversationState();
+        setConversationState(restoredState);
         setSessions(conversationData.sessions || []);
         setCurrentSessionId(conversationData.conversation?.id || null);
+        if (restoredState?.draftQuality) {
+          setGeneratedDraftQuality(restoredState.draftQuality);
+        }
       }
 
       if (gakuchikaRes.ok) {

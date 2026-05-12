@@ -5,6 +5,8 @@ re-exported through the ``app.routers.interview`` façade and that the split
 modules exist and are importable. Any drift between the façade ``__all__``
 and the underlying submodules will trip this test, preventing silent loss of
 a monkeypatch target or a Pydantic model that external callers rely on.
+
+Updated for motivation facade cache enablement (conversation-feature-improvement Wave 1).
 """
 
 from __future__ import annotations

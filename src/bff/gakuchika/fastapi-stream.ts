@@ -197,6 +197,7 @@ export async function getQuestionFromFastAPI(
           content: message.content,
         })),
         question_count: questionCount,
+        previous_stage: conversationState?.stage ?? null,
         conversation_state: conversationState
           ? {
               stage: conversationState.stage,
@@ -231,6 +232,15 @@ export async function getQuestionFromFastAPI(
               extended_deep_dive_round: conversationState.extendedDeepDiveRound,
               coach_progress_message: conversationState.coachProgressMessage,
               remaining_questions_estimate: conversationState.remainingQuestionsEstimate,
+              draft_quality: conversationState.draftQuality
+                ? {
+                    status: conversationState.draftQuality.status,
+                    warnings: conversationState.draftQuality.warnings,
+                    retry_count: conversationState.draftQuality.retryCount,
+                    failure_codes: conversationState.draftQuality.failureCodes,
+                    selection_reason: conversationState.draftQuality.selectionReason,
+                  }
+                : null,
             }
           : null,
       }),

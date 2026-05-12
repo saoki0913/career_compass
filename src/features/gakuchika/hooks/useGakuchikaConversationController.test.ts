@@ -32,4 +32,9 @@ describe("useGakuchikaConversationController", () => {
     expect(source).not.toContain('event.type === "complete"');
     expect(source).not.toContain('event.type === "error"');
   });
+
+  it("restores generatedDraftQuality from conversationState.draftQuality on fetch", () => {
+    expect(source).toContain("restoredState?.draftQuality");
+    expect(source).toContain("setGeneratedDraftQuality");
+  });
 });

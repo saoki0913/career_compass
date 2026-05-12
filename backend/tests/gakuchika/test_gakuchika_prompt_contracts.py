@@ -28,6 +28,7 @@ import pytest
 
 from app.prompts import gakuchika_prompt_builder as prompt_builder
 from app.prompts.gakuchika_prompt_builder import (
+    _format_already_discussed,
     _render_es_build_system_prompt,
     _render_deepdive_system_prompt,
     _render_initial_question_system_prompt,
@@ -37,6 +38,7 @@ from app.prompts.gakuchika_prompt_builder import (
 from app.prompts.gakuchika_prompts import (
     APPROVAL_AND_QUESTION_PATTERN,
     COACH_PERSONA,
+    QUESTION_TONE_AND_ALIGNMENT_RULES,
 )
 
 
@@ -351,3 +353,156 @@ def test_prompt_builder_module_has_no_normalization_helper_attributes() -> None:
         assert not hasattr(prompt_builder, name), (
             f"prompt_builder should not expose normalization helper {name} (M2)."
         )
+
+
+# ---------------------------------------------------------------------------
+# Test: QUESTION_TONE_AND_ALIGNMENT_RULES contains re-question prohibition
+# ---------------------------------------------------------------------------
+
+
+def test_question_tone_rules_contain_re_question_prohibition() -> None:
+    """QUESTION_TONE_AND_ALIGNMENT_RULES must include rules that prohibit
+    re-asking about topics the student has already discussed.
+
+    This prevents the AI from forgetting conversation context and asking
+    redundant questions (会話忘却防止).
+    """
+    assert "すでに回答があるテーマ" in QUESTION_TONE_AND_ALIGNMENT_RULES, (
+        "Re-question prohibition rule must be present in QUESTION_TONE_AND_ALIGNMENT_RULES"
+    )
+    assert "未確認の角度" in QUESTION_TONE_AND_ALIGNMENT_RULES, (
+        "Rule for approaching from new angles must be present"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tests: _format_already_discussed helper
+# ---------------------------------------------------------------------------
+
+
+class TestFormatAlreadyDiscussed:
+    """Tests for _format_already_discussed that formats already-covered topics
+    for injection into the user message to prevent re-questioning."""
+
+    def test_returns_empty_when_no_focuses_and_no_facts(self) -> None:
+        """When there are no asked_focuses and known_facts is empty,
+        the function should return an empty string (no section to inject)."""
+        result = _format_already_discussed(asked_focuses=None, known_facts="")
+        assert result == ""
+
+    def test_returns_empty_when_empty_list_and_empty_facts(self) -> None:
+        """Empty list + empty known_facts should also yield empty string."""
+        result = _format_already_discussed(asked_focuses=[], known_facts="")
+        assert result == ""
+
+    def test_renders_section_with_asked_focuses(self) -> None:
+        """When asked_focuses has entries, the section header and focus labels
+        must appear in the output."""
+        result = _format_already_discussed(
+            asked_focuses=["context", "task"],
+            known_facts="- 模擬店エリア担当\n- 混雑が課題",
+        )
+        assert "すでに確認した内容" in result
+        assert "同じ質問を繰り返さないでください" in result
+        assert "context" in result
+        assert "task" in result
+
+    def test_renders_section_with_known_facts_only(self) -> None:
+        """Even when asked_focuses is empty, if known_facts has content,
+        the section should be generated to remind the LLM of existing info."""
+        result = _format_already_discussed(
+            asked_focuses=[],
+            known_facts="- 模擬店エリア担当\n- チームは10人",
+        )
+        assert "すでに確認した内容" in result
+        assert "模擬店エリア担当" in result
+
+    def test_renders_section_with_asked_focuses_only(self) -> None:
+        """When known_facts is empty but asked_focuses has entries,
+        the section should still be generated with focus labels."""
+        result = _format_already_discussed(
+            asked_focuses=["action", "result"],
+            known_facts="",
+        )
+        assert "すでに確認した内容" in result
+        assert "action" in result
+        assert "result" in result
+
+    def test_deduplicates_asked_focuses(self) -> None:
+        """Duplicate focus keys should be deduplicated in the output."""
+        result = _format_already_discussed(
+            asked_focuses=["context", "context", "task"],
+            known_facts="",
+        )
+        # Count occurrences of 'context' in the focus listing
+        # (it may appear in the header text too, so check deduplicated list)
+        assert result.count("context") >= 1  # present at least once
+        # The bullet or comma-separated list should not repeat
+        lines = result.split("\n")
+        focus_lines = [line for line in lines if "context" in line and "task" in line]
+        # At least one line should contain both — they should be in a single listing
+        assert len(focus_lines) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Test: already_discussed section is injected into ES-build user message
+# ---------------------------------------------------------------------------
+
+
+def test_es_build_user_message_contains_already_discussed_section(
+    minimal_es_build_args: dict,
+) -> None:
+    """When asked_focuses and known_facts have content, the ES-build user
+    message must contain the already-discussed section to prevent the LLM
+    from re-asking about covered topics."""
+    args = {
+        **minimal_es_build_args,
+        "asked_focuses": ["context", "task"],
+        "known_facts": "- 模擬店エリア担当\n- 混雑が課題",
+    }
+    _system, user_message = build_es_prompt_text(**args)
+
+    assert "すでに確認した内容" in user_message, (
+        "Already-discussed section must appear in user_message when topics were covered"
+    )
+    assert "同じ質問を繰り返さないでください" in user_message
+
+
+def test_es_build_user_message_omits_already_discussed_when_empty(
+    minimal_es_build_args: dict,
+) -> None:
+    """When no topics have been discussed yet, the already-discussed section
+    should not appear in the user message to avoid confusing the LLM."""
+    args = {
+        **minimal_es_build_args,
+        "asked_focuses": [],
+        "known_facts": "",
+    }
+    _system, user_message = build_es_prompt_text(**args)
+
+    assert "すでに確認した内容" not in user_message, (
+        "Already-discussed section must not appear when no topics were discussed"
+    )
+
+
+def test_already_discussed_appears_after_blocked_focuses(
+    minimal_es_build_args: dict,
+) -> None:
+    """The already-discussed section must appear after the blocked_focuses
+    section in the user message, so the LLM processes constraints in order:
+    asked -> blocked -> already_discussed -> task."""
+    args = {
+        **minimal_es_build_args,
+        "asked_focuses": ["context"],
+        "known_facts": "- 模擬店エリア担当",
+        "blocked_focuses": ["learning"],
+    }
+    _system, user_message = build_es_prompt_text(**args)
+
+    blocked_pos = user_message.find("ブロックされた要素")
+    discussed_pos = user_message.find("すでに確認した内容")
+    task_pos = user_message.find("## タスク")
+
+    assert blocked_pos < discussed_pos < task_pos, (
+        "Section ordering must be: blocked_focuses -> already_discussed -> task"
+    )

@@ -24,7 +24,7 @@ import {
   getMarketingPricingPlans,
   type MarketingPricingPlan,
 } from "@/lib/marketing/pricing-plans";
-import { ANNUAL_PLAN_PRICES, type BillingPeriod } from "@/lib/stripe/config";
+import { ANNUAL_PLAN_PRICES, type BillingPeriod } from "@/lib/billing/plan-metadata";
 import { cn } from "@/lib/utils";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 

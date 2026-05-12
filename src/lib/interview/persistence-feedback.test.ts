@@ -18,8 +18,9 @@ describe("persistence-feedback module", () => {
     expect(source).toContain("export async function saveInterviewFeedbackSheet");
   });
 
-  it("saveInterviewFeedbackSheet sets sheetContent and sheetGeneratedAt", () => {
+  it("saveInterviewFeedbackSheet sets sheetContent, sheetDataJson and sheetGeneratedAt", () => {
     expect(source).toContain("sheetContent: args.sheetContent");
+    expect(source).toContain("sheetDataJson:");
     expect(source).toContain("sheetGeneratedAt:");
   });
 

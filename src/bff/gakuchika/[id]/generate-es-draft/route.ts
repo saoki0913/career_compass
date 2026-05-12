@@ -50,6 +50,7 @@ interface FastAPIDraftResponse {
     failure_codes?: string[];
     selection_reason?: string;
   };
+  quality_warnings?: string[] | null;
   draft_diagnostics?: {
     strength_tags?: string[];
     issue_tags?: string[];
@@ -151,6 +152,7 @@ export async function POST(
 
   const body = await request.json();
   const { charLimit = 400, sessionId } = body;
+  const isRegeneration = Boolean(body.isRegeneration);
 
   if (![300, 400, 500].includes(charLimit)) {
     return NextResponse.json(
@@ -260,6 +262,7 @@ export async function POST(
         char_limit: charLimit,
         known_facts: knownFacts,
         draft_material: draftMaterial,
+        is_regeneration: isRegeneration,
       }),
       principal,
     });
@@ -278,6 +281,7 @@ export async function POST(
           char_limit: charLimit,
           known_facts: knownFacts,
           draft_material: draftMaterial,
+          is_regeneration: isRegeneration,
         }),
         principal,
       });
@@ -316,6 +320,26 @@ export async function POST(
       return NextResponse.json(
         { error: "ES生成に失敗しました" },
         { status: 502 },
+      );
+    }
+
+    const hasQualityFailure =
+      data.quality_warnings && data.quality_warnings.length > 0;
+    if (hasQualityFailure && !isRegeneration) {
+      if (reservationId) await cancelReservation(reservationId);
+      logAiCreditCostSummary({
+        feature: "gakuchika_draft",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry,
+      });
+      return NextResponse.json(
+        {
+          error: "ES下書きの品質基準を満たしませんでした。もう少し質問に答えてから再度お試しください。",
+          quality_warnings: data.quality_warnings,
+        },
+        { status: 409 },
       );
     }
 
@@ -404,6 +428,7 @@ export async function POST(
       followupSuggestion: data.followup_suggestion ?? "更に深掘りする",
       documentId: documentId,
       draftQuality: data.draft_quality ?? null,
+      qualityWarnings: data.quality_warnings ?? null,
     });
   } catch (error) {
     if (reservationId) await cancelReservation(reservationId);

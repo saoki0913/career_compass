@@ -72,6 +72,8 @@ export type FeedbackHistoryItem = {
   scoreEvidenceByAxis?: Record<string, string[]>;
   scoreRationaleByAxis?: Record<string, string>;
   confidenceByAxis?: Record<string, string>;
+  sheetDataJson?: unknown;
+  sheetContent?: string | null;
   sourceQuestionCount: number;
   createdAt: string;
 };
@@ -261,21 +263,37 @@ export function labelWeakestQuestionType(raw: string | null | undefined): string
   return WEAKEST_QUESTION_TYPE_LABELS[raw] ?? raw;
 }
 
-export const PREMISE_CONSISTENCY_HELP =
-  "前提一致度は、回答全体で志望理由・経験・将来像の前提がどれだけ矛盾せずにつながっていたかを見る目安です。";
+// --- Topic display labels ---
 
-export function scoreEntries(feedback: Feedback | null) {
-  if (!feedback) return [];
-  return [
-    ["企業適合", feedback.scores.company_fit ?? 0],
-    ["職種適合", feedback.scores.role_fit ?? 0],
-    ["具体性", feedback.scores.specificity ?? 0],
-    ["論理性", feedback.scores.logic ?? 0],
-    ["説得力", feedback.scores.persuasiveness ?? 0],
-    ["一貫性", feedback.scores.consistency ?? 0],
-    ["信頼性", feedback.scores.credibility ?? 0],
-  ] as const;
-}
+export const TOPIC_DISPLAY_LABELS: Record<string, string> = {
+  motivation_fit: "志望動機",
+  role_understanding: "職種理解",
+  case_fit: "ケース適性",
+  life_narrative_core: "自分史・転機",
+  structured_thinking: "構造化思考",
+  technical_depth: "技術的深掘り",
+  motivation: "志望動機",
+  leadership: "リーダーシップ",
+  teamwork: "チームワーク",
+  gakuchika: "ガクチカ",
+  self_pr: "自己PR",
+  strengths: "強み",
+  weaknesses: "課題・弱み",
+  career_vision: "キャリアビジョン",
+  career: "キャリア",
+  communication: "コミュニケーション",
+  problem_solving: "課題解決",
+  creativity: "創造性",
+  adaptability: "適応力",
+  values: "価値観",
+  growth: "成長経験",
+  failure_experience: "失敗経験",
+  success_experience: "成功体験",
+  industry_understanding: "業界理解",
+  company_understanding: "企業理解",
+  academic: "学業・研究",
+  research: "研究活動",
+};
 
 // --- Progress display helpers (shared component integration) ---
 
@@ -312,7 +330,7 @@ export function buildInterviewTopicStages(
   }
   return topics.map((topic, i) => ({
     key: `topic-${i}-${topic}`,
-    label: topic,
+    label: TOPIC_DISPLAY_LABELS[topic] ?? topic,
     status:
       topic === current && !questionFlowCompleted
         ? "current"
@@ -343,7 +361,7 @@ export function buildInterviewPhases(
   return [
     { key: "setup", label: "面接設定", status: getStatus("setup") },
     { key: "questions", label: "質問フェーズ", status: getStatus("questions") },
-    { key: "feedback", label: "最終講評", status: getStatus("feedback") },
+    { key: "feedback", label: "まとめシート", status: getStatus("feedback") },
     { key: "complete", label: "面接完了", status: getStatus("complete") },
   ];
 }

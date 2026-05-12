@@ -13,6 +13,12 @@ from app.security.sse_concurrency import (
     SseConcurrencyExceeded,
     SseLease,
 )
+from app.utils.cancellation import CancellationTokenLike
+from app.utils.llm_usage_cost import (
+    set_request_llm_call_budget,
+    reset_request_llm_call_budget,
+    FEATURE_LLM_CALL_BUDGETS,
+)
 import json
 import asyncio
 import math
@@ -747,12 +753,16 @@ async def _generate_review_progress(
     tenant_key: str | None = None,
     review_runner: Callable[..., Awaitable[ReviewResponse]] = review_section_with_template,
     review_runner_kwargs: Optional[dict[str, Any]] = None,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Generate SSE events for ES review progress.
     Yields progress updates as the review is processed.
     """
     review_runner_kwargs = dict(review_runner_kwargs or {})
+    if cancellation_token is not None:
+        review_runner_kwargs["cancellation_token"] = cancellation_token
+    set_request_llm_call_budget(FEATURE_LLM_CALL_BUDGETS.get("es_review"))
     if "llm_provider" not in review_runner_kwargs or "llm_model" not in review_runner_kwargs:
         requested_model = request.llm_model.strip() if request.llm_model else None
         llm_provider, llm_model = resolve_feature_model_metadata(
@@ -1091,7 +1101,7 @@ async def _generate_review_progress(
         result_payload = result.model_dump()
         final_rewrite_text = result.rewrites[0] if result.rewrites else ""
         explanation_text: str | None = None
-        if final_rewrite_text:
+        if final_rewrite_text and not (cancellation_token and cancellation_token.is_cancelled):
             try:
                 from app.services.es_review.explanation import generate_improvement_explanation
 
@@ -1160,6 +1170,8 @@ async def _generate_review_progress(
         yield _sse_event("error", {
             "message": "AI処理中にエラーが発生しました。しばらくしてからもう一度お試しください。",
         })
+    finally:
+        reset_request_llm_call_budget()
 
 
 def _build_review_streaming_response(
@@ -1226,7 +1238,11 @@ async def review_es_stream(
     async def _stream_with_lease() -> AsyncGenerator[str, None]:
         async with lease:
             tenant_key = require_tenant_key(principal) if request.company_id else None
-            async for chunk in _generate_review_progress(request, tenant_key=tenant_key):
+            async for chunk in _generate_review_progress(
+                request,
+                tenant_key=tenant_key,
+                cancellation_token=lease.cancellation_token,
+            ):
                 await lease.heartbeat_if_due()
                 yield chunk
 

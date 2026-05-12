@@ -40,6 +40,8 @@ QUESTION_TONE_AND_ALIGNMENT_RULES = """## 質問トーンと整合ルール
 - progress_label は focus_key と対応した短い日本語にする
 - 会話や ES に出ていない別エピソードへ飛ばさない
 - 役割や成果を盛りすぎる方向に誘導しない
+- すでに回答があるテーマ（STAR 各要素、動機、学び等）を再度ゼロから聞き直さない
+- 過去の回答に触れたうえで、未確認の角度から深掘りする
 """
 
 
@@ -363,7 +365,7 @@ _ES_BUILD_USER_MESSAGE_FALLBACK = """## テーマ
 ## ブロックされた要素（質問対象にしない）
 {blocked_focuses_section}
 
-## タスク
+{already_discussed_section}## タスク
 1. 会話履歴を読み、4 要素のうち未充足または薄い要素を判定する（不足の列挙は context → task → action → result の順を優先し、前段が残っているのに後段だけを埋める focus にしない）
 2. task_clarity / action_ownership / role_clarity / result_traceability / learning_reusability を判定する
 3. causal_gap_task_action / causal_gap_action_result / learning_too_generic / role_scope_missing を必要なら返す

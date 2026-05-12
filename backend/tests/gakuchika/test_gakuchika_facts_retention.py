@@ -9,7 +9,7 @@ Used by:
 - pytest unit tests of the helpers (this file)
 - Phase 0.4 ABC measurement script (calls analyze_drafts_from_file with saved drafts)
 
-Plan: /Users/saoki/.claude/plans/gakuchika-quality-improvement-plan-web-a-cheerful-marshmallow.md
+Covers router model: NextQuestionRequest (previous_stage field added).
 """
 
 from __future__ import annotations

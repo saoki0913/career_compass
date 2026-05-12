@@ -116,6 +116,8 @@ export async function saveInterviewFeedbackHistory(args: {
       scoreEvidenceByAxis: parseStringArrayMap(row.scoreEvidenceByAxis),
       scoreRationaleByAxis: parseStringMap(row.scoreRationaleByAxis),
       confidenceByAxis: parseStringMap(row.confidenceByAxis),
+      sheetDataJson: row.sheetDataJson ?? undefined,
+      sheetContent: row.sheetContent ?? null,
       sourceQuestionCount: row.sourceQuestionCount,
       createdAt: row.createdAt.toISOString(),
     }));
@@ -134,12 +136,14 @@ export async function saveInterviewFeedbackSheet(args: {
   identity: RequestIdentity;
   historyId: string;
   sheetContent: string;
+  sheetDataJson?: unknown;
 }) {
   try {
     const [updated] = await db
       .update(interviewFeedbackHistories)
       .set({
         sheetContent: args.sheetContent,
+        sheetDataJson: args.sheetDataJson ?? null,
         sheetGeneratedAt: new Date(),
       })
       .where(

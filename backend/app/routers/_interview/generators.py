@@ -76,6 +76,12 @@ from app.routers._interview.setup import (
     _build_setup,  # noqa: F401 — _gen_self monkeypatch seam
     _default_turn_state,
 )
+from app.utils.cancellation import CancellationTokenLike
+from app.utils.llm_usage_cost import (
+    set_request_llm_call_budget,
+    reset_request_llm_call_budget,
+    FEATURE_LLM_CALL_BUDGETS,
+)
 from app.utils.llm_streaming import call_llm_streaming_fields
 from app.utils.llm_usage_cost import consume_request_llm_cost_summary
 from app.utils.secure_logger import get_logger
@@ -173,7 +179,10 @@ async def _stream_llm_json_completion(
 # ---------------------------------------------------------------------------
 
 
-async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGenerator[str, None]:
+async def _generate_start_progress(
+    payload: InterviewStartRequest,
+    cancellation_token: CancellationTokenLike | None = None,
+) -> AsyncGenerator[str, None]:
     try:
         setup = _gen_self._build_setup(payload)
         yield _sse_event("progress", {"step": "plan", "progress": 12, "label": "面接計画を整理中..."})
@@ -297,7 +306,10 @@ async def _generate_start_progress(payload: InterviewStartRequest) -> AsyncGener
 # ---------------------------------------------------------------------------
 
 
-async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerator[str, None]:
+async def _generate_turn_progress(
+    payload: InterviewTurnRequest,
+    cancellation_token: CancellationTokenLike | None = None,
+) -> AsyncGenerator[str, None]:
     try:
         setup = _gen_self._build_setup(payload)
         turn_state = _normalize_turn_state(payload.turn_state, setup)
@@ -469,7 +481,10 @@ async def _generate_turn_progress(payload: InterviewTurnRequest) -> AsyncGenerat
 # ---------------------------------------------------------------------------
 
 
-async def _generate_continue_progress(payload: InterviewContinueRequest) -> AsyncGenerator[str, None]:
+async def _generate_continue_progress(
+    payload: InterviewContinueRequest,
+    cancellation_token: CancellationTokenLike | None = None,
+) -> AsyncGenerator[str, None]:
     try:
         setup = _gen_self._build_setup(payload)
         turn_state = _normalize_turn_state(payload.turn_state, setup)
@@ -567,7 +582,10 @@ async def _generate_continue_progress(payload: InterviewContinueRequest) -> Asyn
 # ---------------------------------------------------------------------------
 
 
-async def _generate_feedback_progress(payload: InterviewFeedbackRequest) -> AsyncGenerator[str, None]:
+async def _generate_feedback_progress(
+    payload: InterviewFeedbackRequest,
+    cancellation_token: CancellationTokenLike | None = None,
+) -> AsyncGenerator[str, None]:
     try:
         setup = _gen_self._build_setup(payload)
         turn_state = _normalize_turn_state(payload.turn_state, setup)

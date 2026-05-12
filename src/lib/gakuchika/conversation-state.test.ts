@@ -45,6 +45,7 @@ function baseState(overrides: Partial<ConversationState> = {}): ConversationStat
     coachProgressMessage: null,
     remainingQuestionsEstimate: null,
     pausedQuestion: null,
+    draftQuality: null,
     ...overrides,
   };
 }
@@ -300,5 +301,42 @@ describe("remainingQuestionsEstimate normalization (M4)", () => {
     const parsed = safeParseConversationState(null, "completed");
     expect(parsed.stage).toBe("draft_ready");
     expect(parsed.remainingQuestionsEstimate).toBe(0);
+  });
+});
+
+describe("draftQuality persistence (Task 0-2)", () => {
+  it("round-trips draftQuality through serialize → parse", () => {
+    const quality = {
+      status: "warning" as const,
+      warnings: ["文字数が少ない"],
+      retryCount: 1,
+      failureCodes: ["char_count_low"],
+      selectionReason: "retry_improved",
+    };
+    const state = baseState({ draftQuality: quality });
+    const parsed = safeParseConversationState(serializeConversationState(state));
+    expect(parsed.draftQuality).toEqual(quality);
+  });
+
+  it("defaults to null when draftQuality is absent", () => {
+    const parsed = safeParseConversationState(JSON.stringify({ stage: "es_building" }));
+    expect(parsed.draftQuality).toBeNull();
+  });
+
+  it("preserves draftQuality null-late-wins in buildConversationStatePatch", () => {
+    const patched = buildConversationStatePatch(
+      baseState({ draftQuality: { status: "passed", warnings: [], retryCount: 0, failureCodes: [], selectionReason: null } }),
+      { draftQuality: null },
+    );
+    expect(patched.draftQuality).toBeNull();
+  });
+
+  it("preserves draftQuality when patch does not mention it", () => {
+    const quality = { status: "passed" as const, warnings: [], retryCount: 0, failureCodes: [], selectionReason: null };
+    const patched = buildConversationStatePatch(
+      baseState({ draftQuality: quality }),
+      { focusKey: "task" },
+    );
+    expect(patched.draftQuality).toEqual(quality);
   });
 });

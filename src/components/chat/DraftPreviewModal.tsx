@@ -317,7 +317,7 @@ export const DraftPreviewModal = memo(function DraftPreviewModal({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="flex max-h-[min(92vh,920px)] max-w-6xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
+      <DialogContent className="flex max-h-[min(94vh,960px)] max-w-7xl flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg">
         <DialogHeader className="shrink-0 border-b border-border/60 px-6 py-4">
           <DialogTitle className="text-xl">{title}</DialogTitle>
           <DialogDescription className="mt-2 text-base leading-snug text-muted-foreground">

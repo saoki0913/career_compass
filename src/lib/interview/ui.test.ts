@@ -8,6 +8,7 @@ import {
   buildInterviewQuestionDisplay,
   buildInterviewCoachingNarrative,
   labelWeakestQuestionType,
+  TOPIC_DISPLAY_LABELS,
 } from "./ui";
 
 // ---------------------------------------------------------------------------
@@ -19,7 +20,7 @@ describe("buildInterviewTopicStages", () => {
     expect(buildInterviewTopicStages(null, false)).toEqual([]);
   });
 
-  it("marks covered topics as done and remaining as pending", () => {
+  it("marks covered topics as done and remaining as pending with display labels", () => {
     const stageStatus: InterviewStageStatus = {
       currentTopicLabel: "leadership",
       coveredTopics: ["motivation"],
@@ -27,9 +28,9 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, false);
     expect(result).toEqual([
-      { key: "topic-0-motivation", label: "motivation", status: "done" },
-      { key: "topic-1-leadership", label: "leadership", status: "current" },
-      { key: "topic-2-teamwork", label: "teamwork", status: "pending" },
+      { key: "topic-0-motivation", label: TOPIC_DISPLAY_LABELS["motivation"] ?? "motivation", status: "done" },
+      { key: "topic-1-leadership", label: TOPIC_DISPLAY_LABELS["leadership"] ?? "leadership", status: "current" },
+      { key: "topic-2-teamwork", label: TOPIC_DISPLAY_LABELS["teamwork"] ?? "teamwork", status: "pending" },
     ]);
   });
 
@@ -41,7 +42,7 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, true);
     expect(result[1]).toMatchObject({
-      label: "leadership",
+      label: TOPIC_DISPLAY_LABELS["leadership"],
       status: "done",
     });
   });
@@ -54,7 +55,7 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, true);
     expect(result[1]).toMatchObject({
-      label: "leadership",
+      label: TOPIC_DISPLAY_LABELS["leadership"],
       status: "pending",
     });
   });
@@ -67,7 +68,7 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, false);
     const labels = result.map((s) => s.label);
-    expect(labels).toEqual(["motivation", "teamwork"]);
+    expect(labels).toEqual([TOPIC_DISPLAY_LABELS["motivation"], TOPIC_DISPLAY_LABELS["teamwork"]]);
   });
 
   it("handles null currentTopicLabel", () => {
@@ -78,8 +79,44 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, false);
     expect(result).toHaveLength(2);
-    expect(result[0]).toMatchObject({ label: "motivation", status: "done" });
-    expect(result[1]).toMatchObject({ label: "teamwork", status: "pending" });
+    expect(result[0]).toMatchObject({ label: TOPIC_DISPLAY_LABELS["motivation"], status: "done" });
+    expect(result[1]).toMatchObject({ label: TOPIC_DISPLAY_LABELS["teamwork"], status: "pending" });
+  });
+
+  it("falls back to raw topic key when no display label exists", () => {
+    const stageStatus: InterviewStageStatus = {
+      currentTopicLabel: "custom_unknown_topic",
+      coveredTopics: [],
+      remainingTopics: [],
+    };
+    const result = buildInterviewTopicStages(stageStatus, false);
+    expect(result[0]).toMatchObject({ label: "custom_unknown_topic" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TOPIC_DISPLAY_LABELS
+// ---------------------------------------------------------------------------
+
+describe("TOPIC_DISPLAY_LABELS", () => {
+  it("maps known planning-system topic keys to Japanese labels", () => {
+    expect(TOPIC_DISPLAY_LABELS["motivation_fit"]).toBe("志望動機");
+    expect(TOPIC_DISPLAY_LABELS["role_understanding"]).toBe("職種理解");
+    expect(TOPIC_DISPLAY_LABELS["case_fit"]).toBe("ケース適性");
+    expect(TOPIC_DISPLAY_LABELS["life_narrative_core"]).toBe("自分史・転機");
+    expect(TOPIC_DISPLAY_LABELS["structured_thinking"]).toBe("構造化思考");
+    expect(TOPIC_DISPLAY_LABELS["technical_depth"]).toBe("技術的深掘り");
+  });
+
+  it("maps common LLM-generated topic keys", () => {
+    expect(TOPIC_DISPLAY_LABELS["leadership"]).toBeTruthy();
+    expect(TOPIC_DISPLAY_LABELS["teamwork"]).toBeTruthy();
+    expect(TOPIC_DISPLAY_LABELS["gakuchika"]).toBeTruthy();
+    expect(TOPIC_DISPLAY_LABELS["self_pr"]).toBeTruthy();
+  });
+
+  it("contains at least 20 entries", () => {
+    expect(Object.keys(TOPIC_DISPLAY_LABELS).length).toBeGreaterThanOrEqual(20);
   });
 });
 

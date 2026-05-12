@@ -48,6 +48,14 @@ export interface DraftQualityChecks {
   learning_reusability?: boolean;
 }
 
+export interface DraftQuality {
+  status: "passed" | "warning" | "failed";
+  warnings: string[];
+  retryCount: number;
+  failureCodes: string[];
+  selectionReason: string | null;
+}
+
 export interface ConversationState {
   stage: ConversationStage;
   focusKey: FocusKey | null;
@@ -93,6 +101,7 @@ export interface ConversationState {
    * 次の深掘り質問を会話内に残すための表示用テキスト。
    */
   pausedQuestion: string | null;
+  draftQuality: DraftQuality | null;
 }
 
 export const BUILD_TRACK_KEYS: Array<Extract<BuildElement, "context" | "task" | "action" | "result">> = [
@@ -148,6 +157,7 @@ export function getDefaultConversationState(): ConversationState {
     coachProgressMessage: null,
     remainingQuestionsEstimate: null,
     pausedQuestion: null,
+    draftQuality: null,
   };
 }
 
@@ -222,6 +232,25 @@ function normalizeFocusAttemptCounts(value: unknown): Partial<Record<FocusKey, n
   return next;
 }
 
+const DRAFT_QUALITY_STATUSES = new Set(["passed", "warning", "failed"]);
+
+function normalizeDraftQuality(value: unknown): DraftQuality | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const status = typeof record.status === "string" && DRAFT_QUALITY_STATUSES.has(record.status)
+    ? (record.status as DraftQuality["status"])
+    : null;
+  if (!status) return null;
+  return {
+    status,
+    warnings: parseStringArray(record.warnings),
+    retryCount: typeof record.retry_count === "number" ? record.retry_count
+      : typeof record.retryCount === "number" ? record.retryCount : 0,
+    failureCodes: parseStringArray(record.failure_codes ?? record.failureCodes),
+    selectionReason: parseOptionalString(record.selection_reason ?? record.selectionReason),
+  };
+}
+
 function parseLegacyState(value: Record<string, unknown>, status: string | null | undefined): ConversationState | null {
   const hasLegacyScores = ["situation", "task", "action", "result"].some((key) => typeof value[key] === "number");
   if (!hasLegacyScores) return null;
@@ -259,6 +288,7 @@ function parseLegacyState(value: Record<string, unknown>, status: string | null 
     coachProgressMessage: null,
     remainingQuestionsEstimate: status === "completed" ? 0 : null,
     pausedQuestion: null,
+    draftQuality: null,
   };
 }
 
@@ -335,6 +365,7 @@ export function safeParseConversationState(value: unknown, status?: string | nul
         parsed.remaining_questions_estimate ?? parsed.remainingQuestionsEstimate,
       ),
       pausedQuestion: parseOptionalString(parsed.paused_question ?? parsed.pausedQuestion),
+      draftQuality: normalizeDraftQuality(parsed.draft_quality ?? parsed.draftQuality),
     };
   } catch {
     return getDefaultConversationState();
@@ -376,6 +407,15 @@ export function serializeConversationState(state: ConversationState): Record<str
     coach_progress_message: state.coachProgressMessage,
     remaining_questions_estimate: state.remainingQuestionsEstimate,
     paused_question: state.pausedQuestion,
+    draft_quality: state.draftQuality
+      ? {
+          status: state.draftQuality.status,
+          warnings: state.draftQuality.warnings,
+          retry_count: state.draftQuality.retryCount,
+          failure_codes: state.draftQuality.failureCodes,
+          selection_reason: state.draftQuality.selectionReason,
+        }
+      : null,
   };
 }
 
@@ -424,6 +464,9 @@ export function buildConversationStatePatch(
     summaryStale: Object.prototype.hasOwnProperty.call(patch, "summaryStale")
       ? Boolean(patch.summaryStale)
       : current.summaryStale,
+    draftQuality: Object.prototype.hasOwnProperty.call(patch, "draftQuality")
+      ? (patch.draftQuality ?? null)
+      : current.draftQuality,
   };
 }
 

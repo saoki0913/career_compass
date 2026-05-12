@@ -17,6 +17,12 @@ from app.security.career_principal import (
     CareerPrincipal,
     require_career_principal,
 )
+from app.utils.cancellation import CancellationTokenLike
+from app.utils.llm_usage_cost import (
+    set_request_llm_call_budget,
+    reset_request_llm_call_budget,
+    FEATURE_LLM_CALL_BUDGETS,
+)
 from app.security.sse_concurrency import SseConcurrencyExceeded, SseLease
 from app.prompts.interview_prompts import PROMPT_VERSION as INTERVIEW_PROMPT_VERSION
 from app.routers._interview.contracts import (
@@ -116,7 +122,7 @@ def _sanitize_base_request(payload: InterviewBaseRequest) -> None:
 
 
 async def _leased_stream_response(
-    generator: AsyncGenerator[str, None],
+    generator_factory,
     principal: CareerPrincipal,
 ):
     actor_id = f"{principal.actor_kind}:{principal.actor_id}"
@@ -131,7 +137,7 @@ async def _leased_stream_response(
 
     async def leased_generator():
         async with lease:
-            async for chunk in generator:
+            async for chunk in generator_factory(lease.cancellation_token):
                 await lease.heartbeat_if_due()
                 yield chunk
 
@@ -155,7 +161,9 @@ async def start_interview(
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
-    return await _leased_stream_response(_generate_start_progress(payload), principal)
+    return await _leased_stream_response(
+        lambda ct: _generate_start_progress(payload, cancellation_token=ct), principal
+    )
 
 
 @router.post("/turn")
@@ -171,7 +179,9 @@ async def next_interview_turn(
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
-    return await _leased_stream_response(_generate_turn_progress(payload), principal)
+    return await _leased_stream_response(
+        lambda ct: _generate_turn_progress(payload, cancellation_token=ct), principal
+    )
 
 
 @router.post("/continue")
@@ -187,7 +197,9 @@ async def continue_interview(
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
-    return await _leased_stream_response(_generate_continue_progress(payload), principal)
+    return await _leased_stream_response(
+        lambda ct: _generate_continue_progress(payload, cancellation_token=ct), principal
+    )
 
 
 @router.post("/feedback")
@@ -203,7 +215,9 @@ async def interview_feedback(
     except PromptSafetyError:
         raise HTTPException(status_code=400, detail="入力内容を見直して、もう一度お試しください。")
 
-    return await _leased_stream_response(_generate_feedback_progress(payload), principal)
+    return await _leased_stream_response(
+        lambda ct: _generate_feedback_progress(payload, cancellation_token=ct), principal
+    )
 
 
 # ---------------------------------------------------------------------------

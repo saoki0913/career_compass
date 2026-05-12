@@ -29,6 +29,11 @@ import {
   createInterviewUpstreamStream,
   normalizeFeedback,
 } from "../stream-utils";
+import {
+  buildInterviewSheetData,
+  buildInterviewSheetMarkdown,
+} from "@/lib/interview/sheet-builder";
+import { saveInterviewFeedbackSheet } from "@/lib/interview/persistence";
 
 function buildSeedSummary(materials: Array<{ kind?: string; label: string; text: string }>) {
   return materials
@@ -99,7 +104,7 @@ export async function POST(
     return createApiErrorResponse(request, {
       status: 400,
       code: "INTERVIEW_NOT_ENOUGH_MESSAGES",
-      userMessage: "最終講評を作るには、先に面接質問へ回答してください。",
+      userMessage: "まとめシートを作るには、先に面接質問へ回答してください。",
       action: "少なくとも数問回答してから、もう一度お試しください。",
     });
   }
@@ -203,6 +208,34 @@ export async function POST(
             caseSeedVersion: upstreamData.case_seed_version ?? null,
           },
         });
+
+        const historyId = feedbackHistories[0]?.id;
+        if (historyId) {
+          const sheetInput = {
+            companyName: context.company.name,
+            setup: {
+              interviewFormat: context.setup.interviewFormat ?? "standard_behavioral",
+              selectionType: context.setup.selectionType ?? "fulltime",
+              interviewStage: context.setup.interviewStage ?? "early",
+              interviewerType: context.setup.interviewerType ?? "hr",
+              strictnessMode: context.setup.strictnessMode ?? "standard",
+            },
+            selectedRole: context.setup.selectedRole ?? null,
+            messages: context.conversation!.messages,
+            feedback,
+            generatedAt: new Date(),
+          };
+          const sheetDataJson = buildInterviewSheetData(sheetInput);
+          const sheetContent = buildInterviewSheetMarkdown(sheetInput);
+          await saveInterviewFeedbackSheet({
+            companyId,
+            identity,
+            historyId,
+            sheetContent,
+            sheetDataJson,
+          });
+        }
+
         await interviewInlinePolicy.confirm(
           billingContext,
           { kind: "billable_success", creditsConsumed: DEFAULT_INTERVIEW_SESSION_CREDIT_COST, freeQuotaUsed: false },
@@ -218,7 +251,7 @@ export async function POST(
         questionCount: context.conversation!.questionCount,
         stageStatus:
           upstreamData.stage_status ?? {
-            currentTopicLabel: "最終講評",
+            currentTopicLabel: "まとめシート",
             coveredTopics: turnState.coveredTopics,
             remainingTopics: [],
           },

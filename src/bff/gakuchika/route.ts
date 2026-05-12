@@ -9,8 +9,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations, userProfiles } from "@/lib/db/schema";
-import { eq, desc, isNull, asc, count, inArray, getTableColumns } from "drizzle-orm";
-import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/stripe/config";
+import { eq, desc, isNull, asc, count, getTableColumns, sql } from "drizzle-orm";
+import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/billing/plan-metadata";
 import {
   getGakuchikaSummaryKind,
   getGakuchikaSummaryPreview,
@@ -18,6 +18,12 @@ import {
 import { safeParseConversationState } from "@/bff/gakuchika";
 
 export type GakuchikaListConversationStatus = "in_progress" | "completed" | null;
+type LatestGakuchikaConversation = {
+  gakuchikaId: string;
+  status: string | null;
+  starScores: unknown;
+  questionCount: number;
+};
 
 /** DB 由来の生値を一覧 API 用に正規化。質問済みなのに status が取れない行は in_progress に寄せる。 */
 export function normalizeGakuchikaListConversationStatus(
@@ -32,6 +38,34 @@ export function normalizeGakuchikaListConversationStatus(
     return "in_progress";
   }
   return null;
+}
+
+async function loadLatestGakuchikaConversations(contentIds: string[]): Promise<LatestGakuchikaConversation[]> {
+  if (contentIds.length === 0) {
+    return [];
+  }
+
+  const rows = await db.execute(sql`
+    select gakuchika_id, status, star_scores, question_count
+    from (
+      select
+        gakuchika_id,
+        status,
+        star_scores,
+        question_count,
+        row_number() over (partition by gakuchika_id order by updated_at desc) as rn
+      from gakuchika_conversations
+      where gakuchika_id = any(${contentIds}::text[])
+    ) ranked
+    where rn = 1
+  `);
+
+  return Array.from(rows as Iterable<Record<string, unknown>>).map((row) => ({
+    gakuchikaId: String(row.gakuchika_id),
+    status: typeof row.status === "string" ? row.status : null,
+    starScores: row.star_scores,
+    questionCount: Number(row.question_count ?? 0),
+  }));
 }
 
 export async function GET(request: NextRequest) {
@@ -71,35 +105,8 @@ export async function GET(request: NextRequest) {
       .orderBy(asc(gakuchikaContents.sortOrder), desc(gakuchikaContents.updatedAt));
 
     const contentIds = contents.map((row) => row.id);
-    const latestConvByGakuchikaId = new Map<
-      string,
-      { status: string | null; starScores: unknown; questionCount: number; updatedAt: Date }
-    >();
-
-    if (contentIds.length > 0) {
-      const convRows = await db
-        .select({
-          gakuchikaId: gakuchikaConversations.gakuchikaId,
-          status: gakuchikaConversations.status,
-          starScores: gakuchikaConversations.starScores,
-          questionCount: gakuchikaConversations.questionCount,
-          updatedAt: gakuchikaConversations.updatedAt,
-        })
-        .from(gakuchikaConversations)
-        .where(inArray(gakuchikaConversations.gakuchikaId, contentIds));
-
-      for (const row of convRows) {
-        const prev = latestConvByGakuchikaId.get(row.gakuchikaId);
-        if (!prev || row.updatedAt > prev.updatedAt) {
-          latestConvByGakuchikaId.set(row.gakuchikaId, {
-            status: row.status,
-            starScores: row.starScores,
-            questionCount: row.questionCount,
-            updatedAt: row.updatedAt,
-          });
-        }
-      }
-    }
+    const convRows = await loadLatestGakuchikaConversations(contentIds);
+    const latestConvByGakuchikaId = new Map(convRows.map((row) => [row.gakuchikaId, row]));
 
     const gakuchikasWithConversation = contents.map((gakuchika) => {
       const latest = latestConvByGakuchikaId.get(gakuchika.id);

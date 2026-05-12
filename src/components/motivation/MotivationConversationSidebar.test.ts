@@ -36,6 +36,15 @@ describe("MotivationConversationSidebar draftHelperText", () => {
   });
 });
 
+describe("MotivationConversationSidebar progressColumns", () => {
+  it("uses 2-column progress layout", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./MotivationConversationSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain("progressColumns={2}");
+    expect(source).not.toContain("progressColumns={STAGE_ORDER.length}");
+  });
+});
+
 describe("MotivationConversationSidebar causalGap labels", () => {
   it("SLOT_PILL_LABELS maps all slots to Japanese labels", () => {
     const slots = [
@@ -51,5 +60,21 @@ describe("MotivationConversationSidebar causalGap labels", () => {
       expect(SLOT_PILL_LABELS[slot]).toBeTruthy();
       expect(/[　-鿿]/.test(SLOT_PILL_LABELS[slot])).toBe(true);
     }
+  });
+
+  it("uses CAUSAL_GAP_DISPLAY_LABELS for gap slot display with fallback", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./MotivationConversationSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain("CAUSAL_GAP_DISPLAY_LABELS");
+    expect(source).toContain("補強ポイント");
+  });
+});
+
+describe("MotivationConversationSidebar deepdive completion", () => {
+  it("shows all-done progress stages when deepdive has no remaining gaps", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./MotivationConversationSidebar.tsx", import.meta.url), "utf8");
+    expect(source).toContain('isDeepDive && causalGaps.length === 0');
+    expect(source).toContain('"done"');
   });
 });

@@ -22,6 +22,12 @@ from app.security.career_principal import (
     require_tenant_key,
 )
 from app.security.sse_concurrency import SseConcurrencyExceeded, SseLease
+from app.utils.cancellation import CancellationTokenLike
+from app.utils.llm_usage_cost import (
+    set_request_llm_call_budget,
+    reset_request_llm_call_budget,
+    FEATURE_LLM_CALL_BUDGETS,
+)
 from app.utils.es_draft_text import normalize_es_draft_single_paragraph
 from app.utils import llm_model_routing
 from app.utils.llm import (
@@ -325,6 +331,7 @@ async def get_next_question_stream(
             async for chunk in _generate_next_question_progress_canonical(
                 request,
                 tenant_key=tenant_key,
+                cancellation_token=lease.cancellation_token,
             ):
                 await lease.heartbeat_if_due()
                 yield chunk
@@ -359,7 +366,7 @@ async def generate_draft(
 
     trimmed_messages, summary_text = await maybe_summarize_older_messages(
         request.conversation_history,
-        None,
+        {},
         company_name=request.company_name,
     )
     if principal.company_id != request.company_id:

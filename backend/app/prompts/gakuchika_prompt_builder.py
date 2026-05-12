@@ -68,6 +68,48 @@ def _format_focus_list(focuses: list[str] | None, *, empty_label: str) -> str:
     return "- " + ", ".join(cleaned)
 
 
+def _format_already_discussed(
+    asked_focuses: list[str] | None,
+    known_facts: str,
+) -> str:
+    """Format a summary of already-discussed topics for injection into user message.
+
+    Returns an empty string when there is nothing to report (no focuses asked,
+    no known facts).  Otherwise returns a ``## すでに確認した内容`` section
+    that instructs the LLM not to re-ask about covered topics.
+
+    This is a second-line-of-defence complement to the
+    ``QUESTION_TONE_AND_ALIGNMENT_RULES`` re-question prohibition: the rules
+    tell the LLM *not* to re-ask; this section tells it *what* has been covered.
+    """
+    cleaned_focuses = (
+        list(dict.fromkeys(f for f in asked_focuses if isinstance(f, str) and f.strip()))
+        if asked_focuses
+        else []
+    )
+    has_facts = bool(known_facts and known_facts.strip())
+
+    if not cleaned_focuses and not has_facts:
+        return ""
+
+    lines: list[str] = [
+        "## すでに確認した内容",
+        "以下のテーマはすでに回答があるため、同じ質問を繰り返さないでください:",
+    ]
+
+    if cleaned_focuses:
+        lines.append(f"- 確認済みの要素: {', '.join(cleaned_focuses)}")
+
+    if has_facts:
+        lines.append("- 既知の事実:")
+        for fact_line in known_facts.strip().splitlines():
+            stripped = fact_line.strip()
+            if stripped:
+                lines.append(f"  {stripped}")
+
+    return "\n".join(lines) + "\n\n"
+
+
 def _render_initial_question_system_prompt(*, input_richness_mode: str) -> str:
     return INITIAL_QUESTION_SYSTEM_PROMPT.format(
         coach_persona=COACH_PERSONA,
@@ -125,6 +167,10 @@ def build_es_prompt_text(
     system_prompt = _render_es_build_system_prompt(
         input_richness_mode=input_richness_mode,
     )
+    already_discussed_section = _format_already_discussed(
+        asked_focuses=asked_focuses,
+        known_facts=known_facts,
+    )
     user_message = ES_BUILD_USER_MESSAGE.format(
         gakuchika_title=sanitize_prompt_input(gakuchika_title, max_length=200),
         conversation=conversation_text,
@@ -138,6 +184,7 @@ def build_es_prompt_text(
             blocked_focuses,
             empty_label="ブロックされた要素はありません",
         ),
+        already_discussed_section=already_discussed_section,
     )
     return system_prompt, user_message
 

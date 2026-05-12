@@ -33,6 +33,12 @@ from app.security.sse_concurrency import (
     SseConcurrencyExceeded,
     SseLease,
 )
+from app.utils.cancellation import CancellationTokenLike
+from app.utils.llm_usage_cost import (
+    set_request_llm_call_budget,
+    reset_request_llm_call_budget,
+    FEATURE_LLM_CALL_BUDGETS,
+)
 
 from app.limiter import limiter
 from app.prompts.gakuchika_prompts import (
@@ -277,6 +283,7 @@ class NextQuestionRequest(BaseModel):
     char_limit_type: Optional[str] = Field(default=None, pattern=r"^(300|400|500)$")
     conversation_history: list[Message]
     question_count: int = Field(default=0, ge=0)
+    previous_stage: Optional[str] = None
     conversation_state: Optional[ConversationStateInput] = None
 
 
@@ -333,6 +340,7 @@ class GakuchikaESDraftRequest(BaseModel):
     char_limit: int = Field(default=400, ge=300, le=500)
     known_facts: str | None = Field(default=None, max_length=3000)
     draft_material: dict[str, Any] | None = None
+    is_regeneration: bool = False
 
 
 class GakuchikaESDraftResponse(BaseModel):
@@ -341,6 +349,7 @@ class GakuchikaESDraftResponse(BaseModel):
     followup_suggestion: str = "更に深掘りする"
     draft_diagnostics: dict[str, list[str]] | None = None
     draft_quality: dict[str, Any] | None = None
+    quality_warnings: list[str] | None = None
     internal_telemetry: Optional[dict[str, object]] = None
 
 
@@ -743,9 +752,16 @@ def _stream_schema_hints(is_deepdive: bool) -> dict[str, str]:
     return _stream_schema_hints_pipeline(is_deepdive)
 
 
-async def _generate_next_question_progress(request: NextQuestionRequest) -> AsyncGenerator[str, None]:
-    async for chunk in _generate_next_question_progress_pipeline(request):
-        yield chunk
+async def _generate_next_question_progress(
+    request: NextQuestionRequest,
+    cancellation_token: CancellationTokenLike | None = None,
+) -> AsyncGenerator[str, None]:
+    set_request_llm_call_budget(FEATURE_LLM_CALL_BUDGETS.get("gakuchika"))
+    try:
+        async for chunk in _generate_next_question_progress_pipeline(request):
+            yield chunk
+    finally:
+        reset_request_llm_call_budget()
 
 
 # ---------------------------------------------------------------------------
@@ -865,7 +881,10 @@ async def get_next_question_stream(
 
     async def _stream_with_lease() -> AsyncGenerator[str, None]:
         async with lease:
-            async for chunk in _generate_next_question_progress(payload):
+            async for chunk in _generate_next_question_progress(
+                payload,
+                cancellation_token=lease.cancellation_token,
+            ):
                 await lease.heartbeat_if_due()
                 yield chunk
 
@@ -1014,7 +1033,7 @@ async def generate_es_draft(
         system_prompt=system_prompt,
         user_message=user_prompt,
         max_tokens=1400,
-        temperature=0.3,
+        temperature=0.45 if payload.is_regeneration else 0.3,
         feature="gakuchika_draft",
         retry_on_parse=True,
         disable_fallback=True,
@@ -1160,6 +1179,9 @@ async def generate_es_draft(
         if not initial_quality["failure_codes"]
         else "warning"
     )
+    user_warnings = (
+        initial_quality["warnings"] if initial_quality["failure_codes"] else None
+    )
     return GakuchikaESDraftResponse(
         draft=draft,
         char_count=len(draft),
@@ -1173,5 +1195,6 @@ async def generate_es_draft(
             "selection_reason": selected_reason,
             "best_effort_adopted": bool(initial_quality.get("best_effort_adopted")),
         },
+        quality_warnings=user_warnings,
         internal_telemetry=consume_request_llm_cost_summary("gakuchika_draft"),
     )

@@ -30,7 +30,7 @@ describe("InterviewPageContent module", () => {
     expect(source).toContain("ConversationPhaseBar");
   });
 
-  it("does not contain removed dead code (InterviewProgressCard, lifecycleClass)", async () => {
+  it("does not contain removed dead code (InterviewProgressCard, lifecycleClass, InterviewFeedbackCard)", async () => {
     const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
 
     expect(source).not.toContain("function InterviewProgressCard");
@@ -38,12 +38,23 @@ describe("InterviewPageContent module", () => {
     expect(source).not.toContain("function getLifecycleStatus");
     expect(source).not.toContain("LIFECYCLE_PHASES");
     expect(source).not.toContain("InterviewLifecyclePhase");
+    expect(source).not.toContain("function InterviewFeedbackCard");
+    expect(source).not.toContain("function FeedbackEvidenceList");
+    expect(source).not.toContain("function feedbackFromHistory");
   });
 
-  it("uses labelWeakestQuestionType for weakest question type display", async () => {
+  it("uses SheetViewerDialog for feedback display instead of InterviewFeedbackCard", async () => {
     const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
 
-    expect(source).toContain("labelWeakestQuestionType");
+    expect(source).toContain("SheetViewerDialog");
+    expect(source).toContain("SheetViewer");
+    expect(source).not.toContain("InterviewFeedbackCard");
+  });
+
+  it("no longer contains inline labelWeakestQuestionType (moved to SheetViewer)", async () => {
+    const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
+
+    expect(source).not.toContain("labelWeakestQuestionType");
     expect(source).not.toMatch(/最も弱かった設問タイプ: \{feedback\.weakest_question_type\}/);
     expect(source).not.toMatch(/最も弱かった設問タイプ: \{selectedHistory\.weakestQuestionType\}/);
   });
@@ -56,11 +67,12 @@ describe("InterviewPageContent module", () => {
     expect(source).not.toContain("shortCoaching.next_edit");
   });
 
-  it("includes interview sheet save button after feedback", async () => {
+  it("uses まとめシート labels instead of 最終講評", async () => {
     const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
 
-    expect(source).toContain("saveInterviewSheet");
-    expect(source).toContain("面接確認シート");
+    expect(source).toContain("まとめシートを作成");
+    expect(source).not.toContain("最終講評を作成");
+    expect(source).not.toContain("最終講評を生成しました");
   });
 
   it("keeps the started conversation branch free of non-chat panels", async () => {

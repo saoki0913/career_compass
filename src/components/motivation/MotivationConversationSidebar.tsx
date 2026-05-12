@@ -40,6 +40,16 @@ const SLOT_DISPLAY_ORDER = [
   "differentiation",
 ] as const;
 
+const CAUSAL_GAP_DISPLAY_LABELS: Record<string, string> = {
+  industry_reason: "業界への関心",
+  company_reason: "企業を選ぶ理由",
+  self_connection: "自分との接点",
+  desired_work: "やりたい仕事",
+  value_contribution: "貢献できること",
+  differentiation: "自分ならではの強み",
+  closing: "まとめ",
+};
+
 type SlotKey = Exclude<MotivationStageKey, "closing">;
 
 function formatQuestionDisplay(questionCount: number, conversationMode: ConversationMode): string {
@@ -80,7 +90,7 @@ function CausalGapSteps({ gaps }: { gaps: CausalGap[] }) {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-medium text-foreground/80">
-                {SLOT_PILL_LABELS[gap.slot as SlotKey] || gap.slot}
+                {CAUSAL_GAP_DISPLAY_LABELS[gap.slot] ?? SLOT_PILL_LABELS[gap.slot as SlotKey] ?? "補強ポイント"}
               </p>
               {status === "current" ? (
                 <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{gap.reason}</p>
@@ -201,6 +211,13 @@ export function MotivationConversationSidebar({
     if (isDeepDive && causalGaps.length > 0) {
       return [];
     }
+    if (isDeepDive && causalGaps.length === 0) {
+      return (STAGE_ORDER as SlotKey[]).map((slot) => ({
+        key: slot,
+        label: SLOT_PILL_LABELS[slot],
+        status: "done" as const,
+      }));
+    }
     return (STAGE_ORDER as SlotKey[]).map((slot) => ({
       key: slot,
       label: SLOT_PILL_LABELS[slot],
@@ -271,7 +288,7 @@ export function MotivationConversationSidebar({
       progressStages={progressStages}
       progressHeaderSubtext={questionDisplay}
       progressFooterMessage={coachingFocus}
-      progressColumns={STAGE_ORDER.length}
+      progressColumns={2}
       phases={phases}
       helperText={draftHelperText}
       badges={badges}

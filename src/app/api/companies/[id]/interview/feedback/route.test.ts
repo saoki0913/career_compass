@@ -8,6 +8,7 @@ const {
   normalizeInterviewPlanValueMock,
   saveInterviewConversationProgressMock,
   saveInterviewFeedbackHistoryMock,
+  saveInterviewFeedbackSheetMock,
   validateInterviewTurnStateMock,
   createInterviewUpstreamStreamMock,
   reserveCreditsMock,
@@ -22,6 +23,7 @@ const {
   normalizeInterviewPlanValueMock: vi.fn(),
   saveInterviewConversationProgressMock: vi.fn(),
   saveInterviewFeedbackHistoryMock: vi.fn(),
+  saveInterviewFeedbackSheetMock: vi.fn(),
   validateInterviewTurnStateMock: vi.fn(),
   createInterviewUpstreamStreamMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
@@ -52,6 +54,15 @@ vi.mock("../stream-utils", () => ({
   normalizeFeedback: vi.fn((value: unknown) => value),
 }));
 
+vi.mock("@/lib/interview/persistence", () => ({
+  saveInterviewFeedbackSheet: saveInterviewFeedbackSheetMock,
+}));
+
+vi.mock("@/lib/interview/sheet-builder", () => ({
+  buildInterviewSheetData: vi.fn(() => ({ companyName: "テスト株式会社", scores: [] })),
+  buildInterviewSheetMarkdown: vi.fn(() => "# Sheet Markdown"),
+}));
+
 vi.mock("@/lib/credits", () => ({
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
   reserveCredits: reserveCreditsMock,
@@ -77,6 +88,7 @@ describe("api/companies/[id]/interview/feedback", () => {
     reserveCreditsMock.mockReset();
     confirmReservationMock.mockReset();
     cancelReservationMock.mockReset();
+    saveInterviewFeedbackSheetMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
 
@@ -149,6 +161,7 @@ describe("api/companies/[id]/interview/feedback", () => {
         ],
       },
     });
+    saveInterviewFeedbackSheetMock.mockResolvedValue({ id: "history-1" });
     createInterviewUpstreamStreamMock.mockResolvedValue(new Response("ok"));
   });
 
@@ -338,6 +351,78 @@ describe("api/companies/[id]/interview/feedback", () => {
       }),
     ).rejects.toThrow("confirm failed");
 
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+  });
+
+  it("auto-builds sheet and saves before confirming credits", async () => {
+    const { POST } = await import("./route");
+
+    await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/feedback", {
+        method: "POST",
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
+    saveInterviewFeedbackHistoryMock.mockResolvedValue([{ id: "history-1" }]);
+
+    await onComplete({
+      overall_comment: "講評",
+      strengths: [],
+      improvements: [],
+      improved_answer: "",
+      next_preparation: [],
+      consistency_risks: [],
+      weakest_question_type: "motivation",
+      scores: {},
+    });
+
+    expect(saveInterviewFeedbackSheetMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        historyId: "history-1",
+        sheetContent: "# Sheet Markdown",
+        sheetDataJson: expect.objectContaining({ companyName: "テスト株式会社" }),
+      }),
+    );
+    expect(saveInterviewFeedbackSheetMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      saveInterviewFeedbackHistoryMock.mock.invocationCallOrder[0],
+    );
+    expect(confirmReservationMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      saveInterviewFeedbackSheetMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("cancels credits when sheet save fails", async () => {
+    const { POST } = await import("./route");
+
+    await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/feedback", {
+        method: "POST",
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
+    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
+    saveInterviewFeedbackHistoryMock.mockResolvedValue([{ id: "history-1" }]);
+    saveInterviewFeedbackSheetMock.mockRejectedValue(new Error("sheet write failed"));
+
+    await expect(
+      onComplete({
+        overall_comment: "講評",
+        strengths: [],
+        improvements: [],
+        improved_answer: "",
+        next_preparation: [],
+        consistency_risks: [],
+        weakest_question_type: "motivation",
+        scores: {},
+      }),
+    ).rejects.toThrow("sheet write failed");
+
+    expect(confirmReservationMock).not.toHaveBeenCalled();
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 

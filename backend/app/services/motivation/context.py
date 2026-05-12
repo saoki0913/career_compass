@@ -743,6 +743,26 @@ def _looks_like_role_reason(answer: str | None, context: dict[str, Any]) -> bool
     return any(token in normalized for token in ("企画", "営業", "提案", "改善", "開発", "仕事", "役割"))
 
 
+_TOUCHED_SLOT_KEYWORDS: list[tuple[str, list[str]]] = [
+    ("industry_reason", ["業界", "業種", "分野に", "IT", "メーカー", "金融", "成長性", "将来性", "市場"]),
+    ("company_reason", ["御社", "貴社", "企業理念", "社風", "ビジョン", "事業内容", "サービス", "プロダクト"]),
+    ("self_connection", ["ゼミ", "サークル", "部活", "アルバイト", "留学", "ボランティア", "きっかけ", "原体験", "学生時代"]),
+    ("desired_work", ["入社後", "携わりたい", "やりたい", "挑戦したい", "取り組みたい", "関わりたい", "担いたい", "配属"]),
+    ("value_contribution", ["価値", "貢献", "役立", "スキル", "強みを活かし", "提供", "発揮"]),
+    ("differentiation", ["他社", "比べて", "違い", "独自", "ならでは", "だからこそ", "唯一"]),
+]
+
+
+def detect_touched_slot(answer: str) -> str | None:
+    normalized = " ".join((answer or "").split()).strip()
+    if not normalized:
+        return None
+    for slot, keywords in _TOUCHED_SLOT_KEYWORDS:
+        if any(kw in normalized for kw in keywords):
+            return slot
+    return None
+
+
 def _classify_slot_state(stage: str, answer: str, context: dict[str, Any] | None = None) -> str:
     normalized = " ".join((answer or "").split()).strip()
     ctx = _normalize_conversation_context(context) if context is not None else _normalize_conversation_context(None)

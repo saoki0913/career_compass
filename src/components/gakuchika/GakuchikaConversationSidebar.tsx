@@ -84,7 +84,7 @@ export function GakuchikaConversationSidebar({
         progressStages={buildTrackStages}
         progressHeaderSubtext={questionDisplay}
         progressFooterMessage={primaryLine}
-        progressColumns={4}
+        progressColumns={2}
         phases={gakuchikaPhases}
         helperText={resolvedHelperText}
         showReset

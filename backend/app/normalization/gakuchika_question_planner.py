@@ -118,6 +118,24 @@ def _critical_causal_gaps(causal_gaps: list[str]) -> list[str]:
     return [gap for gap in causal_gaps if gap in {"causal_gap_action_result", "role_scope_missing"}]
 
 
+_FOCUS_KEYWORD_MAP: list[tuple[str, list[str]]] = [
+    ("context", ["背景", "状況", "きっかけ", "経緯", "動機", "どのような環境"]),
+    ("task", ["課題", "問題", "困難", "壁", "ハードル", "障害", "目標"]),
+    ("action", ["行動", "取り組", "工夫", "アプローチ", "施策", "対策", "実行", "具体的に何を"]),
+    ("result", ["成果", "結果", "効果", "変化", "改善", "数値", "実績", "達成"]),
+    ("learning", ["学び", "学んだ", "気づき", "教訓", "成長", "活かし", "今後に"]),
+]
+
+
+def _infer_focus_from_question_text(question: str) -> str | None:
+    if not question:
+        return None
+    for focus, keywords in _FOCUS_KEYWORD_MAP:
+        if any(kw in question for kw in keywords):
+            return focus
+    return None
+
+
 def _detect_es_focus_from_missing(
     missing_elements: list[str],
     blocked: set[str] | None = None,

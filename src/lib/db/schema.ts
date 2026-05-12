@@ -946,6 +946,7 @@ export const interviewFeedbackHistories = pgTable(
     promptVersion: text("prompt_version").notNull().default("unknown"),
     followupPolicyVersion: text("followup_policy_version").notNull().default("unknown"),
     caseSeedVersion: text("case_seed_version"),
+    sheetDataJson: jsonb("sheet_data_json").$type<unknown>(),
     sheetContent: text("sheet_content"),
     sheetGeneratedAt: timestamptz("sheet_generated_at"),
     createdAt: timestamptz("created_at").notNull().defaultNow(),

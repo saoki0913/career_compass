@@ -43,6 +43,7 @@ from app.normalization.gakuchika_question_planner import (
     _derive_focus_tracking,
     _detect_es_focus_from_missing,
     _estimate_remaining_questions,
+    _infer_focus_from_question_text,
     _sanitize_blocked_focuses,
     _select_next_deepdive_focus_by_coverage,
 )
@@ -406,6 +407,7 @@ def _default_state(stage: str = "es_building", **kwargs: Any) -> dict[str, Any]:
             0, int(kwargs.get("remaining_questions_estimate", 0) or 0)
         ),
         "retry_degraded": bool(kwargs.get("retry_degraded", False)),
+        "draft_quality": kwargs.get("draft_quality"),
     }
 
 
@@ -603,6 +605,12 @@ def _normalize_es_build_payload(
             question = meta["question"]
             answer_hint = meta["answer_hint"]
             progress_label = meta["progress_label"]
+
+    final_question = question or meta["question"]
+    inferred_focus = _infer_focus_from_question_text(final_question)
+    if inferred_focus and inferred_focus != focus_key and inferred_focus in BUILD_ELEMENTS:
+        focus_key = inferred_focus
+        meta = _build_focus_meta(focus_key, conversation_text)
 
     asked_focuses, resolved_focuses, deferred_focuses, blocked_focuses, focus_attempt_counts, _ = _derive_focus_tracking(
         fallback_state,
