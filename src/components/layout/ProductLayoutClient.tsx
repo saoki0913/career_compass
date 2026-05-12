@@ -51,7 +51,7 @@ function LayoutInner({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isRoutePending) return;
-    const timer = window.setTimeout(() => setPendingRouteKey(null), 8_000);
+    const timer = window.setTimeout(() => setPendingRouteKey(null), 5_000);
     return () => window.clearTimeout(timer);
   }, [isRoutePending]);
 

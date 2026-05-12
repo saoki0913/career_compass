@@ -40,7 +40,7 @@ interface AuthContextType {
   // Actions
   initGuest: () => Promise<void>;
   migrateGuestData: () => Promise<void>;
-  refreshPlan: () => Promise<void>;
+  refreshPlan: () => Promise<UserPlan | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -83,20 +83,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const fetchUserPlan = useCallback(async () => {
+  const fetchUserPlan = useCallback(async (): Promise<UserPlan | null> => {
     try {
       const response = await fetch("/api/auth/plan");
       if (response.ok) {
         const data = await response.json();
         setUserPlan(data);
+        return data;
       }
     } catch (error) {
       console.error("Error fetching user plan:", error);
     }
+    return null;
   }, []);
 
   const refreshPlan = useCallback(async () => {
-    await fetchUserPlan();
+    return fetchUserPlan();
   }, [fetchUserPlan]);
 
   // Re-fetch plan when tab regains visibility (e.g. returning from Stripe Checkout)

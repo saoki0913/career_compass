@@ -264,6 +264,7 @@ export function AppSidebar() {
             <>
               <Link
                 href="/dashboard"
+                prefetch={true}
                 className="flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
                 aria-label="就活Pass - ホーム"
               >
@@ -326,7 +327,13 @@ export function AppSidebar() {
 
                 const action = item.action;
                 const trigger = action.type === "link" ? (
-                  <Link href={action.href} className={itemClassName} aria-current={active ? "page" : undefined} aria-label={isCol ? item.label : undefined}>
+                  <Link
+                    href={action.href}
+                    prefetch={true}
+                    className={itemClassName}
+                    aria-current={active ? "page" : undefined}
+                    aria-label={isCol ? item.label : undefined}
+                  >
                     {activeIndicator}
                     {content}
                   </Link>

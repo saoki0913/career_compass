@@ -18,7 +18,12 @@ import { useCompanies, type Company } from "@/hooks/useCompanies";
 import { useDeadlines, type Deadline } from "@/hooks/useDeadlines";
 import { useCalendarEvents, useGoogleCalendar } from "@/hooks/useCalendar";
 import { useTasks, useTodayTask, type Task, type TodayTask } from "@/hooks/useTasks";
-import { DashboardSkeleton } from "@/components/skeletons/DashboardSkeleton";
+import {
+  DashboardCompanyListSkeleton,
+  DashboardDeadlinesSkeleton,
+  DashboardScheduleSkeleton,
+  DashboardTodayTasksSkeleton,
+} from "@/components/skeletons/DashboardSkeleton";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/layout/SidebarContext";
 
@@ -65,7 +70,7 @@ export function DashboardPageClient({
   const weekDays = useMemo(() => getWeekDays(weekOffset), [weekOffset]);
   const weekStart = weekDays[0].toISOString();
   const weekEnd = weekDays[6].toISOString();
-  const { events: calendarEvents } = useCalendarEvents({
+  const { events: calendarEvents, isLoading: calendarEventsLoading } = useCalendarEvents({
     start: weekStart,
     end: weekEnd,
     enabled: !viewer.isGuest,
@@ -74,7 +79,7 @@ export function DashboardPageClient({
   const { isCollapsed } = useSidebar();
 
   const searchParams = useSearchParams();
-  const { refreshPlan, userPlan, isAuthenticated, isReady } = useAuth();
+  const { refreshPlan, isAuthenticated, isReady } = useAuth();
   const { refresh: creditsRefresh } = useCredits({ isAuthenticated, isAuthReady: isReady });
   const purchaseHandled = useRef(false);
 
@@ -85,13 +90,13 @@ export function DashboardPageClient({
     purchaseHandled.current = true;
 
     (async () => {
-      await refreshPlan();
-      const isPlanConfirmed = userPlan?.plan === plan;
+      const refreshedPlan = await refreshPlan();
+      const isPlanConfirmed = refreshedPlan?.plan === plan;
       notifyPurchaseSuccess(plan, isPlanConfirmed);
       await creditsRefresh();
       window.history.replaceState({}, "", "/dashboard");
     })();
-  }, [searchParams, refreshPlan, userPlan?.plan, creditsRefresh]);
+  }, [searchParams, refreshPlan, creditsRefresh]);
 
   const scheduleDeadlines = useMemo(() => deadlines.map((d) => ({ id: d.id, companyId: d.companyId, company: d.company, type: d.type, title: d.title, dueDate: d.dueDate, daysLeft: d.daysLeft })), [deadlines]);
   const handleCompleteTodayTask = async () => {
@@ -102,11 +107,12 @@ export function DashboardPageClient({
     return completed;
   };
 
-  if (!initialCompanies && companiesLoading && deadlinesLoading && todayTask.isLoading && (initialOpenTasks === undefined ? openTasksLoading : false)) {
-    return <DashboardSkeleton />;
-  }
-
   const greeting = getGreeting();
+  const isScheduleLoading = (deadlinesLoading && !initialDeadlines) || (!viewer.isGuest && calendarEventsLoading);
+  const isCompanyListLoading = companiesLoading && !initialCompanies;
+  const isTodayTasksLoading =
+    (todayTask.isLoading && !initialTodayTask) || (openTasksLoading && initialOpenTasks === undefined);
+  const isDeadlinesLoading = deadlinesLoading && !initialDeadlines;
 
   return (
     <div className="overflow-x-hidden bg-background">
@@ -128,28 +134,44 @@ export function DashboardPageClient({
 
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,3fr)_minmax(280px,1fr)] lg:gap-2 lg:overflow-hidden">
           <div className="flex min-h-0 flex-col gap-3 lg:grid lg:grid-rows-[minmax(0,1.42fr)_minmax(0,1fr)] lg:gap-2 lg:overflow-hidden animate-fade-up">
-            <WeeklyScheduleView
-              deadlines={scheduleDeadlines}
-              calendarEvents={viewer.isGuest ? [] : calendarEvents}
-              isGuest={viewer.isGuest}
-              isConnected={isCalendarConnected}
-              weekDays={weekDays}
-              weekOffset={weekOffset}
-              onPrevWeek={() => setWeekOffset((o) => o - 1)}
-              onNextWeek={() => setWeekOffset((o) => o + 1)}
-              onToday={() => setWeekOffset(0)}
-            />
-            <CompanyProgressCard companies={companies} />
+            {isScheduleLoading ? (
+              <DashboardScheduleSkeleton />
+            ) : (
+              <WeeklyScheduleView
+                deadlines={scheduleDeadlines}
+                calendarEvents={viewer.isGuest ? [] : calendarEvents}
+                isGuest={viewer.isGuest}
+                isConnected={isCalendarConnected}
+                weekDays={weekDays}
+                weekOffset={weekOffset}
+                onPrevWeek={() => setWeekOffset((o) => o - 1)}
+                onNextWeek={() => setWeekOffset((o) => o + 1)}
+                onToday={() => setWeekOffset(0)}
+              />
+            )}
+            {isCompanyListLoading ? (
+              <DashboardCompanyListSkeleton />
+            ) : (
+              <CompanyProgressCard companies={companies} />
+            )}
           </div>
           <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(220px,0.72fr)] gap-3 lg:gap-2 lg:overflow-hidden animate-fade-up delay-100">
-            <TodayTasksCard
-              todayTask={todayTask}
-              openTasks={openTasks}
-              maxOpenTasks={5}
-              onCompleteTodayTask={handleCompleteTodayTask}
-              onToggleTask={toggleComplete}
-            />
-            <DeadlineCard deadlines={deadlines} maxVisible={4} />
+            {isTodayTasksLoading ? (
+              <DashboardTodayTasksSkeleton />
+            ) : (
+              <TodayTasksCard
+                todayTask={todayTask}
+                openTasks={openTasks}
+                maxOpenTasks={5}
+                onCompleteTodayTask={handleCompleteTodayTask}
+                onToggleTask={toggleComplete}
+              />
+            )}
+            {isDeadlinesLoading ? (
+              <DashboardDeadlinesSkeleton />
+            ) : (
+              <DeadlineCard deadlines={deadlines} maxVisible={4} />
+            )}
           </div>
         </div>
 
