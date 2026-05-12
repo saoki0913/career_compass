@@ -3,15 +3,11 @@
 import type { ReactNode } from "react";
 import { Link2, Sparkles, Target } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import type { CompanyReviewStatus } from "@/lib/es-review/company-review-status";
 import { cn } from "@/lib/utils";
 
 interface ReviewEmptyStateProps {
-  companyReviewStatus?:
-    | "no_company_selected"
-    | "company_selected_not_fetched"
-    | "company_status_checking"
-    | "company_fetched_but_not_ready"
-    | "ready_for_es_review";
+  companyReviewStatus?: CompanyReviewStatus;
   companyName?: string;
   companyId?: string;
   className?: string;

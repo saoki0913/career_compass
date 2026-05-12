@@ -21,9 +21,14 @@ import {
 } from "@/lib/es-document-category";
 import { SectionReviewCTA } from "@/components/es/SectionReviewCTA";
 import { OperationLockProvider, useOperationLock } from "@/hooks/useOperationLock";
+import { useCompanyReviewStatusPoll } from "@/hooks/es/use-company-review-status-poll";
 import { NavigationGuard } from "@/components/ui/NavigationGuard";
 import { Printer } from "lucide-react";
 import { ESEditorSkeleton } from "@/components/skeletons/ESEditorSkeleton";
+import type {
+  CompanyReviewStatus,
+  CompanyReviewStatusOverride,
+} from "@/lib/es-review/company-review-status";
 
 const LG_MEDIA = "(min-width: 1024px)";
 function subscribeLg(cb: () => void) {
@@ -448,10 +453,6 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
   const [undoContent, setUndoContent] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
-  const [companyReviewStatusOverride, setCompanyReviewStatusOverride] = useState<{
-    companyId: string;
-    status: "company_status_checking" | "company_fetched_but_not_ready" | "ready_for_es_review";
-  } | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const editorPrintRootRef = useRef<HTMLElement | null>(null);
 
@@ -470,6 +471,13 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
     document?.company?.corporateInfoFetchedAt ?? null;
   const currentCompanyAnyFetchedAt =
     currentCompanyCorporateInfoFetchedAt ?? currentCompanyInfoFetchedAt;
+  const companyReviewPoll = useCompanyReviewStatusPoll({
+    companyId: currentCompanyId,
+    fetchedAt: currentCompanyAnyFetchedAt,
+  });
+  const companyReviewStatusOverride: CompanyReviewStatusOverride | null =
+    companyReviewPoll.statusOverride;
+  const retryCompanyStatus = companyReviewPoll.retry;
 
   const computeReviewTextHash = useCallback((value: string) => {
     let hash = 0;
@@ -510,49 +518,6 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
       });
     }
   }, [document]);
-
-  useEffect(() => {
-    if (!currentCompanyId || !currentCompanyAnyFetchedAt) {
-      return;
-    }
-
-    let cancelled = false;
-    void fetch(`/api/companies/${currentCompanyId}/es-review-status`, {
-      credentials: "include",
-      cache: "no-store",
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          return { status: "company_status_checking" as const };
-        }
-        return response.json();
-      })
-      .then((data) => {
-        if (!cancelled) {
-          setCompanyReviewStatusOverride({
-            companyId: currentCompanyId,
-            status:
-              data.status === "ready_for_es_review"
-                ? "ready_for_es_review"
-                : data.status === "company_fetched_but_not_ready"
-                  ? "company_fetched_but_not_ready"
-                  : "company_status_checking",
-          });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCompanyReviewStatusOverride({
-            companyId: currentCompanyId,
-            status: "company_status_checking",
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentCompanyAnyFetchedAt, currentCompanyId]);
 
   // 印刷プレビューでは textarea の高さが scrollHeight まで伸びず本文が切れることが多いため、レイアウト直前に同期する。
   useEffect(() => {
@@ -817,7 +782,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
     }
   }, [blocks]);
 
-  const companyReviewStatus = !currentCompanyId
+  const companyReviewStatus: CompanyReviewStatus = !currentCompanyId
     ? "no_company_selected"
     : !currentCompanyAnyFetchedAt
       ? companyReviewStatusOverride?.companyId === currentCompanyId
@@ -1108,6 +1073,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
                   sectionReviewRequest={sectionReviewRequest}
                   isSectionSnapshotStale={isReviewSnapshotStale}
                   onClearSectionReview={handleClearSectionReview}
+                  onRetryCompanyStatus={retryCompanyStatus}
                   supplementalContent={
                     <div className="mt-4 pt-4 border-t border-border/50">
                       <VersionHistory
@@ -1138,6 +1104,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
             sectionReviewRequest={sectionReviewRequest}
             isSectionSnapshotStale={isReviewSnapshotStale}
             onClearSectionReview={handleClearSectionReview}
+            onRetryCompanyStatus={retryCompanyStatus}
           />
         </div>
       )}

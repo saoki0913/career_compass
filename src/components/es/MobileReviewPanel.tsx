@@ -12,8 +12,8 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import type { CompanyReviewStatus } from "@/lib/es-review/company-review-status";
 import { ReviewPanel } from "./ReviewPanel";
-import type { CompanyReviewStatus } from "./ReviewPanel";
 import type { TemplateType } from "@/features/es-review";
 
 interface SectionReviewRequest {
@@ -37,6 +37,7 @@ interface MobileReviewPanelProps {
   sectionReviewRequest?: SectionReviewRequest | null;
   isSectionSnapshotStale?: boolean;
   onClearSectionReview?: () => void;
+  onRetryCompanyStatus?: () => void;
   className?: string;
 }
 
@@ -59,6 +60,7 @@ export function MobileReviewPanel({
   sectionReviewRequest,
   isSectionSnapshotStale = false,
   onClearSectionReview,
+  onRetryCompanyStatus,
   className,
 }: MobileReviewPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -139,6 +141,7 @@ export function MobileReviewPanel({
             sectionReviewRequest={sectionReviewRequest}
             isSectionSnapshotStale={isSectionSnapshotStale}
             onClearSectionReview={onClearSectionReview}
+            onRetryCompanyStatus={onRetryCompanyStatus}
             className="h-full"
           />
         </div>

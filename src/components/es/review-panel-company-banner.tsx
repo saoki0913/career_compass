@@ -1,25 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowUpRight, Building2, CheckCircle2, FileText, Loader2 } from "lucide-react";
-
-export type CompanyReviewStatus =
-  | "no_company_selected"
-  | "company_selected_not_fetched"
-  | "company_status_checking"
-  | "company_fetched_but_not_ready"
-  | "ready_for_es_review";
+import {
+  AlertCircle,
+  ArrowUpRight,
+  Building2,
+  CheckCircle2,
+  FileText,
+  Loader2,
+} from "lucide-react";
+import type { CompanyReviewStatus } from "@/lib/es-review/company-review-status";
 
 export function CompanyStatusBanner({
   status,
   companyName,
   companyId,
   density = "full",
+  onRetry,
 }: {
   status: CompanyReviewStatus;
   companyName?: string;
   companyId?: string;
   density?: "full" | "compact";
+  onRetry?: () => void;
 }) {
   if (status === "no_company_selected") {
     return density === "compact" ? (
@@ -107,6 +110,30 @@ export function CompanyStatusBanner({
       );
     }
 
+    if (status === "company_status_error") {
+      return (
+        <div className="rounded-[18px] border border-destructive/20 bg-destructive/5 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+                <AlertCircle className="size-4" />
+              </div>
+              <p className="text-sm font-medium text-foreground">企業情報の確認に失敗しました。</p>
+            </div>
+            {onRetry ? (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="rounded-lg border border-border/60 bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/20"
+              >
+                再試行
+              </button>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+
     if (status === "company_fetched_but_not_ready") {
       return (
         <div className="rounded-[18px] border border-info/20 bg-info/8 px-4 py-3">
@@ -169,6 +196,30 @@ export function CompanyStatusBanner({
         <p className="mt-1 text-sm leading-6 text-muted-foreground">
           判定が完了すると、出典表示の有無もこのパネルへ自動反映します。
         </p>
+      </div>
+    );
+  }
+
+  if (status === "company_status_error") {
+    return (
+      <div className="rounded-[22px] border border-destructive/20 bg-destructive/5 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-foreground">企業情報の確認に失敗しました。</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              しばらく待ってから再試行してください。
+            </p>
+          </div>
+          {onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="shrink-0 rounded-lg border border-border/60 bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/20"
+            >
+              再試行
+            </button>
+          ) : null}
+        </div>
       </div>
     );
   }

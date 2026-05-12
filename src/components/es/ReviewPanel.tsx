@@ -45,6 +45,7 @@ import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import type { Industry } from "@/lib/constants/industries";
 import { COMPANYLESS_EXPLICIT_TEMPLATE_TYPES } from "@/lib/es-review/companyless-templates";
+import type { CompanyReviewStatus } from "@/lib/es-review/company-review-status";
 import {
   notifyOperationLocked,
   notifyReviewError,
@@ -62,9 +63,9 @@ import {
 import { buildTemplateRecommendationCopy } from "./template-recommendation";
 import { ReviewEmptyState } from "./ReviewEmptyState";
 import { StreamingReviewResponse } from "./StreamingReviewResponse";
-import { CompanyStatusBanner, type CompanyReviewStatus } from "./review-panel-company-banner";
+import { CompanyStatusBanner } from "./review-panel-company-banner";
 
-export type { CompanyReviewStatus };
+export type { CompanyReviewStatus } from "@/lib/es-review/company-review-status";
 
 interface ReviewPanelProps {
   documentId: string;
@@ -78,6 +79,7 @@ interface ReviewPanelProps {
   isSectionSnapshotStale?: boolean;
   onClearSectionReview?: () => void;
   supplementalContent?: ReactNode;
+  onRetryCompanyStatus?: () => void;
 }
 
 interface RoleOptionResponse {
@@ -327,6 +329,7 @@ export function ReviewPanel({
   isSectionSnapshotStale = false,
   onClearSectionReview,
   supplementalContent,
+  onRetryCompanyStatus,
 }: ReviewPanelProps) {
   const { acquireLock, releaseLock } = useOperationLock();
   const { isAuthenticated, isGuest, isLoading: isAuthLoading, isReady: isAuthReady } = useAuth();
@@ -814,6 +817,7 @@ export function ReviewPanel({
               companyName={companyName}
               companyId={companyId}
               density={companyStatusDensity}
+              onRetry={onRetryCompanyStatus}
             />
           ) : null}
 
