@@ -181,7 +181,7 @@ export function EsTensakuAiHeroSection() {
                 {/* Bottom bar */}
                 <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
                   <span className="rounded-full bg-[var(--lp-tint-navy-soft)] px-3 py-1 text-[11px] text-[var(--lp-navy)]" style={{ fontWeight: 600 }}>
-                    8 クレジット
+                    添削完了
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="inline-flex items-center rounded-lg border border-slate-200 px-3.5 py-2 text-[11px] text-slate-500" style={{ fontWeight: 600 }}>

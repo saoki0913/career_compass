@@ -17,7 +17,7 @@ import { EsTensakuAiFeatureRewriteSection } from "@/components/landing/es-tensak
 export const metadata: Metadata = createMarketingMetadata({
   title: "ES添削AI・ES AI を探している方へ | 就活Pass",
   description:
-    "ES添削 AI を探している就活生向けに、就活Pass の設問タイプ別 AI 添削、登録企業の採用ページ情報を自動反映する添削、Free 50 クレジット（約 8 回）で試せる範囲、志望動機 AI・ガクチカ AI・AI 模擬面接へのつなぎ方まで解説します。",
+    "ES添削 AI を探している就活生向けに、就活Pass の設問タイプ別 AI 添削、登録企業の採用ページ情報を自動反映する添削、Free プランで試せる範囲、志望動機 AI・ガクチカ AI・AI 模擬面接へのつなぎ方まで解説します。",
   path: "/es-tensaku-ai",
   keywords: ["ES添削 AI", "ES AI", "ES 添削 AI 無料", "エントリーシート 添削 AI", "就活Pass"],
 });
@@ -45,7 +45,7 @@ export default function EsTensakuAiPage() {
 
         <MidCTASection
           title="ES添削AIを、無料で試す"
-          description="カード登録不要。Free プランの月 50 クレジットから試せます（ES 添削 1 回 = 6〜20 クレジット）。"
+          description="カード登録不要。Free プランから試せます。"
           primaryCta={{ label: "無料で試す", href: "/login" }}
         />
 

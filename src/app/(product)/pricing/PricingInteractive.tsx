@@ -1,17 +1,11 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
-import Link from "next/link";
-import Image from "next/image";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LOGO_ASSETS } from "@/lib/assets/image-registry";
 import {
   ArrowRight,
   Check,
-  CreditCard,
   Loader2,
-  RefreshCcw,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 
@@ -161,15 +155,15 @@ function PricingPlanCard({
   );
 }
 
-export function PricingInteractive({ children }: { children?: ReactNode }) {
+export function PricingInteractive() {
   return (
     <Suspense>
-      <PricingInteractiveContent>{children}</PricingInteractiveContent>
+      <PricingInteractiveContent />
     </Suspense>
   );
 }
 
-function PricingInteractiveContent({ children }: { children?: ReactNode }) {
+function PricingInteractiveContent() {
   const searchParams = useSearchParams();
   const { canceled } = getCheckoutAbandonState(searchParams);
   const router = useRouter();
@@ -227,7 +221,6 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
       }
       return false;
     } catch (checkoutError) {
-      console.error("Checkout error:", checkoutError);
       setError(reportUserFacingError(checkoutError, {
         code: "STRIPE_CHECKOUT_CREATE_FAILED",
         userMessage: "プラン変更を開始できませんでした。",
@@ -291,14 +284,14 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
 
     if (action === "dashboard") {
       startTransition(() => { router.push("/dashboard"); });
-      return; // ref stays true — page is navigating
+      return;
     }
 
     if (action === "free") {
       startTransition(() => {
         router.push(isAuthenticated ? "/dashboard" : "/login?redirect=/dashboard");
       });
-      return; // ref stays true — page is navigating
+      return;
     }
 
     if (action === "login") {
@@ -306,7 +299,7 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
       localStorage.setItem("selectedPlanPeriod", billingPeriod);
       trackEvent("checkout_intent_login", { plan: planId, period: billingPeriod });
       startTransition(() => { router.push("/login?redirect=/pricing"); });
-      return; // ref stays true — page is navigating
+      return;
     }
 
     if (action === "portal") {
@@ -328,156 +321,72 @@ function PricingInteractiveContent({ children }: { children?: ReactNode }) {
   ]);
 
   return (
-    <>
-      <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/84 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-1 sm:gap-3">
-            <Image
-              src={LOGO_ASSETS.textClean}
-              alt="就活Pass"
-              width={144}
-              height={44}
-              className="h-10 w-24 shrink-0 object-cover sm:h-11 sm:w-36"
-              priority
-            />
-            <div className="hidden leading-tight sm:block">
-              <p className="text-xs text-slate-500">Pricing</p>
+    <div className="mx-auto max-w-5xl px-4 pb-8 pt-4 sm:px-6">
+      {canceled ? (
+        <div className="mb-6 rounded-[22px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800">
+          チェックアウトがキャンセルされました。プラン内容を見直してから、いつでも再開できます。
+        </div>
+      ) : null}
+      {error ? (
+        <div className="mb-6 rounded-[22px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800">
+          {error}
+        </div>
+      ) : null}
+
+      <section className="mb-6 border-b border-slate-200/80 pb-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-center text-lg font-semibold tracking-tight text-slate-950 sm:text-left sm:text-xl">
+            就活の進行量に合わせて、無理のないプランを選べます。
+          </h1>
+          <div className="flex shrink-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <p className="text-center text-xs text-slate-600 sm:text-right">
+              年額は最大<span className="font-semibold text-slate-950">{maxSavings}</span>お得
+            </p>
+            <div className="inline-flex self-center rounded-full border border-slate-200 bg-slate-50/80 p-0.5 sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setBillingPeriod("monthly")}
+                className={cn(
+                  "rounded-full px-4 py-1.5 text-sm font-medium transition-all",
+                  billingPeriod === "monthly"
+                    ? "bg-slate-950 text-white shadow-[0_14px_28px_-22px_rgba(15,23,42,0.6)]"
+                    : "text-slate-500 hover:text-slate-950"
+                )}
+              >
+                月額
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingPeriod("annual")}
+                className={cn(
+                  "rounded-full px-4 py-1.5 text-sm font-medium transition-all",
+                  billingPeriod === "annual"
+                    ? "bg-slate-950 text-white shadow-[0_14px_28px_-22px_rgba(15,23,42,0.6)]"
+                    : "text-slate-500 hover:text-slate-950"
+                )}
+              >
+                年額
+              </button>
             </div>
-          </Link>
-          <div className="flex items-center gap-2">
-            {isAuthenticated ? (
-              <Button variant="outline" size="sm" asChild>
-                <Link href="/dashboard" className="inline-flex items-center gap-1.5">
-                  ダッシュボード
-                  <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                </Link>
-              </Button>
-            ) : (
-              <>
-                <Button variant="ghost" size="sm" className="hidden sm:inline-flex" asChild>
-                  <Link href="/login">ログイン</Link>
-                </Button>
-                <Button size="sm" asChild>
-                  <Link href="/login" className="inline-flex items-center gap-1.5">
-                    <span className="hidden sm:inline">無料で</span>始める
-                    <ArrowRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  </Link>
-                </Button>
-              </>
-            )}
           </div>
         </div>
-      </header>
+      </section>
 
-      <main className="mx-auto max-w-6xl px-4 pb-8 pt-4 sm:px-6 md:pb-12 md:pt-6">
-        {canceled ? (
-          <div className="mb-6 rounded-[22px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800">
-            チェックアウトがキャンセルされました。プラン内容を見直してから、いつでも再開できます。
-          </div>
-        ) : null}
-        {error ? (
-          <div className="mb-6 rounded-[22px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-800">
-            {error}
-          </div>
-        ) : null}
-
-        <section className="mb-6 border-b border-slate-200/80 pb-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <h1 className="text-center text-lg font-semibold tracking-tight text-slate-950 sm:text-left sm:text-xl">
-              就活の進行量に合わせて、無理のないプランを選べます。
-            </h1>
-            <div className="flex shrink-0 flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-3">
-              <p className="text-center text-xs text-slate-600 sm:text-right">
-                年額は最大<span className="font-semibold text-slate-950">{maxSavings}</span>お得
-              </p>
-              <div className="inline-flex self-center rounded-full border border-slate-200 bg-slate-50/80 p-0.5 sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setBillingPeriod("monthly")}
-                  className={cn(
-                    "rounded-full px-4 py-1.5 text-sm font-medium transition-all",
-                    billingPeriod === "monthly"
-                      ? "bg-slate-950 text-white shadow-[0_14px_28px_-22px_rgba(15,23,42,0.6)]"
-                      : "text-slate-500 hover:text-slate-950"
-                  )}
-                >
-                  月額
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setBillingPeriod("annual")}
-                  className={cn(
-                    "rounded-full px-4 py-1.5 text-sm font-medium transition-all",
-                    billingPeriod === "annual"
-                      ? "bg-slate-950 text-white shadow-[0_14px_28px_-22px_rgba(15,23,42,0.6)]"
-                      : "text-slate-500 hover:text-slate-950"
-                  )}
-                >
-                  年額
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="mb-6">
-          <div className="grid gap-5 lg:grid-cols-3 lg:items-stretch">
-            {plans.map((plan) => (
-              <PricingPlanCard
-                key={`${plan.id}-${billingPeriod}`}
-                plan={plan}
-                billingPeriod={billingPeriod}
-                selectedPlan={selectedPlan}
-                currentPlan={currentPlan}
-                isBusy={isBusy}
-                onSelect={(planId) => void handlePlanSelect(planId)}
-              />
-            ))}
-          </div>
-        </section>
-
-        <section className="mb-8 border-t border-slate-200/80 pt-6">
-          <p className="text-xs font-medium text-slate-500">プラン選びの目安</p>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-600">
-            まずは Free で触り、継続なら Standard、添削・企業研究・面接対策を多く使うなら Pro。成功時のみクレジット消費・いつでも変更可能・有料は
-            Stripe 決済です。
-          </p>
-          <div className="mt-4 grid gap-3 border border-slate-200/80 bg-slate-50/50 px-3 py-3 sm:px-4 md:grid-cols-3">
-            <div className="flex min-w-0 items-start gap-2">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-900">成功時のみ消費</p>
-                <p className="text-[11px] leading-snug text-slate-600">失敗時は減りません。</p>
-              </div>
-            </div>
-            <div className="flex min-w-0 items-start gap-2">
-              <RefreshCcw className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" aria-hidden />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-900">変更・解約</p>
-                <p className="text-[11px] leading-snug text-slate-600">後から見直せます。</p>
-              </div>
-            </div>
-            <div className="flex min-w-0 items-start gap-2">
-              <CreditCard className="mt-0.5 h-4 w-4 shrink-0 text-slate-600" aria-hidden />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-900">Stripe</p>
-                <p className="text-[11px] leading-snug text-slate-600">安全に管理。</p>
-              </div>
-            </div>
-          </div>
-          <p className="mt-3 text-xs text-slate-600">
-            {isAuthenticated && currentPlan ? (
-              <>
-                現在のプラン: <span className="font-semibold text-slate-950">{currentPlan.toUpperCase()}</span>
-              </>
-            ) : (
-              <>ログインすると現在のプランをここに表示します。</>
-            )}
-          </p>
-        </section>
-
-        {children}
-      </main>
-    </>
+      <section>
+        <div className="grid gap-5 lg:grid-cols-3 lg:items-stretch">
+          {plans.map((plan) => (
+            <PricingPlanCard
+              key={`${plan.id}-${billingPeriod}`}
+              plan={plan}
+              billingPeriod={billingPeriod}
+              selectedPlan={selectedPlan}
+              currentPlan={currentPlan}
+              isBusy={isBusy}
+              onSelect={(planId) => void handlePlanSelect(planId)}
+            />
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }

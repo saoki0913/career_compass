@@ -26,7 +26,11 @@ export default function GakuchikaConversationPage() {
     return (
       <div className="min-h-screen bg-background">
         <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10 max-lg:max-w-full max-lg:px-3">
-          <LoginRequiredForAi title="ガクチカ作成はログイン後にご利用いただけます" />
+          <LoginRequiredForAi
+            title="AIがガクチカを深掘りします"
+            description="会話形式の質問であなたの経験を整理し、ESに使えるガクチカを作成できます。"
+            fallbackAction={{ label: "ガクチカ一覧へ", href: "/gakuchika" }}
+          />
         </main>
       </div>
     );

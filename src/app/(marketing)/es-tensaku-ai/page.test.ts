@@ -41,6 +41,15 @@ describe("es-tensaku-ai page regressions", () => {
   });
 });
 
+describe("es-tensaku-ai — no credit-per-action details", () => {
+  it("does not expose per-action credit costs or approximate counts", () => {
+    const source = readSource("src/app/(marketing)/es-tensaku-ai/page.tsx");
+    expect(source).not.toMatch(/\dCR/);
+    expect(source).not.toMatch(/クレジット\/回/);
+    expect(source).not.toMatch(/約 \d+ 回/);
+  });
+});
+
 describe("es-tensaku-ai metadata", () => {
   it("has ES-related keywords in title", async () => {
     const { metadata } = await import("./page");

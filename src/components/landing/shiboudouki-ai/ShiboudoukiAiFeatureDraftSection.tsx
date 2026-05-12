@@ -44,7 +44,7 @@ export function ShiboudoukiAiFeatureDraftSection() {
             className="mx-auto mt-4 max-w-xl text-slate-500"
             style={{ lineHeight: 1.7 }}
           >
-            ES 作成可に到達すると「志望動機 ES を作成」CTA が有効化。下書き生成は 6 クレジット、成功時のみ消費。
+            ES 作成可に到達すると「志望動機 ES を作成」CTA が有効化。成功時のみクレジット消費。
           </p>
         </LandingSectionMotion>
 

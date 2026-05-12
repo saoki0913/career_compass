@@ -26,7 +26,11 @@ export default function MotivationConversationPage() {
     return (
       <div className="min-h-screen bg-background">
         <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10 max-lg:max-w-full max-lg:px-3">
-          <LoginRequiredForAi title="志望動機のAI支援はログイン後にご利用いただけます" />
+          <LoginRequiredForAi
+            title="AIが志望動機の下書きを作成します"
+            description="登録した企業の情報を元に、説得力のある志望動機を会話形式で作成できます。"
+            fallbackAction={{ label: "企業一覧を見る", href: "/companies" }}
+          />
         </main>
       </div>
     );

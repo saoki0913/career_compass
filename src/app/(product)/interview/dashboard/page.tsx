@@ -65,8 +65,9 @@ export default async function InterviewDashboardPage() {
       <div className="min-h-screen bg-background">
         <main>
           <LoginRequiredForAi
-            title="成長ダッシュボードはログイン後に利用できます"
-            description="ログインすると、過去の最終講評から 7 軸スコア推移や企業別・方式別の弱点、頻出する改善キーワードを自動で可視化します。"
+            title="面接の成長を可視化"
+            description="7軸スコアの推移や企業別ヒートマップで、面接力の成長を確認できます。"
+            fallbackAction={{ label: "ダッシュボードへ", href: "/dashboard" }}
           />
         </main>
       </div>

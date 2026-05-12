@@ -2,28 +2,33 @@ import { describe, expect, it } from "vitest";
 import { getMarketingPricingPlans } from "./pricing-plans";
 
 describe("getMarketingPricingPlans", () => {
-  it("returns the monthly plan summary used by marketing pages", () => {
+  it("returns simplified monthly plan features with credit amounts", () => {
     const plans = getMarketingPricingPlans("monthly");
 
     expect(plans.map((plan) => plan.id)).toEqual(["free", "standard", "pro"]);
     expect(plans[0]?.features).toContain("月50クレジット");
     expect(plans[1]?.features).toContain("月350クレジット");
     expect(plans[2]?.features).toContain("月750クレジット");
-    expect(plans[0]?.features).toContain(
-      "面接対策（開始2CR・回答/続き各1CR・まとめシート6CR）"
-    );
-    expect(plans[1]?.features).toContain(
-      "企業情報の自動整理 月200ページまで無料"
-    );
-    expect(plans[2]?.features).toContain(
-      "企業情報の自動整理 月500ページまで無料"
-    );
-    expect(plans[1]?.features).toContain(
-      "面接対策（開始2CR・回答/続き各1CR・まとめシート6CR）"
-    );
-    expect(plans[2]?.features).toContain(
-      "面接対策（開始2CR・回答/続き各1CR・まとめシート6CR）"
-    );
+    expect(plans[0]?.features).toContain("面接対策");
+    expect(plans[1]?.features).toContain("企業管理 無制限");
+    expect(plans[2]?.features).toContain("企業管理 無制限");
+  });
+
+  it("feature strings do not contain per-action credit costs", () => {
+    for (const plan of getMarketingPricingPlans("monthly")) {
+      for (const feature of plan.features) {
+        if (feature.startsWith("月")) continue;
+        expect(feature).not.toMatch(/\dCR|クレジット\/回|クレジット消費/);
+      }
+    }
+  });
+
+  it("feature strings do not contain internal model names", () => {
+    for (const plan of getMarketingPricingPlans("monthly")) {
+      for (const feature of plan.features) {
+        expect(feature).not.toMatch(/GPT-5\.4 mini|Claude Haiku|Claude Sonnet/);
+      }
+    }
   });
 
   it("returns annual pricing with savings metadata for paid plans", () => {

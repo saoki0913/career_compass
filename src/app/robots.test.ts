@@ -20,7 +20,11 @@ describe("robots", () => {
         "/dashboard",
         "/companies",
         "/api/",
+        "/pricing",
       ])
+    );
+    expect(primaryRule?.allow).not.toEqual(
+      expect.arrayContaining(["/pricing"])
     );
   });
 });

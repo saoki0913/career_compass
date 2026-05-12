@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { notifySuccess } from "@/lib/notifications";
 import { SettingsPageSkeleton } from "@/components/skeletons/SettingsPageSkeleton";
+import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 
 const LoadingSpinner = () => (
@@ -89,10 +90,7 @@ export default function SettingsPage() {
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
 
   useEffect(() => {
-    if (!isAuthLoading && isGuest) {
-      router.push("/login?redirect=/settings");
-      return;
-    }
+    if (!isAuthLoading && isGuest) return;
 
     const fetchProfile = async () => {
       try {
@@ -335,7 +333,17 @@ export default function SettingsPage() {
   }
 
   if (isGuest) {
-    return null; // Will redirect
+    return (
+      <div className="min-h-screen bg-background">
+        <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
+          <LoginRequiredForAi
+            title="アカウント設定"
+            description="プラン管理、プロフィール編集、通知設定はログイン後に利用できます。"
+            fallbackAction={{ label: "ダッシュボードへ", href: "/dashboard" }}
+          />
+        </main>
+      </div>
+    );
   }
 
   return (

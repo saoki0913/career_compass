@@ -6,8 +6,8 @@ import { LandingSectionMotion } from "../LandingSectionMotion";
 
 const HERO_CHECKS = [
   "カード登録不要",
-  "開始 2 クレジット",
-  "回答・続き 各 1 クレジット",
+  "成功時のみ消費",
+  "いつでも解約OK",
 ] as const;
 
 const TOPIC_ITEMS = [

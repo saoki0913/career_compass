@@ -129,8 +129,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // If user is authenticated, fetch plan and migrate guest if needed
       if (session?.user) {
-        await fetchUserPlan();
+        const plan = await fetchUserPlan();
         await migrateGuestData();
+        if (plan?.needsOnboarding && !plan?.onboardingCompleted) {
+          const currentPath = window.location.pathname;
+          if (currentPath !== "/onboarding") {
+            window.location.href = "/onboarding";
+          }
+        }
       } else if (!isPending) {
         // No user session, initialize guest
         await initGuest();

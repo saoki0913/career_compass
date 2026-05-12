@@ -21,4 +21,15 @@ describe("AuthProvider", () => {
     expect(source).toContain("5000");
     expect(source).toContain("Date.now()");
   });
+
+  it("redirects to /onboarding when needsOnboarding is true", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(
+      new URL("./AuthProvider.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("needsOnboarding");
+    expect(source).toContain("onboardingCompleted");
+    expect(source).toContain("/onboarding");
+  });
 });

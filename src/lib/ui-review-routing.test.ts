@@ -25,7 +25,7 @@ describe("resolveUiReviewRoutes", () => {
   it("derives specific routes from app files", () => {
     expect(
       resolveUiReviewRoutes({
-        changedFiles: ["src/app/(marketing)/pricing/page.tsx"],
+        changedFiles: ["src/app/(product)/pricing/page.tsx"],
       }).routes
     ).toEqual(["/pricing"]);
   });
@@ -56,7 +56,7 @@ describe("resolveUiReviewRoutes", () => {
     expect(scope.shouldRun).toBe(true);
     expect(scope.source).toBe("fallback");
     expect(scope.routes).toContain("/");
-    expect(scope.routes).toContain("/pricing");
+    expect(scope.routes).not.toContain("/pricing");
   });
 
   it("keeps feature-scoped component changes on their product route", () => {
@@ -77,7 +77,7 @@ describe("resolveUiReviewRoutes", () => {
 
     expect(scope.source).toBe("pr-body");
     expect(scope.routes).toEqual(["/pricing", "/tools"]);
-    expect(scope.authMode).toBe("none");
+    expect(scope.authMode).toBe("mock");
   });
 
   it("prefers mock auth when mixed product routes are fixture-backed", () => {

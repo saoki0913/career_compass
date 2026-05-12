@@ -24,7 +24,17 @@ export default function CompanyInterviewPage() {
   }
 
   if (!isAuthenticated) {
-    return <LoginRequiredForAi title="面接対策はログイン後に利用できます" />;
+    return (
+      <div className="min-h-screen bg-background">
+        <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10">
+          <LoginRequiredForAi
+            title="AI模擬面接で面接対策"
+            description="企業別のAI面接官が質問し、回答への7軸フィードバックで本番に備えられます。"
+            fallbackAction={{ label: "企業一覧を見る", href: "/companies" }}
+          />
+        </main>
+      </div>
+    );
   }
 
   return (

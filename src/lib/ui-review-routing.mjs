@@ -1,6 +1,6 @@
 import { collectChangedFiles, readGitHubEventPayload } from "./ui-ci-context.mjs";
 
-const PUBLIC_REVIEW_ROUTES = ["/", "/pricing", "/tools", "/templates"];
+const PUBLIC_REVIEW_ROUTES = ["/", "/tools", "/templates"];
 const PRODUCT_REVIEW_ROUTES = [
   "/dashboard",
   "/companies",
@@ -13,6 +13,7 @@ const PRODUCT_REVIEW_ROUTES = [
   "/settings",
   "/profile",
   "/search",
+  "/pricing",
 ];
 const ALL_REVIEW_ROUTES = [...new Set([...PUBLIC_REVIEW_ROUTES, ...PRODUCT_REVIEW_ROUTES])];
 
@@ -34,7 +35,6 @@ const ALL_SHARED_ROUTE_FILES = [
 
 const PUBLIC_MARKETING_ROUTES = [
   "/",
-  "/pricing",
   "/tools",
   "/templates",
   "/shukatsu-ai",
@@ -49,7 +49,7 @@ const PUBLIC_MARKETING_ROUTES = [
   "/data-source-policy",
 ];
 
-const PUBLIC_ROUTE_PREFIXES = ["/pricing/", "/tools/", "/templates/"];
+const PUBLIC_ROUTE_PREFIXES = ["/tools/", "/templates/"];
 const MOCK_AUTH_ROUTE_PREFIXES = [
   "/companies/ui-review-company/motivation",
   "/companies/ui-review-company/interview",
@@ -66,6 +66,7 @@ const MOCK_AUTH_ROUTES = new Set([
   "/settings",
   "/profile",
   "/search",
+  "/pricing",
 ]);
 const REAL_AUTH_ROUTE_PATTERNS = [
   /^\/companies\/[^/]+\/motivation$/u,
@@ -350,8 +351,8 @@ function resolveRoutesForFile(filePath) {
     return { routes: ["/"], kind: "public", shared: false };
   }
 
-  if (/^src\/app\/\(marketing\)\/pricing\//.test(normalized) || /^src\/lib\/marketing\/pricing/.test(normalized)) {
-    return { routes: ["/pricing"], kind: "public", shared: false };
+  if (/^src\/app\/\(product\)\/pricing\//.test(normalized) || /^src\/lib\/marketing\/pricing/.test(normalized)) {
+    return { routes: ["/pricing"], kind: "product", shared: false };
   }
 
   if (PUBLIC_SHARED_ROUTE_FILES.some((pattern) => pattern.test(normalized))) {

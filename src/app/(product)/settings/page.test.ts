@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 
 const source = readFileSync(new URL("./page.tsx", import.meta.url), "utf8");
 
+describe("settings guest gate", () => {
+  it("uses LoginRequiredForAi instead of silent redirect for guests", () => {
+    expect(source).toContain("LoginRequiredForAi");
+    expect(source).toContain("アカウント設定");
+    expect(source).toContain("fallbackAction");
+  });
+});
+
 describe("settings billing boundary", () => {
   it("does not expose a direct settings plan mutation path", () => {
     expect(source).not.toContain("/api/settings/plan");

@@ -15,7 +15,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${siteUrl}/entry-sheet-ai`, lastModified: now, changeFrequency: "weekly", priority: 0.85 },
     { url: `${siteUrl}/es-ai-guide`, lastModified: now, changeFrequency: "weekly", priority: 0.75 },
     { url: `${siteUrl}/shukatsu-kanri`, lastModified: now, changeFrequency: "weekly", priority: 0.8 },
-    { url: `${siteUrl}/pricing`, lastModified: now, changeFrequency: "weekly", priority: 0.8 },
     { url: `${siteUrl}/tools`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
     { url: `${siteUrl}/tools/es-counter`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },
     { url: `${siteUrl}/templates`, lastModified: now, changeFrequency: "weekly", priority: 0.6 },

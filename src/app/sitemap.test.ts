@@ -13,4 +13,10 @@ describe("sitemap", () => {
     expect(entries).toContain(`${base}/es-ai-guide`);
     expect(entries).toContain(`${base}/data-source-policy`);
   });
+
+  it("does not include /pricing (product route, not SEO)", () => {
+    const base = getAppUrl();
+    const entries = sitemap().map((entry) => entry.url);
+    expect(entries).not.toContain(`${base}/pricing`);
+  });
 });

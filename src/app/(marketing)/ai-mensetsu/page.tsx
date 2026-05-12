@@ -52,7 +52,7 @@ export default function AiMensetsuPage() {
 
         <MidCTASection
           title="AI 模擬面接を、無料で試す"
-          description="カード登録不要。Free プランの月 50 クレジットから試せます（開始 2CR、回答/続き 1CR、最終講評 6CR）。"
+          description="カード登録不要。Free プランから試せます。"
           primaryCta={{ label: "無料で試す", href: "/login" }}
         />
 

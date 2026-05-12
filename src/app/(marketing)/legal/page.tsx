@@ -96,7 +96,7 @@ const disclosureRows: DisclosureRow[] = [
         Pro: {proMonthly?.price ?? "¥2,980"}/月、{proAnnual?.price ?? "¥29,800"}/年
         <br />
         最新の税込価格とプラン差分は
-        <Link href="/pricing" className="ml-1 text-primary hover:underline">
+        <Link href="/#pricing" className="ml-1 text-primary hover:underline">
           料金プランページ
         </Link>
         をご確認ください。
@@ -186,7 +186,7 @@ export default function LegalPage() {
         <div className="rounded-2xl border bg-card/70 p-5 text-sm leading-7 text-muted-foreground">
           <p>
             就活Pass の料金、決済、解約、返金方針に関する公開情報です。プラン比較は
-            <Link href="/pricing" className="ml-1 text-primary hover:underline">
+            <Link href="/#pricing" className="ml-1 text-primary hover:underline">
               料金プランページ
             </Link>
             、ご利用条件は
