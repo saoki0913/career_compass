@@ -159,6 +159,32 @@ describe("notifications", () => {
     });
   });
 
+  it("shows portal return notification for plan confirmation", async () => {
+    const { notifyPortalReturn } = await import("./notifications");
+
+    notifyPortalReturn("pro");
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith({
+      tone: "success",
+      title: "プラン設定が更新されました",
+      description: "変更内容はまもなく反映されます。",
+      duration: 5000,
+    });
+  });
+
+  it("shows downgrade notification with renewal date info", async () => {
+    const { notifyPlanDowngrade } = await import("./notifications");
+
+    notifyPlanDowngrade("Pro", "2026-06-15T00:00:00Z");
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith({
+      tone: "info",
+      title: "プランの変更を受け付けました",
+      description: "2026/6/15まではProプランをご利用いただけます。",
+      duration: 8000,
+    });
+  });
+
   it("shows document and calendar notification helpers with short success copy", async () => {
     const {
       notifyDocumentCreated,

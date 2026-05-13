@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   Check,
@@ -9,29 +9,31 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { trackEvent } from "@/lib/analytics/client";
-import { getPricingSelectionAction } from "@/lib/billing/pricing-flow";
 import { getCheckoutAbandonState } from "@/lib/billing/url-state";
 import {
   getMarketingPricingPlans,
   type MarketingPricingPlan,
 } from "@/lib/marketing/pricing-plans";
-import { ANNUAL_PLAN_PRICES, type BillingPeriod } from "@/lib/billing/plan-metadata";
+import { ANNUAL_PLAN_PRICES, type BillingPeriod, type PlanType } from "@/lib/billing/plan-metadata";
 import { cn } from "@/lib/utils";
-import { reportUserFacingError } from "@/lib/client-error-ui";
-
-type PlanType = "free" | "standard" | "pro";
+import { usePricingPlanSelection } from "@/hooks/usePricingPlanSelection";
 
 const PRO_MONTHLY = 2_980;
 
-function getCurrentPlan(plan: string | null | undefined): PlanType | null {
-  if (!plan) return null;
-  const normalized = plan.toLowerCase();
-  return normalized === "free" || normalized === "standard" || normalized === "pro"
-    ? normalized
-    : null;
+const PLAN_RANK: Record<string, number> = { free: 0, standard: 1, pro: 2 };
+
+function getCtaLabel(
+  planId: string,
+  currentPlan: PlanType | null,
+  defaultLabel: string,
+): string {
+  if (!currentPlan || currentPlan === planId) return defaultLabel;
+  const currentRank = PLAN_RANK[currentPlan] ?? 0;
+  const targetRank = PLAN_RANK[planId] ?? 0;
+  if (targetRank > currentRank) return "アップグレード";
+  return "プランを変更";
 }
 
 function PricingPlanCard({
@@ -143,7 +145,7 @@ function PricingPlanCard({
           disabled={isBusy}
           onClick={() => onSelect(plan.id)}
         >
-          <span>{isCurrent ? "プランを確認する" : plan.ctaLabel}</span>
+          <span>{isCurrent ? "利用中のプラン" : getCtaLabel(plan.id, currentPlan, plan.ctaLabel)}</span>
           {isBusy && isSelected ? (
             <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
           ) : (
@@ -166,21 +168,22 @@ export function PricingInteractive() {
 function PricingInteractiveContent() {
   const searchParams = useSearchParams();
   const { canceled } = getCheckoutAbandonState(searchParams);
-  const router = useRouter();
-  const { isAuthenticated, isLoading, userPlan } = useAuth();
-  const [isRoutePending, startTransition] = useTransition();
 
-  const isBusyRef = useRef(false);
-
-  const [selectedPlan, setSelectedPlan] = useState<PlanType | null>("standard");
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const currentPlan = getCurrentPlan(userPlan?.plan);
-  const isBusy = isSubmitting || isRoutePending;
   const source = searchParams.get("source") || "pricing";
   const reason = searchParams.get("reason") || undefined;
+  const {
+    currentPlan,
+    error,
+    isBusy,
+    selectedPlan,
+    selectPlan,
+  } = usePricingPlanSelection({
+    intentSource: "pricing",
+    analyticsSource: source,
+    reason,
+  });
 
   const plans = useMemo(() => getMarketingPricingPlans(billingPeriod), [billingPeriod]);
   const maxSavings = `¥${(PRO_MONTHLY * 12 - ANNUAL_PLAN_PRICES.pro).toLocaleString("ja-JP")}`;
@@ -197,128 +200,9 @@ function PricingInteractiveContent() {
     });
   }, [canceled, reason, source]);
 
-  const handleCheckout = useCallback(async (plan: PlanType, period: BillingPeriod): Promise<boolean> => {
-    if (plan === "free") return false;
-
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, period }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "チェックアウトの作成に失敗しました");
-      }
-
-      if (data.url) {
-        trackEvent("checkout_start", { plan, period, source, reason });
-        window.location.href = data.url;
-        return true;
-      }
-      return false;
-    } catch (checkoutError) {
-      setError(reportUserFacingError(checkoutError, {
-        code: "STRIPE_CHECKOUT_CREATE_FAILED",
-        userMessage: "プラン変更を開始できませんでした。",
-      }, "PricingPage:checkout"));
-      trackEvent("checkout_error", { plan, period, source, reason });
-      return false;
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [reason, source]);
-
-  const openBillingPortal = useCallback(async (): Promise<boolean> => {
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/stripe/portal", {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || "請求管理ページを開けませんでした");
-      }
-      trackEvent("portal_opened", { source: "pricing", currentPlan: currentPlan ?? "unknown" });
-      window.location.href = data.url;
-      return true;
-    } catch (portalError) {
-      setError(reportUserFacingError(portalError, {
-        code: "STRIPE_PORTAL_CREATE_FAILED",
-        userMessage: "請求管理ページを開けませんでした。",
-      }, "PricingPage:openBillingPortal"));
-      return false;
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [currentPlan]);
-
-  useEffect(() => {
-    if (!isAuthenticated || isLoading) return;
-
-    const savedPlan = localStorage.getItem("selectedPlan") as PlanType | null;
-    const savedPeriod = (localStorage.getItem("selectedPlanPeriod") || "monthly") as BillingPeriod;
-    if (!savedPlan || savedPlan === "free") return;
-
-    localStorage.removeItem("selectedPlan");
-    localStorage.removeItem("selectedPlanPeriod");
-    setBillingPeriod(savedPeriod);
-    void handleCheckout(savedPlan, savedPeriod);
-  }, [handleCheckout, isAuthenticated, isLoading]);
-
-  const handlePlanSelect = useCallback(async (planId: PlanType) => {
-    if (isBusyRef.current) return;
-    isBusyRef.current = true;
-
-    setSelectedPlan(planId);
-    const action = getPricingSelectionAction({
-      currentPlan,
-      targetPlan: planId,
-      isAuthenticated,
-    });
-
-    if (action === "dashboard") {
-      startTransition(() => { router.push("/dashboard"); });
-      return;
-    }
-
-    if (action === "free") {
-      startTransition(() => {
-        router.push(isAuthenticated ? "/dashboard" : "/login?redirect=/dashboard");
-      });
-      return;
-    }
-
-    if (action === "login") {
-      localStorage.setItem("selectedPlan", planId);
-      localStorage.setItem("selectedPlanPeriod", billingPeriod);
-      trackEvent("checkout_intent_login", { plan: planId, period: billingPeriod });
-      startTransition(() => { router.push("/login?redirect=/pricing"); });
-      return;
-    }
-
-    if (action === "portal") {
-      const navigated = await openBillingPortal();
-      if (!navigated) isBusyRef.current = false;
-      return;
-    }
-
-    const navigated = await handleCheckout(planId, billingPeriod);
-    if (!navigated) isBusyRef.current = false;
-  }, [
-    billingPeriod,
-    currentPlan,
-    handleCheckout,
-    isAuthenticated,
-    openBillingPortal,
-    router,
-    startTransition,
-  ]);
+  const handlePlanSelect = useCallback((planId: PlanType) => {
+    void selectPlan(planId, billingPeriod);
+  }, [billingPeriod, selectPlan]);
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-8 pt-4 sm:px-6">

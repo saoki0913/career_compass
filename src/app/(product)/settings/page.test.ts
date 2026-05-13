@@ -30,4 +30,9 @@ describe("settings billing boundary", () => {
   it("checks subscriptionStatus before showing billing portal button", () => {
     expect(source).toContain("subscriptionStatus");
   });
+
+  it("detects portal return via search params and shows notification", () => {
+    expect(source).toContain('searchParams.get("portal")');
+    expect(source).toContain("notifyPortalReturn");
+  });
 });

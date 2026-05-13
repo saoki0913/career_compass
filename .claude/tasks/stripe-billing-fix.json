@@ -1,0 +1,81 @@
+{
+  "title": "Stripe Billing Portal Bug Fix & Production Deploy",
+  "created": "2026-05-13",
+  "completionCriteria": [
+    "pricing ページでプラン選択 → checkout redirect が正常動作",
+    "settings ページの請求管理ボタンがアクティブ subscription ありの場合のみ表示",
+    "getPricingSelectionAction() が hasActiveSubscription を考慮したルーティング",
+    "portal 失敗時に checkout へフォールバック",
+    "全テスト通過 (tsc + vitest)",
+    "dead code なし",
+    "本番デプロイ完了"
+  ],
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Plan API に hasActiveSubscription を追加",
+      "file": "src/app/api/auth/plan/route.ts",
+      "status": "done"
+    },
+    {
+      "id": 2,
+      "title": "UserPlan 型に hasActiveSubscription を追加",
+      "file": "src/components/auth/AuthProvider.tsx",
+      "status": "done"
+    },
+    {
+      "id": 3,
+      "title": "getPricingSelectionAction ルーティング修正",
+      "file": "src/lib/billing/pricing-flow.ts",
+      "status": "done"
+    },
+    {
+      "id": 4,
+      "title": "usePricingPlanSelection hook 更新 + fallback",
+      "file": "src/hooks/usePricingPlanSelection.ts",
+      "status": "done"
+    },
+    {
+      "id": 5,
+      "title": "Settings ページ portal 表示条件修正",
+      "file": "src/app/(product)/settings/page.tsx",
+      "status": "done"
+    },
+    {
+      "id": 6,
+      "title": "テスト更新",
+      "file": "src/lib/billing/pricing-flow.test.ts",
+      "status": "done"
+    },
+    {
+      "id": 7,
+      "title": "型チェック + テスト実行",
+      "status": "done"
+    },
+    {
+      "id": 8,
+      "title": "dead code クリーンアップ + ドキュメント更新",
+      "status": "done"
+    },
+    {
+      "id": 9,
+      "title": "Billing Portal 復帰後のスナックバー通知",
+      "status": "done"
+    },
+    {
+      "id": 10,
+      "title": "ダウングレード時の更新日情報表示",
+      "status": "done"
+    },
+    {
+      "id": 11,
+      "title": "型チェック + テスト + コミット",
+      "status": "pending"
+    },
+    {
+      "id": 12,
+      "title": "本番デプロイ",
+      "status": "pending"
+    }
+  ]
+}

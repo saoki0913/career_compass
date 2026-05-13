@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { notifySuccess } from "@/lib/notifications";
+import { notifySuccess, notifyPortalReturn } from "@/lib/notifications";
 import { SettingsPageSkeleton } from "@/components/skeletons/SettingsPageSkeleton";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { reportUserFacingError } from "@/lib/client-error-ui";
@@ -68,8 +68,9 @@ interface NotificationSettings {
 }
 
 export default function SettingsPage() {
-  const { isGuest, isLoading: isAuthLoading } = useAuth();
+  const { isGuest, isLoading: isAuthLoading, userPlan, refreshPlan } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -79,6 +80,21 @@ export default function SettingsPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const portalReturnHandled = useRef(false);
+
+  useEffect(() => {
+    if (portalReturnHandled.current) return;
+    if (searchParams.get("portal") !== "return") return;
+    if (!profile) return;
+    portalReturnHandled.current = true;
+
+    refreshPlan().then((updatedPlan) => {
+      const plan = updatedPlan?.plan ?? profile.plan;
+      notifyPortalReturn(plan);
+    });
+
+    router.replace("/settings", { scroll: false });
+  }, [searchParams, profile, refreshPlan, router]);
 
   // Form state
   const [name, setName] = useState("");

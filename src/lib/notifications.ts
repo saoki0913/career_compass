@@ -200,6 +200,23 @@ export function notifyDocumentStatusChanged(isPublished: boolean) {
   });
 }
 
+export function notifyPortalReturn(_plan: string) {
+  return notifySuccess({
+    title: "プラン設定が更新されました",
+    description: "変更内容はまもなく反映されます。",
+    duration: 5000,
+  });
+}
+
+export function notifyPlanDowngrade(planLabel: string, currentPeriodEnd: string) {
+  const endDate = new Date(currentPeriodEnd).toLocaleDateString("ja-JP");
+  return notifyInfo({
+    title: "プランの変更を受け付けました",
+    description: `${endDate}までは${planLabel}プランをご利用いただけます。`,
+    duration: 8000,
+  });
+}
+
 export function notifyPurchaseSuccess(plan: string, isPlanConfirmed: boolean) {
   const label = plan === "pro" ? "Pro" : plan === "standard" ? "Standard" : plan;
   if (!isPlanConfirmed) {

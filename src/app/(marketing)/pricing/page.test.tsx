@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
 
-describe("PricingPage (product)", () => {
+describe("PricingPage (marketing)", () => {
   it("exports a default component", async () => {
     const mod = await import("./page");
     expect(mod.default).toBeDefined();
@@ -13,6 +13,12 @@ describe("PricingPage (product)", () => {
     expect(source).not.toContain("comparisonRows");
     expect(source).not.toContain("faqItems");
     expect(source).not.toContain("FaqJsonLd");
+  });
+
+  it("uses marketing metadata with canonical /pricing ownership", async () => {
+    const source = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+    expect(source).toContain("createMarketingMetadata");
+    expect(source).toContain('path: "/pricing"');
   });
 
   it("does not require auth redirect (guests can access)", async () => {

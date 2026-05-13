@@ -5,40 +5,43 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { getAppUrl } from "@/lib/app-url";
 import { createApiErrorResponse } from "@/bff/api/error-response";
-import { logError } from "@/lib/logger";
-import { getCsrfFailureReason } from "@/lib/csrf";
+import { requireUserMutationRequest } from "@/bff/api/mutation-guard";
+import { getPortalConfigurationId } from "@/lib/stripe/config";
+
+function isProductionDeployment() {
+  return process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+}
+
+function getStripeCustomerId(
+  value: string | Stripe.Customer | Stripe.DeletedCustomer | null,
+): string | null {
+  if (!value) return null;
+  return typeof value === "string" ? value : value.id;
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const csrfFailure = getCsrfFailureReason(request);
-    if (csrfFailure) {
-      return createApiErrorResponse(request, {
-        status: 403,
-        code: "CSRF_VALIDATION_FAILED",
-        userMessage: "安全確認に失敗しました。ページを再読み込みして、もう一度お試しください。",
-        developerMessage: `CSRF validation failed: ${csrfFailure}`,
-      });
-    }
+    const guard = await requireUserMutationRequest(request);
+    if (!guard.ok) return guard.response;
 
     const appUrl = getAppUrl();
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
+    const { session } = guard;
+    const portalConfigurationId = getPortalConfigurationId();
 
-    if (!session?.user) {
+    if (isProductionDeployment() && !portalConfigurationId) {
       return createApiErrorResponse(request, {
-        status: 401,
-        code: "AUTH_REQUIRED",
-        userMessage: "ログイン状態を確認して、もう一度お試しください。",
-        developerMessage: "Authentication required",
+        status: 503,
+        code: "STRIPE_PORTAL_CONFIGURATION_REQUIRED",
+        userMessage: "請求管理ページを開けませんでした。",
+        action: "時間をおいて再度お試しください。解消しない場合はサポートにお問い合わせください。",
+        developerMessage: "STRIPE_PORTAL_CONFIGURATION_ID is required in production",
       });
     }
 
@@ -59,15 +62,51 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const customer = await stripe.customers.retrieve(subscription.stripeCustomerId);
+    if ("deleted" in customer && customer.deleted) {
+      return createApiErrorResponse(request, {
+        status: 409,
+        code: "STRIPE_PORTAL_CUSTOMER_UNAVAILABLE",
+        userMessage: "請求管理ページを開けませんでした。",
+        action: "サポートにお問い合わせください。",
+        developerMessage: "Stripe customer is deleted",
+      });
+    }
+
+    if (customer.metadata?.userId !== session.user.id) {
+      return createApiErrorResponse(request, {
+        status: 403,
+        code: "STRIPE_PORTAL_CUSTOMER_OWNER_MISMATCH",
+        userMessage: "請求管理ページを開けませんでした。",
+        action: "サポートにお問い合わせください。",
+        developerMessage: "Stripe customer metadata userId does not match the authenticated user",
+      });
+    }
+
+    if (subscription.stripeSubscriptionId) {
+      const stripeSubscription = await stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+      const subscriptionCustomerId = getStripeCustomerId(stripeSubscription.customer);
+      if (subscriptionCustomerId !== subscription.stripeCustomerId) {
+        return createApiErrorResponse(request, {
+          status: 409,
+          code: "STRIPE_PORTAL_SUBSCRIPTION_OWNER_MISMATCH",
+          userMessage: "請求管理ページを開けませんでした。",
+          action: "サポートにお問い合わせください。",
+          developerMessage: "Stripe subscription customer does not match the stored customer",
+        });
+      }
+    }
+
     // Create billing portal session
-    const portalSession = await stripe.billingPortal.sessions.create({
+    const portalParams: Stripe.BillingPortal.SessionCreateParams = {
       customer: subscription.stripeCustomerId,
-      return_url: `${appUrl}/settings`,
-    });
+      return_url: `${appUrl}/settings?portal=return`,
+      ...(portalConfigurationId ? { configuration: portalConfigurationId } : {}),
+    };
+    const portalSession = await stripe.billingPortal.sessions.create(portalParams);
 
     return NextResponse.json({ url: portalSession.url });
   } catch (error) {
-    logError("stripe-portal", error);
     return createApiErrorResponse(request, {
       status: 500,
       code: "STRIPE_PORTAL_CREATE_FAILED",
@@ -75,6 +114,7 @@ export async function POST(request: NextRequest) {
       action: "時間をおいて、もう一度お試しください。",
       developerMessage: "Failed to create Stripe billing portal session",
       error,
+      logContext: "stripe-portal",
     });
   }
 }
