@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import { useSession } from "@/lib/auth/client";
 import { clearDeviceToken, hasDeviceToken } from "@/lib/auth/device-token";
+import { shouldDeferOnboardingForPricingIntent } from "@/lib/billing/pricing-flow";
 import { SnackbarHost } from "@/components/ui/snackbar-host";
 
 interface GuestSession {
@@ -16,6 +17,7 @@ interface UserPlan {
   needsPlanSelection: boolean;
   onboardingCompleted: boolean;
   needsOnboarding: boolean;
+  hasActiveSubscription: boolean;
 }
 
 interface AuthContextType {
@@ -133,7 +135,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await migrateGuestData();
         if (plan?.needsOnboarding && !plan?.onboardingCompleted) {
           const currentPath = window.location.pathname;
-          if (currentPath !== "/onboarding") {
+          const deferForPricingIntent = shouldDeferOnboardingForPricingIntent({
+            pathname: currentPath,
+            storage: window.sessionStorage,
+          });
+          if (currentPath !== "/onboarding" && !deferForPricingIntent) {
             window.location.href = "/onboarding";
           }
         }

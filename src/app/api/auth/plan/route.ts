@@ -10,9 +10,19 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { userProfiles } from "@/lib/db/schema";
+import { subscriptions, userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
+import { isActiveSubscriptionStatus } from "@/lib/billing/subscription-status";
+
+async function queryHasActiveSubscription(userId: string): Promise<boolean> {
+  const [sub] = await db
+    .select({ status: subscriptions.status })
+    .from(subscriptions)
+    .where(eq(subscriptions.userId, userId))
+    .limit(1);
+  return isActiveSubscriptionStatus(sub?.status);
+}
 
 export async function GET() {
   try {
@@ -56,8 +66,11 @@ export async function GET() {
         onboardingCompleted: false,
         needsPlanSelection: false,
         needsOnboarding: true,
+        hasActiveSubscription: false,
       });
     }
+
+    const hasActiveSubscription = await queryHasActiveSubscription(userId);
 
     // Backfill: older users may have planSelectedAt = null due to previous
     // "select a plan before continuing" flow. We now default to Free.
@@ -77,6 +90,7 @@ export async function GET() {
         onboardingCompleted: profile.onboardingCompleted,
         needsPlanSelection: false,
         needsOnboarding: !profile.onboardingCompleted,
+        hasActiveSubscription,
       });
     }
 
@@ -86,6 +100,7 @@ export async function GET() {
       onboardingCompleted: profile.onboardingCompleted,
       needsPlanSelection: false,
       needsOnboarding: !profile.onboardingCompleted,
+      hasActiveSubscription,
     });
   } catch (error) {
     console.error("Error getting plan:", error);

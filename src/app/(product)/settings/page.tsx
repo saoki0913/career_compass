@@ -22,6 +22,8 @@ import { notifySuccess } from "@/lib/notifications";
 import { SettingsPageSkeleton } from "@/components/skeletons/SettingsPageSkeleton";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { reportUserFacingError } from "@/lib/client-error-ui";
+import { parseApiErrorResponse } from "@/lib/api-errors";
+import { isActiveSubscriptionStatus } from "@/lib/billing/subscription-status";
 
 const LoadingSpinner = () => (
   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -52,6 +54,7 @@ interface Profile {
   targetJobTypes: string[];
   currentPeriodEnd?: string | null;
   creditsBalance?: number;
+  subscriptionStatus?: string | null;
 }
 
 interface NotificationSettings {
@@ -256,7 +259,7 @@ export default function SettingsPage() {
     if (!profile) return;
     if (newPlan === profile.plan) return;
 
-    if (profile.plan !== "free") {
+    if (profile.plan !== "free" && isActiveSubscriptionStatus(profile.subscriptionStatus)) {
       handleOpenBillingPortal();
       return;
     }
@@ -275,8 +278,11 @@ export default function SettingsPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to open billing portal");
+        throw await parseApiErrorResponse(response, {
+          code: "STRIPE_PORTAL_CREATE_FAILED",
+          userMessage: "請求管理ページを開けませんでした。",
+          action: "時間をおいて、もう一度お試しください。",
+        }, "SettingsPage:openBillingPortal");
       }
 
       const { url } = await response.json();
@@ -546,8 +552,8 @@ export default function SettingsPage() {
               )}
             </div>
 
-            {/* Billing Portal Button for paid users */}
-            {profile?.plan && profile.plan !== "free" && (
+            {/* Billing Portal Button for paid users with active subscription */}
+            {profile?.plan && profile.plan !== "free" && isActiveSubscriptionStatus(profile.subscriptionStatus) && (
               <div className="flex justify-end">
                 <Button
                   variant="outline"

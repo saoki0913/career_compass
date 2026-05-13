@@ -26,4 +26,8 @@ describe("settings billing boundary", () => {
     expect(source).toContain("/pricing");
     expect(source).not.toContain("/api/stripe/checkout");
   });
+
+  it("checks subscriptionStatus before showing billing portal button", () => {
+    expect(source).toContain("subscriptionStatus");
+  });
 });

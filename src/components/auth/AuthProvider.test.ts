@@ -32,4 +32,24 @@ describe("AuthProvider", () => {
     expect(source).toContain("onboardingCompleted");
     expect(source).toContain("/onboarding");
   });
+
+  it("defers onboarding redirect while a pricing checkout intent is being resolved", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(
+      new URL("./AuthProvider.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("shouldDeferOnboardingForPricingIntent");
+    expect(source).toContain("window.sessionStorage");
+    expect(source).toContain("!deferForPricingIntent");
+  });
+
+  it("includes hasActiveSubscription in UserPlan interface", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(
+      new URL("./AuthProvider.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("hasActiveSubscription: boolean");
+  });
 });

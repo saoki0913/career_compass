@@ -1,4 +1,4 @@
-import type { PlanType } from "@/lib/stripe/config";
+import type { PlanType } from "@/lib/billing/plan-metadata";
 
 type SearchParamsLike = Pick<URLSearchParams, "get">;
 
