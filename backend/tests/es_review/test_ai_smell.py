@@ -21,8 +21,6 @@ from app.services.es_review.ai_smell import (
         ("協働の重要性を学んだ。", "growth_cliche", "の重要性を学んだ"),
         ("関係者を巻き込み進めた。", "relation_abstract", "関係者を巻き込み"),
         ("ステークホルダーと向き合った。", "relation_abstract", "ステークホルダー"),
-        ("社会に貢献したい。", "ceremonial_closing", "に貢献したい"),
-        ("変革を実現したい。", "ceremonial_closing", "を実現したい"),
         ("まさに必要な経験だった。", "empty_emphasis", "まさに"),
         ("重要だったと言えるでしょう。", "empty_emphasis", "と言えるでしょう"),
     ],
@@ -134,6 +132,52 @@ def test_retry_hints_use_first_three_warnings_and_dedupe() -> None:
 def test_format_anti_ai_phrase_lines_uses_category_labels() -> None:
     lines = format_anti_ai_phrase_lines()
 
-    assert len(lines) == 6
-    assert lines[0].startswith("- 抽象修飾:")
-    assert any("空虚強調" in line for line in lines)
+    category_lines = [line for line in lines if line.startswith("- ")]
+    assert len(category_lines) == 5
+    assert category_lines[0].startswith("- 抽象修飾:")
+    assert any("空虚強調" in line for line in category_lines)
+    assert not any("儀式的結語" in line for line in lines)
+
+
+def test_all_categories_have_replacement_rule() -> None:
+    from app.services.es_review.ai_smell import _CATEGORIES
+
+    for cat in _CATEGORIES:
+        assert cat.replacement_rule, f"{cat.category} missing replacement_rule"
+
+
+def test_all_categories_have_ng_ok_examples() -> None:
+    from app.services.es_review.ai_smell import _CATEGORIES
+
+    for cat in _CATEGORIES:
+        assert len(cat.ng_ok_examples) >= 3, (
+            f"{cat.category} has {len(cat.ng_ok_examples)} examples, need >= 3"
+        )
+
+
+def test_retry_hints_include_ng_ok_example() -> None:
+    warnings = detect_ai_smell_patterns("多角的に考えた。", "")
+
+    hints = build_ai_smell_retry_hints(warnings)
+
+    assert len(hints) == 1
+    assert "例:" in hints[0]
+
+
+def test_ceremonial_closing_phrases_no_longer_detected() -> None:
+    texts = [
+        "社会に貢献したい。",
+        "新規事業に挑戦したい。",
+        "変革を実現したい。",
+        "地域社会に寄与したい。",
+    ]
+    for text in texts:
+        assert detect_ai_smell_patterns(text, "") == [], f"Should not detect: {text}"
+
+
+def test_format_lines_include_replacement_markers() -> None:
+    lines = format_anti_ai_phrase_lines()
+
+    assert any("置換ルール:" in line for line in lines)
+    assert any("NG:" in line for line in lines)
+    assert any("OK:" in line for line in lines)

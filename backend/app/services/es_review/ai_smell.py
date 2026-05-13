@@ -1,4 +1,13 @@
-"""AI-like phrase detection for ES review and draft generation."""
+"""AI-like phrase detection for ES review and draft generation.
+
+Pattern exclusion policy:
+Patterns appearing in >= 5% of the reference ES corpus (97 texts as of 2026-05)
+are considered natural job-seeking expressions and excluded from detection.
+Removed: ceremonial_closing category (all 4 patterns)
+  - に貢献したい: 17.5% corpus appearance
+  - に挑戦したい: 11.3% corpus appearance
+  - を実現したい / に寄与したい: user judgment (natural closings)
+"""
 
 from __future__ import annotations
 
@@ -11,7 +20,6 @@ AiSmellCategory = Literal[
     "value_creation",
     "growth_cliche",
     "relation_abstract",
-    "ceremonial_closing",
     "empty_emphasis",
 ]
 
@@ -24,6 +32,8 @@ class AiSmellCategoryDef:
     penalty: float
     prompt_label: str
     retry_hint: str
+    replacement_rule: str = ""
+    ng_ok_examples: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -66,6 +76,13 @@ _CATEGORIES: tuple[AiSmellCategoryDef, ...] = (
         penalty=2.0,
         prompt_label="抽象修飾: 多角的、包括的、主体的、能動的、俯瞰的、多様な関係者、幅広い視野",
         retry_hint="「多角的」「包括的」等の抽象修飾語を、具体的な対象や方法に置き換える",
+        replacement_rule="抽象修飾語を消し、元回答の事実から具体的な対象・数・方法を抽出して書く",
+        ng_ok_examples=(
+            ("多角的に検討した結果、解決策を導いた", "販売データと現場ヒアリングの2軸で原因を特定し、解決策を絞った"),
+            ("主体的にプロジェクトを推進した", "週1回の進捗会議を自ら設定し、3チームの担当者と期限を合意した"),
+            ("幅広い視野で問題を捉えた", "技術・コスト・納期の3点から問題を整理した"),
+            ("包括的なサポート体制を構築した", "問い合わせ対応・マニュアル整備・月次研修の3本立てで支援した"),
+        ),
     ),
     AiSmellCategoryDef(
         category="value_creation",
@@ -79,6 +96,12 @@ _CATEGORIES: tuple[AiSmellCategoryDef, ...] = (
         penalty=2.5,
         prompt_label="価値創出系: 価値を創出、価値を形にする、新たな価値を生み出す、付加価値を提供",
         retry_hint="「価値を創出」等の定型句を、実際の行動・成果に置き換える",
+        replacement_rule="「価値」を具体的な成果物・指標・行動に置き換える",
+        ng_ok_examples=(
+            ("新たな価値を生み出すことができた", "既存の集計レポートに異常検知機能を追加し、障害対応時間を30分短縮した"),
+            ("付加価値を提供した", "納品物に操作動画マニュアルを添付し、問い合わせ件数を半減させた"),
+            ("価値を創出する人材になりたい", "顧客の業務フローを分析し、工数を削減する仕組みを設計できる人材になりたい"),
+        ),
     ),
     AiSmellCategoryDef(
         category="growth_cliche",
@@ -92,7 +115,14 @@ _CATEGORIES: tuple[AiSmellCategoryDef, ...] = (
         requires_specificity_check=True,
         penalty=1.5,
         prompt_label="成長定型: 〜を通じて成長した、〜の重要性を学んだ、〜の大切さを実感した",
-        retry_hint="「〜を通じて成長した」等の定型句を、何がどう変わったかの具体に置き換える",
+        retry_hint="「〜を通じて成長した」等の定型句を、具体的にどのようなことを学んだか・身につけたかに置き換える",
+        replacement_rule="「成長した」「学んだ」を、具体的にどのようなことを学んだか・身につけたかに置き換える",
+        ng_ok_examples=(
+            ("この経験を通じて成長した", "この経験で、データに基づいて仮説を立て検証する手法を身につけた"),
+            ("チームワークの重要性を学んだ", "異なる専門の人と目標を共有し、役割分担する進め方を学んだ"),
+            ("継続の大切さを実感した", "毎日30分の復習を3ヶ月続けた結果、正答率が40%から85%に上がった"),
+            ("異文化理解の大切さを痛感した", "現地の商習慣に合わせて提案書の構成を変えたところ、受注率が2倍になった"),
+        ),
     ),
     AiSmellCategoryDef(
         category="relation_abstract",
@@ -106,19 +136,13 @@ _CATEGORIES: tuple[AiSmellCategoryDef, ...] = (
         penalty=2.0,
         prompt_label="関係性抽象: 関係者を巻き込み、多様な人々、ステークホルダー、周囲を巻き込みながら",
         retry_hint="「関係者を巻き込み」等を、誰とどう連携したかの具体に置き換える",
-    ),
-    AiSmellCategoryDef(
-        category="ceremonial_closing",
-        patterns=_compile_patterns(
-            r"に貢献したい",
-            r"に挑戦したい",
-            r"を実現したい",
-            r"に寄与したい",
+        replacement_rule="「関係者」「多様な人々」を、具体的な役割名・人数に置き換える",
+        ng_ok_examples=(
+            ("関係者を巻き込みながら進めた", "営業2名と開発3名を週次MTGに招集し、要件のすり合わせを行った"),
+            ("多様な人々と協力した", "現地スタッフ4名と日本人駐在2名の計6名で運営した"),
+            ("ステークホルダーとの調整を行った", "教授・TA・受講生代表の3者と日程・内容を調整した"),
+            ("周囲を巻き込みながら解決した", "ゼミの同期5名に声をかけ、役割分担を決めて対応した"),
         ),
-        requires_specificity_check=True,
-        penalty=1.5,
-        prompt_label="儀式的結語: 〜に貢献したい、〜に挑戦したい、〜を実現したい（具体的対象なし）",
-        retry_hint="最終文の「〜に貢献したい」を、何にどう貢献するかの具体で締める",
     ),
     AiSmellCategoryDef(
         category="empty_emphasis",
@@ -133,6 +157,13 @@ _CATEGORIES: tuple[AiSmellCategoryDef, ...] = (
         penalty=1.0,
         prompt_label="空虚強調: まさに、確かに、大いに、〜と言えるでしょう、〜ではないでしょうか",
         retry_hint="「まさに」「確かに」等の空虚な強調語を削除する",
+        replacement_rule="これらの語は削除する（置き換えではなく除去）",
+        ng_ok_examples=(
+            ("まさにこの経験が私の強みである", "この経験が私の強みである"),
+            ("確かに困難な状況であったが", "困難な状況であったが"),
+            ("大いに成長できた経験である", "成長できた経験である"),
+            ("重要だったと言えるでしょう", "重要であった"),
+        ),
     ),
 )
 
@@ -255,13 +286,24 @@ def build_ai_smell_retry_hints(warnings: list[AiSmellWarning]) -> list[str]:
         category = _CATEGORY_BY_CODE.get(category_code)
         if category is None:
             continue
-        hints.append(category.retry_hint)
+        hint = category.retry_hint
+        if category.ng_ok_examples:
+            ng, ok = category.ng_ok_examples[0]
+            hint += f"（例: 「{ng}」→「{ok}」）"
+        hints.append(hint)
     return list(dict.fromkeys(hints))
 
 
 def format_anti_ai_phrase_lines() -> list[str]:
-    """Return prompt-ready labels for anti-AI phrase guidance."""
-    return [f"- {category.prompt_label}" for category in _CATEGORIES]
+    """Return prompt-ready labels with replacement rules and NG/OK examples."""
+    lines: list[str] = []
+    for cat in _CATEGORIES:
+        lines.append(f"- {cat.prompt_label}")
+        if cat.replacement_rule:
+            lines.append(f"  → 置換ルール: {cat.replacement_rule}")
+        for ng, ok in cat.ng_ok_examples:
+            lines.append(f"  NG: {ng} → OK: {ok}")
+    return lines
 
 
 __all__ = [
