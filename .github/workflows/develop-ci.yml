@@ -58,6 +58,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ci-supabase-service-role-key
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       CRON_SECRET: ci-cron-secret
+      CAREER_PRINCIPAL_HMAC_SECRET: ci-career-principal-hmac-secret-32chars
       STRIPE_SECRET_KEY: sk_test_ci
       STRIPE_WEBHOOK_SECRET: whsec_ci
       STRIPE_PRICE_STANDARD_MONTHLY: price_standard_ci
