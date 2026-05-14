@@ -59,7 +59,7 @@ interface StreamingReviewResponseProps {
     rewrite_validation_user_hint?: string | null;
     repair_dispatch_count?: number;
     composite_retry_modes?: string[];
-    final_acceptance_source?: "rewrite" | "safe_rewrite" | "length_fix" | "degraded_best_effort";
+    final_acceptance_source?: "rewrite" | "safe_rewrite" | "degraded_best_effort";
     ai_smell_tier?: number;
     concrete_marker_count?: number;
     opening_conclusion_chars?: number;

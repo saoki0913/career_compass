@@ -72,7 +72,6 @@ function sanitizeReviewMeta(value: unknown): ReviewResult["review_meta"] | undef
       : {}),
     ...(meta.final_acceptance_source === "rewrite" ||
     meta.final_acceptance_source === "safe_rewrite" ||
-    meta.final_acceptance_source === "length_fix" ||
     meta.final_acceptance_source === "degraded_best_effort"
       ? { final_acceptance_source: meta.final_acceptance_source }
       : {}),
@@ -154,16 +153,49 @@ function normalizePublicESReviewEvent(value: unknown): SSEEvent | null {
   }
 
   if (event.type === "error" && typeof event.message === "string") {
+    const parsedMessage = parseStructuredErrorMessage(event.message);
+    const code = typeof event.code === "string" ? event.code : parsedMessage?.code;
+    const action = typeof event.action === "string" ? event.action : parsedMessage?.action;
+    const retryable = typeof event.retryable === "boolean" ? event.retryable : parsedMessage?.retryable;
     return {
       type: "error",
-      message: event.message,
-      ...(typeof event.code === "string" ? { code: event.code } : {}),
-      ...(typeof event.action === "string" ? { action: event.action } : {}),
-      ...(typeof event.retryable === "boolean" ? { retryable: event.retryable } : {}),
+      message: parsedMessage?.userMessage ?? normalizeUnsafeErrorMessage(event.message),
+      ...(code ? { code } : {}),
+      ...(action ? { action } : {}),
+      ...(typeof retryable === "boolean" ? { retryable } : {}),
     };
   }
 
   return null;
+}
+
+function parseStructuredErrorMessage(message: string): {
+  code?: string;
+  userMessage: string;
+  action?: string;
+  retryable?: boolean;
+} | null {
+  if (!message.trim().startsWith("{")) return null;
+  try {
+    const body = objectValue(JSON.parse(message));
+    const error = objectValue(body?.error) ?? body;
+    if (!error || typeof error.userMessage !== "string") return null;
+    return {
+      userMessage: error.userMessage,
+      ...(typeof error.code === "string" ? { code: error.code } : {}),
+      ...(typeof error.action === "string" ? { action: error.action } : {}),
+      ...(typeof error.retryable === "boolean" ? { retryable: error.retryable } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeUnsafeErrorMessage(message: string): string {
+  if (message.trim().startsWith("{")) {
+    return "AI添削を完了できませんでした。";
+  }
+  return message;
 }
 
 export function parseSSEEvent(text: string): SSEEvent | null {

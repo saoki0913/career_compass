@@ -3,58 +3,60 @@ import { getCompanyLogoSources, getCompanyAvatarColor, PIPELINE_COLUMNS } from "
 
 describe("getCompanyLogoSources", () => {
   beforeEach(() => {
-    vi.stubEnv("NEXT_PUBLIC_LOGO_DEV_TOKEN", "");
-    vi.stubEnv("NEXT_PUBLIC_BRANDFETCH_CLIENT_ID", "");
+    vi.stubEnv("NEXT_PUBLIC_LOGO_DEV_TOKEN", "legacy-public-token");
+    vi.stubEnv("NEXT_PUBLIC_BRANDFETCH_CLIENT_ID", "legacy-public-client");
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it("returns primary + fallback URLs for valid corporateUrl", () => {
+  it("uses corporateUrl domain as the primary Logo.dev source", () => {
     const result = getCompanyLogoSources("https://www.toyota.co.jp");
-    expect(result).toEqual({
-      primary: "https://www.google.com/s2/favicons?domain=www.toyota.co.jp&sz=128",
-      fallbacks: ["https://icons.duckduckgo.com/ip3/www.toyota.co.jp.ico"],
-    });
+    expect(result?.primary).toBe(
+      "/api/company-logos?provider=logo-dev&domain=www.toyota.co.jp&policy=official-logo-v2"
+    );
+    expect(result?.fallbacks[0]).toBe(
+      "/api/company-logos?provider=brandfetch&domain=www.toyota.co.jp&policy=official-logo-v2"
+    );
   });
 
   it("returns null when corporateUrl is null and no estimated", () => {
     expect(getCompanyLogoSources(null)).toBeNull();
   });
 
-  it("returns null for invalid URL without estimated fallback", () => {
-    expect(getCompanyLogoSources("not-a-url")).toBeNull();
+  it("uses Logo.dev name lookup when corporateUrl is invalid", () => {
+    expect(getCompanyLogoSources("not-a-url", null, "日本生命")?.primary).toBe(
+      "/api/company-logos?provider=logo-dev-name&name=%E6%97%A5%E6%9C%AC%E7%94%9F%E5%91%BD&policy=official-logo-v2"
+    );
   });
 
-  it("extracts hostname from path URLs", () => {
+  it("extracts logo hostnames from path URLs", () => {
     const result = getCompanyLogoSources("https://recruit.example.co.jp/careers");
     expect(result?.primary).toBe(
-      "https://www.google.com/s2/favicons?domain=recruit.example.co.jp&sz=128"
+      "/api/company-logos?provider=logo-dev&domain=recruit.example.co.jp&policy=official-logo-v2"
     );
   });
 
   it("extracts hostname from estimatedFaviconUrl when corporateUrl is null", () => {
     const result = getCompanyLogoSources(null, "https://www.smbc.co.jp/favicon.ico");
-    expect(result?.primary).toBe("https://www.smbc.co.jp/favicon.ico");
-    expect(result?.fallbacks[0]).toBe(
-      "https://www.google.com/s2/favicons?domain=www.smbc.co.jp&sz=128"
-    );
+    expect(result).toBeNull();
   });
 
-  it("prefers direct estimatedFaviconUrl over generated domain fallbacks", () => {
+  it("does not use direct estimatedFaviconUrl as a logo fallback", () => {
     const result = getCompanyLogoSources(
       "https://www.toyota.co.jp",
       "https://www.estimated.co.jp/favicon.ico"
     );
-    expect(result?.primary).toBe("https://www.estimated.co.jp/favicon.ico");
-    expect(result?.fallbacks[0]).toContain("www.toyota.co.jp");
+    expect(result?.primary).toBe(
+      "/api/company-logos?provider=logo-dev&domain=www.toyota.co.jp&policy=official-logo-v2"
+    );
+    expect(JSON.stringify(result)).not.toContain("estimated.co.jp");
   });
 
-  it("uses direct estimatedFaviconUrl when corporateUrl is invalid", () => {
+  it("ignores direct estimatedFaviconUrl when corporateUrl is invalid", () => {
     const result = getCompanyLogoSources("not-a-url", "https://www.fallback.co.jp/icon.png");
-    expect(result?.primary).toBe("https://www.fallback.co.jp/icon.png");
-    expect(result?.fallbacks[0]).toContain("www.fallback.co.jp");
+    expect(result).toBeNull();
   });
 
   it("returns null when both are absent", () => {
@@ -62,24 +64,19 @@ describe("getCompanyLogoSources", () => {
     expect(getCompanyLogoSources(null, undefined)).toBeNull();
   });
 
-  it("prioritizes Logo.dev when publishable token is configured", () => {
-    vi.stubEnv("NEXT_PUBLIC_LOGO_DEV_TOKEN", "logo-token");
-    const result = getCompanyLogoSources("https://www.toyota.co.jp");
+  it("uses local logo proxy instead of exposing publishable tokens", () => {
+    const result = getCompanyLogoSources(null, null, "トヨタ", ["toyota.co.jp"]);
     expect(result?.primary).toBe(
-      "https://img.logo.dev/www.toyota.co.jp?token=logo-token&size=128&format=png&retina=true&fallback=404"
+      "/api/company-logos?provider=logo-dev&domain=toyota.co.jp&policy=official-logo-v2"
     );
-    expect(result?.fallbacks).toContain("https://www.google.com/s2/favicons?domain=www.toyota.co.jp&sz=128");
+    expect(JSON.stringify(result)).not.toContain("legacy-public-token");
   });
 
-  it("uses Brandfetch after Logo.dev when both providers are configured", () => {
-    vi.stubEnv("NEXT_PUBLIC_LOGO_DEV_TOKEN", "logo-token");
-    vi.stubEnv("NEXT_PUBLIC_BRANDFETCH_CLIENT_ID", "brandfetch-client");
-    const result = getCompanyLogoSources("https://www.toyota.co.jp");
+  it("uses Logo.dev first and Brandfetch second for each logo domain", () => {
+    const result = getCompanyLogoSources(null, null, "トヨタ", ["toyota.co.jp"]);
 
-    expect(result?.primary).toContain("https://img.logo.dev/www.toyota.co.jp");
-    expect(result?.fallbacks[0]).toBe(
-      "https://cdn.brandfetch.io/domain/www.toyota.co.jp/w/128/h/128/type/icon/fallback/404?c=brandfetch-client"
-    );
+    expect(result?.primary).toBe("/api/company-logos?provider=logo-dev&domain=toyota.co.jp&policy=official-logo-v2");
+    expect(result?.fallbacks[0]).toBe("/api/company-logos?provider=brandfetch&domain=toyota.co.jp&policy=official-logo-v2");
   });
 
   it("prioritizes estimated logo domains before corporateUrl", () => {
@@ -90,47 +87,114 @@ describe("getCompanyLogoSources", () => {
       ["mitsubishicorp.com"]
     );
     expect(result?.primary).toBe(
-      "https://www.google.com/s2/favicons?domain=mitsubishicorp.com&sz=128"
-    );
-    expect(result?.fallbacks).toContain(
-      "https://www.google.com/s2/favicons?domain=career-mc.co.jp&sz=128"
+      "/api/company-logos?provider=logo-dev&domain=mitsubishicorp.com&policy=official-logo-v2"
     );
   });
 
-  it("tries all estimated logo domains before generated favicon fallbacks", () => {
-    vi.stubEnv("NEXT_PUBLIC_LOGO_DEV_TOKEN", "logo-token");
+  it("tries all estimated logo domains through the auto proxy", () => {
     const result = getCompanyLogoSources(null, null, "三菱UFJ銀行", ["bk.mufg.jp", "mufgbank.co.jp"]);
     expect(result?.primary).toBe(
-      "https://img.logo.dev/bk.mufg.jp?token=logo-token&size=128&format=png&retina=true&fallback=404"
+      "/api/company-logos?provider=logo-dev&domain=bk.mufg.jp&policy=official-logo-v2"
     );
     expect(result?.fallbacks[0]).toBe(
-      "https://img.logo.dev/mufgbank.co.jp?token=logo-token&size=128&format=png&retina=true&fallback=404"
+      "/api/company-logos?provider=brandfetch&domain=bk.mufg.jp&policy=official-logo-v2"
     );
-    expect(result?.fallbacks).toContain(
-      "https://img.logo.dev/name/%E4%B8%89%E8%8F%B1UFJ%E9%8A%80%E8%A1%8C?token=logo-token&size=128&format=png&retina=true&fallback=404"
+    expect(result?.fallbacks[1]).toBe(
+      "/api/company-logos?provider=logo-dev&domain=mufgbank.co.jp&policy=official-logo-v2"
     );
   });
 
-  it("tries Google favicon for all logo domains before DuckDuckGo fallbacks", () => {
+  it("keeps generated favicon providers behind the auto proxy", () => {
     const result = getCompanyLogoSources(null, null, "三菱UFJ銀行", ["bk.mufg.jp", "mufgbank.co.jp"]);
-    expect(result?.primary).toBe("https://www.google.com/s2/favicons?domain=bk.mufg.jp&sz=128");
-    expect(result?.fallbacks[0]).toBe("https://www.google.com/s2/favicons?domain=mufgbank.co.jp&sz=128");
-    expect(result?.fallbacks[1]).toBe("https://icons.duckduckgo.com/ip3/bk.mufg.jp.ico");
+    expect(result?.primary).toContain("provider=logo-dev");
+    expect(JSON.stringify(result)).not.toContain("provider=google-favicon");
+    expect(JSON.stringify(result)).not.toContain("provider=duckduckgo-favicon");
   });
 
   it("uses Logo.dev name lookup when only company name is available", () => {
-    vi.stubEnv("NEXT_PUBLIC_LOGO_DEV_TOKEN", "logo-token");
     const result = getCompanyLogoSources(null, null, "三菱商事");
     expect(result?.primary).toBe(
-      "https://img.logo.dev/name/%E4%B8%89%E8%8F%B1%E5%95%86%E4%BA%8B?token=logo-token&size=128&format=png&retina=true&fallback=404"
+      "/api/company-logos?provider=logo-dev-name&name=%E4%B8%89%E8%8F%B1%E5%95%86%E4%BA%8B&policy=official-logo-v2"
+    );
+    expect(result?.fallbacks[0]).toBe(
+      "/api/company-logos?provider=brandfetch-name&name=%E4%B8%89%E8%8F%B1%E5%95%86%E4%BA%8B&policy=official-logo-v2"
     );
   });
 
   it("extracts the original domain from Google favicon URLs", () => {
     const result = getCompanyLogoSources(null, "https://www.google.com/s2/favicons?domain=example.co.jp&sz=64");
-    expect(result?.primary).toBe("https://www.google.com/s2/favicons?domain=example.co.jp&sz=64");
-    expect(result?.fallbacks).toContain("https://icons.duckduckgo.com/ip3/example.co.jp.ico");
-    expect(result?.fallbacks).not.toContain("https://icons.duckduckgo.com/ip3/www.google.com.ico");
+    expect(result).toBeNull();
+  });
+
+  it("uses curated official assets before provider domain lookups", () => {
+    const result = getCompanyLogoSources(null, null, "三井不動産", ["mitsuifudosan.co.jp"], [
+      {
+        kind: "domain",
+        domain: "mitsuifudosan.co.jp",
+        source: "mapping.logo_domains",
+        confidence: "high",
+      },
+      {
+        kind: "official-asset",
+        assetKey: "mitsuifudosan-corporate",
+        source: "mapping.logo_asset_key",
+        confidence: "high",
+      },
+      {
+        kind: "allowlisted-name",
+        nameKey: "mitsui-fudosan",
+        source: "mapping.logo_names",
+        confidence: "high",
+      },
+    ]);
+
+    expect(result?.primary).toBe(
+      "/api/company-logos?provider=official&asset=mitsuifudosan-corporate&policy=official-logo-v2"
+    );
+    expect(result?.fallbacks[0]).toBe(
+      "/api/company-logos?provider=logo-dev&domain=mitsuifudosan.co.jp&policy=official-logo-v2"
+    );
+    expect(result?.fallbacks[1]).toBe(
+      "/api/company-logos?provider=brandfetch&domain=mitsuifudosan.co.jp&policy=official-logo-v2"
+    );
+    expect(JSON.stringify(result)).not.toContain("logo-dev-name");
+  });
+
+  it("uses Logo.dev name lookup for Nippon Life when no domain is available", () => {
+    const result = getCompanyLogoSources(null, null, "日本生命");
+    expect(result?.primary).toBe(
+      "/api/company-logos?provider=logo-dev-name&name=%E6%97%A5%E6%9C%AC%E7%94%9F%E5%91%BD&policy=official-logo-v2"
+    );
+    expect(result?.fallbacks[0]).toBe(
+      "/api/company-logos?provider=brandfetch-name&name=%E6%97%A5%E6%9C%AC%E7%94%9F%E5%91%BD&policy=official-logo-v2"
+    );
+  });
+
+  it("allows low-confidence promoted domains but keeps them behind the proxy", () => {
+    const result = getCompanyLogoSources(null, null, "三井住友銀行", null, [
+      {
+        kind: "domain",
+        domain: "smbc.co.jp",
+        source: "promoted.mapping.domains",
+        confidence: "low",
+      },
+    ]);
+
+    expect(result?.primary).toBe(
+      "/api/company-logos?provider=logo-dev&domain=smbc.co.jp&policy=official-logo-v2"
+    );
+    expect(result?.fallbacks[0]).toBe(
+      "/api/company-logos?provider=brandfetch&domain=smbc.co.jp&policy=official-logo-v2"
+    );
+  });
+
+  it("does not let stale corporateUrl override verified logo candidates", () => {
+    const result = getCompanyLogoSources("https://bk.mufg.jp", null, "三井物産", ["mitsui.com"]);
+
+    expect(result?.primary).toBe(
+      "/api/company-logos?provider=logo-dev&domain=mitsui.com&policy=official-logo-v2"
+    );
+    expect(JSON.stringify(result)).not.toContain("mufg");
   });
 });
 

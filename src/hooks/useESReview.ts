@@ -142,6 +142,13 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
       reviewMode?: ReviewMode;
       llmModel?: StandardESReviewModel;
     }): Promise<boolean> => {
+      const trimmedDocId = documentId.trim();
+      if (!trimmedDocId || trimmedDocId === "undefined" || trimmedDocId === "null") {
+        setError("ドキュメントIDが見つかりません。");
+        setErrorAction("ページを再読み込みして、もう一度お試しください。");
+        return false;
+      }
+
       const effectiveReviewMode = params.reviewMode ?? "standard";
       const requestId = requestIdRef.current + 1;
       requestIdRef.current = requestId;
@@ -195,7 +202,7 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
           reviewMode: effectiveReviewMode,
         });
 
-        const streamPath = `/api/documents/${documentId}/review/stream`;
+        const streamPath = `/api/documents/${encodeURIComponent(trimmedDocId)}/review/stream`;
         const response = await fetch(streamPath, {
           method: "POST",
           headers: {

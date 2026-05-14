@@ -142,6 +142,39 @@ preflight では、最低限次の 7 点を言語化する。
 - shimmer は控えめに使い、pulse や spinner を主役にしない。
 - `RouteProgressBar` のような細い top bar 単体や、汎用 spinner + 「読み込み中...」だけの UI は使わない。
 
+### 8.1 ローディング UX 4原則
+
+以下の4原則をローディング UI 設計の判断基準にする（詳細は `/better-loading-ux` スキル参照）:
+
+1. **ローディング時間の最小化** — 0.1s/1s/10s の閾値を意識し、まず計測してから最適化する
+2. **段階的ローディング** — Suspense 境界を細分化し、準備できた部分から順に表示する
+3. **フリッカーさせない** — 高速で消えるローディング UI を出さない。ViewTransition で滑らかに切り替える
+4. **長時間ローディングのケア** — 10s 超の操作にはフィードバックを、分単位の操作には多段階表示を提供する
+
+### 8.2 フリッカー防止
+
+- 0.1s 以内に解決するクライアント操作にローディング UI を表示しない。
+- クライアント操作のローディング表示は、150ms 程度の遅延表示と 300ms 程度の最小表示時間を持つ局所 state machine でゲートする。
+- 一度表示されたローディング UI は最低 `minDisplayMs`（デフォルト 300ms）維持し、一瞬だけ表示されるフラッシュを防ぐ。
+- `loading.tsx`（ルートレベル）は Next.js が表示タイミングを制御するため、クライアント側の遅延表示ゲートは不要。
+
+### 8.3 ViewTransition
+
+- `next.config.ts` の `experimental.viewTransition: true` で有効化済み。
+- Suspense fallback に `<ViewTransition exit="vt-skeleton-exit">` を、コンテンツに `<ViewTransition enter="vt-content-enter">` を付与する。
+- CSS クラス `vt-skeleton-exit`（下方向フェード）と `vt-content-enter`（上方向フェードイン）は `globals.css` に定義済み。
+- `prefers-reduced-motion: reduce` 時はアニメーションが自動で無効化される。
+- 既存の `shimmerDelayMs` スタガーとは独立（ViewTransition はコンテナレベル、shimmer は要素レベル）。
+- 導入はオプトイン。既存の全 Suspense 境界を遡及的にラップする必要はない。
+
+### 8.4 長時間ローディングのケア
+
+- 10s 超の操作にはユーザーへのフィードバックを必須とする。
+- 長時間処理は phase（`idle` → `loading` → `slow` → `timeout`）を入力 state と経過時間から導出し、effect 内で同期的に derived state をコピーしない。
+- `slow` フェーズ（デフォルト 10s）で「通常より時間がかかっています」等のメッセージを表示する。
+- `timeout` フェーズ（デフォルト 60s）でリトライまたはキャンセルの選択肢を提供する。
+- 分単位の処理（ES添削等）には `EnhancedProcessingSteps` によるステップ進捗 UI を使う（原則4c の既存実装）。
+
 ## 9. 会話 UI コンポーネント構成
 
 ガクチカ深掘り、志望動機作成、面接練習などの会話系機能は、共通の chat コンポーネント群を使う。

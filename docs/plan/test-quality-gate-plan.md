@@ -1,5 +1,8 @@
 # テスト・品質ゲート改善計画
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+
 作成日: 2026-05-05 JST
 
 ## 1. 目的
@@ -42,7 +45,7 @@
 
 2026-05-05 の実装フェーズ完了条件は次のとおり。
 
-1. `docs/plan/test-quality-gate-tasks.json` を SSOT として P0 実装タスク状態を管理できる。
+1. `docs/plan/plan-tasks.json` を SSOT として P0 実装タスク状態を管理できる。
 2. `make test-coverage` が Vitest coverage (text/json/html) を生成して pass する。
 3. `make backend-test-coverage` が決定的 backend tests の coverage (term/html/json) を生成して pass する。
 4. BFF 課金境界テストが ES Review / Motivation / Company Fetch / LLM cost guard をカバーする。
@@ -67,11 +70,17 @@ Status は以下だけを使う。
 - `Review`: 実装済み、検証またはレビュー待ち
 - `Done`: 受け入れ条件を満たした
 
-実装フェーズの状態管理 SSOT は `docs/plan/test-quality-gate-tasks.json` とし、更新は次のコマンドで行う。
+実装フェーズの状態管理 SSOT は `docs/plan/plan-tasks.json` とし、更新は次のコマンドで行う。旧 `scripts/plan/update-test-quality-task-status.mjs` は互換 wrapper として統合 JSON を更新する。
 
 ```bash
-node scripts/plan/update-test-quality-task-status.mjs --id F1 --status Doing --notes "作業メモ"
+node scripts/plan/update-plan-task-status.mjs --source-plan test-quality-gate-plan.md --id F1 --status Doing --notes "作業メモ"
 ```
+
+### 4.1 現状同期メモ（2026-05-13）
+
+- `@vitest/coverage-v8` と `pytest-cov` は導入済みで、coverage は report gate として動作している。閾値 enforcement と coverage delta は未実装として P2 継続にする。
+- Live Contract は authenticated user 前提が中心で、guest/user boundary、owner 拒否、成功時のみ消費の contract は追加タスクとして扱う。
+- `npm run test:security:static` は既存 raw error response 検出で赤になるため、`plan-sync:next-raw-error-debt` として統合 JSON で追跡する。
 
 ---
 

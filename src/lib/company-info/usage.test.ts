@@ -74,6 +74,13 @@ describe("company-info usage schema fallback", () => {
     ).resolves.toBe(10);
   });
 
+  it("documents onConflictDoNothing race safety in getOrCreateMonthlyUsage", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./usage.ts", import.meta.url), "utf8");
+    expect(source).toContain("onConflictDoNothing");
+    expect(source).toContain("race-safe");
+  });
+
   it("treats missing schedule column as a no-op when incrementing free usage", async () => {
     const { incrementMonthlyScheduleFreeUse } = await import("@/lib/company-info/usage");
 

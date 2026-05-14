@@ -8,8 +8,8 @@ import {
   buildInterviewQuestionDisplay,
   buildInterviewCoachingNarrative,
   labelWeakestQuestionType,
-  TOPIC_DISPLAY_LABELS,
 } from "./ui";
+import { INTERVIEW_TOPIC_LABELS, labelInterviewTopic } from "./topic-labels";
 
 // ---------------------------------------------------------------------------
 // buildInterviewTopicStages
@@ -28,9 +28,9 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, false);
     expect(result).toEqual([
-      { key: "topic-0-motivation", label: TOPIC_DISPLAY_LABELS["motivation"] ?? "motivation", status: "done" },
-      { key: "topic-1-leadership", label: TOPIC_DISPLAY_LABELS["leadership"] ?? "leadership", status: "current" },
-      { key: "topic-2-teamwork", label: TOPIC_DISPLAY_LABELS["teamwork"] ?? "teamwork", status: "pending" },
+      { key: "topic-0-motivation", label: "志望動機", status: "done" },
+      { key: "topic-1-leadership", label: "リーダーシップ", status: "current" },
+      { key: "topic-2-teamwork", label: "チームワーク", status: "pending" },
     ]);
   });
 
@@ -42,7 +42,7 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, true);
     expect(result[1]).toMatchObject({
-      label: TOPIC_DISPLAY_LABELS["leadership"],
+      label: "リーダーシップ",
       status: "done",
     });
   });
@@ -55,7 +55,7 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, true);
     expect(result[1]).toMatchObject({
-      label: TOPIC_DISPLAY_LABELS["leadership"],
+      label: "リーダーシップ",
       status: "pending",
     });
   });
@@ -68,7 +68,7 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, false);
     const labels = result.map((s) => s.label);
-    expect(labels).toEqual([TOPIC_DISPLAY_LABELS["motivation"], TOPIC_DISPLAY_LABELS["teamwork"]]);
+    expect(labels).toEqual(["志望動機", "チームワーク"]);
   });
 
   it("handles null currentTopicLabel", () => {
@@ -79,44 +79,46 @@ describe("buildInterviewTopicStages", () => {
     };
     const result = buildInterviewTopicStages(stageStatus, false);
     expect(result).toHaveLength(2);
-    expect(result[0]).toMatchObject({ label: TOPIC_DISPLAY_LABELS["motivation"], status: "done" });
-    expect(result[1]).toMatchObject({ label: TOPIC_DISPLAY_LABELS["teamwork"], status: "pending" });
+    expect(result[0]).toMatchObject({ label: "志望動機", status: "done" });
+    expect(result[1]).toMatchObject({ label: "チームワーク", status: "pending" });
   });
 
-  it("falls back to raw topic key when no display label exists", () => {
+  it("does not expose raw topic key when no display label exists", () => {
     const stageStatus: InterviewStageStatus = {
       currentTopicLabel: "custom_unknown_topic",
       coveredTopics: [],
       remainingTopics: [],
     };
     const result = buildInterviewTopicStages(stageStatus, false);
-    expect(result[0]).toMatchObject({ label: "custom_unknown_topic" });
+    expect(result[0]).toMatchObject({ label: "確認項目" });
+    expect(result[0]?.label).not.toContain("_");
   });
 });
 
 // ---------------------------------------------------------------------------
-// TOPIC_DISPLAY_LABELS
+// interview topic labels
 // ---------------------------------------------------------------------------
 
-describe("TOPIC_DISPLAY_LABELS", () => {
+describe("interview topic labels", () => {
   it("maps known planning-system topic keys to Japanese labels", () => {
-    expect(TOPIC_DISPLAY_LABELS["motivation_fit"]).toBe("志望動機");
-    expect(TOPIC_DISPLAY_LABELS["role_understanding"]).toBe("職種理解");
-    expect(TOPIC_DISPLAY_LABELS["case_fit"]).toBe("ケース適性");
-    expect(TOPIC_DISPLAY_LABELS["life_narrative_core"]).toBe("自分史・転機");
-    expect(TOPIC_DISPLAY_LABELS["structured_thinking"]).toBe("構造化思考");
-    expect(TOPIC_DISPLAY_LABELS["technical_depth"]).toBe("技術的深掘り");
+    expect(labelInterviewTopic("motivation_origin")).toBe("志望理由");
+    expect(labelInterviewTopic("company_reason")).toBe("企業理解");
+    expect(labelInterviewTopic("gakuchika_process")).toBe("行動プロセス");
+    expect(labelInterviewTopic("gakuchika_reproducibility")).toBe("再現性");
+    expect(labelInterviewTopic("user_understanding")).toBe("顧客理解");
+    expect(labelInterviewTopic("final_commitment")).toBe("志望度");
+    expect(labelInterviewTopic("reverse_question")).toBe("逆質問");
   });
 
   it("maps common LLM-generated topic keys", () => {
-    expect(TOPIC_DISPLAY_LABELS["leadership"]).toBeTruthy();
-    expect(TOPIC_DISPLAY_LABELS["teamwork"]).toBeTruthy();
-    expect(TOPIC_DISPLAY_LABELS["gakuchika"]).toBeTruthy();
-    expect(TOPIC_DISPLAY_LABELS["self_pr"]).toBeTruthy();
+    expect(labelInterviewTopic("leadership")).toBe("リーダーシップ");
+    expect(labelInterviewTopic("teamwork")).toBe("チームワーク");
+    expect(labelInterviewTopic("gakuchika")).toBe("ガクチカ");
+    expect(labelInterviewTopic("self_pr")).toBe("自己PR");
   });
 
   it("contains at least 20 entries", () => {
-    expect(Object.keys(TOPIC_DISPLAY_LABELS).length).toBeGreaterThanOrEqual(20);
+    expect(Object.keys(INTERVIEW_TOPIC_LABELS).length).toBeGreaterThanOrEqual(20);
   });
 });
 
@@ -168,17 +170,17 @@ describe("buildInterviewQuestionDisplay", () => {
       remainingTopics: ["teamwork", "strengths"],
     };
     const result = buildInterviewQuestionDisplay(2, stageStatus);
-    expect(result).toBe("2問目 / 約3問");
+    expect(result).toBe("2問目 / 約15問");
   });
 
-  it("uses questionCount as floor for total estimate", () => {
+  it("keeps a fixed interview-length estimate regardless of topic count", () => {
     const stageStatus: InterviewStageStatus = {
       currentTopicLabel: null,
       coveredTopics: [],
       remainingTopics: [],
     };
     const result = buildInterviewQuestionDisplay(5, stageStatus);
-    expect(result).toBe("5問目 / 約5問");
+    expect(result).toBe("5問目 / 約15問");
   });
 });
 
@@ -237,7 +239,7 @@ describe("buildInterviewCoachingNarrative", () => {
       remainingTopics: [],
     };
     expect(buildInterviewCoachingNarrative(stageStatus, 3)).toBe(
-      "motivationの深掘りが完了しました。",
+      "志望動機の深掘りが完了しました。",
     );
   });
 
@@ -248,7 +250,7 @@ describe("buildInterviewCoachingNarrative", () => {
       remainingTopics: ["teamwork"],
     };
     expect(buildInterviewCoachingNarrative(stageStatus, 2)).toBe(
-      "leadershipについて確認しています。",
+      "リーダーシップについて確認しています。",
     );
   });
 });

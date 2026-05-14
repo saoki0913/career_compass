@@ -17,21 +17,26 @@
 5. セキュリティ上の懸念（OWASP Top 10、CSRF、guest/user 境界）
 6. 500 行超ファイルへの新規責務追加
 
+## 回答ルール
+ユーザーに見える説明は、自然な日本語で簡潔に書いてください。内部の変数名、hook 名、
+checkpoint 名、artifact のファイル名は、判断に必要な場合だけ backtick で短く示してください。
+指摘は「なぜ問題か」と「どう直すか」が分かる表現にしてください。
+
 ## 出力フォーマット（必ず以下の構造で回答すること）
 
-## Status
+## 状態
 PASS / PASS_WITH_CONCERNS / NEEDS_REVISION
 
-## Summary
+## 概要
 1-3 文の要約
 
-## Findings
+## 指摘
 - severity: high/medium/low | file:line | 説明
 
-## Risks
+## 見落としやすいリスク
 見落としやすいリスク
 
-## Recommendations
+## 改善提案
 具体的な改善提案
 
 ## 禁止事項

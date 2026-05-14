@@ -262,15 +262,61 @@ function releaseModeFor(tokens) {
   const first = path.basename(tokens[0] || "");
   const second = tokens[1] || "";
   if (first === "make") {
-    if (/^(ops-release-check)$/.test(second)) return "check";
-    if (/^(deploy-stage-all|deploy-migrate)$/.test(second)) return "stage-all";
-    if (/^(deploy|release-pr)$/.test(second)) return "release";
-    if (/^(rollback-prod)$/.test(second)) return "rollback";
+    const goals = parseMakeGoals(tokens);
+    if (goals.some((goal) => /^(deploy-migrate|deploy-production)$/.test(goal))) return "production";
+    if (goals.some((goal) => /^(deploy-stage-all)$/.test(goal))) return "stage-all";
+    if (goals.some((goal) => /^(deploy-staging)$/.test(goal))) return "staging";
+    if (goals.some((goal) => /^(deploy|release-pr)$/.test(goal))) return "release";
+    if (goals.some((goal) => /^(rollback-prod)$/.test(goal))) return "rollback";
+    if (goals.some((goal) => /^(ops-release-check)$/.test(goal))) return "check";
   }
   if ((first === "bash" || first === "zsh") && /^scripts\/release\//.test(second)) return "release-script";
   if (/^scripts\/release\//.test(tokens[0] || "")) return "release-script";
   if (["vercel", "railway", "supabase", "gcloud", "wrangler"].includes(first)) return "provider";
   if (first === "npx" && ["vercel", "railway", "supabase", "wrangler"].includes(tokens[1] || "")) return "provider";
+  return "";
+}
+
+function releaseIntentFor(tokens) {
+  const first = path.basename(tokens[0] || "");
+  const second = tokens[1] || "";
+  const hasFlag = (flag) => tokens.includes(flag);
+
+  if (first === "make") {
+    const goals = parseMakeGoals(tokens);
+    if (goals.some((goal) => /^(deploy|deploy-stage-all|deploy-staging|deploy-production|deploy-migrate|rollback-prod|release-pr)$/.test(goal))) {
+      return "mutating";
+    }
+    if (goals.some((goal) => /^(ops-release-check|ops-status|ops-auth-check|doctor-check)$/.test(goal))) {
+      return "read-only";
+    }
+  }
+
+  const scriptToken = tokens.find((token) => /^scripts\/release\//.test(normalizePathToken(token)));
+  if (scriptToken) {
+    const mutatingFlag = ["--apply", "--staging-only", "--stage-all", "--apply-secrets", "--confirm"].some(hasFlag);
+    if (mutatingFlag) return "mutating";
+
+    const readOnlyFlag = hasFlag("--check") || hasFlag("--preflight-only") || hasFlag("--dry-run");
+    const mutatingScript =
+      /(?:deploy|release|rollback|migrate|run-migrations)\.mjs$/.test(scriptToken) ||
+      /(?:deploy|release|rollback|migrate|run-migrations)\.sh$/.test(scriptToken);
+
+    if (
+      mutatingScript &&
+      !readOnlyFlag
+    ) {
+      return "mutating";
+    }
+    if (readOnlyFlag) return "read-only";
+  }
+
+  if (["vercel", "railway", "supabase", "gcloud", "wrangler"].includes(first)) {
+    return "mutating";
+  }
+  if (first === "npx" && ["vercel", "railway", "supabase", "wrangler"].includes(tokens[1] || "")) {
+    return "mutating";
+  }
   return "";
 }
 
@@ -305,17 +351,23 @@ function featuresFromMakeTarget(target, assignments = {}) {
 function parseMakeInvocation(tokens, inheritedAssignments = {}) {
   const assignments = { ...inheritedAssignments };
   let target = "";
+  const goals = [];
   for (const token of tokens.slice(1)) {
     const pair = assignmentPair(token);
     if (pair) {
       assignments[pair[0]] = pair[1];
       continue;
     }
-    if (!target && !token.startsWith("-")) {
-      target = token;
+    if (!token.startsWith("-")) {
+      goals.push(token);
+      if (!target) target = token;
     }
   }
-  return { target, assignments };
+  return { target, goals, assignments };
+}
+
+function parseMakeGoals(tokens) {
+  return parseMakeInvocation(tokens).goals;
 }
 
 function featuresFromNpmScript(scriptName) {
@@ -340,6 +392,14 @@ function featuresFromFlag(tokens, flagName, fallback = []) {
   const token = tokens.find((item) => item.startsWith(prefix));
   if (token) return featuresFromValue(token.slice(prefix.length), fallback);
   return fallback;
+}
+
+function flagValue(tokens, flagName, fallback = "") {
+  const index = tokens.indexOf(flagName);
+  if (index !== -1) return tokens[index + 1] || fallback;
+  const prefix = `${flagName}=`;
+  const token = tokens.find((item) => item.startsWith(prefix));
+  return token ? token.slice(prefix.length) : fallback;
 }
 
 function addTestCategory(actions, category, features = []) {
@@ -421,7 +481,7 @@ function classifyTestCommand(tokens, assignments, actions) {
     );
     return;
   }
-  if (scriptPath === "security/scan/run-lightweight-scan.sh") {
+  if (scriptPath === "scripts/security/run-lightweight-scan.sh") {
     addTestCategory(actions, "security", []);
   }
 }
@@ -475,6 +535,61 @@ function classifyDelete(tokens, actions) {
   actions.unsafeDelete = !actions.safeDelete;
 }
 
+function classifyMigration(tokens, actions) {
+  const first = path.basename(tokens[0] || "");
+  if (first === "make" && parseMakeGoals(tokens).some((goal) => /^deploy-migrate$/.test(goal))) {
+    actions.migrationApply = true;
+    return;
+  }
+  if (
+    (first === "node" || first === "npx" || first === "run-migrations.mjs") &&
+    tokens.some((t) => t.includes("run-migrations.mjs")) &&
+    flagValue(tokens, "--env", "local") === "production" &&
+    !tokens.includes("--dry-run")
+  ) {
+    actions.migrationApply = true;
+  }
+}
+
+function classifyProductionPromotion(tokens, actions) {
+  const first = path.basename(tokens[0] || "");
+  if (first === "make" && parseMakeGoals(tokens).some((goal) => /^deploy-production$/.test(goal))) {
+    actions.productionPromotion = true;
+    return;
+  }
+  const shells = new Set(["zsh", "bash", "sh", "source", "."]);
+  if (
+    (shells.has(first) && tokens.some((t) => t.includes("deploy-production.sh"))) ||
+    normalizePathToken(tokens[0] || "").includes("deploy-production.sh")
+  ) {
+    actions.productionPromotion = true;
+  }
+}
+
+function classifySecretApply(tokens, assignments, actions) {
+  const first = path.basename(tokens[0] || "");
+  const makeInvocation = first === "make" ? parseMakeInvocation(tokens, assignments) : null;
+  const effectiveAssignments = makeInvocation?.assignments ?? assignments;
+  const makeTarget = first === "make" && makeInvocation?.goals?.includes("ops-secrets-sync");
+  const hasApply = tokens.includes("--apply");
+  const syncScript = tokens.some((t) => t.includes("sync-career-compass-secrets.sh"));
+
+  const hasSyncModeApply =
+    (effectiveAssignments.SYNC_MODE || "").replace(/^["']|["']$/g, "") === "--apply";
+
+  if (!hasApply && !hasSyncModeApply) return;
+  if (!syncScript && !makeTarget) return;
+
+  const targetIdx = tokens.indexOf("--target");
+  const target = targetIdx !== -1 ? tokens[targetIdx + 1] || "" : "";
+  const envTarget = (effectiveAssignments.TARGET || "").replace(/^["']|["']$/g, "");
+  const resolvedTarget = target || envTarget || "all";
+
+  if (resolvedTarget.includes("production") || resolvedTarget === "all") {
+    actions.secretApplyProduction = true;
+  }
+}
+
 function classifyTokens(tokens, actions, depth = 0) {
   if (tokens.length === 0 || depth > 3) return;
   const { tokens: unwrapped, assignments } = unwrapCommandWithAssignments(tokens);
@@ -485,7 +600,7 @@ function classifyTokens(tokens, actions, depth = 0) {
   }
 
   const first = path.basename(unwrapped[0] || "");
-  const readCommands = new Set(["cat", "head", "tail", "less", "more", "bat", "sed", "awk", "grep", "rg", "source", "."]);
+  const readCommands = new Set(["cat", "head", "tail", "less", "more", "bat", "sed", "awk", "grep", "rg", "source", ".", "open", "pbcopy", "base64", "xxd", "strings"]);
   if (readCommands.has(first) && unwrapped.slice(1).some(isSensitivePath)) {
     actions.readsSensitivePath = true;
   }
@@ -501,8 +616,17 @@ function classifyTokens(tokens, actions, depth = 0) {
     actions.releaseProvider = true;
     actions.releaseModes.add(releaseMode);
   }
+  const releaseIntent = releaseIntentFor(unwrapped);
+  if (releaseIntent === "read-only") {
+    actions.releaseReadOnly = true;
+  } else if (releaseIntent === "mutating") {
+    actions.releaseMutating = true;
+  }
 
   classifyDelete(unwrapped, actions);
+  classifyMigration(unwrapped, actions);
+  classifyProductionPromotion(unwrapped, actions);
+  classifySecretApply(unwrapped, assignments, actions);
 }
 
 function emptyActions() {
@@ -514,6 +638,8 @@ function emptyActions() {
     gitCommit: false,
     gitBranchCreate: false,
     releaseProvider: false,
+    releaseReadOnly: false,
+    releaseMutating: false,
     releaseModes: new Set(),
     testCategories: new Set(),
     testFeatures: new Set(),
@@ -522,12 +648,15 @@ function emptyActions() {
     unsafeDelete: false,
     safeDelete: false,
     deleteTargets: [],
+    migrationApply: false,
+    productionPromotion: false,
+    secretApplyProduction: false,
   };
 }
 
 function mergeActions(target, source) {
   target.segments.push(...(source.segments || []));
-  for (const key of ["readsSensitivePath", "gitPush", "forcePush", "gitCommit", "gitBranchCreate", "releaseProvider", "destructiveDelete", "unsafeDelete", "safeDelete"]) {
+  for (const key of ["readsSensitivePath", "gitPush", "forcePush", "gitCommit", "gitBranchCreate", "releaseProvider", "releaseReadOnly", "releaseMutating", "destructiveDelete", "unsafeDelete", "safeDelete", "migrationApply", "productionPromotion", "secretApplyProduction"]) {
     target[key] = target[key] || Boolean(source[key]);
   }
   for (const mode of source.releaseModes || []) target.releaseModes.add(mode);

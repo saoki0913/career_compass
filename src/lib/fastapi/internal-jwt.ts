@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHmac } from "crypto";
+import { serverEnv } from "@/env/server";
 
 const INTERNAL_SERVICE_ISSUER = "next-bff";
 const INTERNAL_SERVICE_AUDIENCE = "career-compass-fastapi";
@@ -34,7 +35,7 @@ function isLocalBackend(baseUrl: string) {
 }
 
 export function createInternalServiceJwt(baseUrl: string): string | null {
-  const secret = process.env.INTERNAL_API_JWT_SECRET?.trim();
+  const secret = serverEnv.INTERNAL_API_JWT_SECRET?.trim();
   if (!secret) {
     if (isLocalBackend(baseUrl)) {
       return null;

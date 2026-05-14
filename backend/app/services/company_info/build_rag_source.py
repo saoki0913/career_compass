@@ -15,9 +15,9 @@ from app.utils.cache import get_rag_cache
 from app.utils.content_types import CONTENT_TYPES
 from app.utils.secure_logger import get_logger
 from app.rag.vector_store import (
-    delete_company_rag,
     delete_company_rag_by_type,
     delete_company_rag_by_urls,
+    delete_company_rag_with_receipt,
     get_company_rag_status,
     get_enhanced_context_for_review,
     has_company_rag,
@@ -411,11 +411,19 @@ async def analyze_rag_gap_impl(
 
 
 async def delete_rag_impl(company_id: str, *, tenant_key: str) -> dict:
-    success = delete_company_rag(company_id, tenant_key=tenant_key)
     cache = get_rag_cache()
     if cache:
         await cache.invalidate_company(company_id, tenant_key=tenant_key)
-    return {"success": success, "company_id": company_id}
+    receipt = delete_company_rag_with_receipt(company_id, tenant_key=tenant_key)
+    return {
+        "success": receipt.complete,
+        "company_id": company_id,
+        "deletion": {
+            "complete": receipt.complete,
+            "deleted": receipt.deleted,
+            "residuals": receipt.residuals,
+        },
+    }
 
 
 async def delete_rag_by_type_impl(
@@ -472,6 +480,7 @@ async def delete_rag_by_urls_impl(
             urls_deleted=urls_deleted,
             chunks_deleted=result["total_deleted"],
             errors=[],
+            deletion=result.get("deletion"),
         )
     except Exception as e:
         logger.error(f"[RAG削除] ❌ URL別削除エラー: {e}")

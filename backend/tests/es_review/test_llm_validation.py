@@ -16,6 +16,8 @@ def _passing_payload() -> dict:
         "style_unity": {"pass": True, "reason": ""},
         "structure_clarity": {"pass": True, "reason": ""},
         "fact_preservation": {"pass": True, "reason": ""},
+        "expression_diversity": {"pass": True, "reason": ""},
+        "theme_focus": {"pass": True, "reason": ""},
     }
 
 
@@ -30,6 +32,11 @@ def test_fact_preservation_still_blocks_fabrication() -> None:
     assert "数値の追加" in _VALIDATION_SYSTEM_PROMPT
     assert "固有名詞" in _VALIDATION_SYSTEM_PROMPT
     assert "経験や出来事の創作" in _VALIDATION_SYSTEM_PROMPT
+
+
+def test_validation_prompt_includes_expression_and_theme_axes() -> None:
+    assert "expression_diversity" in _VALIDATION_SYSTEM_PROMPT
+    assert "theme_focus" in _VALIDATION_SYSTEM_PROMPT
 
 
 @pytest.mark.asyncio
@@ -83,6 +90,26 @@ async def test_validate_rewrite_combined_blocks_fact_preservation_failure() -> N
     assert code == "fact_preservation"
     assert reason == "元にない数値"
     assert meta["llm_failed_checks"] == ["fact_preservation"]
+
+
+@pytest.mark.asyncio
+async def test_validate_rewrite_with_llm_returns_pass_on_caller_failure() -> None:
+    async def exploding_caller(**kwargs):
+        raise RuntimeError("LLM service unavailable")
+
+    passed, failed, hint = await _validate_rewrite_with_llm(
+        "テスト候補文。",
+        template_type="basic",
+        question="志望理由を教えてください。",
+        user_answer="テスト候補文。",
+        company_name=None,
+        grounding_mode="none",
+        json_caller=exploding_caller,
+    )
+
+    assert passed is True
+    assert failed == []
+    assert hint == ""
 
 
 @pytest.mark.asyncio

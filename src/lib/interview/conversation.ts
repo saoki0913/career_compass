@@ -243,7 +243,7 @@ export function parseInterviewPlanJson(value: unknown): InterviewPlan | null {
 }
 
 export function serializeInterviewPlan(plan: InterviewPlan | null | undefined): InterviewPlan | null {
-  return serializeOrNull(plan);
+  return plan ? normalizeInterviewPlanValue(plan) : null;
 }
 
 export function serializeInterviewTurnMeta(turnMeta: InterviewTurnMeta | null | undefined): InterviewTurnMeta | null {
@@ -253,4 +253,3 @@ export function serializeInterviewTurnMeta(turnMeta: InterviewTurnMeta | null | 
 export function serializeInterviewFeedback(feedback: InterviewFeedback | null | undefined): InterviewFeedback | null {
   return serializeOrNull(feedback);
 }
-

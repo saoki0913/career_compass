@@ -7,6 +7,19 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.services.es_review.enums import (
+    ClassificationConfidence,
+    CompanyGroundingPolicy,
+    EvidenceCoverageLevel,
+    FinalAcceptanceSource,
+    GroundingLevel,
+    GroundingMode,
+    LengthPolicy,
+    ValidationFailureCode,
+    ValidationStatus,
+)
+from app.utils.cancellation import CancellationTokenLike, noop_token
+
 
 class TemplateRequest(BaseModel):
     """Request for template-based ES review."""
@@ -94,6 +107,77 @@ class ReviewTokenUsage(BaseModel):
     text_call_count: int = 0
 
 
+class LLMInfo(BaseModel):
+    provider: str = "claude"
+    model: str | None = None
+    model_alias: str | None = None
+
+
+class QualityInfo(BaseModel):
+    ai_smell_tier: int = 0
+    hallucination_tier: int = 0
+    validation_status: ValidationStatus = ValidationStatus.STRICT_OK
+    validation_codes: list[ValidationFailureCode] = Field(default_factory=list)
+    validation_user_hint: str | None = None
+    llm_quality_failed_checks: list[str] = Field(default_factory=list)
+    llm_quality_warned_checks: list[str] = Field(default_factory=list)
+    llm_quality_lenient_pass: bool = False
+    llm_quality_failure_count: int = 0
+    validation_profile_name: str = "strict"
+
+
+class GroundingInfo(BaseModel):
+    mode: GroundingMode = GroundingMode.NONE
+    company_grounding_policy: CompanyGroundingPolicy = CompanyGroundingPolicy.ASSISTIVE
+    effective_company_grounding_policy: CompanyGroundingPolicy = CompanyGroundingPolicy.ASSISTIVE
+    recommended_level: GroundingLevel = GroundingLevel.NONE
+    effective_level: GroundingLevel = GroundingLevel.NONE
+    evidence_count: int = 0
+    evidence_verified_count: int = 0
+    evidence_rejected_count: int = 0
+    safety_applied: bool = False
+    evidence_coverage_level: EvidenceCoverageLevel = EvidenceCoverageLevel.NONE
+    weak_evidence_notice: bool = False
+    selected_themes: list[str] = Field(default_factory=list)
+    repair_applied: bool = False
+    deep_proper_noun_found: bool = False
+    deep_connection_found: bool = False
+
+
+class ClassificationInfo(BaseModel):
+    confidence: ClassificationConfidence = ClassificationConfidence.LOW
+    secondary_candidates: list[str] = Field(default_factory=list)
+    rationale: str | None = None
+    misclassification_recovery_applied: bool = False
+
+
+class LengthInfo(BaseModel):
+    policy: LengthPolicy = LengthPolicy.STRICT
+    shortfall: int = 0
+    shortfall_bucket: str | None = None
+    soft_min_floor_ratio: float | None = None
+    profile_id: str | None = None
+    target_window_lower: int | None = None
+    target_window_upper: int | None = None
+    source_fill_ratio: float | None = None
+    required_growth: int = 0
+    latest_failed_length: int = 0
+    failure_code: ValidationFailureCode | None = None
+
+
+class RetryInfo(BaseModel):
+    attempt_count: int = 0
+    generation_mode: str = "normal"
+    repair_dispatch_count: int = 0
+    repair_dispatches: list[str] = Field(default_factory=list)
+    composite_retry_modes: list[str] = Field(default_factory=list)
+    fallback_triggered: bool = False
+    fallback_reason: str | None = None
+    safe_rewrite_triggered: bool = False
+    safe_rewrite_reason: str | None = None
+    final_acceptance_source: FinalAcceptanceSource = FinalAcceptanceSource.REWRITE
+
+
 class ReviewMeta(BaseModel):
     llm_provider: str = "claude"
     llm_model: Optional[str] = None
@@ -142,11 +226,13 @@ class ReviewMeta(BaseModel):
     length_shortfall: int = 0
     length_shortfall_bucket: Optional[str] = None
     soft_min_floor_ratio: float | None = None
-    length_fix_attempted: bool = False
-    length_fix_result: str = "not_needed"
     rewrite_validation_status: str = "strict_ok"
     rewrite_validation_codes: list[str] = Field(default_factory=list)
     rewrite_validation_user_hint: Optional[str] = None
+    llm_quality_failed_checks: list[str] = Field(default_factory=list)
+    llm_quality_warned_checks: list[str] = Field(default_factory=list)
+    llm_quality_lenient_pass: bool = False
+    llm_quality_failure_count: int = 0
     fallback_triggered: bool = False
     fallback_reason: Optional[str] = None
     safe_rewrite_triggered: bool = False
@@ -175,6 +261,12 @@ class ReviewMeta(BaseModel):
     concrete_marker_count: int = 0
     opening_conclusion_chars: int = 0
     rewrite_sentence_count: int = 0
+    llm_info: LLMInfo | None = Field(default=None, exclude=True)
+    quality_info: QualityInfo | None = Field(default=None, exclude=True)
+    grounding_info: GroundingInfo | None = Field(default=None, exclude=True)
+    classification_info: ClassificationInfo | None = Field(default=None, exclude=True)
+    length_info: LengthInfo | None = Field(default=None, exclude=True)
+    retry_info: RetryInfo | None = Field(default=None, exclude=True)
     token_usage: Optional[ReviewTokenUsage] = Field(default=None, exclude=True)
     rewrite_rejection_reasons: list[str] = Field(default_factory=list, exclude=True)
     rewrite_attempt_trace: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
@@ -307,6 +399,7 @@ class ReviewContext:
     user_priority_urls: set[str] = field(default_factory=set)
     use_tight_length_control: bool = False
     review_token_usage: Any = None  # ReviewTokenUsage
+    cancellation_token: CancellationTokenLike = field(default_factory=noop_token)
 
     # Enrichment passthrough
     triggered_enrichment: bool = False
@@ -345,6 +438,9 @@ class RewriteLoopResult:
     accepted_length_failure_code: str | None = None
     accepted_ai_smell_warnings: list[dict] = field(default_factory=list)
     accepted_hallucination_warnings: list[dict] = field(default_factory=list)
+    accepted_llm_failed_checks: list[str] = field(default_factory=list)
+    accepted_llm_warned_checks: list[str] = field(default_factory=list)
+    accepted_llm_lenient_pass: bool = False
     rewrite_generation_mode: str = "normal"
     rewrite_validation_status: str = "strict_ok"
     rewrite_validation_codes: list[str] = field(default_factory=list)
@@ -357,19 +453,18 @@ class RewriteLoopResult:
     repair_dispatches: list[str] = field(default_factory=list)
     composite_retry_modes: list[str] = field(default_factory=list)
     composite_retry_attempted: bool = False
+    llm_quality_failure_count: int = 0
     safe_rewrite_triggered: bool = False
     safe_rewrite_reason: str | None = None
 
 
 @dataclass
 class RecoveryResult:
-    """Result after fallback/length-fix/best-effort recovery."""
+    """Result after focused retries and best-effort recovery."""
 
     final_rewrite: str = ""
     fallback_triggered: bool = False
     fallback_reason: str | None = None
-    length_fix_attempted: bool = False
-    length_fix_result: str = "not_needed"
     rewrite_generation_mode: str = "normal"
     rewrite_validation_status: str = "strict_ok"
     rewrite_validation_codes: list[str] = field(default_factory=list)
@@ -390,5 +485,36 @@ class RecoveryResult:
     accepted_length_failure_code: str | None = None
     accepted_ai_smell_warnings: list[dict] = field(default_factory=list)
     accepted_hallucination_warnings: list[dict] = field(default_factory=list)
+    accepted_llm_failed_checks: list[str] = field(default_factory=list)
+    accepted_llm_warned_checks: list[str] = field(default_factory=list)
+    accepted_llm_lenient_pass: bool = False
     attempt_failures: list[str] = field(default_factory=list)
     rewrite_attempt_trace: list[dict] = field(default_factory=list)
+    llm_quality_failure_count: int = 0
+
+
+__all__ = [
+    "ClassificationInfo",
+    "CompanyReviewStatusResponse",
+    "DocumentContext",
+    "DocumentSectionContext",
+    "GakuchikaContextItem",
+    "GroundingInfo",
+    "Issue",
+    "LLMInfo",
+    "LengthInfo",
+    "ProfileContext",
+    "RecoveryResult",
+    "ReviewContext",
+    "ReviewMeta",
+    "ReviewRequest",
+    "ReviewResponse",
+    "ReviewTokenUsage",
+    "RetryInfo",
+    "RewriteLoopResult",
+    "RoleContext",
+    "TemplateRequest",
+    "TemplateReview",
+    "TemplateSource",
+    "TemplateVariant",
+]

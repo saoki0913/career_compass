@@ -42,7 +42,6 @@ jobs:
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       CRON_SECRET: ci-cron-secret
       STRIPE_SECRET_KEY: sk_test_ci
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ci
       STRIPE_WEBHOOK_SECRET: whsec_ci
       STRIPE_PRICE_STANDARD_MONTHLY: price_standard_ci
       STRIPE_PRICE_PRO_MONTHLY: price_pro_ci
@@ -73,6 +72,17 @@ jobs:
           python -m pip install -r backend/requirements.txt
       - run: bash scripts/ci/run-backend-deterministic.sh
 
+  env-drift:
+    needs: source-branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/git-hooks/check-env-var-drift.mjs
+
   security:
     needs: source-branch
     runs-on: ubuntu-latest
@@ -87,7 +97,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node scripts/security/check-api-route-csrf.mjs
-      - run: bash security/scan/run-lightweight-scan.sh --fail-on=critical
+      - run: bash scripts/security/run-lightweight-scan.sh --fail-on=critical
 
   staging-ready:
     needs: source-branch
@@ -174,7 +184,6 @@ jobs:
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       CRON_SECRET: ci-cron-secret
       STRIPE_SECRET_KEY: sk_test_ci
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ci
       STRIPE_WEBHOOK_SECRET: whsec_ci
       STRIPE_PRICE_STANDARD_MONTHLY: price_standard_ci
       STRIPE_PRICE_PRO_MONTHLY: price_pro_ci
@@ -322,32 +331,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Check for destructive migration operations
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate migration integrity
+        run: bash scripts/ci/validate-migrations.sh --ci
+      - name: Check migration safety (changed files only)
         run: |
-          changed_sql="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" -- 'drizzle_pg/*.sql' 'supabase/migrations/*.sql')"
-          if [ -z "$changed_sql" ]; then
+          changed="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" -- 'drizzle_pg/*.sql' 'supabase/migrations/*.sql' 'src/lib/db/schema.ts')"
+          if [ -z "$changed" ]; then
             echo "No migration files changed."
             exit 0
           fi
-          echo "Changed migration files:"
-          echo "$changed_sql"
-          echo ""
-          errors=0
-          for f in $changed_sql; do
-            if [ ! -f "$f" ]; then
-              continue
-            fi
-            destructive="$(grep -inE '^\s*(DROP\s+TABLE|DROP\s+COLUMN|DELETE\s+FROM|TRUNCATE|ALTER\s+TABLE\s+.*DROP\s+COLUMN)' "$f" || true)"
-            if [ -n "$destructive" ]; then
-              echo "::error file=$f::Destructive operation detected in migration:"
-              echo "$destructive"
-              errors=$((errors + 1))
-            fi
-          done
-          if [ "$errors" -gt 0 ]; then
-            echo ""
-            echo "::error::$errors migration file(s) contain destructive operations (DROP TABLE, DELETE, TRUNCATE, ALTER TABLE DROP COLUMN)."
-            echo "These operations can cause data loss in production. If intentional, add a comment '-- DESTRUCTIVE: <reason>' to acknowledge."
-            exit 1
-          fi
-          echo "All migration files are safe."
+          node scripts/ci/check-migration-safety.mjs --changed-files $changed

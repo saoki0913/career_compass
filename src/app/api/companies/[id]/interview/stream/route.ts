@@ -35,7 +35,7 @@ export async function POST(
     });
   }
 
-  const limitResponse = await guardDailyTokenLimit(identity);
+  const limitResponse = await guardDailyTokenLimit(identity, request);
   if (limitResponse) return limitResponse;
 
   let context;

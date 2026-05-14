@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseInterviewPlanJson,
   safeParseInterviewFeedback,
   safeParseInterviewMessages,
+  serializeInterviewPlan,
   serializeInterviewTurnState,
 } from "./conversation";
+import { normalizeInterviewPlanValue } from "./plan";
 
 describe("interview conversation helpers", () => {
   it("parses v2.1 feedback linkage and satisfaction fields", () => {
@@ -94,5 +97,49 @@ describe("interview conversation helpers", () => {
       { role: "user", content: "回答" },
       { role: "assistant", content: "質問" },
     ]);
+  });
+
+  it("round-trips system-owned interview plan fields as camelCase", () => {
+    const normalized = normalizeInterviewPlanValue({
+      interview_type: "case",
+      priority_topics: ["structured_thinking"],
+      opening_topic: "structured_thinking",
+      must_cover_topics: ["structured_thinking", "prioritization"],
+      risk_topics: ["logic"],
+      suggested_timeflow: ["導入", "構造化"],
+      case_brief: {
+        business_context: "金融サービスの若年層利用率を改善する",
+        target_metric: "monthly_active_users",
+        constraints: ["追加予算なし"],
+        candidate_task: "施策を優先順位づける",
+        why_this_company: "金融とUXの接点を見るため",
+        case_followup_topics: ["segmentation", "tradeoff"],
+        industry: "finance",
+        case_seed_version: "v1.0",
+      },
+      quality_lenses: ["logic", "specificity"],
+      contract_version: "interview-plan-v2",
+      plan_source: "fastapi",
+      fallback_reason: "case_brief_preset",
+    });
+
+    expect(normalized).toMatchObject({
+      interviewType: "case",
+      caseBrief: {
+        business_context: "金融サービスの若年層利用率を改善する",
+        case_seed_version: "v1.0",
+      },
+      qualityLenses: ["logic", "specificity"],
+      contractVersion: "interview-plan-v2",
+      planSource: "fastapi",
+      fallbackReason: "case_brief_preset",
+    });
+
+    const serialized = serializeInterviewPlan(normalized);
+    expect(serialized).toEqual(normalized);
+    expect(serialized).not.toHaveProperty("case_brief");
+    expect(serialized).not.toHaveProperty("quality_lenses");
+
+    expect(parseInterviewPlanJson(JSON.stringify(serialized))).toEqual(normalized);
   });
 });

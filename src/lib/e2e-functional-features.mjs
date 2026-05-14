@@ -25,6 +25,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-es",
     stagingCommand: "make test-e2e-functional-es",
     browserRequired: true,
+    testLayers: ["functional", "live-contract"],
     patterns: [
       /^backend\/app\/routers\/es_review[^/]*\.py$/u,
       /^backend\/app\/prompts\/es_[^/]+\.py$/u,
@@ -47,6 +48,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-gakuchika",
     stagingCommand: "make test-e2e-functional-gakuchika",
     browserRequired: true,
+    testLayers: ["functional", "live-contract"],
     patterns: [
       /^backend\/app\/routers\/gakuchika\.py$/u,
       /^backend\/app\/evaluators\/draft_quality\.py$/u,
@@ -67,6 +69,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-motivation",
     stagingCommand: "make test-e2e-functional-motivation",
     browserRequired: true,
+    testLayers: ["functional", "live-contract"],
     patterns: [
       /^backend\/app\/routers\/motivation[^/]*\.py$/u,
       /^backend\/app\/prompts\/motivation[^/]*\.py$/u,
@@ -83,6 +86,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-interview",
     stagingCommand: "make test-e2e-functional-interview",
     browserRequired: true,
+    testLayers: ["functional", "live-contract"],
     patterns: [
       /^backend\/app\/routers\/interview\.py$/u,
       /^backend\/app\/routers\/_interview\/.+/u,
@@ -103,6 +107,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-company-info-search",
     stagingCommand: "make test-e2e-functional-company-info-search",
     browserRequired: true,
+    testLayers: ["functional", "live-contract"],
     patterns: [
       /^backend\/app\/routers\/company_info(?:_search|_candidate_scoring|_scoring|_url_utils)?\.py$/u,
       /^backend\/app\/rag\/.+\.py$/u,
@@ -121,6 +126,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-rag-ingest",
     stagingCommand: "make test-e2e-functional-rag-ingest",
     browserRequired: true,
+    testLayers: ["functional"],
     patterns: [
       /^backend\/app\/routers\/company_info_(?:ingest_service|rag_service|pdf)\.py$/u,
       /^backend\/app\/rag\/.+\.py$/u,
@@ -137,6 +143,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-selection-schedule",
     stagingCommand: "make test-e2e-functional-selection-schedule",
     browserRequired: true,
+    testLayers: ["functional"],
     patterns: [
       /^backend\/app\/routers\/company_info_schedule(?:_service|_links)?\.py$/u,
       /^backend\/tests\/company_info\/integration\/test_live_selection_schedule_report\.py$/u,
@@ -150,6 +157,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-calendar",
     stagingCommand: "make test-e2e-functional-calendar",
     browserRequired: true,
+    testLayers: ["functional"],
     patterns: [
       /^src\/app\/api\/calendar\/.+/u,
       /^src\/app\/\(product\)\/calendar\/.+/u,
@@ -161,6 +169,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-tasks-deadlines",
     stagingCommand: "make test-e2e-functional-tasks-deadlines",
     browserRequired: true,
+    testLayers: ["functional"],
     patterns: [
       /^src\/app\/api\/tasks\/.+/u,
       /^src\/app\/api\/deadlines\/.+/u,
@@ -174,6 +183,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-notifications",
     stagingCommand: "make test-e2e-functional-notifications",
     browserRequired: true,
+    testLayers: ["functional"],
     patterns: [
       /^src\/app\/api\/notifications\/.+/u,
       /^src\/app\/\(product\)\/notifications\/.+/u,
@@ -188,6 +198,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-company-crud",
     stagingCommand: "make test-e2e-functional-company-crud",
     browserRequired: true,
+    testLayers: ["functional"],
     patterns: [
       /^src\/app\/api\/companies\/route\.ts$/u,
       /^src\/app\/api\/companies\/\[id\]\/route\.ts$/u,
@@ -200,6 +211,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-billing",
     stagingCommand: "make test-e2e-functional-billing",
     browserRequired: true,
+    testLayers: ["functional"],
     patterns: [
       /^src\/app\/api\/credits\/.+/u,
       /^src\/app\/api\/stripe\/.+/u,
@@ -212,6 +224,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-search-query",
     stagingCommand: "make test-e2e-functional-search-query",
     browserRequired: true,
+    testLayers: ["functional"],
     patterns: [
       /^src\/app\/api\/search\/.+/u,
       /^src\/app\/\(product\)\/search\/.+/u,
@@ -222,6 +235,7 @@ const FEATURE_CONFIG = {
     localCommand: "make test-e2e-functional-local-pages-smoke",
     stagingCommand: "make test-e2e-functional-pages-smoke",
     browserRequired: true,
+    testLayers: ["functional"],
     patterns: [
       /^src\/app\/\(product\)\/dashboard\/.+/u,
       /^src\/app\/\(product\)\/companies\/page\.tsx$/u,
@@ -245,13 +259,24 @@ export const AI_FEATURES = [
   "company-info-search",
 ];
 
+export const AI_LIVE_CONTRACT_FEATURES = [...AI_FEATURES];
+
+export const LIVE_CONTRACT_COMMAND = "make test-e2e-live-contract";
+
+export function getLiveContractCommand() {
+  return LIVE_CONTRACT_COMMAND;
+}
+
 export const SHARED_TRIGGER_PATTERNS = [
   /^e2e\/live-smoke\/live-ai-.*\.spec\.ts$/u,
+  /^e2e\/live-contract\/.*\.spec\.ts$/u,
+  /^e2e\/mocks\/.*\.ts$/u,
   /^e2e\/fixtures\/auth\.ts$/u,
   /^e2e\/fixtures\/cleanup\.ts$/u,
   /^scripts\/ci\/run-ai-live\.sh$/u,
   /^scripts\/ci\/run-e2e-functional\.sh$/u,
   /^playwright\.live\.config\.ts$/u,
+  /^playwright\.live-contract\.config\.ts$/u,
   /^playwright\.config\.ts$/u,
 ];
 

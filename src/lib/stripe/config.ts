@@ -1,8 +1,16 @@
+import { serverEnv } from "@/env/server";
+export {
+  ANNUAL_PLAN_PRICES,
+  getCreditLowThreshold,
+  getPlanCredits,
+  isPaidPlan,
+  PLAN_METADATA,
+  type BillingPeriod,
+  type PlanType,
+  type PlanTypeWithGuest,
+} from "@/lib/billing/plan-metadata";
+import type { BillingPeriod, PlanType } from "@/lib/billing/plan-metadata";
 import managedConfig from "./managed-config.json";
-
-export type PlanType = "free" | "standard" | "pro";
-export type PlanTypeWithGuest = "guest" | "free" | "standard" | "pro";
-export type BillingPeriod = "monthly" | "annual";
 
 type ManagedPrice = {
   envVar: string;
@@ -17,77 +25,28 @@ const allManagedPrices: ManagedPrice[] = managedConfig.products.flatMap(
   (p: { prices: ManagedPrice[] }) => p.prices,
 );
 
-function findManagedPrice(
-  plan: Exclude<PlanType, "free">,
-  period: BillingPeriod,
-): ManagedPrice {
-  const found = allManagedPrices.find(
-    (p) => p.plan === plan && p.billingPeriod === period,
-  );
-  if (!found)
-    throw new Error(
-      `managed-config.json: price not found for ${plan}/${period}`,
-    );
-  return found;
-}
-
-export const STRIPE_PRICES: Record<
+type StripePricesMap = Record<
   Exclude<PlanType, "free">,
   Partial<Record<BillingPeriod, string>>
-> = {
-  standard: {
-    monthly: process.env[findManagedPrice("standard", "monthly").envVar] || "",
-    annual: process.env[findManagedPrice("standard", "annual").envVar] || "",
-  },
-  pro: {
-    monthly: process.env[findManagedPrice("pro", "monthly").envVar] || "",
-    annual: process.env[findManagedPrice("pro", "annual").envVar] || "",
-  },
-};
+>;
 
-/**
- * Plan metadata for display and credit allocation
- */
-export const PLAN_METADATA = {
-  guest: {
-    name: "Guest",
-    price: 0,
-    credits: 0,
-    companies: 3,
-    // AI 機能はログイン後。以下は表示用ヒント。
-    esReviews: 0,
-    gakuchika: 0,
-  },
-  free: {
-    name: "Free",
-    price: 0,
-    credits: 50,
-    companies: 5,
-    esReviews: 3,
-    gakuchika: 5,
-  },
-  standard: {
-    name: "Standard",
-    price: 1490,
-    credits: 350,
-    companies: -1, // unlimited
-    esReviews: 10, // display-only hint
-    gakuchika: 15,
-  },
-  pro: {
-    name: "Pro",
-    price: 2980,
-    credits: 750,
-    companies: -1, // unlimited
-    esReviews: -1, // display-only hint
-    gakuchika: 30,
-  },
-} as const;
+let _stripePrices: StripePricesMap | undefined;
 
-export const ANNUAL_PLAN_PRICES: Record<Exclude<PlanType, "free">, number> = {
-  standard: findManagedPrice("standard", "annual").unitAmount,
-  pro: findManagedPrice("pro", "annual").unitAmount,
-};
+function getStripePrices(): StripePricesMap {
+  if (!_stripePrices) {
+    _stripePrices = {
+      standard: {
+        monthly: serverEnv.STRIPE_PRICE_STANDARD_MONTHLY || "",
+        annual: serverEnv.STRIPE_PRICE_STANDARD_ANNUAL || "",
+      },
+      pro: {
+        monthly: serverEnv.STRIPE_PRICE_PRO_MONTHLY || "",
+        annual: serverEnv.STRIPE_PRICE_PRO_ANNUAL || "",
+      },
+    };
+  }
+  return _stripePrices;
+}
 
 /**
  * Get Stripe price ID for a plan and billing period.
@@ -98,7 +57,7 @@ export function getPriceId(
   period: BillingPeriod = "monthly"
 ): string | null {
   if (plan === "free") return null;
-  const priceId = STRIPE_PRICES[plan]?.[period];
+  const priceId = getStripePrices()[plan]?.[period];
   return priceId && priceId.length > 0 ? priceId : null;
 }
 
@@ -107,7 +66,7 @@ export function getPriceId(
  * Returns null if price ID doesn't match any plan.
  */
 export function getPlanFromPriceId(priceId: string): PlanType | null {
-  for (const [plan, prices] of Object.entries(STRIPE_PRICES)) {
+  for (const [plan, prices] of Object.entries(getStripePrices())) {
     for (const [, id] of Object.entries(prices)) {
       if (id === priceId) {
         return plan as PlanType;
@@ -118,7 +77,7 @@ export function getPlanFromPriceId(priceId: string): PlanType | null {
 }
 
 export function getBillingPeriodFromPriceId(priceId: string): BillingPeriod | null {
-  for (const prices of Object.values(STRIPE_PRICES)) {
+  for (const prices of Object.values(getStripePrices())) {
     for (const [period, id] of Object.entries(prices)) {
       if (id === priceId) {
         return period as BillingPeriod;
@@ -128,22 +87,23 @@ export function getBillingPeriodFromPriceId(priceId: string): BillingPeriod | nu
   return null;
 }
 
-/**
- * Check if a plan is a paid plan
- */
-export function isPaidPlan(plan: PlanType): boolean {
-  return plan !== "free";
+export function getPortalConfigurationId(): string | null {
+  const value = serverEnv.STRIPE_PORTAL_CONFIGURATION_ID?.trim();
+  return value && value.length > 0 ? value : null;
 }
 
-/**
- * Get the credit allocation for a plan
- */
-export function getPlanCredits(plan: PlanType): number {
-  return PLAN_METADATA[plan].credits;
-}
+let _stripePriceEnvLookup: Record<string, string | undefined> | undefined;
 
-export function getCreditLowThreshold(monthlyAllocation: number): number {
-  return Math.max(10, Math.ceil(monthlyAllocation * 0.05));
+function getStripePriceEnvLookup(): Record<string, string | undefined> {
+  if (!_stripePriceEnvLookup) {
+    _stripePriceEnvLookup = {
+      STRIPE_PRICE_STANDARD_MONTHLY: serverEnv.STRIPE_PRICE_STANDARD_MONTHLY,
+      STRIPE_PRICE_STANDARD_ANNUAL: serverEnv.STRIPE_PRICE_STANDARD_ANNUAL,
+      STRIPE_PRICE_PRO_MONTHLY: serverEnv.STRIPE_PRICE_PRO_MONTHLY,
+      STRIPE_PRICE_PRO_ANNUAL: serverEnv.STRIPE_PRICE_PRO_ANNUAL,
+    };
+  }
+  return _stripePriceEnvLookup;
 }
 
 export function validateStripePriceConfig(): void {
@@ -157,7 +117,7 @@ export function validateStripePriceConfig(): void {
 
   // --- Production hard gate: fatal errors that prevent server startup ---
   if (isProduction) {
-    const secretKey = process.env.STRIPE_SECRET_KEY ?? "";
+    const secretKey = serverEnv.STRIPE_SECRET_KEY ?? "";
     if (secretKey.startsWith("sk_test_")) {
       throw new Error(
         "[Stripe] FATAL: STRIPE_SECRET_KEY is a test key (sk_test_*) in production. " +
@@ -165,7 +125,7 @@ export function validateStripePriceConfig(): void {
       );
     }
 
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+    const webhookSecret = serverEnv.STRIPE_WEBHOOK_SECRET ?? "";
     if (!webhookSecret) {
       throw new Error(
         "[Stripe] FATAL: STRIPE_WEBHOOK_SECRET is missing in production. " +
@@ -178,7 +138,7 @@ export function validateStripePriceConfig(): void {
   const missing: string[] = [];
 
   for (const spec of allManagedPrices) {
-    const value = process.env[spec.envVar];
+    const value = getStripePriceEnvLookup()[spec.envVar];
     if (!value || !value.startsWith("price_")) {
       missing.push(spec.envVar);
     }

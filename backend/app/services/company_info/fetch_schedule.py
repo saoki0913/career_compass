@@ -23,8 +23,12 @@ from app.utils.llm import (
     log_selection_schedule_request_llm_cost,
 )
 from app.utils.llm_usage_cost import merge_llm_usage_tokens
+from app.utils.public_url_guard import validate_public_url
+from app.utils.secure_logger import get_logger
 from app.utils import pdf_ocr as pdf_ocr_module
 from app.utils.web_search import COMPANY_QUERY_ALIASES
+
+logger = get_logger(__name__)
 
 SCHEDULE_HTML_EXTRACT_MAX_CHARS = 8192
 SCHEDULE_FOLLOW_LINK_KEYWORDS: tuple[tuple[str, int], ...] = ()
@@ -444,6 +448,20 @@ def _extract_schedule_pdf_follow_links(
     ]
 
 
+def _filter_public_schedule_follow_links(urls: list[str]) -> list[str]:
+    safe_urls: list[str] = []
+    for candidate_url in urls:
+        validation = validate_public_url(candidate_url)
+        if validation.allowed:
+            safe_urls.append(candidate_url)
+            continue
+        logger.warning(
+            "[selection-schedule] rejected unsafe follow link: %s",
+            validation.reason,
+        )
+    return safe_urls
+
+
 async def _extract_schedule_text_from_bytes(url: str, payload: bytes) -> tuple[str, bool]:
     if not payload:
         return "", False
@@ -570,15 +588,19 @@ async def fetch_schedule_response(request: FetchRequest, feature: str) -> Select
                     raw_text_parts.append(preview_text[:30000])
 
             if raw_html and request.company_name:
-                follow_links = _extract_schedule_follow_links(
-                    raw_html,
-                    request_url,
-                    request.company_name,
+                follow_links = _filter_public_schedule_follow_links(
+                    _extract_schedule_follow_links(
+                        raw_html,
+                        request_url,
+                        request.company_name,
+                    )
                 )
-                pdf_follow_links = _extract_schedule_pdf_follow_links(
-                    raw_html,
-                    request_url,
-                    request.company_name,
+                pdf_follow_links = _filter_public_schedule_follow_links(
+                    _extract_schedule_pdf_follow_links(
+                        raw_html,
+                        request_url,
+                        request.company_name,
+                    )
                 )
 
             should_try_follow_link = not _has_dated_schedule_deadlines(extracted) and follow_links

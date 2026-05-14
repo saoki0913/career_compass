@@ -6,7 +6,7 @@ import logging
 import pytest
 
 import app.routers.es_review as es_review_module
-import app.routers.es_review_orchestrator as es_review_orchestrator_module
+import app.services.es_review.orchestrator as es_review_orchestrator_module
 import app.routers.es_review_explanation as es_review_explanation_module
 from app.prompts.es_templates import (
     TEMPLATE_DEFS,
@@ -55,9 +55,11 @@ from app.services.es_review.retry import (
     _rewrite_validation_degraded_hint,
     _select_composite_retry_mode,
 )
+from app.services.es_review.tracing import _append_rewrite_attempt_trace
 from app.prompts.es_templates import resolve_length_control_profile
 from app.utils.llm_providers import LLMError
 from app.utils.llm_prompt_safety import detect_es_injection_risk
+from tests.es_review.conftest import FakeJsonResult, FakeTextResult
 
 
 def _make_text(length: int) -> str:
@@ -116,21 +118,6 @@ def test_coerce_degraded_rewrite_dearu_strips_polite_auxiliaries() -> None:
     assert "ます" not in out
     assert "志望している" in out
 
-
-class FakeJsonResult:
-    def __init__(self, data=None, *, success: bool = True, error: LLMError | None = None, usage: dict | None = None):
-        self.success = success
-        self.data = data
-        self.error = error
-        self.usage = usage
-
-
-class FakeTextResult:
-    def __init__(self, text: str = "", *, success: bool = True, error: LLMError | None = None, usage: dict | None = None):
-        self.success = success
-        self.data = {"text": text} if success else None
-        self.error = error
-        self.usage = usage
 
 
 def test_normalize_repaired_text_strips_wrappers() -> None:
@@ -322,6 +309,73 @@ def test_resolve_rewrite_focus_mode_tracks_latest_failure_code() -> None:
     assert _resolve_rewrite_focus_mode(retry_code="negative_self_eval") == "positive_reframe_focus"
     assert _resolve_rewrite_focus_mode(retry_code="quantify") == "quantify_focus"
     assert _resolve_rewrite_focus_mode(retry_code="structure") == "structure_focus"
+
+
+def test_append_rewrite_attempt_trace_disabled_without_debug_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("LIVE_ES_REVIEW_CAPTURE_DEBUG", raising=False)
+    trace: list[dict] = []
+
+    row = _append_rewrite_attempt_trace(
+        trace,
+        stage="rewrite",
+        text="学生時代に力を入れた本文である。",
+        accepted=False,
+        retry_code="over_max",
+        failure_codes=["over_max"],
+    )
+
+    assert row is None
+    assert trace == []
+
+
+def test_append_rewrite_attempt_trace_records_body_and_validation_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LIVE_ES_REVIEW_CAPTURE_DEBUG", "1")
+    trace: list[dict] = []
+
+    row = _append_rewrite_attempt_trace(
+        trace,
+        stage="rewrite",
+        text="学生時代に力を入れた本文である。",
+        accepted=False,
+        retry_reason="文字数制約を満たしていません。",
+        retry_code="over_max",
+        primary_failure_code="over_max",
+        selected_retry_codes=["over_max"],
+        attempt_index=2,
+        total_rewrite_attempts=3,
+        prompt_mode="length_focus_max",
+        prompt_modes=["length_focus_max"],
+        failure_codes=["over_max"],
+        validation_meta={
+            "char_count": 18,
+            "length_policy": "strict",
+            "length_shortfall": 0,
+            "llm_failed_checks": ["structure_clarity"],
+            "llm_retry_hint": "重複を削る",
+            "hallucination_tier": 0,
+        },
+        length_control_mode="max",
+        target_window_lower=390,
+        target_window_upper=400,
+        latest_failed_length=419,
+        shortfall_delta_band="near",
+        retry_hints_count=1,
+    )
+
+    assert row is not None
+    assert trace == [row]
+    assert row["text"] == "学生時代に力を入れた本文である。"
+    assert row["char_count"] == len("学生時代に力を入れた本文である。")
+    assert row["accepted"] is False
+    assert row["failure_codes"] == ["over_max"]
+    assert row["prompt_modes"] == ["length_focus_max"]
+    assert row["llm_failed_checks"] == ["structure_clarity"]
+    assert row["llm_retry_hint"] == "重複を削る"
+    assert row["latest_failed_length"] == 419
 
 
 def test_resolve_rewrite_focus_modes_combines_length_and_opening() -> None:
@@ -1601,7 +1655,7 @@ async def test_review_section_with_template_uses_soft_length_rescue_after_focuse
     assert result.review_meta is not None
     assert result.review_meta.rewrite_attempt_count == 3
     assert result.review_meta.rewrite_validation_status == "degraded"
-    assert result.review_meta.length_fix_result == "not_needed"
+    assert result.review_meta.final_acceptance_source == "degraded_best_effort"
     assert len(result.rewrites[0]) == 370
 
 
@@ -1808,6 +1862,7 @@ async def test_review_section_with_template_salvages_gemini_style_only_with_dete
 async def test_review_section_with_template_uses_length_focus_max_retry_on_over_max(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("LIVE_ES_REVIEW_CAPTURE_DEBUG", "1")
     rewrite_calls = 0
     seen_prompts: list[str] = []
 
@@ -1859,6 +1914,17 @@ async def test_review_section_with_template_uses_length_focus_max_retry_on_over_
     assert result.review_meta is not None
     assert result.review_meta.rewrite_generation_mode == "length_focus_max"
     assert 390 <= len(result.rewrites[0]) <= 400
+    trace = result.review_meta.rewrite_attempt_trace
+    assert len(trace) == 2
+    assert trace[0]["text"] == _make_role_course_pad(430)
+    assert trace[0]["accepted"] is False
+    assert trace[0]["failure_codes"] == ["over_max"]
+    assert trace[0]["retry_code"] == "over_max"
+    assert trace[0]["prompt_modes"] == ["normal"]
+    assert trace[1]["text"] == _make_role_course_pad(396)
+    assert trace[1]["accepted"] is True
+    assert trace[1]["prompt_modes"] == ["length_focus_max"]
+    assert "llm_failed_checks" not in trace[1]
 
 
 @pytest.mark.asyncio
@@ -1925,7 +1991,7 @@ async def test_review_section_with_template_deterministically_expands_best_non_c
 
     assert rewrite_calls == 3
     assert result.review_meta is not None
-    assert result.review_meta.length_fix_attempted is False
+    assert result.review_meta.final_acceptance_source in {"rewrite", "safe_rewrite"}
     assert 390 <= len(result.rewrites[0]) <= 400
 
 
@@ -2049,9 +2115,11 @@ async def test_review_section_with_template_logs_rewrite_and_sources(
 
     logs = stream.getvalue()
     assert "[ES添削/テンプレート] evidence cards:" in logs
-    assert "[ES添削/テンプレート] final rewrite:" in logs
+    assert "[ES添削/テンプレート] final rewrite metadata:" in logs
     assert "[ES添削/テンプレート] sources:" in logs
-    assert "https://www.skygroup.jp/company/" in logs
+    assert "url_host=www.skygroup.jp" in logs
+    assert "https://www.skygroup.jp/company/" not in logs
+    assert "研究で培った整理力を生かし、貴社で価値提供につなげたい。" not in logs
     assert result.review_meta is not None
     assert result.review_meta.company_evidence_count == 1
 
@@ -2603,3 +2671,356 @@ def test_validate_rewrite_candidate_company_motivation_accepts_company_name_in_h
     )
     assert candidate is not None
     assert code == "ok"
+
+
+# ---------------------------------------------------------------------------
+# LLM failure paths and composite failure patterns
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_review_section_raises_503_when_text_caller_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When text_caller returns success=False with an LLMError, orchestrator raises HTTP 503."""
+    from fastapi import HTTPException
+    from app.utils.llm_providers import LLMError
+
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "企業接続",
+                        "issue": "企業理解が薄い",
+                        "suggestion": "企業との接点を明示する",
+                    }
+                ]
+            }
+        )
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        return FakeTextResult(
+            success=False,
+            error=LLMError(
+                error_type="rate_limit",
+                message="レート制限に達しました。",
+                detail="429",
+                provider="anthropic",
+                feature="es_review",
+            ),
+        )
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await review_section_with_template(
+            request=ReviewRequest(
+                content="研究で培った仮説検証力を生かしたい。",
+                section_title="志望理由を教えてください。",
+                template_request=TemplateRequest(
+                    template_type="company_motivation",
+                    question="志望理由を教えてください。",
+                    answer="研究で培った仮説検証力を生かしたい。",
+                    company_name="三菱商事",
+                    char_min=390,
+                    char_max=400,
+                ),
+            ),
+            rag_sources=[],
+            company_rag_available=False,
+            progress_queue=None,
+        )
+
+    assert exc_info.value.status_code == 503
+    detail = exc_info.value.detail
+    assert isinstance(detail, dict)
+    assert detail.get("error_type") == "rate_limit"
+
+
+@pytest.mark.asyncio
+async def test_review_section_raises_503_with_generic_message_when_error_is_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When text_caller returns success=False with no error object, orchestrator raises HTTP 503
+    with the generic AI error message."""
+    from fastapi import HTTPException
+
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "構成",
+                        "issue": "構成が弱い",
+                        "suggestion": "結論を先に置く",
+                    }
+                ]
+            }
+        )
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        # success=False with no error object
+        return FakeTextResult(success=False)
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await review_section_with_template(
+            request=ReviewRequest(
+                content="研究で培った仮説検証力を生かしたい。",
+                section_title="志望理由を教えてください。",
+                template_request=TemplateRequest(
+                    template_type="company_motivation",
+                    question="志望理由を教えてください。",
+                    answer="研究で培った仮説検証力を生かしたい。",
+                    company_name="三菱商事",
+                    char_min=390,
+                    char_max=400,
+                ),
+            ),
+            rag_sources=[],
+            company_rag_available=False,
+            progress_queue=None,
+        )
+
+    assert exc_info.value.status_code == 503
+    detail = exc_info.value.detail
+    assert isinstance(detail, dict)
+    assert detail.get("error") == "AI処理中にエラーが発生しました"
+
+
+@pytest.mark.asyncio
+async def test_review_section_raises_503_when_data_is_none_despite_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When text_caller returns success=True but data=None, orchestrator raises HTTP 503.
+
+    This exercises the ``not rewrite_result.data`` branch at orchestrator L965.
+    """
+    from fastapi import HTTPException
+    from tests.es_review.conftest import FakeLLMResult
+
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(
+            {
+                "top3": [
+                    {
+                        "category": "構成",
+                        "issue": "構成が弱い",
+                        "suggestion": "結論を先に置く",
+                    }
+                ]
+            }
+        )
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        # Simulate a result that claims success but has no data payload.
+        return FakeLLMResult(data=None, success=True)
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await review_section_with_template(
+            request=ReviewRequest(
+                content="研究で培った仮説検証力を生かしたい。",
+                section_title="志望理由を教えてください。",
+                template_request=TemplateRequest(
+                    template_type="company_motivation",
+                    question="志望理由を教えてください。",
+                    answer="研究で培った仮説検証力を生かしたい。",
+                    company_name="三菱商事",
+                    char_min=390,
+                    char_max=400,
+                ),
+            ),
+            rag_sources=[],
+            company_rag_available=False,
+            progress_queue=None,
+        )
+
+    assert exc_info.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_generate_review_progress_emits_error_event_on_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SSE layer catches HTTPException(503) from the review runner and emits an error SSE event
+    with the generic busy message rather than exposing internal error detail."""
+    from fastapi import HTTPException
+
+    async def failing_review_runner(**kwargs):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "AI処理中にエラーが発生しました",
+                "error_type": "rate_limit",
+                "provider": "anthropic",
+                "detail": "429",
+            },
+        )
+
+    request = ReviewRequest(
+        content="研究で培った仮説検証力を生かしたい。",
+        section_title="志望理由を教えてください。",
+        template_request=TemplateRequest(
+            template_type="company_motivation",
+            question="志望理由を教えてください。",
+            answer="研究で培った仮説検証力を生かしたい。",
+            company_name="三菱商事",
+            char_min=390,
+            char_max=400,
+        ),
+    )
+
+    events = [
+        event
+        async for event in _generate_review_progress(
+            request,
+            review_runner=failing_review_runner,
+        )
+    ]
+
+    error_events = [e for e in events if '"type": "error"' in e]
+    assert error_events, "Expected at least one SSE error event"
+    last_error = _parse_sse_event(error_events[-1])
+    assert last_error.get("type") == "error"
+    # _sse_event flattens fields: {"type": "error", "message": "..."} — no nested "data" key.
+    assert "AI処理が混み合っています" in last_error.get("message", "")
+
+
+@pytest.mark.asyncio
+async def test_under_min_plus_companyless_reference_composite_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the first rewrite is both under char_min AND contains a company honorific (貴社)
+    in a companyless (grounding_mode=none) context, the retry mechanism detects the composite
+    failure codes (company_reference_in_companyless + under_min) and selects the
+    'company_reference_length' composite retry mode.  A subsequent attempt returning valid text
+    must be accepted."""
+    calls = 0
+
+    # Under-min text (well below 390 chars) that also references 貴社 (forbidden in
+    # companyless mode: triggers company_reference_in_companyless failure code).
+    under_min_with_company_ref = (
+        "貴社を志望するのは、仮説検証力を事業に活かしたいからだ。"
+        "研究で培った分析力を、課題解決につなげたい。"
+    )
+    # Valid text: no 貴社, exactly within 390-400 chars.
+    valid_text = _make_text(394)
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return FakeTextResult(under_min_with_company_ref)
+        return FakeTextResult(valid_text)
+
+    async def fake_call_llm_with_error(*args, **kwargs):
+        # No improvement payload; deterministic validation alone drives failure codes.
+        return FakeJsonResult(success=False)
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+
+    result = await review_section_with_template(
+        request=ReviewRequest(
+            content="研究で培った仮説検証力を生かしたい。",
+            section_title="志望理由を教えてください。",
+            template_request=TemplateRequest(
+                template_type="company_motivation",
+                question="志望理由を教えてください。",
+                answer="研究で培った仮説検証力を生かしたい。",
+                # company_name=None makes the section companyless; grounding_mode=none
+                # causes 貴社 to trigger the company_reference_in_companyless check.
+                company_name=None,
+                char_min=390,
+                char_max=400,
+            ),
+        ),
+        rag_sources=[],
+        company_rag_available=False,
+        grounding_mode="none",
+        progress_queue=None,
+    )
+
+    # Two text-caller calls: first (fails composite), second (accepted).
+    assert calls >= 2
+    assert result.rewrites
+    final = result.rewrites[0]
+    assert 390 <= len(final) <= 400
+    assert result.review_meta is not None
+    assert "company_reference_length" in result.review_meta.composite_retry_modes
+
+
+@pytest.mark.asyncio
+async def test_over_max_plus_bulletish_composite_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the first rewrite exceeds char_max AND contains a bullet-like list structure,
+    the retry mechanism detects the composite failure codes (bulletish_or_listlike + over_max)
+    and selects the 'length_style_structure' composite retry mode.  A subsequent attempt
+    returning valid prose text must be accepted."""
+    monkeypatch.setenv("LIVE_ES_REVIEW_CAPTURE_DEBUG", "1")
+    calls = 0
+
+    # Over-max text (> 400 chars) with embedded newline + bullet marker.
+    bullet_prefix = (
+        "研究で培った仮説検証力を活かしたい。\n"
+        "・課題を整理して仮説を立てる力\n"
+        "・チームで議論しながら改善を進める力\n"
+        "この二つの力を事業に貢献したい。"
+    )
+    over_max_bulletish = bullet_prefix + "あ" * (410 - len(bullet_prefix)) + "。"
+    # Valid prose text: no bullets, 390-400 chars.
+    valid_text = _make_text(394)
+
+    async def fake_call_llm_text_with_error(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return FakeTextResult(over_max_bulletish)
+        return FakeTextResult(valid_text)
+
+    async def fake_call_llm_with_error(*args, **kwargs):
+        return FakeJsonResult(success=False)
+
+    monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
+    monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
+
+    result = await review_section_with_template(
+        request=ReviewRequest(
+            content="研究で培った仮説検証力を生かしたい。",
+            section_title="志望理由を教えてください。",
+            template_request=TemplateRequest(
+                template_type="company_motivation",
+                question="志望理由を教えてください。",
+                answer="研究で培った仮説検証力を生かしたい。",
+                company_name="三菱商事",
+                char_min=390,
+                char_max=400,
+            ),
+        ),
+        rag_sources=[],
+        company_rag_available=False,
+        grounding_mode="none",
+        progress_queue=None,
+    )
+
+    # Two text-caller calls: first fails (bulletish + over_max), second is accepted.
+    assert calls >= 2
+    assert result.rewrites
+    final = result.rewrites[0]
+    assert 390 <= len(final) <= 400
+    assert result.review_meta is not None
+    assert "length_style_structure" in result.review_meta.composite_retry_modes
+    trace = result.review_meta.rewrite_attempt_trace
+    assert len(trace) >= 2
+    assert trace[0]["text"] == over_max_bulletish
+    assert set(trace[0]["failure_codes"]) == {"bulletish_or_listlike", "over_max"}
+    assert "length_style_structure" in trace[1]["prompt_modes"]
+    assert trace[1]["composite_retry_mode"] == "length_style_structure"

@@ -65,6 +65,10 @@ export function DashboardCompanyListSkeleton() {
   );
 }
 
+export function DashboardPipelineSkeleton() {
+  return <DashboardCompanyListSkeleton />;
+}
+
 export function DashboardTodayTasksSkeleton() {
   return (
     <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1.5">
@@ -97,6 +101,10 @@ export function DashboardTodayTasksSkeleton() {
   );
 }
 
+export function DashboardTasksSkeleton() {
+  return <DashboardTodayTasksSkeleton />;
+}
+
 export function DashboardDeadlinesSkeleton() {
   return (
     <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1">
@@ -120,6 +128,20 @@ export function DashboardDeadlinesSkeleton() {
   );
 }
 
+export function DashboardGreetingSkeleton() {
+  return (
+    <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-2 xl:flex-nowrap">
+      <Skeleton className="h-6 w-48 max-w-full rounded-lg lg:min-w-0 lg:shrink" shimmerDelayMs={0} />
+      <Skeleton className="hidden h-4 w-36 shrink-0 rounded 2xl:block" shimmerDelayMs={40} />
+      <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-2 overflow-hidden px-4 sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:ml-auto lg:mr-0 lg:min-w-0 lg:basis-full lg:justify-end lg:px-0 lg:pb-1 xl:basis-auto xl:overflow-visible xl:pb-0">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-11 w-22 rounded-lg lg:h-9" shimmerDelayMs={i * 30} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function DashboardSkeleton() {
   return (
     <div className="bg-background">
@@ -129,28 +151,21 @@ export function DashboardSkeleton() {
         aria-busy="true"
         aria-live="polite"
       >
+        <span className="sr-only">ダッシュボードを読み込んでいます</span>
         {/* Greeting + quick action rail */}
-        <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-2 lg:flex-nowrap">
-          <Skeleton className="h-6 w-48 max-w-full rounded-lg lg:min-w-0 lg:shrink" shimmerDelayMs={0} />
-          <Skeleton className="hidden h-4 w-36 shrink-0 rounded 2xl:block" shimmerDelayMs={40} />
-          <div className="-mx-4 flex w-[calc(100%+2rem)] items-center gap-2 overflow-hidden px-4 sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:ml-auto lg:mr-0 lg:min-w-0 lg:flex-1 lg:justify-end lg:px-0 lg:pb-1 xl:overflow-visible xl:pb-0">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-11 w-22 rounded-lg lg:h-9" shimmerDelayMs={i * 30} />
-            ))}
-          </div>
-        </div>
+        <DashboardGreetingSkeleton />
 
         {/* Two-column layout */}
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,3fr)_minmax(280px,1fr)] lg:gap-2 lg:overflow-hidden">
           {/* Left column */}
           <div className="flex min-h-0 flex-col gap-3 lg:grid lg:grid-rows-[minmax(0,1.42fr)_minmax(0,1fr)] lg:gap-2 lg:overflow-hidden">
             <DashboardScheduleSkeleton />
-            <DashboardCompanyListSkeleton />
+            <DashboardPipelineSkeleton />
           </div>
 
           {/* Right column */}
           <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(220px,0.72fr)] gap-3 lg:gap-2 lg:overflow-hidden">
-            <DashboardTodayTasksSkeleton />
+            <DashboardTasksSkeleton />
             <DashboardDeadlinesSkeleton />
           </div>
         </div>

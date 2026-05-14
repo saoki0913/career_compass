@@ -34,7 +34,8 @@ Playwright テスト実行をブロック: AskUserQuestion での確認が未完
 手順:
   1. browserRequired: true の対象 features を一覧表示
   2. 各 feature をトリガーした変更ファイルと変更内容を提示
-  3. AskUserQuestion で「Playwright テストを実行しますか？」を確認
+  3. AskUserQuestion では、人間が判断しやすい日本語で確認
+     例: 「画面操作の確認テストを実行しますか？」
   4. echo "<decision>" > $FLAG  (run / run:<features> / skip)
   5. E2E コマンドを再実行
 

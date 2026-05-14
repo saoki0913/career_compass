@@ -52,14 +52,14 @@ describe("useInterviewViewModel derivations", () => {
     expect(vm.normalizedCompanyId).toBe("company-3");
     expect(vm.weakestAxis).toBe("persuasiveness");
     expect(vm.topicStages).toHaveLength(3);
-    expect(vm.topicStages[0]).toMatchObject({ label: "motivation", status: "done" });
-    expect(vm.topicStages[1]).toMatchObject({ label: "leadership", status: "current" });
-    expect(vm.topicStages[2]).toMatchObject({ label: "teamwork", status: "pending" });
+    expect(vm.topicStages[0]).toMatchObject({ label: "志望動機", status: "done" });
+    expect(vm.topicStages[1]).toMatchObject({ label: "リーダーシップ", status: "current" });
+    expect(vm.topicStages[2]).toMatchObject({ label: "チームワーク", status: "pending" });
     expect(vm.interviewPhases).toHaveLength(4);
     expect(vm.interviewPhases[0]).toMatchObject({ key: "setup", status: "done" });
     expect(vm.interviewPhases[1]).toMatchObject({ key: "questions", status: "current" });
-    expect(vm.questionDisplay).toBe("3問目 / 約3問");
-    expect(vm.coachingNarrative).toBe("leadershipについて確認しています。");
+    expect(vm.questionDisplay).toBe("3問目 / 約15問");
+    expect(vm.coachingNarrative).toBe("リーダーシップについて確認しています。");
   });
 
   it("returns defaults when stageStatus is null and not started", () => {

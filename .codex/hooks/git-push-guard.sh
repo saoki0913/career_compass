@@ -26,7 +26,7 @@ EOF
 fi
 
 if [ -z "$SESSION_ID" ]; then
-  echo "git push blocked: session_id is unavailable, so push approval cannot be verified." >&2
+  echo "push の確認状態を読み取れないため、実行できませんでした。" >&2
   exit 2
 fi
 
@@ -36,9 +36,11 @@ HEAD_SHA=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "")
 
 if [ ! -f "$PUSH_FLAG" ]; then
   cat >&2 <<EOF
-git push blocked by Codex hook.
+push はまだ実行できません。
 
-Create an explicit approval checkpoint before pushing:
+push するとリモートのCIやデプロイ確認が動くため、対象コミットを確認してから実行してください。
+
+開発者向けの記録手順:
   node scripts/harness/diff-snapshot.mjs checkpoint --kind push --decision approved --project "$PROJECT_DIR" > "$PUSH_FLAG"
 EOF
   exit 2
@@ -48,12 +50,12 @@ APPROVED_HEAD=$(jq -r '.headSha // empty' "$PUSH_FLAG" 2>/dev/null || echo "")
 DECISION=$(jq -r '.decision // empty' "$PUSH_FLAG" 2>/dev/null || echo "")
 KIND=$(jq -r '.kind // empty' "$PUSH_FLAG" 2>/dev/null || echo "")
 if [ "$KIND" != "push" ] || [ "$DECISION" != "approved" ] || [ -z "$HEAD_SHA" ] || [ "$APPROVED_HEAD" != "$HEAD_SHA" ]; then
-  echo "git push blocked: approval checkpoint does not match current HEAD." >&2
+  echo "確認後にコミットが変わったため、push 前の確認をもう一度行ってください。" >&2
   exit 2
 fi
 
 if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$PUSH_FLAG" >/dev/null; then
-  echo "git push blocked: working tree changed after approval checkpoint creation." >&2
+  echo "確認後に差分が変わったため、push 前の確認をもう一度行ってください。" >&2
   exit 2
 fi
 

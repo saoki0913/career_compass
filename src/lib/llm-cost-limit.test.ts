@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Implementation migrated from process.env to serverEnv (T3 Env).
 // ---------------------------------------------------------------------------
 // Mock @upstash/redis before any imports
 // ---------------------------------------------------------------------------
@@ -7,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const getMock = vi.fn();
 const incrbyMock = vi.fn();
 const expireMock = vi.fn();
+
+vi.mock("server-only", () => ({}));
 
 vi.mock("@upstash/redis", () => ({
   Redis: class MockRedis {
@@ -17,10 +20,40 @@ vi.mock("@upstash/redis", () => ({
   },
 }));
 
+vi.mock("@/lib/redis", async () => {
+  const { Redis } = await import("@upstash/redis");
+  let _redis: InstanceType<typeof Redis> | null = null;
+  return {
+    isRedisConfigured: () =>
+      !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN),
+    getRedis: () => {
+      if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) return null;
+      if (!_redis) {
+        _redis = new Redis({
+          url: process.env.UPSTASH_REDIS_REST_URL,
+          token: process.env.UPSTASH_REDIS_REST_TOKEN,
+        });
+      }
+      return _redis;
+    },
+    getRedisNamespace: () => process.env.UPSTASH_REDIS_NAMESPACE || "local",
+  };
+});
+
+function restoreEnv(key: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
+}
+
 describe("llm-cost-limit", () => {
   const origUrl = process.env.UPSTASH_REDIS_REST_URL;
   const origToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+  const origNamespace = process.env.UPSTASH_REDIS_NAMESPACE;
   const origDisable = process.env.DISABLE_TOKEN_LIMIT;
+  const origVercelEnv = process.env.VERCEL_ENV;
 
   beforeEach(() => {
     vi.resetModules();
@@ -30,17 +63,17 @@ describe("llm-cost-limit", () => {
     // Default: Upstash configured
     process.env.UPSTASH_REDIS_REST_URL = "https://example.upstash.io";
     process.env.UPSTASH_REDIS_REST_TOKEN = "token";
+    process.env.UPSTASH_REDIS_NAMESPACE = "unit";
     delete process.env.DISABLE_TOKEN_LIMIT;
+    delete process.env.VERCEL_ENV;
   });
 
   afterEach(() => {
-    process.env.UPSTASH_REDIS_REST_URL = origUrl;
-    process.env.UPSTASH_REDIS_REST_TOKEN = origToken;
-    if (origDisable !== undefined) {
-      process.env.DISABLE_TOKEN_LIMIT = origDisable;
-    } else {
-      delete process.env.DISABLE_TOKEN_LIMIT;
-    }
+    restoreEnv("UPSTASH_REDIS_REST_URL", origUrl);
+    restoreEnv("UPSTASH_REDIS_REST_TOKEN", origToken);
+    restoreEnv("UPSTASH_REDIS_NAMESPACE", origNamespace);
+    restoreEnv("DISABLE_TOKEN_LIMIT", origDisable);
+    restoreEnv("VERCEL_ENV", origVercelEnv);
   });
 
   // -----------------------------------------------------------------------
@@ -94,59 +127,82 @@ describe("llm-cost-limit", () => {
   // checkDailyTokenLimit
   // -----------------------------------------------------------------------
 
-  it("returns allowed=true when DISABLE_TOKEN_LIMIT=true", async () => {
+  it("returns bypassed when DISABLE_TOKEN_LIMIT=true", async () => {
     process.env.DISABLE_TOKEN_LIMIT = "true";
-    const { checkDailyTokenLimit } = await import("@/lib/llm-cost-limit");
+    const { checkDailyTokenLimit, isTokenLimitOk } = await import("@/lib/llm-cost-limit");
     const result = await checkDailyTokenLimit({ userId: "u1", guestId: null }, "free");
-    expect(result.allowed).toBe(true);
-    expect(result.remaining).toBe(Infinity);
+    expect(result.status).toBe("bypassed");
+    expect(isTokenLimitOk(result)).toBe(true);
   });
 
-  it("returns allowed=true when Upstash is not configured (fail-open)", async () => {
+  it("uses in-memory token limiting when Upstash is not configured outside deployed environments", async () => {
     delete process.env.UPSTASH_REDIS_REST_URL;
     delete process.env.UPSTASH_REDIS_REST_TOKEN;
-    const { checkDailyTokenLimit } = await import("@/lib/llm-cost-limit");
-    const result = await checkDailyTokenLimit({ userId: "u1", guestId: null }, "free");
-    expect(result.allowed).toBe(true);
-    expect(result.remaining).toBe(Infinity);
+    const { checkDailyTokenLimit, incrementDailyTokenCount, isTokenLimitOk } = await import("@/lib/llm-cost-limit");
+
+    await incrementDailyTokenCount({ userId: "u1", guestId: null }, 100_000);
+    const result = await checkDailyTokenLimit({ userId: "u1", guestId: null }, "guest");
+
+    expect(result.status).toBe("limit_exceeded");
+    expect(isTokenLimitOk(result)).toBe(false);
   });
 
-  it("returns allowed=true when identity has no userId or guestId", async () => {
-    const { checkDailyTokenLimit } = await import("@/lib/llm-cost-limit");
+  it("returns service_unavailable when Upstash is not configured in deployed environments", async () => {
+    delete process.env.UPSTASH_REDIS_REST_URL;
+    delete process.env.UPSTASH_REDIS_REST_TOKEN;
+    process.env.VERCEL_ENV = "production";
+    const { checkDailyTokenLimit, isTokenLimitOk } = await import("@/lib/llm-cost-limit");
+    const result = await checkDailyTokenLimit({ userId: "u1", guestId: null }, "free");
+    expect(result.status).toBe("service_unavailable");
+    expect(isTokenLimitOk(result)).toBe(false);
+  });
+
+  it("returns bypassed when identity has no userId or guestId", async () => {
+    const { checkDailyTokenLimit, isTokenLimitOk } = await import("@/lib/llm-cost-limit");
     const result = await checkDailyTokenLimit({ userId: null, guestId: null }, "free");
-    expect(result.allowed).toBe(true);
+    expect(result.status).toBe("bypassed");
+    expect(isTokenLimitOk(result)).toBe(true);
   });
 
-  it("returns allowed=false when current usage exceeds limit", async () => {
+  it("returns limit_exceeded when current usage exceeds limit", async () => {
     getMock.mockResolvedValue(600_000); // exceeds free plan 500k
-    const { checkDailyTokenLimit } = await import("@/lib/llm-cost-limit");
+    const { checkDailyTokenLimit, isTokenLimitOk } = await import("@/lib/llm-cost-limit");
     const result = await checkDailyTokenLimit({ userId: "u1", guestId: null }, "free");
-    expect(result.allowed).toBe(false);
-    expect(result.remaining).toBe(0);
+    expect(result.status).toBe("limit_exceeded");
+    expect(isTokenLimitOk(result)).toBe(false);
+    if (result.status === "limit_exceeded") {
+      expect(result.remaining).toBe(0);
+    }
   });
 
   it("returns remaining tokens correctly", async () => {
     getMock.mockResolvedValue(100_000);
-    const { checkDailyTokenLimit } = await import("@/lib/llm-cost-limit");
+    const { checkDailyTokenLimit, isTokenLimitOk } = await import("@/lib/llm-cost-limit");
     const result = await checkDailyTokenLimit({ userId: "u1", guestId: null }, "free");
-    expect(result.allowed).toBe(true);
-    expect(result.remaining).toBe(400_000); // 500k - 100k
+    expect(result.status).toBe("allowed");
+    expect(isTokenLimitOk(result)).toBe(true);
+    if (result.status === "allowed") {
+      expect(result.remaining).toBe(400_000); // 500k - 100k
+    }
   });
 
   it("falls back to free plan limit for unknown plan", async () => {
     getMock.mockResolvedValue(0);
     const { checkDailyTokenLimit } = await import("@/lib/llm-cost-limit");
     const result = await checkDailyTokenLimit({ userId: "u1", guestId: null }, "enterprise");
-    expect(result.allowed).toBe(true);
-    expect(result.remaining).toBe(500_000); // falls back to free limit
+    expect(result.status).toBe("allowed");
+    if (result.status === "allowed") {
+      expect(result.remaining).toBe(500_000); // falls back to free limit
+    }
   });
 
-  it("returns allowed=true on Redis error (fail-open)", async () => {
+  it("returns service_unavailable on Redis error (fail-closed)", async () => {
+    process.env.VERCEL_ENV = "production";
     getMock.mockRejectedValue(new Error("connection refused"));
-    const { checkDailyTokenLimit } = await import("@/lib/llm-cost-limit");
+    const { checkDailyTokenLimit, isTokenLimitOk } = await import("@/lib/llm-cost-limit");
     const result = await checkDailyTokenLimit({ userId: "u1", guestId: null }, "free");
-    expect(result.allowed).toBe(true);
-    expect(result.remaining).toBe(Infinity);
+    expect(result.status).toBe("service_unavailable");
+    expect(isTokenLimitOk(result)).toBe(false);
   });
 
   // -----------------------------------------------------------------------
@@ -177,8 +233,8 @@ describe("llm-cost-limit", () => {
     expireMock.mockResolvedValue(true);
     const { incrementDailyTokenCount } = await import("@/lib/llm-cost-limit");
     await incrementDailyTokenCount({ userId: "u1", guestId: null }, 500);
-    expect(incrbyMock).toHaveBeenCalledWith(expect.stringContaining("daily_llm_tokens:u1:"), 500);
-    expect(expireMock).toHaveBeenCalledWith(expect.stringContaining("daily_llm_tokens:u1:"), 90_000);
+    expect(incrbyMock).toHaveBeenCalledWith(expect.stringContaining("daily_llm_tokens:unit:u1:"), 500);
+    expect(expireMock).toHaveBeenCalledWith(expect.stringContaining("daily_llm_tokens:unit:u1:"), 90_000);
   });
 
   it("increments without setting TTL when key already exists", async () => {
@@ -194,7 +250,7 @@ describe("llm-cost-limit", () => {
     expireMock.mockResolvedValue(true);
     const { incrementDailyTokenCount } = await import("@/lib/llm-cost-limit");
     await incrementDailyTokenCount({ userId: null, guestId: "g1" }, 200);
-    expect(incrbyMock).toHaveBeenCalledWith(expect.stringContaining("daily_llm_tokens:g1:"), 200);
+    expect(incrbyMock).toHaveBeenCalledWith(expect.stringContaining("daily_llm_tokens:unit:g1:"), 200);
   });
 
   it("does not throw on Redis error (fail-soft)", async () => {

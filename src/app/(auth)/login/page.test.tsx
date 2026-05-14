@@ -8,4 +8,12 @@ describe("LoginPage — image-registry guard", () => {
     expect(source).toContain("LOGO_ASSETS.textClean");
     expect(source).not.toContain('src="/marketing/logo/logo_text_clean.png"');
   });
+
+  it("normalizes post-auth callback URLs before passing them to Google sign-in", async () => {
+    const source = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+    expect(source).toContain("normalizePostAuthReturnPath");
+    expect(source).toContain('searchParams.get("redirect") || searchParams.get("callbackUrl")');
+    expect(source).toContain("callbackURL={safeRedirect}");
+    expect(source).not.toContain("getSafeRelativeReturnPath");
+  });
 });

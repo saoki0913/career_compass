@@ -23,7 +23,7 @@ if [ -z "$COMMAND_CATEGORIES" ]; then
 fi
 
 if [ -z "$SESSION_ID" ]; then
-  echo "Test category gate blocked: session_id is unavailable." >&2
+  echo "確認項目の記録先を判断できないため、実行できませんでした。" >&2
   exit 2
 fi
 
@@ -32,20 +32,25 @@ FLAG="$STATE_DIR/test-categories-$SESSION_ID"
 
 if [ ! -f "$FLAG" ]; then
   cat >&2 <<EOF
-Test command blocked by Codex hook. Ask the user with AskUserQuestion, then record:
-  node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project "$(pwd)" \
+この確認コマンドはまだ実行できません。
+
+変更内容に応じて、どの確認を実行するか先に決める必要があります。
+実行する確認項目を決めてから、同じコマンドをもう一度実行してください。
+
+開発者向けの記録手順:
+  node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project "$PROJECT_DIR" \
     --categories "e2e-functional=run:<features>,quality=skip,static=run,security=run" > $FLAG
 EOF
   exit 2
 fi
 
 if ! jq -e . "$FLAG" >/dev/null 2>&1; then
-  echo "Test category checkpoint must be JSON: $FLAG" >&2
+  echo "確認内容の記録を読み取れませんでした。もう一度、実行する確認項目を記録してください。" >&2
   exit 2
 fi
 
 if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$FLAG" >/dev/null; then
-  echo "Test category checkpoint is stale for the current staged diff." >&2
+  echo "確認後に差分が変わったため、実行する確認項目をもう一度決めてください。" >&2
   exit 2
 fi
 
@@ -67,18 +72,18 @@ feature_allowed_by_value() {
 for command_category in $COMMAND_CATEGORIES; do
   category_value="$(jq -r --arg key "$command_category" '.categories[$key] // .[$key] // empty' "$FLAG" 2>/dev/null || echo "")"
   if [ -z "$category_value" ]; then
-    echo "$command_category is missing from test category checkpoint: $FLAG" >&2
+    echo "この確認項目がまだ選ばれていません。実行する確認項目をもう一度記録してください。" >&2
     exit 2
   fi
 
   case "$category_value" in
     run|run:*|partial:*) ;;
     skip|skip:*)
-      echo "$command_category is marked skip in checkpoint: $FLAG" >&2
+      echo "この確認項目は実行しない設定になっています。実行する場合は確認項目を選び直してください。" >&2
       exit 2
       ;;
     *)
-      echo "Invalid $command_category checkpoint value: $category_value" >&2
+      echo "確認項目の記録形式が想定と異なります。実行する確認項目をもう一度記録してください。" >&2
       exit 2
       ;;
   esac
@@ -87,7 +92,7 @@ for command_category in $COMMAND_CATEGORIES; do
   if { [ "$command_category" = "e2e-functional" ] || [ "$command_category" = "quality" ]; } && [ -n "$command_features" ]; then
     for command_feature in $command_features; do
       if ! feature_allowed_by_value "$category_value" "$command_feature"; then
-        echo "$command_category checkpoint ($category_value) does not cover command feature: $command_feature" >&2
+        echo "今回の変更範囲に必要な確認がまだ選ばれていません。対象機能を含めて確認項目を選び直してください。" >&2
         exit 2
       fi
     done

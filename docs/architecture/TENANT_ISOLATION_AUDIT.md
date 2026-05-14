@@ -36,7 +36,6 @@
 
 - `companies` は `userId` / `guestId` の XOR 制約を持つ
 - `motivation_conversations` も `userId` / `guestId` の XOR 制約を持つ
-- `company_pdf_ingest_jobs` は `companyId` に FK を持つが、tenant 情報は持たない
 
 ここまでは「会社レコード」「会話レコード」単位の owner は表現できている。
 
@@ -119,11 +118,7 @@
 
 ### Medium
 
-1. `company_pdf_ingest_jobs.source_url` がグローバル unique
-   - 現行の `upload://corporate-pdf/{companyId}/{uuid}` では衝突しにくい
-   - ただし設計としては tenant を越えた一意制約であり、`companyId + sourceUrl` の複合一意の方が意味は明確
-
-2. DB 設計ドキュメントだけ読むと、XOR 制約で tenant 分離が十分に見える
+1. DB 設計ドキュメントだけ読むと、XOR 制約で tenant 分離が十分に見える
    - 実際には Chroma/BM25 の外部ストア境界が別にある
 
 ---

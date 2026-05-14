@@ -359,15 +359,24 @@ export function useGoogleCalendar() {
 
       if (!response.ok) {
         if (response.status === 403) {
-          throw new Error("Google Calendar not connected");
+          throw new Error("Google カレンダーが連携されていません。");
         }
-        throw new Error("Failed to fetch Google Calendar events");
+        throw new Error("イベントの取得に失敗しました。");
       }
 
       const data = await response.json();
       return data.events || [];
     } catch (err) {
-      setError(err instanceof Error ? err.message : "イベントの取得に失敗しました");
+      const ui = toAppUiError(
+        err,
+        {
+          code: "GOOGLE_CALENDAR_FETCH_FAILED",
+          userMessage: "Google カレンダーのイベントを取得できませんでした。",
+          retryable: true,
+        },
+        "useCalendar.fetchGoogleEvents",
+      );
+      setError(ui.message);
       return [];
     } finally {
       setIsLoading(false);
@@ -385,9 +394,9 @@ export function useGoogleCalendar() {
 
       if (!response.ok) {
         if (response.status === 403) {
-          throw new Error("Google Calendar not connected");
+          throw new Error("Google カレンダーが連携されていません。");
         }
-        throw new Error("Failed to suggest work blocks");
+        throw new Error("作業ブロックの提案を取得できませんでした。");
       }
 
       const data = await response.json();

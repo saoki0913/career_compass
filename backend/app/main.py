@@ -14,7 +14,11 @@ from app.security.trusted_host import HealthcheckTrustedHostMiddleware
 from app.observability.sentry_setup import init_sentry
 from app.rag.metrics_exporter import start_metrics_exporter_once
 from app.utils.secure_logger import get_logger
-from app.utils.llm_usage_cost import reset_request_llm_cost_summary
+from app.utils.llm_usage_cost import (
+    reset_request_llm_call_budget,
+    reset_request_llm_cost_summary,
+    set_request_llm_call_budget,
+)
 
 logger = get_logger(__name__)
 init_sentry(settings)
@@ -40,10 +44,12 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         request_id = request.headers.get("X-Request-Id") or str(uuid4())
         request.state.request_id = request_id
         reset_request_llm_cost_summary()
+        set_request_llm_call_budget()
         try:
             response = await call_next(request)
         finally:
             reset_request_llm_cost_summary()
+            reset_request_llm_call_budget()
         response.headers["X-Request-Id"] = request_id
         return response
 

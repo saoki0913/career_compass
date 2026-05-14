@@ -51,7 +51,7 @@ def test_get_live_cases_extended_includes_hard_input_patterns() -> None:
     cases = get_live_cases("extended")
     case_ids = {case.case_id for case in cases}
 
-    assert len(cases) == 30
+    assert len(cases) == 36
     assert {
         "basic_companyless_selected_company_guard_short",
         "gakuchika_bullet_memo_reconstruction_medium",
@@ -85,14 +85,14 @@ def test_live_gate_soft_min_shortfall_matches_router_floor_ratio() -> None:
     assert LIVE_GATE_SOFT_MIN_FLOOR_RATIO == FINAL_SOFT_MIN_FLOOR_RATIO
 
 
-def test_live_gate_soft_min_allows_when_only_length_fix_result_flags_soft() -> None:
-    """length_policy が strict のまま length_fix_result だけ soft のときも短答帯は許容する。"""
+def test_live_gate_soft_min_requires_soft_length_policy() -> None:
+    """旧文字数修復 meta ではなく length_policy だけで soft 判定する。"""
     rewrite = "あ" * 125 + "。"
-    meta = SimpleNamespace(length_policy="strict", length_fix_result="soft_recovered")
-    assert _live_gate_allows_soft_min_shortfall(
+    meta = SimpleNamespace(length_policy="strict")
+    assert not _live_gate_allows_soft_min_shortfall(
         rewrite=rewrite, char_min=130, char_max=140, review_meta=meta
     )
-    meta_both = SimpleNamespace(length_policy="soft_ok", length_fix_result="soft_recovered")
+    meta_both = SimpleNamespace(length_policy="soft_ok")
     assert _live_gate_allows_soft_min_shortfall(
         rewrite=rewrite, char_min=130, char_max=140, review_meta=meta_both
     )
@@ -100,7 +100,7 @@ def test_live_gate_soft_min_allows_when_only_length_fix_result_flags_soft() -> N
 
 def test_live_gate_soft_min_allows_long_band_only_at_final_floor() -> None:
     rewrite = "あ" * 359 + "。"
-    meta = SimpleNamespace(length_policy="soft_ok", length_fix_result="soft_recovered")
+    meta = SimpleNamespace(length_policy="soft_ok")
     assert _live_gate_allows_soft_min_shortfall(
         rewrite=rewrite,
         char_min=390,

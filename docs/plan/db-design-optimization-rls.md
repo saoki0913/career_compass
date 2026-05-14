@@ -1,5 +1,10 @@
 # DB設計・最適化・マイグレーション・RLS 計画書
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+> **現状同期メモ（2026-05-13）**: RLS Phase 0 の `dbReadWithIdentity()` / `dbWriteAdmin()` / `SET LOCAL app.current_*` 境界 API は未実装。現 schema の `jsonb(` は 36 箇所で、計画上の JSONB inventory は再作成が必要。`0031_perf_cost_indexes.sql` の `CONCURRENTLY` と `0036_unique_stripe_customer_id.sql` の snapshot / duplicate preflight は migration safety タスクとして統合 JSON で追跡する。
+
+
 > 作成日: 2026-05-04
 > 対象: Career Compass (就活Pass) — Supabase PostgreSQL + Drizzle ORM
 > レビュー: Codex plan_review PASS_WITH_CONCERNS (全7件反映済み)
@@ -41,7 +46,7 @@
 |----------|------------|------------|
 | 認証 | 5 | users, sessions, accounts, verifications, guestUsers |
 | ユーザー設定 | 4 | userProfiles, calendarSettings, notificationSettings, loginPrompts |
-| 企業・選考 | 5 | companies, applications, jobTypes, deadlines, companyPdfIngestJobs |
+| 企業・選考 | 4 | companies, applications, jobTypes, deadlines |
 | 課金 | 4 | subscriptions, credits, creditTransactions, companyInfoMonthlyUsage |
 | タスク | 2 | tasks, taskTemplates |
 | 通知 | 2 | notifications, contactMessages |
@@ -141,7 +146,7 @@ FK チェーン最大深度: `ai_messages → ai_threads → documents → compa
 |----------|------------|------|------------|
 | A: userId only | 9 | `user_id = app_user_id()` | userProfiles, subscriptions, credits, creditTransactions, calendarSettings, notificationSettings, companyInfoMonthlyUsage, calendarEvents, calendarSyncJobs |
 | B: XOR ownership | 13 | `app_is_owner(user_id, guest_id)` | companies, applications, tasks, notifications, documents, gakuchikaContents, submissionItems, userPins, motivationConversations, interviewConversations, interviewFeedbackHistories, interviewTurnEvents, interviewDrillAttempts |
-| C: FK 継承 | 7 | `EXISTS (SELECT 1 FROM parent WHERE ...)` | jobTypes, deadlines, documentVersions, aiThreads, aiMessages, gakuchikaConversations, companyPdfIngestJobs |
+| C: FK 継承 | 6 | `EXISTS (SELECT 1 FROM parent WHERE ...)` | jobTypes, deadlines, documentVersions, aiThreads, aiMessages, gakuchikaConversations |
 | D: Auth | 4 | self-referencing + auth_role bypass | users, sessions, accounts, verifications |
 | E: Guest-only | 2 | `guest_id = app_guest_id()` | guestUsers, loginPrompts |
 | F: System/admin | 3 | app route からアクセスなし | processedStripeEvents, contactMessages, taskTemplates |

@@ -261,6 +261,34 @@ def test_assistive_templates_skip_company_rag_without_signal() -> None:
     ) is True
 
 
+def test_assess_coverage_with_zero_rag_returns_none_level() -> None:
+    level, weak_notice = _assess_company_evidence_coverage(
+        template_type="company_motivation",
+        role_name=None,
+        company_rag_available=False,
+        company_evidence_cards=[],
+        grounding_mode="none",
+    )
+
+    assert level == "none"
+    # company_motivation grounding policy is "required", so weak_notice must be True
+    assert weak_notice is True
+
+
+def test_build_company_evidence_cards_with_empty_sources_returns_empty() -> None:
+    cards = _build_company_evidence_cards(
+        [],
+        template_type="company_motivation",
+        question="志望理由を教えてください。",
+        answer="御社の事業に魅力を感じています。",
+        role_name=None,
+        intern_name=None,
+        grounding_mode="none",
+    )
+
+    assert cards == []
+
+
 @pytest.mark.asyncio
 async def test_enhanced_context_with_sources_propagates_priority_source_urls(
     monkeypatch: pytest.MonkeyPatch,

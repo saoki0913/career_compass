@@ -59,7 +59,6 @@ jobs:
       ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       CRON_SECRET: ci-cron-secret
       STRIPE_SECRET_KEY: sk_test_ci
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ci
       STRIPE_WEBHOOK_SECRET: whsec_ci
       STRIPE_PRICE_STANDARD_MONTHLY: price_standard_ci
       STRIPE_PRICE_PRO_MONTHLY: price_pro_ci
@@ -100,6 +99,29 @@ jobs:
           Develop CI reports the scope only. Local pre-commit and main promotion remain the blocking AI Functional E2E gates.
           SUMMARY
 
+  env-drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/git-hooks/check-env-var-drift.mjs
+
+  migration-consistency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Verify schema.ts matches migrations
+        run: npx drizzle-kit check
+
   security:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -112,7 +134,7 @@ jobs:
       - run: npm ci
       - run: node scripts/git-hooks/check-git-hygiene.mjs --tracked
       - run: node scripts/security/check-api-route-csrf.mjs
-      - run: bash security/scan/run-lightweight-scan.sh --fail-on=critical
+      - run: bash scripts/security/run-lightweight-scan.sh --fail-on=critical
 
   backend:
     runs-on: ubuntu-latest

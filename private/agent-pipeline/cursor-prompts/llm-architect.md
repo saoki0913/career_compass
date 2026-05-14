@@ -9,7 +9,7 @@
 - `backend/app/utils/llm.py` — LLM呼び出し基盤、モデル解決（`_resolve_model_target`）、コスト計算（`_DEFAULT_LLM_PRICE_CATALOG`）、プロバイダー別API呼び出し
 - `backend/app/config.py` — モデル名環境変数（`GPT_MODEL`, `GPT_MINI_MODEL`, `CLAUDE_SONNET_MODEL` 等）
 - `backend/app/prompts/es_templates.py` — `_model_provider_family()`, `resolve_length_control_profile()`, `_MODEL_FAMILY_DEFAULTS`
-- `backend/app/routers/es_review.py` — ES添削の3回リトライ+length_fix+degradedフォールバック
+- `backend/app/services/es_review/retry.py` / `backend/app/services/es_review/orchestrator.py` — ES添削の3回リトライ、型付き `RetryPlan`、degradedフォールバック
 
 ## ワークフロー
 
@@ -24,11 +24,11 @@
 ### モデルファミリー管理
 - 4ファミリー: `anthropic_claude`, `openai_gpt5`, `openai_gpt5_mini`, `google_gemini`, + `generic` フォールバック
 - `_model_provider_family()` は文字列マッチで分類。新モデル追加時はここを更新する。
-- 各ファミリーに文字数制御プロファイル（gap, early_length_fix_after_attempt）が定義済み。
+- 各ファミリーに文字数制御プロファイル（gap）が定義済み。
 
 ### フォールバック戦略
-- ES添削: strict → focused_retry_1 → focused_retry_2 → length_fix → degraded → 422
-- `REWRITE_MAX_ATTEMPTS = 3`, `LENGTH_FIX_REWRITE_ATTEMPTS = 1`
+- ES添削: strict → focused_retry_1 → focused_retry_2 → degraded → 422
+- `REWRITE_MAX_ATTEMPTS = 3`
 - 同一プロバイダー内でのリトライのみ。別プロバイダーへの自動切替は行わない。
 
 ### コスト管理

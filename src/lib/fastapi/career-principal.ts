@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHmac } from "crypto";
+import { serverEnv } from "@/env/server";
 
 /**
  * BFF → FastAPI principal propagation (`X-Career-Principal`)
@@ -117,7 +118,7 @@ function randomJti() {
  * leave `companyId` null when the conversation is not tied to a company.
  */
 export function createCareerPrincipalHeader(input: CreateCareerPrincipalInput): string {
-  const secret = process.env.CAREER_PRINCIPAL_HMAC_SECRET?.trim();
+  const secret = serverEnv.CAREER_PRINCIPAL_HMAC_SECRET?.trim();
   if (!secret) {
     throw new Error("CAREER_PRINCIPAL_HMAC_SECRET is not configured");
   }

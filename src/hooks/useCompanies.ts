@@ -9,6 +9,7 @@ import { CompanyStatus, type SelectionPhaseKey, getDefaultStatusForPhase } from 
 import { trackEvent } from "@/lib/analytics/client";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
+import type { CompanyLogoCandidate } from "@/lib/company-logo-types";
 
 export type { CompanyStatus } from "@/lib/constants/status";
 
@@ -39,6 +40,7 @@ export interface Company {
   updatedAt: string;
   // Estimated logo candidates for companies without reliable stored URL
   estimatedLogoDomains?: string[];
+  estimatedLogoCandidates?: CompanyLogoCandidate[];
   // Estimated favicon for fallback display
   estimatedFaviconUrl?: string | null;
   // Aggregate fields

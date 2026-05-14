@@ -37,10 +37,10 @@ stripe login
 
 ## 3. 環境変数の準備
 
-`.env.local` に Live 用キーを設定する:
+Live 用キーは `.env.local` に保存しない。一時プロセス env または canonical secrets bundle からのみ渡す:
 
 ```
-STRIPE_SECRET_KEY_LIVE=sk_live_xxxxxxxx
+STRIPE_SECRET_KEY_LIVE=<sk_live_...> npm run stripe:bootstrap-live
 ```
 
 スクリプトのキー解決順序（`scripts/stripe/core.mjs` の `resolveStripeSecretKey`）:
@@ -87,6 +87,7 @@ STRIPE_PRICE_STANDARD_MONTHLY=price_xxx
 STRIPE_PRICE_STANDARD_ANNUAL=price_xxx
 STRIPE_PRICE_PRO_MONTHLY=price_xxx
 STRIPE_PRICE_PRO_ANNUAL=price_xxx
+STRIPE_PORTAL_CONFIGURATION_ID=bpc_xxx
 STRIPE_WEBHOOK_SECRET=whsec_xxx
 ```
 
@@ -131,6 +132,7 @@ STRIPE_PRICE_STANDARD_MONTHLY=price_xxx
 STRIPE_PRICE_STANDARD_ANNUAL=price_xxx
 STRIPE_PRICE_PRO_MONTHLY=price_xxx
 STRIPE_PRICE_PRO_ANNUAL=price_xxx
+STRIPE_PORTAL_CONFIGURATION_ID=bpc_xxx
 STRIPE_WEBHOOK_SECRET=whsec_xxx
 ```
 
@@ -204,6 +206,17 @@ stripe trigger charge.dispute.closed
 ```
 
 登録イベントの一覧は `managed-config.json` の `webhook.events` が正本。
+
+### 決済フローの整合性確認
+
+Stripe は webhook を重複・順不同で配信する可能性があるため、アプリ側では次を必ず確認する。
+
+- Checkout 完了時は `checkout.session.customer`、取得した `subscription.customer`、`customer.metadata.userId`、既存 `subscriptions.stripe_customer_id` が一致すること。
+- `customer.subscription.updated` / `invoice.payment_*` は `subscriptions.last_stripe_event_created_at` より古い event なら no-op になること。
+- `invoice.payment_failed` は payload だけで即 downgrade せず、Stripe の現在の subscription を取得して反映すること。
+- `past_due / unpaid / paused / incomplete` など非終端 subscription が残っている customer には新規 Checkout を作らず、Customer Portal で支払い復旧・変更させること。
+- Portal から戻った UI は成功確定ではなく「Stripe 処理完了後に反映」と表示すること。
+- Billing notification は `source_event_id` で重複しないこと。
 
 ### テストカード
 

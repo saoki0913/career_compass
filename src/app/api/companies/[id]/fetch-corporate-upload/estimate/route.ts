@@ -10,6 +10,10 @@ import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import { getRemainingCompanyRagPdfFreeUnits } from "@/lib/company-info/usage";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import {
+  sanitizeUpstreamUserMessage,
+  summarizeUpstreamError,
+} from "@/bff/api/upstream-error-sanitizer";
 import { logError } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -124,8 +128,15 @@ export async function POST(
     });
     const data = (await response.json().catch(() => ({}))) as PdfEstimateResult;
     if (!response.ok) {
+      const msg = sanitizeUpstreamUserMessage(data, "PDFの見積に失敗しました。");
+      const upstreamSummary = summarizeUpstreamError(data);
+      logError(
+        "corporate-pdf-estimate-upstream-failed",
+        new Error(upstreamSummary || "FastAPI PDF estimate request failed"),
+        { companyId, status: response.status },
+      );
       return NextResponse.json(
-        { error: data.errors?.[0] || "PDFの見積に失敗しました。" },
+        { error: msg },
         { status: response.status || 500 }
       );
     }

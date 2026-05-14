@@ -36,6 +36,7 @@ import {
   type InterviewDrillScoreResult,
   type InterviewDrillStartResult,
 } from "@/lib/interview/client-api";
+import { isLikelyUserSafeMessage } from "@/shared/errors/user-safe-message";
 
 type DrillStep = "idle" | "loading_start" | "ready" | "scoring" | "complete" | "error";
 
@@ -103,7 +104,7 @@ export function DrillPanel(props: DrillPanelProps) {
       setStartResult(result);
       setStep("ready");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "ドリルの開始に失敗しました。");
+      setErrorMessage(error instanceof Error && isLikelyUserSafeMessage(error.message) ? error.message : "ドリルの開始に失敗しました。");
       setStep("error");
     }
   };
@@ -120,7 +121,7 @@ export function DrillPanel(props: DrillPanelProps) {
       setScoreResult(result);
       setStep("complete");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "再採点に失敗しました。");
+      setErrorMessage(error instanceof Error && isLikelyUserSafeMessage(error.message) ? error.message : "再採点に失敗しました。");
       setStep("error");
     }
   };

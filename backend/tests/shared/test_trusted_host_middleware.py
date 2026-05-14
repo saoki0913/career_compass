@@ -10,6 +10,10 @@ async def health(_request):
     return JSONResponse({"status": "healthy"})
 
 
+async def version(_request):
+    return JSONResponse({"sha": None})
+
+
 async def api(_request):
     return JSONResponse({"ok": True})
 
@@ -18,6 +22,7 @@ def make_client() -> TestClient:
     app = Starlette(
         routes=[
             Route("/health", health),
+            Route("/health/version", version),
             Route("/api/example", api),
         ]
     )
@@ -35,6 +40,15 @@ def test_healthcheck_bypasses_trusted_host_validation() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "healthy"}
+
+
+def test_version_healthcheck_bypasses_trusted_host_validation() -> None:
+    client = make_client()
+
+    response = client.get("/health/version", headers={"host": "railway-healthcheck"})
+
+    assert response.status_code == 200
+    assert response.json() == {"sha": None}
 
 
 def test_non_health_routes_still_enforce_trusted_host_validation() -> None:

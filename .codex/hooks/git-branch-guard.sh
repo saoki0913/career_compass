@@ -1,5 +1,5 @@
 #!/bin/bash
-# PreToolUse (Bash): git branch creation requires AskUserQuestion approval.
+# PreToolUse (Bash): git branch creation requires an explicit checkpoint.
 set -euo pipefail
 INPUT=$(cat)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -19,11 +19,13 @@ STATE_DIR="$(guard_state_dir_for_runtime codex)"
 APPROVAL_FLAG="$STATE_DIR/branch-creation-approved-$SESSION_ID"
 if [ -f "$APPROVAL_FLAG" ]; then rm -f "$APPROVAL_FLAG"; exit 0; fi
 
-cat >&2 <<'EOF'
-⛔ ブランチ作成をブロックしました。
+cat >&2 <<EOF
+ブランチ作成はまだ実行できません。
 
-開発は develop ブランチで行ってください。
-ブランチを新規作成する場合は AskUserQuestion でユーザーに確認してください。
-承認後: echo "approved" > "<state_dir>/branch-creation-approved-<session_id>"
+このプロジェクトでは通常 develop ブランチで作業します。
+新しいブランチが本当に必要な場合は、用途と理由を確認してから再実行してください。
+
+開発者向けの解除手順:
+  echo "approved" > "$APPROVAL_FLAG"
 EOF
 exit 2

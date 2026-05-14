@@ -176,6 +176,43 @@ describe("api/gakuchika/fastapi-stream", () => {
     expect(result.conversationState.remainingQuestionsEstimate).toBeNull();
   });
 
+  it("sends previous_stage as top-level field when conversationState has stage", async () => {
+    const { getQuestionFromFastAPI } = await import("./fastapi-stream");
+    const { getDefaultConversationState } = await import(
+      "@/lib/gakuchika/conversation-state"
+    );
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(
+          encoder.encode(
+            'data: {"type":"complete","data":{"question":"Q","conversation_state":{"stage":"es_building"},"next_action":"ask"}}\n',
+          ),
+        );
+        controller.close();
+      },
+    });
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      new Response(stream, { status: 200 }),
+    );
+
+    const state = { ...getDefaultConversationState(), stage: "draft_ready" as const };
+    await getQuestionFromFastAPI(
+      { title: "T", content: "C", charLimitType: "400" },
+      [],
+      3,
+      state,
+      "req-ps",
+      { userId: "u1", guestId: null },
+    );
+
+    const bodyStr = fetchFastApiWithPrincipalMock.mock.calls[0][1].body as string;
+    const body = JSON.parse(bodyStr);
+    expect(body.previous_stage).toBe("draft_ready");
+    expect(body.conversation_state).not.toHaveProperty("previous_stage");
+  });
+
   it("calls FastAPI stream with ai-stream principal for restart flows", async () => {
     const { getQuestionFromFastAPI } = await import("./fastapi-stream");
 

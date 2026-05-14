@@ -4,7 +4,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useCredits } from "@/hooks/useCredits";
-import { getCreditLowThreshold } from "@/lib/stripe/config";
+import { getCreditLowThreshold } from "@/lib/billing/plan-metadata";
 import {
   Tooltip,
   TooltipContent,

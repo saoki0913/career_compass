@@ -1,6 +1,5 @@
 #!/bin/bash
-# PreToolUse (ExitPlanMode): プランモード終了を記録し、常に許可する。
-# 委譲判断は impl-start-codex-gate.sh (Edit|Write) で enforce する。
+# PreToolUse (ExitPlanMode): record that Plan mode exited, but do not block.
 set -euo pipefail
 
 INPUT=$(cat)

@@ -10,15 +10,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies, companyPdfIngestJobs, userProfiles } from "@/lib/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { companies, userProfiles } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import {
   parseCorporateInfoSources,
   serializeCorporateInfoSources,
   type CorporateInfoSource,
 } from "@/lib/company-info/sources";
-import { deleteSupabaseObject } from "@/lib/storage/supabase-storage";
 import { CORPORATE_DELETE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
@@ -163,52 +162,13 @@ export async function POST(
       (urlInfo) => !urlsToDeleteSet.has(urlInfo.url)
     );
 
-    const pendingJobs = urls.length
-      ? await db
-          .select()
-          .from(companyPdfIngestJobs)
-          .where(
-            and(
-              eq(companyPdfIngestJobs.companyId, companyId),
-              inArray(companyPdfIngestJobs.sourceUrl, urls)
-            )
-          )
-      : [];
-
-    await db.transaction(async (tx) => {
-      await tx
-        .update(companies)
-        .set({
-          corporateInfoUrls: serializeCorporateInfoSources(updatedUrls as CorporateInfoSource[]),
-          updatedAt: new Date(),
-        })
-        .where(eq(companies.id, companyId));
-
-      if (pendingJobs.length > 0) {
-        await tx
-          .delete(companyPdfIngestJobs)
-          .where(
-            and(
-              eq(companyPdfIngestJobs.companyId, companyId),
-              inArray(
-                companyPdfIngestJobs.id,
-                pendingJobs.map((job) => job.id)
-              )
-            )
-          );
-      }
-    });
-
-    for (const job of pendingJobs) {
-      try {
-        await deleteSupabaseObject({
-          bucket: job.storageBucket,
-          path: job.storagePath,
-        });
-      } catch (error) {
-        console.error("Failed to delete deferred PDF object:", error);
-      }
-    }
+    await db
+      .update(companies)
+      .set({
+        corporateInfoUrls: serializeCorporateInfoSources(updatedUrls as CorporateInfoSource[]),
+        updatedAt: new Date(),
+      })
+      .where(eq(companies.id, companyId));
 
     return NextResponse.json({
       success: deleteResult.success,

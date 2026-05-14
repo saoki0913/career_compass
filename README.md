@@ -26,6 +26,8 @@ npm install
 
 # 環境変数のコピー
 cp .env.example .env.local
+# npm run dev の preflight が不足項目と取得先を表示します。
+# まず BETTER_AUTH_TRUSTED_ORIGINS を設定してください。
 
 # データベース（初回）
 # 空のDBに一気に反映（開発/初期構築向け）

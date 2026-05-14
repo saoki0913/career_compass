@@ -25,7 +25,10 @@ HEAD_SHA=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "")
 release_mode_for_command() {
   case "$CMD" in
     *"make ops-release-check"*|*"release-career-compass.sh --check"*|*"release-career-compass.sh --preflight-only"*) printf '%s\n' "check" ;;
-    *"make deploy-stage-all"*|*"release-career-compass.sh --stage-all"*) printf '%s\n' "stage-all" ;;
+    *"make deploy-staging"*) printf '%s\n' "staging" ;;
+    *"make deploy-production"*) printf '%s\n' "production" ;;
+    *"make deploy-stage-all"*|*"release-career-compass.sh --stage-all"*) printf '%s\n' "release" ;;
+    *"make deploy-migrate"*) printf '%s\n' "production" ;;
     *"make release-pr"*|*"create-career-compass-release-pr.sh"*) printf '%s\n' "release-pr" ;;
     *"make rollback-prod"*|*"rollback-career-compass.sh"*) printf '%s\n' "rollback" ;;
     *"release-career-compass.sh --staging-only"*) printf '%s\n' "staging-only" ;;

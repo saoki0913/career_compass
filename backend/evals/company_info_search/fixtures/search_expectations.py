@@ -8,9 +8,10 @@ and the RunJudgment data structure used by the test report.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
+
+from evals.company_info_search.models import RunJudgment
 
 # =========================================================================
 # URL Pattern Expectations per Content Type
@@ -87,25 +88,6 @@ CONTENT_TYPE_URL_PATTERNS: dict[str, list[str]] = {
         "/chuki",
     ],
 }
-
-
-# =========================================================================
-# RunJudgment: per-run verdict
-# =========================================================================
-@dataclass
-class RunJudgment:
-    """Judgment result for a single search run."""
-
-    passed: bool  # Overall pass/fail
-    official_found: bool  # Official domain in Top-N
-    official_rank: Optional[int] = None  # 1-indexed rank of first official result
-    source_type_correct: bool = False  # source_type="official" correctly assigned
-    company_match_correct: bool = False  # company_name_matched is true
-    year_match_correct: bool = False  # (recruitment only) year_matched
-    url_pattern_match: bool = False  # (corporate only) URL contains expected pattern
-    confidence_appropriate: bool = False  # confidence is high or medium
-    details: str = ""  # Human-readable explanation
-    failure_reasons: list[str] = field(default_factory=list)
 
 
 # =========================================================================

@@ -4,15 +4,15 @@
  * Tracks per-identity daily token consumption and enforces plan-based limits.
  * Follows the same patterns as src/lib/rate-limit.ts:
  *   - Lazy Redis initialization
- *   - Fail-open on Redis unavailability or errors
+ *   - Strict fail-closed in deployed environments, in-memory fallback in local/dev/test
  *   - DISABLE_TOKEN_LIMIT env var bypass
  */
 
-import { Redis } from "@upstash/redis";
-
+import { serverEnv } from "@/env/server";
 import type { RequestIdentity } from "@/bff/identity/request-identity";
 import type { InternalCostTelemetry } from "@/lib/ai/cost-summary-log";
 import { getJstDateKey, startOfJstDayAsUtc } from "@/lib/datetime/jst";
+import { getRedis, getRedisNamespace } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -30,6 +30,8 @@ const REDIS_KEY_PREFIX = "daily_llm_tokens";
 /** 25 hours -- generous TTL so key survives JST day boundary even with clock skew */
 const TTL_SECONDS = 90_000;
 
+const memoryTokenStore = new Map<string, { tokens: number; expiresAtMs: number }>();
+
 // ---------------------------------------------------------------------------
 // Utility helpers
 // ---------------------------------------------------------------------------
@@ -41,7 +43,7 @@ function getJstDateString(): string {
 
 /** Build the Redis key for a given identity's daily token bucket */
 function buildDailyTokenKey(identityId: string): string {
-  return `${REDIS_KEY_PREFIX}:${identityId}:${getJstDateString()}`;
+  return `${REDIS_KEY_PREFIX}:${getRedisNamespace()}:${identityId}:${getJstDateString()}`;
 }
 
 /** Seconds until next JST midnight (00:00 Asia/Tokyo) */
@@ -61,36 +63,48 @@ function getNextJstMidnightUtc(): Date {
   return new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
 }
 
-// ---------------------------------------------------------------------------
-// Redis initialization (lazy, singleton)
-// ---------------------------------------------------------------------------
-
-function isUpstashConfigured(): boolean {
-  return !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+function isStrictTokenLimitEnvironment(): boolean {
+  return (
+    process.env.VERCEL_ENV === "production" ||
+    process.env.VERCEL_ENV === "preview" ||
+    process.env.NODE_ENV === "production"
+  );
 }
 
-let _redis: Redis | null = null;
-
-function getRedis(): Redis | null {
-  if (!isUpstashConfigured()) return null;
-  if (!_redis) {
-    _redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
+function readMemoryTokenCount(key: string): number {
+  const state = memoryTokenStore.get(key);
+  if (!state) return 0;
+  if (state.expiresAtMs <= Date.now()) {
+    memoryTokenStore.delete(key);
+    return 0;
   }
-  return _redis;
+  return state.tokens;
+}
+
+function incrementMemoryTokenCount(key: string, tokensUsed: number): void {
+  const existing = readMemoryTokenCount(key);
+  memoryTokenStore.set(key, {
+    tokens: existing + tokensUsed,
+    expiresAtMs: Date.now() + TTL_SECONDS * 1000,
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Exported types
 // ---------------------------------------------------------------------------
 
-export type DailyTokenLimitResult = {
-  allowed: boolean;
-  remaining: number;
-  resetAtUtc: Date;
-};
+export type DailyTokenLimitResult =
+  | { status: "allowed"; remaining: number; resetAtUtc: Date }
+  | { status: "limit_exceeded"; remaining: 0; resetAtUtc: Date }
+  | { status: "service_unavailable"; resetAtUtc: Date }
+  | { status: "bypassed" };
+
+/**
+ * Helper to check if a DailyTokenLimitResult permits proceeding.
+ */
+export function isTokenLimitOk(result: DailyTokenLimitResult): boolean {
+  return result.status === "allowed" || result.status === "bypassed";
+}
 
 // ---------------------------------------------------------------------------
 // Core functions
@@ -99,7 +113,7 @@ export type DailyTokenLimitResult = {
 /**
  * Check whether the identity has remaining daily token budget.
  *
- * Fail-open: returns allowed=true when Redis is unavailable or on error.
+ * Fail-closed: returns service_unavailable when Redis is unavailable or on error.
  */
 export async function checkDailyTokenLimit(
   identity: RequestIdentity,
@@ -108,19 +122,36 @@ export async function checkDailyTokenLimit(
   const resetAtUtc = getNextJstMidnightUtc();
 
   // Env-var bypass
-  if (process.env.DISABLE_TOKEN_LIMIT === "true") {
-    return { allowed: true, remaining: Infinity, resetAtUtc };
+  if (serverEnv.DISABLE_TOKEN_LIMIT === "true") {
+    return { status: "bypassed" };
   }
 
   const id = identity.userId ?? identity.guestId;
   if (!id) {
-    return { allowed: true, remaining: Infinity, resetAtUtc };
+    // No identity to track -- bypass
+    return { status: "bypassed" };
   }
 
   const redis = getRedis();
   if (!redis) {
-    // Upstash not configured -- fail-open
-    return { allowed: true, remaining: Infinity, resetAtUtc };
+    if (!isStrictTokenLimitEnvironment()) {
+      const key = buildDailyTokenKey(id);
+      const current = readMemoryTokenCount(key);
+      const limit = DAILY_TOKEN_LIMITS[plan] ?? DAILY_TOKEN_LIMITS.free;
+
+      if (current >= limit) {
+        return { status: "limit_exceeded", remaining: 0, resetAtUtc };
+      }
+
+      return {
+        status: "allowed",
+        remaining: Math.max(0, limit - current),
+        resetAtUtc,
+      };
+    }
+
+    // Deployed environments must use Redis so the limit is shared across instances.
+    return { status: "service_unavailable", resetAtUtc };
   }
 
   try {
@@ -129,11 +160,11 @@ export async function checkDailyTokenLimit(
     const limit = DAILY_TOKEN_LIMITS[plan] ?? DAILY_TOKEN_LIMITS.free;
 
     if (current >= limit) {
-      return { allowed: false, remaining: 0, resetAtUtc };
+      return { status: "limit_exceeded", remaining: 0, resetAtUtc };
     }
 
     return {
-      allowed: true,
+      status: "allowed",
       remaining: Math.max(0, limit - current),
       resetAtUtc,
     };
@@ -144,8 +175,21 @@ export async function checkDailyTokenLimit(
         error: error instanceof Error ? error.message : String(error),
       }),
     );
-    // Fail-open
-    return { allowed: true, remaining: Infinity, resetAtUtc };
+    if (!isStrictTokenLimitEnvironment()) {
+      const key = buildDailyTokenKey(id);
+      const current = readMemoryTokenCount(key);
+      const limit = DAILY_TOKEN_LIMITS[plan] ?? DAILY_TOKEN_LIMITS.free;
+      if (current >= limit) {
+        return { status: "limit_exceeded", remaining: 0, resetAtUtc };
+      }
+      return {
+        status: "allowed",
+        remaining: Math.max(0, limit - current),
+        resetAtUtc,
+      };
+    }
+
+    return { status: "service_unavailable", resetAtUtc };
   }
 }
 
@@ -158,17 +202,22 @@ export async function incrementDailyTokenCount(
   identity: RequestIdentity,
   tokensUsed: number,
 ): Promise<void> {
-  if (process.env.DISABLE_TOKEN_LIMIT === "true") return;
+  if (serverEnv.DISABLE_TOKEN_LIMIT === "true") return;
   if (tokensUsed <= 0) return;
 
   const id = identity.userId ?? identity.guestId;
   if (!id) return;
 
   const redis = getRedis();
-  if (!redis) return;
+  const key = buildDailyTokenKey(id);
+  if (!redis) {
+    if (!isStrictTokenLimitEnvironment()) {
+      incrementMemoryTokenCount(key, tokensUsed);
+    }
+    return;
+  }
 
   try {
-    const key = buildDailyTokenKey(id);
     const newVal = await redis.incrby(key, tokensUsed);
 
     // If newVal equals tokensUsed, the key was just created -- set TTL

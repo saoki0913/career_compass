@@ -70,9 +70,8 @@ describe("estimateCorporateUrl", () => {
   it("returns canonical logo domain for Mitsubishi Corporation", () => {
     const result = estimateCompanyLogoProfile("三菱商事");
     expect(result?.logoDomains[0]).toBe("mitsubishicorp.com");
-    expect(result?.fallbackFaviconUrl).toBe(
-      "https://www.google.com/s2/favicons?domain=mitsubishicorp.com&sz=128"
-    );
+    expect(result?.fallback).toEqual({ kind: "initials" });
+    expect(result?.fallbackFaviconUrl).toBeNull();
   });
 
   it("returns canonical logo domain for MUFG Bank", () => {
@@ -83,5 +82,75 @@ describe("estimateCorporateUrl", () => {
   it("keeps existing full-domain logo candidates for Sagawa Express", () => {
     const result = estimateCompanyLogoProfile("佐川急便");
     expect(result?.logoDomains[0]).toBe("sagawa-exp.co.jp");
+  });
+
+  it("uses explicit logo domains for Mitsui and does not infer from search domains", () => {
+    const result = estimateCompanyLogoProfile("三井物産");
+    expect(result?.logoDomains).toEqual(["mitsui.com"]);
+    expect(result?.logoAssetKey).toBe("mitsui-corporate-horizontal");
+    expect(result?.logoDomains).not.toContain("mitsui.co.jp");
+    expect(result?.candidates[0]).toEqual({
+      kind: "domain",
+      domain: "mitsui.com",
+      source: "mapping.logo_domains",
+      confidence: "high",
+    });
+    expect(result?.candidates[1]).toEqual({
+      kind: "official-asset",
+      assetKey: "mitsui-corporate-horizontal",
+      source: "mapping.logo_asset_key",
+      confidence: "high",
+    });
+  });
+
+  it("returns verified logo candidates for Mitsui Fudosan", () => {
+    const result = estimateCompanyLogoProfile("三井不動産");
+    expect(result?.logoAssetKey).toBe("mitsuifudosan-corporate");
+    expect(result?.logoDomains).toEqual(["mitsuifudosan.co.jp"]);
+    expect(JSON.stringify(result)).not.toContain("mufg");
+    expect(result?.candidates[0]).toEqual({
+      kind: "domain",
+      domain: "mitsuifudosan.co.jp",
+      source: "mapping.logo_domains",
+      confidence: "high",
+    });
+  });
+
+  it("returns verified logo candidates for Tokio Marine Nichido", () => {
+    const result = estimateCompanyLogoProfile("東京海上日動火災保険");
+    expect(result?.logoAssetKey).toBe("tokio-marine-nichido");
+    expect(result?.logoDomains).toEqual(["tokiomarine-nichido.co.jp"]);
+    expect(result?.candidates[0]).toEqual({
+      kind: "domain",
+      domain: "tokiomarine-nichido.co.jp",
+      source: "mapping.logo_domains",
+      confidence: "high",
+    });
+  });
+
+  it("safely promotes full mapped domains as low-confidence logo candidates", () => {
+    const result = estimateCompanyLogoProfile("三井住友銀行");
+    expect(result?.candidates).toContainEqual({
+      kind: "domain",
+      domain: "smbc.co.jp",
+      source: "promoted.mapping.domains",
+      confidence: "low",
+    });
+  });
+
+  it("does not promote bare search tokens into logo domains", () => {
+    const result = estimateCompanyLogoProfile("三菱商事");
+    expect(result?.logoDomains).toEqual(["mitsubishicorp.com"]);
+    expect(result?.logoDomains).not.toContain("career-mc.co.jp");
+  });
+
+  it("adds allowlisted name candidates only when the mapping explicitly provides them", () => {
+    const result = estimateCompanyLogoProfile("佐川急便");
+    expect(result?.candidates).toContainEqual({
+      kind: "allowlisted-name",
+      nameKey: "sagawa-express",
+      source: "mapping.logo_names",
+      confidence: "high",
+    });
   });
 });

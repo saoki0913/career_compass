@@ -20,8 +20,6 @@ def test_summarize_review_meta_records_reports_retry_quality_and_token_usage() -
                 "length_profile_id": "openai_gpt5:medium:default",
                 "length_failure_code": "under_min",
                 "rewrite_attempt_count": 2,
-                "length_fix_attempted": False,
-                "length_fix_result": "not_needed",
                 "length_policy": "strict",
                 "weak_evidence_notice": False,
                 "token_usage": {
@@ -39,9 +37,7 @@ def test_summarize_review_meta_records_reports_retry_quality_and_token_usage() -
                 "llm_model": "claude-sonnet-4-6",
                 "length_profile_id": "anthropic_claude:long:recovery",
                 "length_failure_code": "soft_ok",
-                "rewrite_attempt_count": 4,
-                "length_fix_attempted": True,
-                "length_fix_result": "soft_recovered",
+                "rewrite_attempt_count": 3,
                 "length_policy": "soft_ok",
                 "weak_evidence_notice": True,
                 "rewrite_validation_status": "soft_ok",
@@ -53,18 +49,17 @@ def test_summarize_review_meta_records_reports_retry_quality_and_token_usage() -
                     "output_tokens": 35,
                     "reasoning_tokens": 0,
                     "cached_input_tokens": 0,
-                    "llm_call_count": 4,
+                    "llm_call_count": 3,
                     "structured_call_count": 1,
-                    "text_call_count": 3,
+                    "text_call_count": 2,
                 },
             },
         ]
     )
 
     assert summary["total_reviews"] == 2
-    assert summary["retry_distribution"] == {"2": 1, "4": 1}
-    assert summary["average_rewrite_attempts"] == 3.0
-    assert summary["length_fix_results"]["soft_recovered"] == 1
+    assert summary["retry_distribution"] == {"2": 1, "3": 1}
+    assert summary["average_rewrite_attempts"] == 2.5
     assert summary["providers"] == {"openai": 1, "claude": 1}
     assert summary["length_profiles"] == {
         "openai_gpt5:medium:default": 1,
@@ -75,10 +70,9 @@ def test_summarize_review_meta_records_reports_retry_quality_and_token_usage() -
         "soft_ok": 1,
     }
     assert summary["quality_signals"] == {
-        "length_fix_attempted": 1,
         "weak_evidence_notice": 1,
         "soft_ok": 1,
-        "soft_recovered": 1,
+        "soft_ok_validation": 1,
         "fallback_triggered": 1,
         "misclassification_recovery_applied": 1,
     }
@@ -88,7 +82,7 @@ def test_summarize_review_meta_records_reports_retry_quality_and_token_usage() -
         "output_tokens": 75,
         "reasoning_tokens": 6,
         "cached_input_tokens": 20,
-        "llm_call_count": 7,
+        "llm_call_count": 6,
         "structured_call_count": 2,
-        "text_call_count": 5,
+        "text_call_count": 4,
     }

@@ -19,7 +19,7 @@ from app.utils.llm_model_routing import (
     get_model_display_name,
 )
 from app.utils.secure_logger import get_logger
-from typing import Any, AsyncGenerator, Callable, Literal
+from typing import Any, AsyncGenerator, Callable, Literal, Protocol, runtime_checkable
 from dataclasses import dataclass
 
 logger = get_logger(__name__)
@@ -293,7 +293,7 @@ def _build_chat_response_format(
 class LLMError:
     """LLMエラーの詳細情報。"""
 
-    error_type: str  # "no_api_key", "billing", "rate_limit", "invalid_key", "network", "parse", "refusal", "unknown"
+    error_type: str  # "no_api_key", "billing", "rate_limit", "invalid_key", "network", "parse", "refusal", "budget_exceeded", "unknown"
     message: str  # ユーザー向けメッセージ（日本語）
     detail: str  # ログ用の技術的詳細
     provider: str  # "anthropic" または "openai"
@@ -307,6 +307,16 @@ class LLMError:
             "provider": self.provider,
             "feature": self.feature,
         }
+
+
+@runtime_checkable
+class LLMResultLike(Protocol):
+    """Structural protocol for LLM call results (real and test doubles)."""
+
+    success: bool
+    data: dict | None
+    error: LLMError | None
+    usage: dict[str, int] | None
 
 
 @dataclass
@@ -337,6 +347,7 @@ def _create_error(
         "network": f"{provider_name}への接続に失敗しました。ネットワーク接続を確認してください。",
         "parse": "AIからの応答を解析できませんでした。もう一度お試しください。",
         "refusal": "AIが安全上の理由で応答を返せませんでした。入力内容や条件を見直して、もう一度お試しください。",
+        "budget_exceeded": f"{feature_name}のリクエスト処理が上限に達しました。もう一度お試しください。",
         "unknown": f"{feature_name}の処理中にエラーが発生しました。しばらくしてから再度お試しください。",
     }
 

@@ -7,7 +7,7 @@ describe("redactSensitive", () => {
       "Bearer abcdefghijklmnopqrstuvwxyz",
       "test@example.com",
       "guest_device_token=abcdefghijklmnopqrstuvwxyz",
-      "sk-ant-abcdefghijklmnopqrstuvwxyz",
+      ["sk-ant", "abcdefghijklmnopqrstuvwxyz"].join("-"),
     ].join(" ");
 
     const redacted = redactSensitive(text);

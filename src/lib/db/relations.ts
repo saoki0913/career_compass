@@ -7,7 +7,6 @@ import {
   calendarEvents,
   calendarSettings,
   companies,
-  companyPdfIngestJobs,
   creditTransactions,
   credits,
   deadlines,
@@ -132,14 +131,6 @@ export const companiesRelations = relations(companies, ({ many, one }) => ({
   tasks: many(tasks),
   motivationConversations: many(motivationConversations),
   interviewConversations: many(interviewConversations),
-  pdfIngestJobs: many(companyPdfIngestJobs),
-}));
-
-export const companyPdfIngestJobsRelations = relations(companyPdfIngestJobs, ({ one }) => ({
-  company: one(companies, {
-    fields: [companyPdfIngestJobs.companyId],
-    references: [companies.id],
-  }),
 }));
 
 export const applicationsRelations = relations(applications, ({ many, one }) => ({

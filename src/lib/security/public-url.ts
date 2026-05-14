@@ -30,9 +30,11 @@ export interface NormalizedPublicUrlResult {
 
 type GuardedFetchOptions = {
   maxRedirects?: number;
+  maxResponseBytes?: number;
 };
 
 const MAX_REDIRECTS = 5;
+const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
 const ALLOWED_PORTS = new Set(["", "443"]);
 
 type LookupCallback = (error: NodeJS.ErrnoException | null, address: string, family: number) => void;
@@ -158,7 +160,19 @@ function nodeHeadersToFetchHeaders(headers: Record<string, string | string[] | u
   return result;
 }
 
-async function fetchWithPinnedIp(url: URL, resolvedIps: string[], init?: RequestInit): Promise<Response> {
+function parseContentLength(value: string | string[] | undefined): number | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+async function fetchWithPinnedIp(
+  url: URL,
+  resolvedIps: string[],
+  init: RequestInit | undefined,
+  maxResponseBytes: number,
+): Promise<Response> {
   const body = bodyInitToBuffer(init?.body);
   const baseHeaders = headersInitToRecord(init?.headers);
   const path = `${url.pathname || "/"}${url.search}`;
@@ -181,11 +195,28 @@ async function fetchWithPinnedIp(url: URL, resolvedIps: string[], init?: Request
             callback(null, address, isIP(address));
           },
         }, (response) => {
+          const declaredLength = parseContentLength(response.headers["content-length"]);
+          if (declaredLength !== null && declaredLength > maxResponseBytes) {
+            request.destroy(new Error("Guarded fetch response body exceeded size limit"));
+            return;
+          }
+
           const chunks: Buffer[] = [];
+          let totalBytes = 0;
+          let responseTooLarge = false;
           response.on("data", (chunk: Buffer | string) => {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            if (responseTooLarge) return;
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            totalBytes += buffer.byteLength;
+            if (totalBytes > maxResponseBytes) {
+              responseTooLarge = true;
+              request.destroy(new Error("Guarded fetch response body exceeded size limit"));
+              return;
+            }
+            chunks.push(buffer);
           });
           response.on("end", () => {
+            if (responseTooLarge) return;
             resolve(new Response(Buffer.concat(chunks), {
               status: response.statusCode ?? 0,
               statusText: response.statusMessage,
@@ -301,6 +332,7 @@ export async function guardedFetch(
   options?: GuardedFetchOptions,
 ): Promise<Response> {
   const maxRedirects = options?.maxRedirects ?? MAX_REDIRECTS;
+  const maxResponseBytes = options?.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   let currentUrl = input;
 
   for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
@@ -309,7 +341,7 @@ export async function guardedFetch(
       throw new Error(validation.userMessage || "URL validation failed");
     }
 
-    const response = await fetchWithPinnedIp(validation.url, validation.resolvedIps, init);
+    const response = await fetchWithPinnedIp(validation.url, validation.resolvedIps, init, maxResponseBytes);
 
     if (response.status < 300 || response.status >= 400) {
       return response;

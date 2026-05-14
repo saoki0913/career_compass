@@ -191,6 +191,50 @@ describe("handleReviewStream", () => {
     expect(fetchFastApiWithPrincipalMock).not.toHaveBeenCalled();
   });
 
+  it("returns token limit failures before validation, billing, and FastAPI", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    guardDailyTokenLimitMock.mockResolvedValueOnce(
+      Response.json(
+        {
+          error: {
+            code: "TOKEN_LIMIT_SERVICE_UNAVAILABLE",
+            userMessage: "現在、AI機能を一時的に利用できません。",
+            action: "数分後にもう一度お試しください。クレジットは消費されていません。",
+            retryable: true,
+          },
+          requestId: "req-token",
+        },
+        { status: 503, headers: { "X-Request-Id": "req-token" } },
+      ),
+    );
+
+    const request = new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+      method: "POST",
+      body: JSON.stringify({
+        content: "志望理由です",
+        sectionTitle: "志望動機",
+        sectionCharLimit: 400,
+      }),
+      headers: { "content-type": "application/json" },
+    });
+    const response = await handleReviewStream(
+      request,
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe("TOKEN_LIMIT_SERVICE_UNAVAILABLE");
+    expect(body.code).toBeUndefined();
+    expect(guardDailyTokenLimitMock).toHaveBeenCalledWith({ userId: "user-1", guestId: null }, request);
+    expect(precheckMock).not.toHaveBeenCalled();
+    expect(reserveMock).not.toHaveBeenCalled();
+    expect(fetchFastApiWithPrincipalMock).not.toHaveBeenCalled();
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(cancelMock).not.toHaveBeenCalled();
+  });
+
   it("rejects out-of-range section char limit before reserving credits", async () => {
     const { handleReviewStream } = await import("./handle-review-stream");
 
@@ -504,6 +548,88 @@ describe("handleReviewStream", () => {
             controller.enqueue(
               new TextEncoder().encode(
                 'data: {"type":"complete","result":{"rewrites":["改善後の本文"]},"billing_outcome":{"success":true,"billable":true,"schema_version":1}}\n\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    await response.text();
+
+    expect(confirmMock).toHaveBeenCalledOnce();
+    expect(cancelMock).not.toHaveBeenCalled();
+  });
+
+  it("does not confirm credits when complete event is explicitly non-billable", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                'data: {"type":"complete","result":{"rewrites":["改善後の本文"]},"billing_outcome":{"success":true,"billable":false,"schema_version":1}}\n\n',
+              ),
+            );
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const response = await handleReviewStream(
+      new NextRequest("http://localhost:3000/api/documents/doc-1/review/stream", {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    const text = await response.text();
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(incrementDailyTokenCountMock).not.toHaveBeenCalled();
+    expect(cancelMock).toHaveBeenCalledWith(
+      expect.objectContaining({ documentId: "doc-1" }),
+      "res-1",
+      "stream_ended_without_complete",
+    );
+    expect(text).toContain("添削結果の形式が不正です");
+  });
+
+  it("accepts nested complete result only when billing outcome is billable", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode(
+                'data: {"type":"complete","data":{"result":{"rewrites":["改善後の本文"]}},"billing_outcome":{"success":true,"billable":true,"schema_version":1}}\n\n',
               ),
             );
             controller.close();

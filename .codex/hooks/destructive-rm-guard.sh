@@ -24,13 +24,14 @@ if guard_rm_rf_all_targets_safe "$CMD"; then
 fi
 
 cat >&2 <<'EOF'
-Unsafe destructive delete blocked by Codex hook.
+この削除操作は実行できません。
 
-Allowed targets are build/cache artifacts only:
+削除できるのは、ビルド結果やキャッシュなど再生成できるものだけです。
+許可される対象:
   node_modules, .next, build, dist, __pycache__, coverage,
   .turbo, .cache, .pytest_cache, .mypy_cache, .ruff_cache,
   out, .parcel-cache, .vercel, target, tmp
 
-git clean -fdx and find -delete are blocked.
+作業ツリー全体を消す操作や、広い範囲の自動削除は実行できません。
 EOF
 exit 2

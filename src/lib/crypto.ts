@@ -4,6 +4,7 @@
  */
 
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { serverEnv } from "@/env/server";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12; // GCM recommended IV length
@@ -14,7 +15,7 @@ const AUTH_TAG_LENGTH = 16;
  * Key must be 32 bytes (256 bits) for AES-256
  */
 function getEncryptionKey(): Buffer {
-  const key = process.env.ENCRYPTION_KEY;
+  const key = serverEnv.ENCRYPTION_KEY;
   if (!key) {
     throw new Error("ENCRYPTION_KEY environment variable is not set");
   }

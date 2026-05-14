@@ -16,6 +16,23 @@ _request_llm_cost_summary_var: contextvars.ContextVar[dict[str, Any] | None] = c
     default=None,
 )
 
+_request_llm_call_budget_var: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "request_llm_call_budget",
+    default=None,
+)
+
+LlmBudgetStatus = Literal["budget_exceeded"]
+
+DEFAULT_LLM_CALL_BUDGET = 8
+FEATURE_LLM_CALL_BUDGETS: dict[str, int] = {
+    "es_review": 15,
+    "gakuchika": 10,
+    "motivation": 10,
+    "interview": 10,
+    "interview_plan": 10,
+    "interview_feedback": 10,
+}
+
 _DEFAULT_LLM_PRICE_CATALOG: dict[str, dict[str, float]] = {
     "gpt-5.4": {
         "input_per_mtok_usd": 2.5,
@@ -193,6 +210,55 @@ def reset_request_llm_cost_summary() -> None:
     _request_llm_cost_summary_var.set(None)
 
 
+def _new_request_llm_cost_summary(feature: str) -> dict[str, Any]:
+    return {
+        "feature": feature or "unknown",
+        "input_tokens_total": 0,
+        "output_tokens_total": 0,
+        "reasoning_tokens_total": 0,
+        "cached_input_tokens_total": 0,
+        "est_usd_total": 0.0,
+        "est_jpy_total": None,
+        "models_used": [],
+        "usage_status": "ok",
+        "llm_call_count": 0,
+        "llm_call_counts_by_kind": {},
+        "llm_call_counts_by_provider": {},
+    }
+
+
+def record_request_llm_call_attempt(
+    *,
+    feature: str,
+    provider: str,
+    resolved_model: str,
+    call_kind: str,
+) -> None:
+    """Record per-request LLM call telemetry."""
+    summary = _request_llm_cost_summary_var.get()
+    if summary is None:
+        if not (_should_log_llm_cost() or _should_log_llm_cost_debug()):
+            return
+        summary = _new_request_llm_cost_summary(feature)
+
+    summary["feature"] = feature or summary.get("feature") or "unknown"
+    summary["llm_call_count"] = int(summary.get("llm_call_count") or 0) + 1
+
+    by_kind = summary.setdefault("llm_call_counts_by_kind", {})
+    if isinstance(by_kind, dict):
+        by_kind[call_kind] = int(by_kind.get(call_kind) or 0) + 1
+
+    by_provider = summary.setdefault("llm_call_counts_by_provider", {})
+    if isinstance(by_provider, dict):
+        by_provider[provider] = int(by_provider.get(provider) or 0) + 1
+
+    models_used = summary.setdefault("models_used", [])
+    if resolved_model and resolved_model not in models_used:
+        models_used.append(resolved_model)
+
+    _request_llm_cost_summary_var.set(summary)
+
+
 def _merge_usage_status(current: str | None, incoming: str) -> str:
     if current in {None, "", "ok"}:
         return incoming
@@ -213,17 +279,7 @@ def _record_request_llm_cost_summary(
 ) -> None:
     summary = _request_llm_cost_summary_var.get()
     if summary is None:
-        summary = {
-            "feature": feature,
-            "input_tokens_total": 0,
-            "output_tokens_total": 0,
-            "reasoning_tokens_total": 0,
-            "cached_input_tokens_total": 0,
-            "est_usd_total": 0.0,
-            "est_jpy_total": None,
-            "models_used": [],
-            "usage_status": "ok",
-        }
+        summary = _new_request_llm_cost_summary(feature)
 
     summary["feature"] = feature or summary.get("feature") or "unknown"
     summary["input_tokens_total"] += int(normalized_usage.get("input_tokens") or 0)
@@ -270,6 +326,13 @@ def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, An
         "usage_status": str(summary.get("usage_status") or "ok"),
         "models_used": list(summary.get("models_used") or []),
     }
+    call_count = int(summary.get("llm_call_count") or 0)
+    if call_count:
+        result["llm_call_count"] = call_count
+        result["llm_call_counts_by_kind"] = dict(summary.get("llm_call_counts_by_kind") or {})
+        result["llm_call_counts_by_provider"] = dict(
+            summary.get("llm_call_counts_by_provider") or {}
+        )
     est_usd_total = summary.get("est_usd_total")
     if isinstance(est_usd_total, (int, float)) and est_usd_total > 0:
         result["est_usd_total"] = round(float(est_usd_total), 6)
@@ -324,3 +387,58 @@ def _format_llm_cost_kv_line(
     if trace_id:
         parts.append(f"trace_id={trace_id}")
     return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Per-request LLM call budget
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def _load_budget_overrides() -> dict[str, int]:
+    raw = os.getenv("LLM_CALL_BUDGET_OVERRIDES_JSON", "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.warning("event=llm_budget_config status=invalid_overrides_json")
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    overrides: dict[str, int] = {}
+    for feature, budget in parsed.items():
+        if isinstance(feature, str) and isinstance(budget, (int, float)):
+            overrides[feature] = int(budget)
+    return overrides
+
+
+def set_request_llm_call_budget(budget: int | None = None, feature: str = "") -> None:
+    if budget is not None:
+        _request_llm_call_budget_var.set(budget)
+        return
+    overrides = _load_budget_overrides()
+    if feature and feature in overrides:
+        _request_llm_call_budget_var.set(overrides[feature])
+    elif feature and feature in FEATURE_LLM_CALL_BUDGETS:
+        _request_llm_call_budget_var.set(FEATURE_LLM_CALL_BUDGETS[feature])
+    else:
+        _request_llm_call_budget_var.set(DEFAULT_LLM_CALL_BUDGET)
+
+
+def reset_request_llm_call_budget() -> None:
+    _request_llm_call_budget_var.set(None)
+
+
+def check_and_decrement_llm_call_budget() -> LlmBudgetStatus | None:
+    remaining = _request_llm_call_budget_var.get()
+    if remaining is None:
+        return None
+    if remaining <= 0:
+        return "budget_exceeded"
+    _request_llm_call_budget_var.set(remaining - 1)
+    return None
+
+
+def get_remaining_llm_call_budget() -> int | None:
+    return _request_llm_call_budget_var.get()

@@ -43,8 +43,6 @@ def _format_trace_md(trace: object) -> list[str]:
             lines.append(f"- attempt_index: {item.get('attempt_index')}/{item.get('total_rewrite_attempts', '')}")
         if item.get("prompt_mode"):
             lines.append(f"- prompt_mode: {item.get('prompt_mode')}")
-        if item.get("fix_pass"):
-            lines.append(f"- fix_pass: {item.get('fix_pass')}/{item.get('length_fix_total', '')}")
         if item.get("retry_reason"):
             lines.append(f"- retry_reason: `{item.get('retry_reason')}`")
         lines.append(f"- char_count: {item.get('char_count', '')}")

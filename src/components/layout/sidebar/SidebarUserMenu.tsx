@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useCredits } from "@/hooks/useCredits";
 import { signOut } from "@/lib/auth/client";
+import { appPaths } from "@/lib/routes/app-routes";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -143,14 +144,14 @@ export function SidebarUserMenu({ collapsed }: SidebarUserMenuProps) {
       </div>
       <div className="h-px bg-border my-1" />
       <Link
-        href="/settings/profile"
+        href={appPaths.product.profile}
         className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-sidebar-accent transition-colors"
       >
         <UserIcon />
         プロフィール
       </Link>
       <Link
-        href="/settings"
+        href={appPaths.product.settings}
         className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-sidebar-accent transition-colors"
       >
         <CogMenuIcon />

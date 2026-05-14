@@ -12,6 +12,7 @@ import type {
 } from "@/lib/interview/session";
 import type { InterviewShortCoaching } from "@/lib/interview/conversation";
 import type { InterviewSheetData } from "@/lib/interview/sheet-builder";
+import { labelInterviewTopic } from "@/lib/interview/topic-labels";
 
 export const INDUSTRY_SELECT_UNSET = "__interview_industry_unset__";
 export const ROLE_SELECT_UNSET = "__interview_role_unset__";
@@ -264,38 +265,6 @@ export function labelWeakestQuestionType(raw: string | null | undefined): string
   return WEAKEST_QUESTION_TYPE_LABELS[raw] ?? raw;
 }
 
-// --- Topic display labels ---
-
-export const TOPIC_DISPLAY_LABELS: Record<string, string> = {
-  motivation_fit: "志望動機",
-  role_understanding: "職種理解",
-  case_fit: "ケース適性",
-  life_narrative_core: "自分史・転機",
-  structured_thinking: "構造化思考",
-  technical_depth: "技術的深掘り",
-  motivation: "志望動機",
-  leadership: "リーダーシップ",
-  teamwork: "チームワーク",
-  gakuchika: "ガクチカ",
-  self_pr: "自己PR",
-  strengths: "強み",
-  weaknesses: "課題・弱み",
-  career_vision: "キャリアビジョン",
-  career: "キャリア",
-  communication: "コミュニケーション",
-  problem_solving: "課題解決",
-  creativity: "創造性",
-  adaptability: "適応力",
-  values: "価値観",
-  growth: "成長経験",
-  failure_experience: "失敗経験",
-  success_experience: "成功体験",
-  industry_understanding: "業界理解",
-  company_understanding: "企業理解",
-  academic: "学業・研究",
-  research: "研究活動",
-};
-
 // --- Progress display helpers (shared component integration) ---
 
 export interface TopicStage {
@@ -331,7 +300,7 @@ export function buildInterviewTopicStages(
   }
   return topics.map((topic, i) => ({
     key: `topic-${i}-${topic}`,
-    label: TOPIC_DISPLAY_LABELS[topic] ?? topic,
+    label: labelInterviewTopic(topic),
     status:
       topic === current && !questionFlowCompleted
         ? "current"
@@ -369,13 +338,10 @@ export function buildInterviewPhases(
 
 export function buildInterviewQuestionDisplay(
   questionCount: number,
-  stageStatus: InterviewStageStatus | null,
+  _stageStatus: InterviewStageStatus | null,
 ): string {
   if (questionCount === 0) return "開始前";
-  const coveredCount = stageStatus?.coveredTopics?.length ?? 0;
-  const remainingCount = stageStatus?.remainingTopics?.length ?? 0;
-  const totalEstimate = Math.max(coveredCount + remainingCount, questionCount);
-  return `${questionCount}問目 / 約${totalEstimate}問`;
+  return `${questionCount}問目 / 約15問`;
 }
 
 export function buildInterviewCoachingNarrative(
@@ -387,8 +353,9 @@ export function buildInterviewCoachingNarrative(
     return questionCount === 0 ? "初回質問を準備中" : null;
   }
   const covered = stageStatus?.coveredTopics ?? [];
+  const currentLabel = labelInterviewTopic(current);
   if (covered.includes(current)) {
-    return `${current}の深掘りが完了しました。`;
+    return `${currentLabel}の深掘りが完了しました。`;
   }
-  return `${current}について確認しています。`;
+  return `${currentLabel}について確認しています。`;
 }

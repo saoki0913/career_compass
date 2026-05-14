@@ -17,6 +17,7 @@ from app.services.es_review.fact_guard import (
     _compute_hallucination_score,
     _detect_fact_hallucination_warnings,
 )
+from app.services.es_review.enums import ValidationFailureCode
 from app.services.es_review.grounding import COMPANY_HONORIFIC_TOKENS
 from app.services.es_review.models import Issue
 from app.services.es_review.validation_profile import STRICT_PROFILE, ValidationProfile
@@ -37,8 +38,8 @@ TIGHT_LENGTH_TEMPLATES = {
 class RewriteValidationReport:
     accepted: bool
     failed_checks: list[str] = field(default_factory=list)
-    primary_failure_code: str = "ok"
-    retry_reason: str = "ok"
+    primary_failure_code: str = ValidationFailureCode.OK.value
+    retry_reason: str = ValidationFailureCode.OK.value
     char_count: int = 0
     length_policy: str = "strict"
     length_shortfall: int = 0
@@ -55,8 +56,8 @@ def _build_validation_report_meta(
     accepted: bool,
     text: str,
     failed_checks: list[str] | None = None,
-    primary_failure_code: str = "ok",
-    retry_reason: str = "ok",
+    primary_failure_code: str = ValidationFailureCode.OK.value,
+    retry_reason: str = ValidationFailureCode.OK.value,
     length_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     meta = dict(length_meta or {})
@@ -78,33 +79,60 @@ def _build_validation_report_meta(
     meta["char_count"] = len(text or "")
     return meta
 
-SEMANTIC_COMPRESSION_RULES: list[tuple[str, str]] = [
-    (r"ということ", "こと"),
+COMPRESSION_TIER_1: list[tuple[str, str]] = [
     (r"することができる", "できる"),
     (r"することが可能", "できる"),
-    (r"ことによって", "ことで"),
-    (r"と考えている", "と考える"),
-    (r"と考え、", "と考え"),
-    (r"非常に", ""),
-    (r"大変", ""),
-    (r"そのため、", ""),
-    (r"一方で、", ""),
-    (r"加えて、", ""),
-    (r"大きな価値", "価値"),
-    (r"新たな価値", "価値"),
-    (r"具体的には、", ""),
-    (r"その中で、", ""),
-    (r"また、", ""),
-    (r"さらに、", ""),
-    (r"そこで、", ""),
-    (r"私自身", "私"),
-    (r"私は", ""),
-    (r"私が", ""),
     (r"ことができた", "できた"),
     (r"ことができる", "できる"),
     (r"させていただく", "する"),
     (r"であると考える", "と考える"),
     (r"につながると考える", "につながる"),
+]
+
+COMPRESSION_TIER_2: list[tuple[str, str]] = [
+    (r"非常に", ""),
+    (r"大変", ""),
+    (r"具体的には、", ""),
+    (r"その中で、", ""),
+    (r"ということ", "こと"),
+    (r"ことによって", "ことで"),
+    (r"と考えている", "と考える"),
+    (r"と考え、", "と考え"),
+]
+
+COMPRESSION_TIER_3: list[tuple[str, str]] = [
+    (r"そのため、", ""),
+    (r"一方で、", ""),
+    (r"加えて、", ""),
+    (r"また、", ""),
+    (r"さらに、", ""),
+    (r"そこで、", ""),
+    (r"私は", ""),
+    (r"私が", ""),
+    (r"を行う", "する"),
+    (r"を実施する", "する"),
+    (r"を提供する", "する"),
+    (r"を実行する", "する"),
+]
+
+COMPRESSION_TIER_4: list[tuple[str, str]] = [
+    (r"そのような状況の中で、?", ""),
+    (r"その結果として、?", ""),
+    (r"このような", "この"),
+    (r"その際に、?", ""),
+    (r"に関して", "に"),
+    (r"において", "で"),
+    (r"における", "の"),
+    (r"私自身", "私"),
+    (r"大きな価値", "価値"),
+    (r"新たな価値", "価値"),
+]
+
+SEMANTIC_COMPRESSION_RULES: list[tuple[str, str]] = [
+    *COMPRESSION_TIER_1,
+    *COMPRESSION_TIER_2,
+    *COMPRESSION_TIER_3,
+    *COMPRESSION_TIER_4,
 ]
 
 
@@ -249,17 +277,33 @@ def _should_attempt_semantic_compression(current_len: int, char_max: Optional[in
     return excess <= max(90, int(char_max * 0.30))
 
 
+def _select_compression_tiers(excess: int) -> list[list[tuple[str, str]]]:
+    tiers: list[list[tuple[str, str]]] = [COMPRESSION_TIER_1]
+    if excess > 15:
+        tiers.append(COMPRESSION_TIER_2)
+    if excess > 40:
+        tiers.append(COMPRESSION_TIER_3)
+    if excess > 70:
+        tiers.append(COMPRESSION_TIER_4)
+    return tiers
+
+
 def _apply_semantic_compression_rules(text: str, char_max: int) -> str:
+    excess = len(text) - char_max
+    if excess <= 0:
+        return text
+    tiers = _select_compression_tiers(excess)
     compressed = text
-    for pattern, replacement in SEMANTIC_COMPRESSION_RULES:
-        updated = re.sub(pattern, replacement, compressed)
-        updated = re.sub(r"、{2,}", "、", updated)
-        updated = re.sub(r"\s+", "", updated)
-        updated = re.sub(r"。{2,}", "。", updated)
-        if len(updated) < len(compressed):
-            compressed = updated
-        if len(compressed) <= char_max:
-            break
+    for tier_rules in tiers:
+        for pattern, replacement in tier_rules:
+            updated = re.sub(pattern, replacement, compressed)
+            updated = re.sub(r"、{2,}", "、", updated)
+            updated = re.sub(r"\s+", "", updated)
+            updated = re.sub(r"。{2,}", "。", updated)
+            if len(updated) < len(compressed):
+                compressed = updated
+            if len(compressed) <= char_max:
+                return compressed.strip()
     return compressed.strip()
 
 
@@ -558,11 +602,11 @@ def _validate_rewrite_candidate(
         meta = _build_validation_report_meta(
             accepted=False,
             text="",
-            failed_checks=["empty"],
-            primary_failure_code="empty",
+            failed_checks=[ValidationFailureCode.EMPTY.value],
+            primary_failure_code=ValidationFailureCode.EMPTY.value,
             retry_reason=reason,
         )
-        return None, "empty", reason, meta
+        return None, ValidationFailureCode.EMPTY.value, reason, meta
 
     bulletish_invalid = bool(
         "\n" in normalized and re.search(r"(^|\n)\s*([・\-•]|\d+[.)])", normalized)
@@ -595,7 +639,11 @@ def _validate_rewrite_candidate(
                 "soft_min_floor_ratio": FINAL_SOFT_MIN_FLOOR_RATIO,
             }
         else:
-            retry_code = "under_min" if limit_reason.startswith("under_min") else "over_max"
+            retry_code = (
+                ValidationFailureCode.UNDER_MIN.value
+                if limit_reason.startswith(ValidationFailureCode.UNDER_MIN)
+                else ValidationFailureCode.OVER_MAX.value
+            )
             primary_length_code = retry_code
             fitted = normalized
 
@@ -641,20 +689,20 @@ def _validate_rewrite_candidate(
     failure_codes: list[str] = []
     failure_reason = "条件を満たしていません。"
     if bulletish_invalid:
-        failure_codes.append("bulletish_or_listlike")
+        failure_codes.append(ValidationFailureCode.BULLETISH_OR_LISTLIKE.value)
         failure_reason = "箇条書きや列挙ではなく、1本の本文にしてください。"
     if fragment_invalid:
-        failure_codes.append("fragment")
+        failure_codes.append(ValidationFailureCode.FRAGMENT.value)
         failure_reason = "本文が断片的です。文を最後まで言い切ってください。"
     if companyless_honorific_detected:
-        failure_codes.append("company_reference_in_companyless")
+        failure_codes.append(ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS.value)
         failure_reason = "企業名なしの設問で「貴社」等の企業敬称が含まれています。自分の経験を主軸にまとめてください。"
     hallucination_codes_found = {w["code"] for w in _hallucination_warnings}
     hard_block_detected = bool(
         hallucination_codes_found & _profile.fact_guard_hard_block_codes
     )
     if hard_block_detected:
-        failure_codes.append("hallucination")
+        failure_codes.append(ValidationFailureCode.HALLUCINATION.value)
         failure_reason = (
             "元回答の事実（数値・役割・経験）が改変されています。"
             "元の内容を正確に保ってください。"
@@ -665,24 +713,31 @@ def _validate_rewrite_candidate(
             failure_reason = (
                 "文字数制約を満たしていません。"
                 f" 現在{len(normalized)}字で、条件は "
-                f"{'under_min' if primary_length_code == 'under_min' else 'over_max'} です。"
+                f"{ValidationFailureCode.UNDER_MIN.value if primary_length_code == ValidationFailureCode.UNDER_MIN else ValidationFailureCode.OVER_MAX.value} です。"
             )
 
     if failure_codes:
         if soft_validation_mode == "final_soft":
-            blocked = {"bulletish_or_listlike", "empty", "fragment"}
+            blocked = {
+                ValidationFailureCode.BULLETISH_OR_LISTLIKE.value,
+                ValidationFailureCode.EMPTY.value,
+                ValidationFailureCode.FRAGMENT.value,
+            }
             if not (set(failure_codes) & blocked):
-                if set(failure_codes) == {"under_min"} and length_meta["length_policy"] != "strict":
+                if (
+                    set(failure_codes) == {ValidationFailureCode.UNDER_MIN.value}
+                    and length_meta["length_policy"] != "strict"
+                ):
                     meta = _build_validation_report_meta(
                         accepted=True,
                         text=fitted,
                         failed_checks=failure_codes,
-                        primary_failure_code="soft_ok",
-                        retry_reason="ok",
+                        primary_failure_code=ValidationFailureCode.SOFT_OK.value,
+                        retry_reason=ValidationFailureCode.OK.value,
                         length_meta=length_meta,
                     )
                     meta["soft_validation_codes"] = sorted(set(failure_codes))
-                    return fitted, "soft_ok", "ok", meta
+                    return fitted, ValidationFailureCode.SOFT_OK.value, ValidationFailureCode.OK.value, meta
         meta = _build_validation_report_meta(
             accepted=False,
             text=fitted,
@@ -698,16 +753,20 @@ def _validate_rewrite_candidate(
         })
         return None, failure_codes[0], failure_reason, meta
 
-    result_code = "soft_ok" if length_meta["length_policy"] != "strict" else "ok"
+    result_code = (
+        ValidationFailureCode.SOFT_OK.value
+        if length_meta["length_policy"] != "strict"
+        else ValidationFailureCode.OK.value
+    )
     meta = _build_validation_report_meta(
         accepted=True,
         text=fitted,
         failed_checks=[],
         primary_failure_code=result_code,
-        retry_reason="ok",
+        retry_reason=ValidationFailureCode.OK.value,
         length_meta=length_meta,
     )
-    return fitted, result_code, "ok", meta
+    return fitted, result_code, ValidationFailureCode.OK.value, meta
 
 
 async def _validate_rewrite_combined(
@@ -763,6 +822,8 @@ async def _validate_rewrite_combined(
     if not json_caller:
         return result
 
+    axis_modes = _profile.axis_modes()
+    axis_modes["theme_focus"] = "skip" if template_type == "gakuchika" else "required"
     llm_result = await _validate_rewrite_with_llm(
         candidate,
         template_type=template_type,
@@ -771,7 +832,7 @@ async def _validate_rewrite_combined(
         company_name=company_name,
         grounding_mode=grounding_mode,
         json_caller=json_caller,
-        axis_modes=_profile.axis_modes(),
+        axis_modes=axis_modes,
     )
 
     if llm_result.failed_checks:
@@ -785,12 +846,12 @@ async def _validate_rewrite_combined(
         return accepted, code, reason, meta
 
     if not llm_result.passed:
-        if "fact_preservation" in llm_result.failed_checks:
-            return None, "fact_preservation", llm_result.retry_hint, meta
+        if ValidationFailureCode.FACT_PRESERVATION in llm_result.failed_checks:
+            return None, ValidationFailureCode.FACT_PRESERVATION.value, llm_result.retry_hint, meta
         if is_final_attempt:
             meta["llm_lenient_pass"] = True
             return accepted, code, reason, meta
-        return None, "llm_quality", llm_result.retry_hint or "品質検証で再調整が必要です。", meta
+        return None, ValidationFailureCode.LLM_QUALITY.value, llm_result.retry_hint or "品質検証で再調整が必要です。", meta
 
     return accepted, code, reason, meta
 

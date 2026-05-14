@@ -112,4 +112,38 @@ describe("es-review transport", () => {
       retryable: true,
     });
   });
+
+  it("normalizes JSON-shaped stream error messages before surfacing them", async () => {
+    const { consumeESReviewStream } = await import("./transport");
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const encoder = new TextEncoder();
+        controller.enqueue(
+          encoder.encode(
+            'data: {"type":"error","message":"{\\"code\\":\\"TOKEN_LIMIT_SERVICE_UNAVAILABLE\\",\\"userMessage\\":\\"現在、AI機能を一時的に利用できません。\\",\\"action\\":\\"数分後にもう一度お試しください。\\",\\"retryable\\":true}"}\n\n',
+          ),
+        );
+        controller.close();
+      },
+    });
+
+    const consumed = await consumeESReviewStream({
+      response: new Response(stream, { status: 200 }),
+      onEvent: vi.fn(),
+    });
+
+    expect(consumed).toEqual({
+      ok: false,
+      reason: "stream_error",
+      message: "現在、AI機能を一時的に利用できません。",
+      code: "TOKEN_LIMIT_SERVICE_UNAVAILABLE",
+      action: "数分後にもう一度お試しください。",
+      retryable: true,
+    });
+    expect(consumed.ok).toBe(false);
+    if (!consumed.ok) {
+      expect(consumed.message).not.toContain("{");
+    }
+  });
 });

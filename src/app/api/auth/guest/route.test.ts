@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const {
   csrfMock,
@@ -8,6 +8,9 @@ const {
   setGuestDeviceTokenCookieMock,
   getOrCreateGuestUserMock,
   checkRateLimitMock,
+  createRateLimitKeyMock,
+  createAnonymousRateLimitKeyMock,
+  createApiErrorResponseMock,
   logErrorMock,
 } = vi.hoisted(() => ({
   csrfMock: vi.fn(),
@@ -16,6 +19,9 @@ const {
   setGuestDeviceTokenCookieMock: vi.fn(),
   getOrCreateGuestUserMock: vi.fn(),
   checkRateLimitMock: vi.fn(),
+  createRateLimitKeyMock: vi.fn(),
+  createAnonymousRateLimitKeyMock: vi.fn(),
+  createApiErrorResponseMock: vi.fn(),
   logErrorMock: vi.fn(),
 }));
 
@@ -41,12 +47,16 @@ vi.mock("@/lib/logger", () => ({
 
 vi.mock("@/lib/rate-limit", () => ({
   checkRateLimit: checkRateLimitMock,
-  createRateLimitKey: vi.fn((...args: string[]) => args.join(":")),
-  RATE_LIMITS: { guestAuth: { windowMs: 60000, max: 10 } },
+  createAnonymousRateLimitKey: createAnonymousRateLimitKeyMock,
+  createRateLimitKey: createRateLimitKeyMock,
+  RATE_LIMITS: {
+    guestAuth: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 },
+    guestAuthAnonymous: { maxTokens: 10, refillRate: 0.16, windowMs: 60000 },
+  },
 }));
 
 vi.mock("@/bff/api/error-response", () => ({
-  createApiErrorResponse: vi.fn(),
+  createApiErrorResponse: createApiErrorResponseMock,
 }));
 
 describe("api/auth/guest", () => {
@@ -58,10 +68,39 @@ describe("api/auth/guest", () => {
     setGuestDeviceTokenCookieMock.mockReset();
     getOrCreateGuestUserMock.mockReset();
     checkRateLimitMock.mockReset();
+    createRateLimitKeyMock.mockReset();
+    createAnonymousRateLimitKeyMock.mockReset();
+    createApiErrorResponseMock.mockReset();
 
     // Defaults: CSRF passes, rate limit allows
     csrfMock.mockReturnValue(null);
-    checkRateLimitMock.mockResolvedValue({ allowed: true });
+    checkRateLimitMock.mockResolvedValue({ allowed: true, remaining: 4, resetIn: 0 });
+    createAnonymousRateLimitKeyMock.mockReturnValue("guestAuthAnonymous:anonymous-ip:test");
+    createRateLimitKeyMock.mockImplementation(
+      (operation: string, userId: string | null, guestId: string | null) =>
+        [operation, userId || guestId || "anonymous"].join(":")
+    );
+    createApiErrorResponseMock.mockImplementation(
+      (
+        _request: NextRequest,
+        options: {
+          status: number;
+          code: string;
+          userMessage: string;
+          action?: string;
+        }
+      ) =>
+        NextResponse.json(
+          {
+            error: {
+              code: options.code,
+              userMessage: options.userMessage,
+              action: options.action,
+            },
+          },
+          { status: options.status }
+        )
+    );
   });
 
   it("returns 403 when CSRF token is missing", async () => {
@@ -102,5 +141,48 @@ describe("api/auth/guest", () => {
     expect(response.status).toBe(200);
     expect(payload.id).toBe("guest-1");
     expect(getOrCreateGuestUserMock).toHaveBeenCalledWith("new-device-token");
+    expect(checkRateLimitMock).toHaveBeenNthCalledWith(
+      1,
+      "guestAuthAnonymous:anonymous-ip:test",
+      expect.objectContaining({ maxTokens: 10 }),
+      "guestAuthAnonymous"
+    );
+    expect(checkRateLimitMock).toHaveBeenNthCalledWith(
+      2,
+      "guestAuth:new-device-token",
+      expect.objectContaining({ maxTokens: 5 }),
+      "guestAuth"
+    );
+  });
+
+  it("applies anonymous rate limiting before reading or issuing a device token", async () => {
+    checkRateLimitMock.mockResolvedValueOnce({
+      allowed: false,
+      remaining: 0,
+      resetIn: 31,
+    });
+
+    const { POST } = await import("@/app/api/auth/guest/route");
+    const request = new NextRequest("http://localhost:3000/api/auth/guest", {
+      method: "POST",
+      headers: {
+        "x-forwarded-for": "203.0.113.10",
+      },
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("31");
+    expect(response.headers.get("X-RateLimit-Remaining")).toBe("0");
+    expect(payload.error.code).toBe("RATE_LIMITED");
+    expect(createAnonymousRateLimitKeyMock).toHaveBeenCalledWith(
+      "guestAuthAnonymous",
+      expect.any(Headers)
+    );
+    expect(readGuestDeviceTokenMock).not.toHaveBeenCalled();
+    expect(issueGuestDeviceTokenMock).not.toHaveBeenCalled();
+    expect(getOrCreateGuestUserMock).not.toHaveBeenCalled();
   });
 });

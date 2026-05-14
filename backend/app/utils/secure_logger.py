@@ -8,12 +8,15 @@ Mirrors the behavior of src/lib/logger.ts on the frontend:
 """
 
 import logging
-import os
 from typing import Any
 
 from app.utils.sanitizer import redact_sensitive, scrub_exception, scrub_mapping
 
-_IS_PRODUCTION = os.getenv("ENVIRONMENT", "development") == "production"
+
+def _get_is_production() -> bool:
+    from app.config import settings
+
+    return settings.is_production
 
 
 class _RedactingFormatter(logging.Formatter):
@@ -47,7 +50,7 @@ def get_logger(name: str) -> logging.Logger:
         fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
         handler.setFormatter(_RedactingFormatter(fmt, datefmt="%Y-%m-%d %H:%M:%S"))
         logger.addHandler(handler)
-        logger.setLevel(logging.DEBUG if not _IS_PRODUCTION else logging.INFO)
+        logger.setLevel(logging.DEBUG if not _get_is_production() else logging.INFO)
         logger.propagate = False
 
     return logger
@@ -68,7 +71,7 @@ def log_error(context: str, error: Exception, extra: dict[str, Any] | None = Non
         safe_extra = scrub_mapping(extra)
         extra_str = f" | {safe_extra}"
 
-    if _IS_PRODUCTION:
+    if _get_is_production():
         logger.error(f"{msg}{extra_str}")
     else:
         tb_str = str(safe_error.get("stack") or "")

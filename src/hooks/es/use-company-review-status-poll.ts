@@ -12,6 +12,50 @@ interface UseCompanyReviewStatusPollArgs {
   fetchedAt: string | Date | null;
 }
 
+type PollResult = {
+  requestKey: string;
+  override: CompanyReviewStatusOverride;
+};
+
+type RetryState = {
+  requestKey: string;
+  count: number;
+};
+
+type CompanyReviewStatusPayload = {
+  status: "company_status_checking" | "company_fetched_but_not_ready" | "ready_for_es_review";
+};
+
+function normalizeFetchedAt(value: string | Date | null): string | null {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? trimmed : parsed.toISOString();
+}
+
+function makeRequestKey(companyId: string | null, fetchedAt: string | Date | null): string | null {
+  const fetchedAtKey = normalizeFetchedAt(fetchedAt);
+  return companyId && fetchedAtKey ? `${companyId}:${fetchedAtKey}` : null;
+}
+
+function parseCompanyReviewStatusPayload(value: unknown): CompanyReviewStatusPayload | null {
+  if (!value || typeof value !== "object") return null;
+  const status = (value as Record<string, unknown>).status;
+  if (
+    status === "company_status_checking" ||
+    status === "company_fetched_but_not_ready" ||
+    status === "ready_for_es_review"
+  ) {
+    return { status };
+  }
+  return null;
+}
+
 export function useCompanyReviewStatusPoll({
   companyId,
   fetchedAt,
@@ -19,11 +63,12 @@ export function useCompanyReviewStatusPoll({
   statusOverride: CompanyReviewStatusOverride | null;
   retry: () => void;
 } {
-  const [statusOverride, setStatusOverride] = useState<CompanyReviewStatusOverride | null>(null);
-  const retryCountRef = useRef(0);
+  const requestKey = makeRequestKey(companyId, fetchedAt);
+  const [result, setResult] = useState<PollResult | null>(null);
+  const [retryState, setRetryState] = useState<RetryState | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const fetchStatusRef = useRef<(cId: string, retryCount: number) => void>(() => {});
+  const fetchStatusRef = useRef<(cId: string, key: string, retryCount: number) => void>(() => {});
 
   const clearPending = useCallback(() => {
     if (timeoutRef.current) {
@@ -37,7 +82,7 @@ export function useCompanyReviewStatusPoll({
   }, []);
 
   const fetchStatus = useCallback(
-    (cId: string, retryCount: number) => {
+    (cId: string, key: string, retryCount: number) => {
       clearPending();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -52,10 +97,13 @@ export function useCompanyReviewStatusPoll({
 
           if (!response.ok) {
             if (!isRetryableStatusCode(response.status)) {
-              setStatusOverride({
-                companyId: cId,
-                status: "company_status_error",
-                retryCount,
+              setResult({
+                requestKey: key,
+                override: {
+                  companyId: cId,
+                  status: "company_status_error",
+                  retryCount,
+                },
               });
               return;
             }
@@ -65,15 +113,23 @@ export function useCompanyReviewStatusPoll({
           const data = await response.json();
           if (controller.signal.aborted) return;
 
-          const resolved: CompanyReviewStatusOverride["status"] =
-            data.status === "ready_for_es_review"
-              ? "ready_for_es_review"
-              : data.status === "company_fetched_but_not_ready"
-                ? "company_fetched_but_not_ready"
-                : "company_status_checking";
+          const parsed = parseCompanyReviewStatusPayload(data);
+          if (!parsed) {
+            setResult({
+              requestKey: key,
+              override: {
+                companyId: cId,
+                status: "company_status_error",
+                retryCount,
+              },
+            });
+            return;
+          }
 
-          setStatusOverride({ companyId: cId, status: resolved, retryCount: 0 });
-          retryCountRef.current = 0;
+          setResult({
+            requestKey: key,
+            override: { companyId: cId, status: parsed.status, retryCount: 0 },
+          });
         })
         .catch((err: unknown) => {
           if (controller.signal.aborted) return;
@@ -81,23 +137,21 @@ export function useCompanyReviewStatusPoll({
 
           const nextRetry = retryCount + 1;
           if (nextRetry > MAX_RETRIES) {
-            setStatusOverride({
-              companyId: cId,
-              status: "company_status_error",
-              retryCount: nextRetry,
+            setResult({
+              requestKey: key,
+              override: {
+                companyId: cId,
+                status: "company_status_error",
+                retryCount: nextRetry,
+              },
             });
             return;
           }
 
-          setStatusOverride({
-            companyId: cId,
-            status: "company_status_checking",
-            retryCount: nextRetry,
-          });
-          retryCountRef.current = nextRetry;
+          setRetryState({ requestKey: key, count: nextRetry });
           const delay = BASE_DELAY_MS * Math.pow(2, retryCount);
           timeoutRef.current = setTimeout(
-            () => fetchStatusRef.current(cId, nextRetry),
+            () => fetchStatusRef.current(cId, key, nextRetry),
             Math.min(delay, 15000),
           );
         });
@@ -110,32 +164,30 @@ export function useCompanyReviewStatusPoll({
   }, [fetchStatus]);
 
   useEffect(() => {
-    if (!companyId || !fetchedAt) {
+    if (!companyId || !requestKey) {
       clearPending();
-      setStatusOverride(null);
-      retryCountRef.current = 0;
       return;
     }
-    retryCountRef.current = 0;
-    setStatusOverride({
-      companyId,
-      status: "company_status_checking",
-      retryCount: 0,
-    });
-    fetchStatus(companyId, 0);
+    fetchStatus(companyId, requestKey, 0);
     return clearPending;
-  }, [companyId, fetchedAt, fetchStatus, clearPending]);
+  }, [companyId, requestKey, fetchStatus, clearPending]);
 
   const retry = useCallback(() => {
-    if (!companyId || !fetchedAt) return;
-    retryCountRef.current = 0;
-    setStatusOverride({
-      companyId,
-      status: "company_status_checking",
-      retryCount: 0,
-    });
-    fetchStatus(companyId, 0);
-  }, [companyId, fetchedAt, fetchStatus]);
+    if (!companyId || !requestKey) return;
+    setResult(null);
+    setRetryState(null);
+    fetchStatus(companyId, requestKey, 0);
+  }, [companyId, requestKey, fetchStatus]);
+
+  const statusOverride = requestKey && companyId
+    ? result?.requestKey === requestKey
+      ? result.override
+      : {
+          companyId,
+          status: "company_status_checking" as const,
+          retryCount: retryState?.requestKey === requestKey ? retryState.count : 0,
+        }
+    : null;
 
   return { statusOverride, retry };
 }

@@ -2,7 +2,6 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import time
 
 from fastapi import Depends, HTTPException, Request, status
@@ -64,7 +63,7 @@ def require_internal_service(request: Request):
     secret = settings.internal_api_jwt_secret.strip()
     host = request.url.hostname or ""
     if not secret:
-        if os.getenv("ENVIRONMENT", "development") == "production":
+        if settings.is_production:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Unauthorized",

@@ -40,7 +40,7 @@ from app.utils.company_names import (  # noqa: E402
 )
 from app.utils.web_search import HAS_DDGS, hybrid_web_search  # noqa: E402
 
-MAPPINGS_FILE = Path(__file__).parent.parent / "data" / "company_mappings.json"
+MAPPINGS_FILE = Path(__file__).resolve().parents[2] / "data" / "company_mappings.json"
 DEFAULT_INTENTS = ["recruitment", "corporate_about", "corporate_ir"]
 
 

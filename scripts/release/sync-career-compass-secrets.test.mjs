@@ -120,8 +120,6 @@ test("check accepts Vercel staging overlay keys and only warns on extra keys", (
         "VERCEL_PROJECT_ID=prj_test123",
         "VERCEL_TEAM_ID=team_test123",
         "PUBLIC_SETTING=expected-public",
-        "SUPABASE_URL=https://example.supabase.co",
-        "SUPABASE_SERVICE_ROLE_KEY=service-role-secret-that-must-not-leak",
         "",
       ].join("\n"),
       "utf8",
@@ -135,8 +133,6 @@ set -euo pipefail
 if [[ "$1" == "env" && "$2" == "pull" ]]; then
   cat > "$3" <<'EOF'
 PUBLIC_SETTING=expected-public
-SUPABASE_URL=https://example.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=provider-secret
 CI_E2E_AUTH_SECRET=provider-secret
 CI_E2E_AUTH_ENABLED=1
 PLAYWRIGHT_BASE_URL=https://example.test

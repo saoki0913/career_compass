@@ -44,7 +44,7 @@ except ImportError:
 # =============================================================================
 
 PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
-MAPPINGS_FILE = Path(__file__).parent.parent / "data" / "company_mappings.json"
+MAPPINGS_FILE = Path(__file__).resolve().parents[2] / "data" / "company_mappings.json"
 
 # 主要親会社リスト
 MAJOR_PARENT_COMPANIES = {

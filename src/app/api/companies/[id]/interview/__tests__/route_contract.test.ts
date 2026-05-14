@@ -458,8 +458,9 @@ describe("stage_status synthesis from route when backend returns null", () => {
     // stage_status が null のとき route 側で合成される
     expect(result.stageStatus).not.toBeNull();
     expect(result.stageStatus).toMatchObject({
-      coveredTopics: expect.any(Array),
-      remainingTopics: expect.any(Array),
+      currentTopicLabel: "志望動機",
+      coveredTopics: [],
+      remainingTopics: ["志望動機", "職種理解"],
     });
   });
 
@@ -503,8 +504,9 @@ describe("stage_status synthesis from route when backend returns null", () => {
 
     expect(result.stageStatus).not.toBeNull();
     expect(result.stageStatus).toMatchObject({
-      coveredTopics: expect.any(Array),
-      remainingTopics: expect.any(Array),
+      currentTopicLabel: "経験",
+      coveredTopics: ["志望動機"],
+      remainingTopics: ["職種理解"],
     });
   });
 

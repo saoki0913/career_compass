@@ -73,6 +73,11 @@ def test_es_review_service_modules_do_not_reference_router_reverse_dependencies(
     assert not violations
 
 
+def test_es_review_router_imports_cancellation_for_lease_propagation() -> None:
+    imports = _imports(ES_REVIEW_ROUTER)
+    assert any("cancellation" in module for module, _ in imports)
+
+
 def test_es_review_main_router_depends_on_service_layer() -> None:
     imports = _imports(ES_REVIEW_ROUTER)
 

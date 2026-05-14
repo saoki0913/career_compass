@@ -1,33 +1,45 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
-import { getHeadersIdentity } from "@/bff/identity/request-identity";
+import { Suspense } from "react";
+import type { RequestIdentity } from "@/bff/identity/request-identity";
+import { getCurrentRequestIdentity } from "@/lib/server/request-identity-cache";
 import { getDocumentDetailPageData } from "@/lib/server/app-loaders";
+import { AnimatedSuspenseContent } from "@/components/ui/AnimatedSuspenseContent";
 import ESEditorPageClient from "@/components/es/ESEditorPageClient";
+import { ESEditorSkeleton } from "@/components/skeletons/ESEditorSkeleton";
 
 type ESEditorPageProps = {
   params: Promise<{ id: string }>;
 };
 
-export async function generateMetadata({ params }: ESEditorPageProps): Promise<Metadata> {
-  const { id } = await params;
-  const identity = await getHeadersIdentity(await headers());
-  if (!identity) {
-    return { title: "ES" };
-  }
-  const data = await getDocumentDetailPageData(identity, id);
-  const raw = data?.document?.title?.trim();
-  const title = raw && raw.length > 0 ? raw : "ES";
-  return { title };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: "ES" };
 }
 
 export default async function ESEditorPage({ params }: ESEditorPageProps) {
   const { id } = await params;
-  const identity = await getHeadersIdentity(await headers());
-  const initialData = identity ? await getDocumentDetailPageData(identity, id) : undefined;
+  const identity = await getCurrentRequestIdentity();
+
+  return (
+    <Suspense fallback={<ESEditorSkeleton />}>
+      <AnimatedSuspenseContent>
+        <ESEditorContent identity={identity} documentId={id} />
+      </AnimatedSuspenseContent>
+    </Suspense>
+  );
+}
+
+async function ESEditorContent({
+  identity,
+  documentId,
+}: {
+  identity: RequestIdentity | null;
+  documentId: string;
+}) {
+  const initialData = identity ? await getDocumentDetailPageData(identity, documentId) : undefined;
 
   return (
     <ESEditorPageClient
-      documentId={id}
+      documentId={documentId}
       initialDocument={initialData?.document ?? undefined}
     />
   );

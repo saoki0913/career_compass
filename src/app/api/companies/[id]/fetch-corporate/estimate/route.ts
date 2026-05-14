@@ -15,6 +15,10 @@ import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import {
+  sanitizeUpstreamUserMessage,
+  summarizeUpstreamError,
+} from "@/bff/api/upstream-error-sanitizer";
 import { logError } from "@/lib/logger";
 
 export const runtime = "nodejs";
@@ -161,7 +165,13 @@ export async function POST(
 
     const result = (await response.json().catch(() => ({}))) as CrawlEstimateResult;
     if (!response.ok) {
-      const msg = result.errors?.[0] || "企業情報の見積に失敗しました。";
+      const msg = sanitizeUpstreamUserMessage(result, "企業情報の見積に失敗しました。");
+      const upstreamSummary = summarizeUpstreamError(result);
+      logError(
+        "corporate-fetch-estimate-upstream-failed",
+        new Error(upstreamSummary || "FastAPI estimate request failed"),
+        { companyId, status: response.status },
+      );
       return NextResponse.json({ error: msg, errors: [msg] }, { status: response.status || 500 });
     }
 

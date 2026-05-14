@@ -154,7 +154,7 @@ def test_required_medium_long_rewrite_prompt_includes_structure_and_examples(
         reference_quality_block="【参考ESから抽出した品質ヒント】\n- 参考件数: 1件",
     )
 
-    assert "<task>" in system_prompt
+    assert "<role_task>" in system_prompt
     assert "<length_policy>" in system_prompt
     assert "【requiredテンプレの型】" in system_prompt
     assert "4文前後" in system_prompt
@@ -216,7 +216,7 @@ def test_required_medium_long_fallback_prompt_includes_same_structure(
         reference_quality_block="【参考ESから抽出した品質ヒント】\n- 参考件数: 1件",
     )
 
-    assert "<task>" in system_prompt
+    assert "<role_task>" in system_prompt
     assert "<length_policy>" in system_prompt
     assert "【requiredテンプレの型】" in system_prompt
     assert "【書き出し例】" in system_prompt
@@ -585,7 +585,7 @@ def test_rewrite_prompt_uses_400_char_target_window() -> None:
         original_len=len(answer),
     )
     assert "strict受理帯: 390字〜400字" in system_prompt
-    assert f"今回の内部目標帯: {expected_window}" in system_prompt
+    assert f"今回の生成目標帯: {expected_window}" in system_prompt
 
 
 def test_rewrite_prompt_uses_overshoot_target_on_under_min_recovery() -> None:
@@ -611,7 +611,7 @@ def test_rewrite_prompt_uses_overshoot_target_on_under_min_recovery() -> None:
     )
 
     assert "strict受理帯: 390字〜400字" in system_prompt
-    assert "今回の内部目標帯: 400字〜" in system_prompt
+    assert "今回の生成目標帯: 400字〜" in system_prompt
 
 
 def test_target_window_biases_openai_mini_higher_for_short_answers() -> None:
@@ -636,9 +636,9 @@ def test_target_window_biases_openai_mini_higher_for_short_answers() -> None:
         llm_model="claude-sonnet-4-6",
     )
 
-    assert mini_window == "131字〜140字"
-    assert full_window == "130字〜140字"
-    assert claude_window == "130字〜140字"
+    assert mini_window == "129字〜140字"
+    assert full_window == "128字〜140字"
+    assert claude_window == "128字〜140字"
 
 
 def test_rewrite_prompt_includes_length_focus_max_guidance() -> None:

@@ -24,6 +24,7 @@ export type DocumentsOptions = {
   companyId?: string | null;
   applicationId?: string | null;
   includeDeleted?: boolean;
+  /** List loaders omit large document bodies unless a caller explicitly needs them. */
   includeContent?: boolean;
 };
 
@@ -61,7 +62,7 @@ const documentRowWithoutContent = {
 } as const;
 
 export async function getDocumentsPageData(identity: RequestIdentity, options: DocumentsOptions = {}) {
-  const includeContent = options.includeContent ?? true;
+  const includeContent = options.includeContent ?? false;
   const conditions = [buildDocumentWhere(identity)];
 
   if (options.type) conditions.push(eq(documents.type, options.type));

@@ -37,11 +37,12 @@ test-category-gate: テスト実行をブロック。カテゴリ選択が未完
 
 手順:
   1. 変更ファイルを分析し、推奨テストカテゴリを決定
-  2. AskUserQuestion (multiSelect) でカテゴリ選択を提示:
-     - E2E Functional (機能確認)
-     - Quality Tests (LLM品質)
-     - Static Analysis (lint/型チェック)
-     - Security Scan (Trace-core/secrets)
+  2. AskUserQuestion では、人間が判断しやすい日本語でカテゴリ選択を提示:
+     - 画面や機能の動作確認
+     - AI出力の品質確認
+     - 型チェックとlint
+     - セキュリティ確認
+     例: 「この変更では、どの確認を実行しますか？」
   3. 選択結果を staged diff に結び付いた JSON checkpoint に記録:
      node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project "$(pwd)" \
        --categories "e2e-functional=run:<features>,quality=skip,static=run,security=run" > $FLAG

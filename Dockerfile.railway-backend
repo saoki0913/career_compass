@@ -1,5 +1,8 @@
 FROM python:3.12-slim
 
+ARG BUILD_TIME
+ENV BUILD_TIME=${BUILD_TIME:-}
+
 WORKDIR /app
 
 # Runtime helper to drop privileges after fixing mounted volume permissions
@@ -16,8 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy only the backend runtime surface needed by Railway
 COPY --chown=appuser:appgroup backend/app ./app
-COPY --chown=appuser:appgroup backend/scripts ./scripts
-COPY --chown=appuser:appgroup backend/evals ./evals
 COPY --chown=appuser:appgroup backend/pytest.ini ./pytest.ini
 
 # Remove any accidentally copied sensitive files

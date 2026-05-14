@@ -1,5 +1,8 @@
 # 企業情報取得・締切抽出 — 品質・精度 & アーキテクチャ改善計画
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+
 作成日: 2026-05-05 JST
 Codex Plan Review: NEEDS_REVISION → 7件反映済み
 
@@ -48,11 +51,11 @@ Status は以下のみを使う。
 
 | Status | Severity | Task | Owner | Evidence | Acceptance Criteria | Updated At |
 |---|---:|---|---|---|---|---|
-| Todo | Critical | T-01: JST基準違反の一掃（5箇所） | code-reviewer | `deadline-status.ts:29`, `deadline-persistence.ts:67-73`, `fetch_schedule.py:732,787,820`, `company_info_candidate_scoring.py:84-89` | overdue判定・isSameDay・datetime計算がすべて JST 基準。`getJstDateKey()` / `ZoneInfo("Asia/Tokyo")` を使用。JST 0:00-8:59 の境界テストが通る。 | 2026-05-05 |
-| Todo | Critical | T-02: EXTRACTION_SYSTEM_PROMPT の KeyError crash 修正 | prompt-engineer | `company_info_prompts.py:19`, `company_info_llm_extraction.py:52` | `{current_year + 1}` → `{next_year}` に変更。format() 呼び出し元に `next_year=current_year+1` を追加。extract_info_with_llm が正常動作するテストが通る。 | 2026-05-05 |
-| Todo | Critical | T-03: generateTasksForDeadline の冪等性保証 | nextjs-developer | `src/lib/server/task-generation.ts` | 既存 deadlineId のタスクの templateKey を先行取得し、重複をスキップ。isConfirmed false→true→false→true でタスクが1セットのみ存在するテストが通る。 | 2026-05-05 |
-| Todo | Critical | T-04: タスク巻き戻しバグ修正 | nextjs-developer | `src/app/api/deadlines/[id]/route.ts:275` | 完了解除時に `autoCompletedTaskIds` に含まれるタスクのみを open に戻す。手動完了タスクは巻き添えにならないテストが通る。 | 2026-05-05 |
-| Todo | Critical | T-05: HTML テーブル構造保持の前処理追加 | rag-engineer | `backend/app/utils/http_fetch.py:117` | `soup.get_text()` の前に `<table>` → Markdown/TSV 変換を実施。テーブル形式ページで列間関係が LLM に伝わることを抽出テストで確認。 | 2026-05-05 |
+| Done | Critical | T-01: JST基準違反の一掃（5箇所） | code-reviewer | `deadline-status.ts:29`, `deadline-persistence.ts:67-73`, `fetch_schedule.py:732,787,820`, `company_info_candidate_scoring.py:84-89`; execution-order 2026-05-07 完了記録 | overdue判定・isSameDay・datetime計算がすべて JST 基準。`getJstDateKey()` / `ZoneInfo("Asia/Tokyo")` を使用。JST 0:00-8:59 の境界テストが通る。 | 2026-05-13 |
+| Done | Critical | T-02: EXTRACTION_SYSTEM_PROMPT の KeyError crash 修正 | prompt-engineer | `company_info_llm_extraction.py` で `next_year` 注入済み | `{current_year + 1}` → `{next_year}` に変更。format() 呼び出し元に `next_year=current_year+1` を追加。extract_info_with_llm が正常動作するテストが通る。 | 2026-05-13 |
+| Done | Critical | T-03: generateTasksForDeadline の冪等性保証 | nextjs-developer | `src/lib/server/task-generation.ts`; execution-order 2026-05-07 完了記録 | 既存 deadlineId のタスクの templateKey を先行取得し、重複をスキップ。isConfirmed false→true→false→true でタスクが1セットのみ存在するテストが通る。 | 2026-05-13 |
+| Done | Critical | T-04: タスク巻き戻しバグ修正 | nextjs-developer | `src/app/api/deadlines/[id]/route.ts`; execution-order 2026-05-07 完了記録 | 完了解除時に `autoCompletedTaskIds` に含まれるタスクのみを open に戻す。手動完了タスクは巻き添えにならないテストが通る。 | 2026-05-13 |
+| Done | Critical | T-05: HTML テーブル構造保持の前処理追加 | rag-engineer | `backend/tests/company_info/test_html_table_extraction.py` | `soup.get_text()` の前に `<table>` → Markdown/TSV 変換を実施。テーブル形式ページで列間関係が LLM に伝わることを抽出テストで確認。 | 2026-05-13 |
 
 ### Phase 1: 構造改善 + 品質基盤（推定 7-10日）
 

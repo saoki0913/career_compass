@@ -59,6 +59,22 @@ const mockGetRequestIdentity = vi.mocked(getRequestIdentity);
 const mockFetchUpstream = vi.mocked(fetchConfiguredUpstreamSSE);
 const mockCreateProxy = vi.mocked(createConfiguredSSEProxyResponse);
 
+const activeUser = {
+  kind: "user" as const,
+  type: "user" as const,
+  userId: "u1",
+  guestId: null,
+  role: "user" as const,
+  banned: false as const,
+};
+
+const activeGuest = {
+  kind: "guest" as const,
+  type: "guest" as const,
+  userId: null,
+  guestId: "g1",
+};
+
 function makeRequest(body: Record<string, unknown> = { answer: "test answer" }) {
   return new NextRequest("http://localhost/api/test/123/stream", {
     method: "POST",
@@ -108,10 +124,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("returns 401 when userId is null", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: null,
-      guestId: "g1",
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeGuest);
     const handler = createConversationStreamHandler(makeConfig());
     const response = await handler(makeRequest(), {
       params: Promise.resolve({ id: "abc" }),
@@ -120,10 +133,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("returns 400 when answer is empty", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: "u1",
-      guestId: null,
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
     const handler = createConversationStreamHandler(makeConfig());
     const response = await handler(makeRequest({ answer: "" }), {
       params: Promise.resolve({ id: "abc" }),
@@ -134,10 +144,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("returns 400 when answer is whitespace only", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: "u1",
-      guestId: null,
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
     const handler = createConversationStreamHandler(makeConfig());
     const response = await handler(makeRequest({ answer: "   " }), {
       params: Promise.resolve({ id: "abc" }),
@@ -146,10 +153,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("returns prepare response when prepare returns Response", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: "u1",
-      guestId: null,
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
     const prepareResponse = new Response(
       JSON.stringify({ error: "not found" }),
       { status: 404 },
@@ -166,10 +170,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("calls fetchConfiguredUpstreamSSE with correct config", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: "u1",
-      guestId: null,
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
     mockFetchUpstream.mockResolvedValue({
       response: new Response("ok", { status: 200 }),
       clearTimeout: vi.fn(),
@@ -194,10 +195,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("passes paramId extracted from route params", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: "u1",
-      guestId: null,
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
     mockFetchUpstream.mockResolvedValue({
       response: new Response("ok", { status: 200 }),
       clearTimeout: vi.fn(),
@@ -220,10 +218,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("extracts companyId param when id is absent", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: "u1",
-      guestId: null,
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
     mockFetchUpstream.mockResolvedValue({
       response: new Response("ok", { status: 200 }),
       clearTimeout: vi.fn(),
@@ -246,10 +241,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("returns 500 on unexpected error in prepare", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: "u1",
-      guestId: null,
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
     const handler = createConversationStreamHandler(
       makeConfig({
         prepare: vi.fn().mockRejectedValue(new Error("DB crash")),
@@ -264,10 +256,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("calls onStreamError on upstream fetch failure", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: "u1",
-      guestId: null,
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
     const onStreamError = vi.fn();
     mockFetchUpstream.mockRejectedValue(new Error("Network error"));
 
@@ -282,10 +271,7 @@ describe("createConversationStreamHandler", () => {
   });
 
   it("calls onStreamError on non-OK upstream response", async () => {
-    mockGetRequestIdentity.mockResolvedValue({
-      userId: "u1",
-      guestId: null,
-    });
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
     const onStreamError = vi.fn();
     mockFetchUpstream.mockResolvedValue({
       response: new Response(JSON.stringify({ detail: "bad" }), {

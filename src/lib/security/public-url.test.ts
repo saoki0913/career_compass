@@ -132,4 +132,16 @@ describe("public-url", () => {
       servername: "93.184.216.34",
     });
   });
+
+  it("rejects responses whose declared body size exceeds the guarded limit", async () => {
+    mockHttpsResponse({
+      status: 200,
+      headers: { "content-length": "12" },
+      body: "too large",
+    });
+
+    await expect(
+      guardedFetch("https://93.184.216.34/recruit", undefined, { maxResponseBytes: 8 }),
+    ).rejects.toThrow("Guarded fetch response body exceeded size limit");
+  });
 });

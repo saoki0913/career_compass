@@ -35,6 +35,7 @@ except Exception:  # pragma: no cover - redis lib missing in minimal envs
     redis_asyncio = None
 
 from app.config import settings
+from app.utils.cancellation import CancellationToken
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
@@ -115,6 +116,7 @@ class SseLease:
         self._last_heartbeat_monotonic = time.monotonic()
         self._heartbeat_task: Optional[asyncio.Task] = None
         self._released = False
+        self.cancellation_token: CancellationToken = CancellationToken()
 
     @classmethod
     async def acquire(
@@ -130,9 +132,6 @@ class SseLease:
         if effective_client is None:
             # Fail-open: no Redis, no enforcement. Return a dummy lease so the
             # caller's ``async with`` still works.
-            logger.warning(
-                "[SSE lease] redis unavailable — concurrency limit not enforced"
-            )
             return cls(actor_id=actor_id, lease_id="_noop", client=None)
 
         active = await _count_active_leases(effective_client, actor_id)
@@ -166,6 +165,7 @@ class SseLease:
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
+        self.cancellation_token.cancel("lease_exit")
         await self.release()
 
     async def heartbeat_if_due(self) -> None:
@@ -242,6 +242,22 @@ async def _count_active_leases(client, actor_id: str) -> int:
 
 _redis_client_cache: Optional[object] = None
 _redis_client_initialized = False
+_redis_unavailable_warning_emitted = False
+
+
+def _log_redis_unavailable_once() -> None:
+    global _redis_unavailable_warning_emitted
+    if _redis_unavailable_warning_emitted:
+        return
+    _redis_unavailable_warning_emitted = True
+    if settings.is_deployed:
+        logger.warning(
+            "[SSE lease] redis unavailable — concurrency limit not enforced; configure REDIS_URL/UPSTASH_REDIS_REST_URL for deployed SSE protection"
+        )
+    else:
+        logger.info(
+            "[SSE lease] redis unavailable in local development — concurrency limit not enforced"
+        )
 
 
 def _get_redis_client():
@@ -256,6 +272,7 @@ def _get_redis_client():
     _redis_client_initialized = True
     if redis_asyncio is None or not settings.redis_url:
         _redis_client_cache = None
+        _log_redis_unavailable_once()
         return None
     try:
         _redis_client_cache = redis_asyncio.from_url(
@@ -270,5 +287,7 @@ def _get_redis_client():
 def _reset_redis_client_for_tests() -> None:
     """Test-only hook to force the client cache to re-read settings."""
     global _redis_client_cache, _redis_client_initialized
+    global _redis_unavailable_warning_emitted
     _redis_client_cache = None
     _redis_client_initialized = False
+    _redis_unavailable_warning_emitted = False

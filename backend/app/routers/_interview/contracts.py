@@ -34,6 +34,47 @@ INTERVIEW_FORMATS = {
     "technical",
     "life_history",
 }
+INTERVIEW_PLAN_CONTRACT_VERSION = "interview_plan.v2"
+INTERVIEW_PLAN_TOPICS = {
+    "motivation_fit",
+    "motivation_origin",
+    "company_fit",
+    "company_reason",
+    "company_compare_check",
+    "competitor_comparison",
+    "role_understanding",
+    "role_reason",
+    "career_alignment",
+    "career_vision",
+    "culture_fit_values",
+    "gakuchika_process",
+    "gakuchika_causality",
+    "gakuchika_reproducibility",
+    "ownership_scope",
+    "quantitative_evidence",
+    "learning_reproducibility",
+    "personality",
+    "academic_application",
+    "research_application",
+    "learning_motivation",
+    "work_understanding",
+    "case_fit",
+    "structured_thinking",
+    "prioritization",
+    "analytical_approach",
+    "data_handling",
+    "technical_depth",
+    "design_decision",
+    "system_design",
+    "reliability",
+    "user_understanding",
+    "life_narrative_core",
+    "turning_point_values",
+    "motivation_bridge",
+    "final_commitment",
+    "reverse_question",
+}
+INTERVIEW_PLAN_TOPIC_SCHEMA = {"type": "string", "enum": sorted(INTERVIEW_PLAN_TOPICS)}
 # 旧保存値・旧API → 正規化（UIは4方式のみ）
 _LEGACY_INTERVIEW_FORMAT_MAP = {
     "discussion": "life_history",
@@ -184,11 +225,11 @@ _PLAN_FALLBACK = """あなたは新卒採用の面接設計担当です。応募
 - opening_topic / must_cover_topics / risk_topics を決める (risk: generic 志望理由・職種理解不足・経験との接続不足・一貫性・誇張)
 - academic/research 強なら academic_application/research_application を優先
 - case=case_fit/structured_thinking、technical=technical_depth/tradeoff/reproducibility、life_history=life_narrative_core/turning_point_values/motivation_bridge を優先
+- topic は既知の短い snake_case 論点名にする。case_brief や interview_type は出力しない
 - 計画のみ出力、質問文は作らない
 
 ## 出力形式
 {{
-  "interview_type": "new_grad_behavioral|new_grad_case|new_grad_technical|new_grad_final",
   "priority_topics": ["..."],
   "opening_topic": "...",
   "must_cover_topics": ["..."],
@@ -581,24 +622,18 @@ INTERVIEW_PLAN_SCHEMA = {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "interview_type": {"type": "string", "description": "面接タイプ識別子"},
-            "priority_topics": {"type": "array", "items": {"type": "string"}},
-            "opening_topic": {"type": "string", "description": "最初に扱う論点"},
-            "must_cover_topics": {"type": "array", "items": {"type": "string"}},
+            "priority_topics": {"type": "array", "items": INTERVIEW_PLAN_TOPIC_SCHEMA},
+            "opening_topic": {**INTERVIEW_PLAN_TOPIC_SCHEMA, "description": "最初に扱う論点"},
+            "must_cover_topics": {"type": "array", "items": INTERVIEW_PLAN_TOPIC_SCHEMA},
             "risk_topics": {"type": "array", "items": {"type": "string"}},
             "suggested_timeflow": {"type": "array", "items": {"type": "string"}},
-            # Phase 2 Stage 3: case format の plan では CaseBrief を返すことがある
-            # (case format 以外では省略 or null)
-            "case_brief": CASE_BRIEF_SCHEMA,
         },
         "required": [
-            "interview_type",
             "priority_topics",
             "opening_topic",
             "must_cover_topics",
             "risk_topics",
             "suggested_timeflow",
-            "case_brief",
         ],
     },
 }
@@ -1097,7 +1132,10 @@ __all__ = [
     "INTERVIEW_PLAN_PROGRESS_SCHEMA",
     "INTERVIEW_SCORE_SCHEMA",
     "CASE_BRIEF_SCHEMA",
+    "INTERVIEW_PLAN_CONTRACT_VERSION",
     "INTERVIEW_PLAN_SCHEMA",
+    "INTERVIEW_PLAN_TOPIC_SCHEMA",
+    "INTERVIEW_PLAN_TOPICS",
     "INTERVIEW_OPENING_SCHEMA",
     "INTERVIEW_TURN_SCHEMA",
     "INTERVIEW_CONTINUE_SCHEMA",

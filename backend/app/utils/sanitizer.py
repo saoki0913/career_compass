@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import os
 import re
 import traceback
 from collections.abc import Mapping, Sequence
@@ -43,7 +42,10 @@ DROP_KEY_PATTERNS = [
 ]
 FREE_TEXT_KEY_PATTERN = re.compile(r"^(message|value)$", re.IGNORECASE)
 
-_IS_PRODUCTION = os.getenv("ENVIRONMENT", "development") == "production"
+def _get_is_production() -> bool:
+    from app.config import settings
+
+    return settings.is_production
 
 
 def redact_sensitive(text: str) -> str:
@@ -72,7 +74,7 @@ def scrub_exception(error: BaseException) -> dict[str, Any]:
         "name": type(error).__name__,
         "message": redact_sensitive(str(error)),
     }
-    if not _IS_PRODUCTION:
+    if not _get_is_production():
         result["stack"] = redact_sensitive("".join(traceback.format_exception(type(error), error, error.__traceback__)))
     return result
 

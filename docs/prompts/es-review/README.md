@@ -7,7 +7,7 @@
 ## 構成
 
 - `templates/`: `TEMPLATE_DEFS` の設問タイプ別 prompt / rubric snapshot です。
-- `support/`: rewrite、fallback rewrite、draft generation、length fix、改善説明、参考 ES 品質 profile などの共通 prompt surface です。
+- `support/`: rewrite、fallback rewrite、draft generation、改善説明、参考 ES 品質 profile などの共通 prompt surface です。
 
 ## 読む順序
 
@@ -15,7 +15,7 @@
 
 ## 共通ハルシネーション防止ルール
 
-ES 添削の rewrite / fallback rewrite / length fix では、全設問タイプに共通して次を守ります。
+ES 添削の rewrite / fallback rewrite では、全設問タイプに共通して次を守ります。
 
 - 元回答・使えるユーザー事実・企業根拠カードにない数値、役職、経験、成果、企業施策を追加しない
 - 文字数不足でも新事実で埋めず、既存事実の説明密度、接続、語尾、構成だけで調整する

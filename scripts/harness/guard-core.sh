@@ -70,6 +70,16 @@ guard_command_is_release_or_provider() {
   guard_command_predicate "$command" "releaseProvider"
 }
 
+guard_command_is_release_read_only() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "releaseReadOnly"
+}
+
+guard_command_is_release_mutating() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "releaseMutating"
+}
+
 guard_command_is_test_category() {
   local command="${1:-}"
   guard_command_predicate "$command" "testCategoryCommand"
@@ -83,6 +93,21 @@ guard_command_has_destructive_delete() {
 guard_rm_rf_all_targets_safe() {
   local command="${1:-}"
   guard_command_predicate "$command" "allDeletesSafe"
+}
+
+guard_command_is_migration_apply() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "migrationApply"
+}
+
+guard_command_is_production_promotion() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "productionPromotion"
+}
+
+guard_command_is_secret_apply_production() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "secretApplyProduction"
 }
 
 guard_state_dir_for_runtime() {

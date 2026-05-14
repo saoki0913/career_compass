@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
-_PUBLIC_HEALTHCHECK_PATHS = frozenset({"/health", "/health/ready"})
+_PUBLIC_HEALTHCHECK_PATHS = frozenset({"/health", "/health/ready", "/health/version"})
 
 
 class HealthcheckTrustedHostMiddleware(TrustedHostMiddleware):

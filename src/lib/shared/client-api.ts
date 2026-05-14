@@ -74,6 +74,39 @@ export async function postJson(
   payload?: Record<string, JsonValue | undefined>,
   signal?: AbortSignal,
 ): Promise<Response> {
+  return mutateJson("POST", path, payload, signal);
+}
+
+export async function putJson(
+  path: string,
+  payload?: Record<string, JsonValue | undefined>,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return mutateJson("PUT", path, payload, signal);
+}
+
+export async function patchJson(
+  path: string,
+  payload?: Record<string, JsonValue | undefined>,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return mutateJson("PATCH", path, payload, signal);
+}
+
+export async function deleteJson(
+  path: string,
+  payload?: Record<string, JsonValue | undefined>,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return mutateJson("DELETE", path, payload, signal);
+}
+
+async function mutateJson(
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
+  path: string,
+  payload?: Record<string, JsonValue | undefined>,
+  signal?: AbortSignal,
+): Promise<Response> {
   const headers = new Headers(buildJsonHeaders());
   const csrfToken = await ensureClientCsrfToken();
   if (csrfToken) {
@@ -81,7 +114,7 @@ export async function postJson(
   }
 
   return fetch(path, {
-    method: "POST",
+    method,
     credentials: "include",
     headers,
     body: payload === undefined ? undefined : JSON.stringify(payload),

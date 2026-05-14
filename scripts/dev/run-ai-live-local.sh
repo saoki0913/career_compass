@@ -7,22 +7,33 @@ repo_root="$(cd "${script_dir}/../.." && pwd)"
 
 cd "$repo_root"
 
-# Match Next.js dev env load order (later files override earlier) so CI_E2E_AUTH_SECRET
-# is visible here when set in .env / .env.development (not only .env.local).
-load_repo_env_file() {
-  local f="$1"
-  if [[ -f "$f" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "$f"
-    set +a
-  fi
+# Match Next.js dev env load order without shell-sourcing dotenv files. Some
+# valid dotenv values are not valid Bash syntax, and sourcing them aborts this
+# harness before the selected feature can even start.
+load_repo_env_files() {
+  while IFS= read -r -d '' env_pair; do
+    export "$env_pair"
+  done < <(node <<'NODE'
+const fs = require("node:fs");
+const dotenv = require("dotenv");
+
+const files = [".env", ".env.development", ".env.local", ".env.development.local"];
+const merged = {};
+
+for (const file of files) {
+  if (!fs.existsSync(file)) continue;
+  Object.assign(merged, dotenv.parse(fs.readFileSync(file)));
 }
 
-load_repo_env_file ".env"
-load_repo_env_file ".env.development"
-load_repo_env_file ".env.local"
-load_repo_env_file ".env.development.local"
+for (const [key, value] of Object.entries(merged)) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+  process.stdout.write(`${key}=${value}\0`);
+}
+NODE
+  )
+}
+
+load_repo_env_files
 
 suite="${SUITE:-${AI_LIVE_SUITE:-extended}}"
 timestamp="${AI_LIVE_LOCAL_TIMESTAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"

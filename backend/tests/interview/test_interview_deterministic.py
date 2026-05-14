@@ -29,6 +29,7 @@ from app.routers.interview import (
     _infer_role_track,
     _infer_stage_from_topic,
     _load_case_brief_preset,
+    _normalize_interview_plan,
     _question_stage_from_turn_meta,
     _select_case_brief,
     InterviewContinueRequest,
@@ -1078,6 +1079,40 @@ def test_case_brief_none_for_non_case_format() -> None:
     plan = _fallback_plan(payload, setup)
 
     assert plan.get("case_brief") is None, "技術面接では case_brief が入らないはず"
+
+
+def test_normalize_interview_plan_accepts_camel_case_persisted_plan() -> None:
+    setup = _build_setup(
+        _make_start_payload(
+            interview_format="case",
+            selected_industry="金融",
+            seed_summary="金融機関の収益改善ケース",
+        )
+    )
+
+    plan = _normalize_interview_plan(
+        {
+            "interviewType": "case",
+            "priorityTopics": ["structured_thinking"],
+            "openingTopic": "structured_thinking",
+            "mustCoverTopics": ["structured_thinking", "prioritization"],
+            "riskTopics": ["logic"],
+            "suggestedTimeflow": ["導入", "構造化"],
+            "contractVersion": "interview_plan.v2",
+            "planSource": "llm_validated",
+            "fallbackReason": None,
+        },
+        setup=setup,
+        plan_source="persisted",
+    )
+
+    assert plan["interview_type"] == "new_grad_case"
+    assert plan["priority_topics"] == ["structured_thinking"]
+    assert plan["opening_topic"] == "structured_thinking"
+    assert plan["must_cover_topics"] == ["structured_thinking", "prioritization"]
+    assert plan["plan_source"] == "persisted"
+    assert plan["case_brief"]["industry"] == "finance"
+    assert plan["quality_lenses"][0]["topic"] == "structured_thinking"
 
 
 def test_select_case_brief_returns_none_for_unknown_industry() -> None:

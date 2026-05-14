@@ -5,7 +5,13 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.utils import llm
-from app.utils.llm_client_registry import CircuitBreaker, reset_registry
+from app.utils.llm_client_registry import (
+    CircuitBreaker,
+    is_provider_circuit_open,
+    record_provider_failure,
+    record_provider_success,
+    reset_registry,
+)
 
 
 def test_circuit_breaker_open_emits_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -80,3 +86,15 @@ def test_registry_default_circuits_have_provider() -> None:
     reg = reset_registry()
     assert reg.anthropic_circuit.provider == "anthropic"
     assert reg.openai_circuit.provider == "openai"
+
+
+def test_provider_circuit_helpers_are_noops_for_google() -> None:
+    reg = reset_registry()
+
+    assert is_provider_circuit_open("google") is False
+
+    record_provider_failure("google")
+    record_provider_success("google")
+
+    assert reg.anthropic_circuit.failures == 0
+    assert reg.openai_circuit.failures == 0

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import re
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.prompts.es_templates import (
     TEMPLATE_DEFS,
+    LengthTargetPlan,
     format_generation_target,
     get_template_retry_guidance,
     resolve_length_target_plan,
@@ -24,6 +26,7 @@ from app.services.es_review.grounding import (
     _extract_question_focus_signals,
     _is_generic_role_label,
 )
+from app.services.es_review.enums import ValidationFailureCode
 from app.services.es_review.models import TemplateRequest
 from app.services.es_review.validation import (
     SHORT_ANSWER_CHAR_MAX,
@@ -39,25 +42,99 @@ REWRITE_MAX_ATTEMPTS = 3
 # OpenAI Responses の推論トークンが max_output に含まれるため、
 # 可視出力の前に枯渇しないよう下限を設ける。
 _OPENAI_ES_REVIEW_OUTPUT_TOKEN_FLOOR = 4096
-_LENGTH_CODES = frozenset({"under_min", "over_max"})
+_LENGTH_CODES = frozenset({
+    ValidationFailureCode.UNDER_MIN,
+    ValidationFailureCode.OVER_MAX,
+})
 _CRITICAL_CODES = frozenset({
-    "hallucination",
-    "negative_self_eval",
-    "empty",
-    "company_reference_in_companyless",
+    ValidationFailureCode.HALLUCINATION,
+    ValidationFailureCode.NEGATIVE_SELF_EVAL,
+    ValidationFailureCode.EMPTY,
+    ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS,
 })
 _STRUCTURE_CODES = frozenset({
-    "fragment",
-    "bulletish_or_listlike",
-    "answer_focus",
-    "verbose_opening",
-    "structure",
+    ValidationFailureCode.FRAGMENT,
+    ValidationFailureCode.BULLETISH_OR_LISTLIKE,
+    ValidationFailureCode.ANSWER_FOCUS,
+    ValidationFailureCode.VERBOSE_OPENING,
+    ValidationFailureCode.STRUCTURE,
 })
 _STYLE_STRUCTURE_CODES = frozenset({
-    "style",
-    "fragment",
-    "bulletish_or_listlike",
+    ValidationFailureCode.STYLE,
+    ValidationFailureCode.FRAGMENT,
+    ValidationFailureCode.BULLETISH_OR_LISTLIKE,
 })
+
+
+@dataclass(frozen=True)
+class RetryPlan:
+    primary_code: str
+    selected_codes: tuple[str, ...]
+    focus_modes: tuple[str, ...]
+    focus_mode: str
+    length_control_mode: str
+    target_plan: LengthTargetPlan
+    guidance_items: tuple[str, ...] = field(default_factory=tuple)
+    shortfall_delta_band: str | None = None
+
+
+def build_rewrite_retry_plan(
+    *,
+    retry_code: str,
+    failure_codes: list[str] | None,
+    focus_modes: list[str],
+    focus_mode: str,
+    use_tight_length_control: bool,
+    char_min: int | None,
+    char_max: int | None,
+    original_len: int,
+    latest_failed_length: int,
+    llm_model: str | None,
+    template_type: str,
+) -> RetryPlan:
+    """Build one typed retry plan shared by prompts, validation trace, and meta."""
+    selected_codes = _select_retry_codes(
+        retry_code=retry_code,
+        failure_codes=failure_codes,
+    )
+    length_control_mode = _resolve_rewrite_length_control_mode(
+        use_tight_length_control=use_tight_length_control,
+        focus_mode=focus_mode,
+    )
+    shortfall_delta_band = compute_shortfall_delta_band(
+        char_min=char_min,
+        current_length=latest_failed_length or None,
+    )
+    target_plan = resolve_length_target_plan(
+        char_min,
+        char_max,
+        stage=_length_profile_stage_from_mode(length_control_mode),
+        original_len=original_len,
+        llm_model=llm_model,
+        latest_failed_len=latest_failed_length,
+    )
+    guidance_items = _retry_hints_from_codes(
+        retry_code=retry_code,
+        failure_codes=failure_codes,
+        char_min=char_min,
+        char_max=char_max,
+        current_length=latest_failed_length or None,
+        length_control_mode=length_control_mode,
+        template_type=template_type,
+    )
+    return RetryPlan(
+        primary_code=_primary_retry_code(
+            retry_code=retry_code,
+            failure_codes=failure_codes,
+        ),
+        selected_codes=tuple(selected_codes),
+        focus_modes=tuple(focus_modes or ()),
+        focus_mode=focus_mode,
+        length_control_mode=length_control_mode,
+        target_plan=target_plan,
+        guidance_items=tuple(guidance_items),
+        shortfall_delta_band=shortfall_delta_band,
+    )
 
 
 def _select_composite_retry_mode(
@@ -78,19 +155,22 @@ def _select_composite_retry_mode(
         return None
 
     has_length = bool(code_set & _LENGTH_CODES)
-    has_under_min = "under_min" in code_set
-    if "hallucination" in code_set:
+    has_under_min = ValidationFailureCode.UNDER_MIN in code_set
+    if ValidationFailureCode.HALLUCINATION in code_set:
         if has_length:
             return "fact_safety_length"
         if code_set & _STRUCTURE_CODES:
             return "fact_safety_structure"
-    if "company_reference_in_companyless" in code_set and has_length:
+    if ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS in code_set and has_length:
         return "company_reference_length"
-    if has_length and "grounding" in code_set:
+    if has_length and ValidationFailureCode.GROUNDING in code_set:
         return "length_grounding"
-    if has_length and code_set & {"answer_focus", "verbose_opening"}:
+    if has_length and code_set & {
+        ValidationFailureCode.ANSWER_FOCUS,
+        ValidationFailureCode.VERBOSE_OPENING,
+    }:
         return "length_answer_focus"
-    if has_under_min and "quantify" in code_set:
+    if has_under_min and ValidationFailureCode.QUANTIFY in code_set:
         return "length_quantify"
     if has_length and code_set & _STYLE_STRUCTURE_CODES:
         return "length_style_structure"
@@ -101,7 +181,7 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
     for item in items:
-        value = str(item or "").strip()
+        value = item.value if isinstance(item, ValidationFailureCode) else str(item or "").strip()
         if not value or value in seen:
             continue
         seen.add(value)
@@ -116,7 +196,7 @@ def _select_retry_codes(
         ([retry_code] if retry_code else []) + list(failure_codes or [])
     )
     if not raw_codes:
-        return ["generic"]
+        return [ValidationFailureCode.GENERIC.value]
 
     length_codes = [code for code in raw_codes if code in _LENGTH_CODES]
     critical_codes = [code for code in raw_codes if code in _CRITICAL_CODES]
@@ -125,8 +205,8 @@ def _select_retry_codes(
     ]
 
     selected: list[str] = []
-    if "hallucination" in raw_codes:
-        selected.append("hallucination")
+    if ValidationFailureCode.HALLUCINATION in raw_codes:
+        selected.append(ValidationFailureCode.HALLUCINATION.value)
     if length_codes and len(selected) < 2:
         selected.append(length_codes[0])
     selected.extend(critical_codes[: max(0, 2 - len(selected))])
@@ -142,30 +222,30 @@ def _primary_retry_code(
     selected_codes = _select_retry_codes(
         retry_code=retry_code, failure_codes=failure_codes
     )
-    return selected_codes[0] if selected_codes else (retry_code or "generic")
+    return selected_codes[0] if selected_codes else (retry_code or ValidationFailureCode.GENERIC.value)
 
 
 def _resolve_rewrite_focus_mode(*, retry_code: str) -> str:
     mapping = {
-        "under_min": "length_focus_min",
-        "over_max": "length_focus_max",
-        "style": "style_focus",
-        "grounding": "grounding_focus",
-        "answer_focus": "answer_focus",
-        "verbose_opening": "opening_focus",
-        "quantify": "quantify_focus",
-        "structure": "structure_focus",
-        "bulletish_or_listlike": "structure_focus",
-        "empty": "structure_focus",
-        "fragment": "structure_focus",
-        "negative_self_eval": "positive_reframe_focus",
-        "company_reference_in_companyless": "structure_focus",
-        "hallucination": "fact_preservation_focus",
-        "llm_quality": "structure_focus",
-        "fact_preservation": "fact_preservation_focus",
-        "generic": "structure_focus",
+        ValidationFailureCode.UNDER_MIN: "length_focus_min",
+        ValidationFailureCode.OVER_MAX: "length_focus_max",
+        ValidationFailureCode.STYLE: "style_focus",
+        ValidationFailureCode.GROUNDING: "grounding_focus",
+        ValidationFailureCode.ANSWER_FOCUS: "answer_focus",
+        ValidationFailureCode.VERBOSE_OPENING: "opening_focus",
+        ValidationFailureCode.QUANTIFY: "quantify_focus",
+        ValidationFailureCode.STRUCTURE: "structure_focus",
+        ValidationFailureCode.BULLETISH_OR_LISTLIKE: "structure_focus",
+        ValidationFailureCode.EMPTY: "structure_focus",
+        ValidationFailureCode.FRAGMENT: "structure_focus",
+        ValidationFailureCode.NEGATIVE_SELF_EVAL: "positive_reframe_focus",
+        ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS: "structure_focus",
+        ValidationFailureCode.HALLUCINATION: "fact_preservation_focus",
+        ValidationFailureCode.LLM_QUALITY: "structure_focus",
+        ValidationFailureCode.FACT_PRESERVATION: "fact_preservation_focus",
+        ValidationFailureCode.GENERIC: "structure_focus",
     }
-    return mapping.get(retry_code or "generic", "structure_focus")
+    return mapping.get(retry_code or ValidationFailureCode.GENERIC, "structure_focus")
 
 
 def _resolve_rewrite_focus_modes(
@@ -190,8 +270,12 @@ def _serialize_focus_modes(focus_modes: list[str] | None) -> str:
 
 
 _DEGRADED_BLOCK_CODES = frozenset({
-    "empty", "fragment", "negative_self_eval", "company_reference_in_companyless",
-    "hallucination", "fact_preservation",
+    ValidationFailureCode.EMPTY,
+    ValidationFailureCode.FRAGMENT,
+    ValidationFailureCode.NEGATIVE_SELF_EVAL,
+    ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS,
+    ValidationFailureCode.HALLUCINATION,
+    ValidationFailureCode.FACT_PRESERVATION,
 })
 
 
@@ -245,46 +329,46 @@ def _rewrite_validation_degraded_hint(codes: list[str]) -> str:
         "厳密な品質チェックをすべて満たせませんでしたが、最も近い改善案を表示しています。"
     )
     action_by_code: dict[str, str] = {
-        "style": (
+        ValidationFailureCode.STYLE: (
             "提出前に、です・ます調を使わずだ・である調にそろえてください。"
         ),
-        "under_min": (
+        ValidationFailureCode.UNDER_MIN: (
             "提出前に、指定の最小字数を満たすよう、本文を足すか構成を調整してください。"
         ),
-        "over_max": (
+        ValidationFailureCode.OVER_MAX: (
             "提出前に、指定の最大字数を超えないよう、重複や冗長な表現を削ってください。"
         ),
-        "answer_focus": (
+        ValidationFailureCode.ANSWER_FOCUS: (
             "提出前に、冒頭の1〜2文で設問の答えの核がすぐ伝わるよう書き直してください。"
         ),
-        "verbose_opening": (
+        ValidationFailureCode.VERBOSE_OPENING: (
             "提出前に、設問文の言い換えで始めず、結論から書き始めてください。"
         ),
-        "bulletish_or_listlike": (
+        ValidationFailureCode.BULLETISH_OR_LISTLIKE: (
             "提出前に、箇条書きや番号列挙をやめ、つながった一段の本文にしてください。"
         ),
-        "grounding": (
+        ValidationFailureCode.GROUNDING: (
             "提出前に、企業や役割との接点が本文から伝わるよう、1文で結び直してください。"
         ),
-        "negative_self_eval": (
+        ValidationFailureCode.NEGATIVE_SELF_EVAL: (
             "提出前に、「経験不足」「自信がない」などの自己否定語を残さず、"
             "準備・責任感・学習姿勢などの前向きな表現へ言い換えてください。"
         ),
-        "company_reference_in_companyless": (
+        ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS: (
             "提出前に、「貴社」「貴行」等の企業敬称を削除し、自分の経験を主軸にまとめてください。"
         ),
-        "hallucination": (
+        ValidationFailureCode.HALLUCINATION: (
             "提出前に、元回答や確認済みユーザー事実にない数値・役職・経験・成果が混ざっていないか確認してください。"
         ),
-        "generic": (
+        ValidationFailureCode.GENERIC: (
             "提出前に、文体（だ・である調）・指定字数・冒頭の結論の置き方を確認し、"
             "不足している点を直してください。"
         ),
     }
     if not codes:
-        return intro + action_by_code["generic"]
+        return intro + action_by_code[ValidationFailureCode.GENERIC]
     actions = [
-        action_by_code.get(code, action_by_code["generic"])
+        action_by_code.get(code, action_by_code[ValidationFailureCode.GENERIC])
         for code in _select_retry_codes(retry_code=codes[0], failure_codes=codes)
     ]
     return intro + " ".join(_dedupe_preserve_order(actions))
@@ -294,11 +378,11 @@ def _rewrite_validation_soft_hint(codes: list[str]) -> str:
     if not codes:
         return "一部条件を緩和して表示しています。提出前に文体と企業接続を確認してください。"
 
-    if set(codes) == {"under_min"}:
+    if set(codes) == {ValidationFailureCode.UNDER_MIN}:
         return "一部条件を緩和して表示しています。提出前に、指定字数に届いているか確認してください。"
-    if set(codes) == {"style"}:
+    if set(codes) == {ValidationFailureCode.STYLE}:
         return "一部条件を緩和して表示しています。提出前に、だ・である調へ統一してください。"
-    if set(codes) == {"grounding"}:
+    if set(codes) == {ValidationFailureCode.GROUNDING}:
         return "一部条件を緩和して表示しています。提出前に、企業や役割との接点を1文で補ってください。"
     return "一部条件を緩和して表示しています。提出前に文体・文字数・企業接続を確認してください。"
 
@@ -357,7 +441,7 @@ def _length_shortfall_bucket(
     latest_failed_length: int,
     length_failure_code: str | None,
 ) -> str | None:
-    if length_failure_code != "under_min" or not char_min or latest_failed_length <= 0:
+    if length_failure_code != ValidationFailureCode.UNDER_MIN or not char_min or latest_failed_length <= 0:
         return None
     shortfall = max(0, char_min - latest_failed_length)
     if shortfall <= 0:
@@ -489,6 +573,7 @@ def _retry_hint_from_code(
             char_min,
             char_max,
             stage=target_stage,
+            latest_failed_len=current_length or 0,
         )
     )
     shortfall = max(0, (char_min or 0) - (current_length or 0)) if char_min and current_length else 0
@@ -507,9 +592,9 @@ def _retry_hint_from_code(
         if spec_hint
         else ""
     )
-    if code != "under_min" and formatted_spec_hint:
+    if code != ValidationFailureCode.UNDER_MIN and formatted_spec_hint:
         return formatted_spec_hint
-    if code == "under_min":
+    if code == ValidationFailureCode.UNDER_MIN:
         if length_control_mode == "under_min_recovery":
             if shortfall >= 30:
                 base_hint = (
@@ -554,28 +639,28 @@ def _retry_hint_from_code(
         if formatted_spec_hint:
             return formatted_spec_hint
     mapping = {
-        "empty": "改善案本文を必ず1件だけ返す",
-        "under_min": f"内容を薄めず {target_hint} を狙う",
-        "over_max": f"冗長語を削り {target_hint} に収める",
-        "style": "です・ます調を使わず、だ・である調に統一する",
-        "answer_focus": (
+        ValidationFailureCode.EMPTY: "改善案本文を必ず1件だけ返す",
+        ValidationFailureCode.UNDER_MIN: f"内容を薄めず {target_hint} を狙う",
+        ValidationFailureCode.OVER_MAX: f"冗長語を削り {target_hint} に収める",
+        ValidationFailureCode.STYLE: "です・ます調を使わず、だ・である調に統一する",
+        ValidationFailureCode.ANSWER_FOCUS: (
             "1文目で設問への答えを短く言い切る（インターンなら参加・学びの核、"
             "コース志望なら志望・関心の語を含める）"
         ),
-        "verbose_opening": "設問の言い換えから始めず、1文目は結論だけを短く置く",
-        "fragment": "本文を断片で終わらせず、最後まで言い切る",
-        "bulletish_or_listlike": "箇条書きや列挙ではなく、1本の本文にする",
-        "negative_self_eval": (
+        ValidationFailureCode.VERBOSE_OPENING: "設問の言い換えから始めず、1文目は結論だけを短く置く",
+        ValidationFailureCode.FRAGMENT: "本文を断片で終わらせず、最後まで言い切る",
+        ValidationFailureCode.BULLETISH_OR_LISTLIKE: "箇条書きや列挙ではなく、1本の本文にする",
+        ValidationFailureCode.NEGATIVE_SELF_EVAL: (
             "「経験不足」「自信がない」などの自己否定語を残さず、"
             "準備・責任感・学習姿勢として言い換える"
         ),
-        "company_reference_in_companyless": "「貴社」等の企業敬称を使わず、自分の経験で書く",
-        "llm_quality": "品質検証の指摘を反映し、冒頭・構成・企業接地・文体を整える",
-        "fact_preservation": "元回答の数値・役割・具体的経験を変更せず、そのまま保持する",
-        "hallucination": "元回答の数値・役割・具体的経験を変更せず、そのまま保持する",
-        "generic": "条件を満たす安全な改善案を返す",
+        ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS: "「貴社」等の企業敬称を使わず、自分の経験で書く",
+        ValidationFailureCode.LLM_QUALITY: "品質検証の指摘を反映し、冒頭・構成・企業接地・文体を整える",
+        ValidationFailureCode.FACT_PRESERVATION: "元回答の数値・役割・具体的経験を変更せず、そのまま保持する",
+        ValidationFailureCode.HALLUCINATION: "元回答の数値・役割・具体的経験を変更せず、そのまま保持する",
+        ValidationFailureCode.GENERIC: "条件を満たす安全な改善案を返す",
     }
-    return mapping.get(code, mapping["generic"])
+    return mapping.get(code, mapping[ValidationFailureCode.GENERIC])
 
 
 def _retry_hints_from_codes(
@@ -775,7 +860,9 @@ def _should_run_role_focused_second_pass(
 
 
 __all__ = [
+    "RetryPlan",
     "REWRITE_MAX_ATTEMPTS",
+    "build_rewrite_retry_plan",
     "_best_effort_rewrite_admissible",
     "_build_role_focused_second_pass_query",
     "_build_hallucination_retry_hints",

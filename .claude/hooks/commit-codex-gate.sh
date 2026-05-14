@@ -22,6 +22,27 @@ if ! echo "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit'; then
   exit 0
 fi
 
+if echo "$CMD" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+add[[:space:]].*&&[[:space:]]*git[[:space:]]+commit'; then
+  cat >&2 <<'EOF'
+⛔ git commit をブロックしました。
+
+git add と git commit を同じ Bash コマンドにまとめると、PreToolUse 時点の staged diff と
+実際の commit 対象がずれる可能性があります。
+先に git add を単独実行し、Codex post_review / checkpoint を作成してから git commit してください。
+EOF
+  exit 2
+fi
+
+if echo "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit([^;&|]*[[:space:]])-[^;&|]*a'; then
+  cat >&2 <<'EOF'
+⛔ git commit をブロックしました。
+
+git commit -a / -am は staged diff review をすり抜ける可能性があります。
+対象ファイルを明示的に git add し、Codex post_review / checkpoint を作成してから git commit してください。
+EOF
+  exit 2
+fi
+
 # --- 変更統計を取得 (staged diff only) ---
 NUMSTAT=$(git -C "$PROJECT_DIR" diff --cached --numstat 2>/dev/null || true)
 

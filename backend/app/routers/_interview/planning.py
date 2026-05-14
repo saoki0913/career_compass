@@ -21,6 +21,8 @@ from app.prompts.interview_prompts import (
     choose_followup_style,
 )
 from app.routers._interview.contracts import (
+    INTERVIEW_PLAN_CONTRACT_VERSION,
+    INTERVIEW_PLAN_TOPICS,
     LEGACY_STAGE_ORDER,
     QUESTION_STAGE_ORDER,
     CaseBrief,
@@ -51,8 +53,18 @@ class InterviewPlanView(TypedDict, total=False):
     must_cover_topics: list[str]
 
 
-QUESTION_SOFT_MIN = 13
+QUESTION_SOFT_MIN = 12
 QUESTION_HARD_MAX = 17
+
+_PLAN_TOPIC_ALIASES = {
+    "tradeoff": "design_decision",
+    "reproducibility": "learning_reproducibility",
+    "company_compare": "company_compare_check",
+    "company_understanding": "company_reason",
+    "industry_reason": "company_reason",
+    "experience": "gakuchika_process",
+    "skill": "role_understanding",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +111,71 @@ def _checklist_for_topic(topic: str, setup: dict[str, Any]) -> list[str]:
         checklist.append("practical_skill")
 
     return checklist
+
+
+def _interview_type_for_setup(setup: dict[str, Any]) -> str:
+    fmt = str(setup.get("interview_format") or "standard_behavioral")
+    if fmt == "case":
+        return "new_grad_case"
+    if fmt == "technical":
+        return "new_grad_technical"
+    if fmt == "life_history":
+        return "new_grad_life_history"
+    if setup.get("interview_stage") == "final":
+        return "new_grad_final"
+    return "new_grad_behavioral"
+
+
+def _coerce_plan_topic(value: Any) -> str | None:
+    topic = str(value or "").strip()
+    if not topic:
+        return None
+    topic = _PLAN_TOPIC_ALIASES.get(topic, topic)
+    if topic in INTERVIEW_PLAN_TOPICS:
+        return topic
+    return None
+
+
+def _normalize_plan_topics(value: Any) -> list[str]:
+    topics: list[str] = []
+    seen: set[str] = set()
+    for item in _normalize_string_list(value):
+        topic = _coerce_plan_topic(item)
+        if topic and topic not in seen:
+            topics.append(topic)
+            seen.add(topic)
+    return topics
+
+
+def _quality_lenses_for_topics(topics: list[str], setup: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {
+            "topic": topic,
+            "requiredChecklist": _checklist_for_topic(topic, setup),
+            "answerQualitySignals": [
+                "具体的な事実に基づいている",
+                "本人の判断と行動が分かる",
+                "企業・職種との接続がある",
+            ],
+        }
+        for topic in topics
+    ]
+
+
+def _valid_case_brief(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        CaseBrief(**value)
+    except Exception:  # noqa: BLE001 - persisted/LLM plan metadata is untrusted.
+        return None
+    return value
+
+
+def _read_plan_alias(data: dict[str, Any], snake_key: str, camel_key: str) -> Any:
+    if snake_key in data:
+        return data.get(snake_key)
+    return data.get(camel_key)
 
 
 # ---------------------------------------------------------------------------
@@ -215,35 +292,67 @@ def _build_recent_question_summary_v2(turn_meta: dict[str, Any], fallback: str, 
     }
 
 
-def _normalize_interview_plan(value: Any) -> dict[str, Any]:
+def _normalize_interview_plan(
+    value: Any,
+    *,
+    setup: dict[str, Any] | None = None,
+    payload: InterviewBaseRequest | None = None,
+    plan_source: str | None = None,
+    fallback_reason: str | None = None,
+) -> dict[str, Any]:
     data = value if isinstance(value, dict) else {}
-    interview_type = str(data.get("interview_type") or "new_grad_behavioral").strip()
-    priority_topics = _normalize_string_list(data.get("priority_topics"))
-    if isinstance(data.get("opening_topic"), str) and data["opening_topic"].strip():
-        opening_topic = data["opening_topic"].strip()
+    setup_data = setup or {}
+    fmt = setup_data.get("interview_format")
+    if fmt == "case":
+        default_opening = "case_fit"
+    elif fmt == "life_history":
+        default_opening = "life_narrative_core"
     else:
-        opening_topic = priority_topics[0] if priority_topics else "motivation_fit"
-    must_cover_topics = _normalize_string_list(data.get("must_cover_topics")) or [opening_topic]
-    risk_topics = _normalize_string_list(data.get("risk_topics"))
-    suggested_timeflow = _normalize_string_list(data.get("suggested_timeflow")) or ["導入", "論点1", "論点2", "締め"]
+        default_opening = "motivation_fit"
+
+    priority_topics = _normalize_plan_topics(_read_plan_alias(data, "priority_topics", "priorityTopics"))
+    opening_topic = _coerce_plan_topic(_read_plan_alias(data, "opening_topic", "openingTopic")) or (
+        priority_topics[0] if priority_topics else default_opening
+    )
+    must_cover_topics = _normalize_plan_topics(_read_plan_alias(data, "must_cover_topics", "mustCoverTopics")) or [opening_topic]
+    if opening_topic not in must_cover_topics:
+        must_cover_topics.insert(0, opening_topic)
+    risk_topics = _normalize_string_list(_read_plan_alias(data, "risk_topics", "riskTopics"))
+    suggested_timeflow = _normalize_string_list(_read_plan_alias(data, "suggested_timeflow", "suggestedTimeflow")) or [
+        "導入",
+        "論点1",
+        "論点2",
+        "締め",
+    ]
+    interview_type = (
+        _interview_type_for_setup(setup_data)
+        if setup
+        else str(_read_plan_alias(data, "interview_type", "interviewType") or "new_grad_behavioral").strip()
+    )
     normalized: dict[str, Any] = {
+        "contract_version": str(_read_plan_alias(data, "contract_version", "contractVersion") or INTERVIEW_PLAN_CONTRACT_VERSION),
         "interview_type": interview_type,
         "priority_topics": priority_topics or [opening_topic],
         "opening_topic": opening_topic,
         "must_cover_topics": must_cover_topics,
         "risk_topics": risk_topics,
         "suggested_timeflow": suggested_timeflow,
+        "quality_lenses": _quality_lenses_for_topics(must_cover_topics, setup_data),
+        "plan_source": str(plan_source or _read_plan_alias(data, "plan_source", "planSource") or "llm_validated"),
+        "fallback_reason": (
+            fallback_reason
+            if fallback_reason is not None
+            else _read_plan_alias(data, "fallback_reason", "fallbackReason")
+        ),
     }
-    # Phase 2 Stage 3: case_brief は case format でのみ load され、他 format では
-    # 存在しない (キー省略) のが正。dict のまま通過させ、不正形式は drop する。
-    case_brief = data.get("case_brief")
-    if isinstance(case_brief, dict):
-        try:
-            CaseBrief(**case_brief)
-        except Exception:  # noqa: BLE001 — 不正形式は drop
-            pass
-        else:
-            normalized["case_brief"] = case_brief
+    case_brief = _valid_case_brief(_read_plan_alias(data, "case_brief", "caseBrief"))
+    if setup_data.get("interview_format") == "case":
+        seed_summary = getattr(payload, "seed_summary", None) if payload is not None else None
+        case_brief = case_brief or _select_case_brief(setup_data, seed_summary)
+    elif setup is not None:
+        case_brief = None
+    if case_brief is not None:
+        normalized["case_brief"] = case_brief
     return normalized
 
 
@@ -661,7 +770,13 @@ def _fallback_plan(payload: InterviewBaseRequest, setup: dict[str, Any]) -> dict
         if case_brief is not None:
             plan["case_brief"] = case_brief
 
-    return plan
+    return _normalize_interview_plan(
+        plan,
+        setup=setup,
+        payload=payload,
+        plan_source="deterministic_fallback",
+        fallback_reason="deterministic_fallback",
+    )
 
 
 # ---------------------------------------------------------------------------

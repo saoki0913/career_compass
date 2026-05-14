@@ -332,16 +332,17 @@ describe("api/companies/[id]/fetch-corporate", () => {
                     status: "completed",
                     contentType: "corporate_site",
                   },
+                  {
+                    url: "upload://company-1/manual.pdf",
+                    kind: "upload_pdf",
+                    status: "completed",
+                    contentType: "ir_materials",
+                  },
                 ]),
                 corporateInfoFetchedAt: null,
               },
             ]),
           })),
-        })),
-      })
-      .mockReturnValueOnce({
-        from: vi.fn(() => ({
-          where: vi.fn().mockResolvedValue([]),
         })),
       });
     parseCorporateInfoSourcesMock.mockReturnValue([
@@ -350,6 +351,12 @@ describe("api/companies/[id]/fetch-corporate", () => {
         kind: "url",
         status: "completed",
         contentType: "corporate_site",
+      },
+      {
+        url: "upload://company-1/manual.pdf",
+        kind: "upload_pdf",
+        status: "completed",
+        contentType: "ir_materials",
       },
     ]);
     vi.stubGlobal(
@@ -378,7 +385,14 @@ describe("api/companies/[id]/fetch-corporate", () => {
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(data.corporateInfoUrls).toHaveLength(1);
+    expect(data.corporateInfoUrls).toHaveLength(2);
+    expect(data.corporateInfoUrls[1]).toMatchObject({
+      url: "upload://company-1/manual.pdf",
+      kind: "upload_pdf",
+      status: "completed",
+      contentType: "ir_materials",
+    });
     expect(data.ragStatus.totalChunks).toBe(12);
+    expect(dbSelectMock).toHaveBeenCalledTimes(2);
   });
 });

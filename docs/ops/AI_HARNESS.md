@@ -421,7 +421,7 @@ Codex hook 配線の正本は [`docs/ops/CODEX_HARNESS.md`](./CODEX_HARNESS.md) 
 - **block（exit 2）**: 通常の `git push` も、`push-approved-$SESSION_ID` JSON checkpoint がなく、checkpoint の `headSha` が現在の `HEAD` と一致しない場合は block
 - **許可（exit 0）**: AskUserQuestion 等で明示承認後、`node scripts/harness/diff-snapshot.mjs checkpoint --kind push --decision approved --project "$(pwd)" > ~/.claude/sessions/career_compass/push-approved-$SESSION_ID` を作成し、HEAD が変わっていない場合のみ
 - **release 正本**: `make deploy` / `make ops-release-check` → `make deploy-stage-all` / `scripts/release/release-career-compass.sh`
-- **相互参照**: [`docs/ops/CLI_GUARDRAILS.md`](./CLI_GUARDRAILS.md), [`docs/release/PRODUCTION.md`](../release/PRODUCTION.md)
+- **相互参照**: [`docs/ops/CLI_GUARDRAILS.md`](./CLI_GUARDRAILS.md), [`docs/release/ops/REGULAR_RELEASE.md`](../release/ops/REGULAR_RELEASE.md)
 
 #### 5.3.4 `secrets-guard.sh`（PreToolUse, Read|Bash）
 
@@ -429,7 +429,7 @@ Codex hook 配線の正本は [`docs/ops/CODEX_HARNESS.md`](./CODEX_HARNESS.md) 
   - Read tool で `.env*`, `.secrets/`, `codex-company/.secrets/`, `*.pem`, `*.key`, `*.p12` などの sensitive path を開こうとする
   - Bash tool で `cat|head|tail|less|more|bat|sed|awk|grep|rg` 等の読み取り系コマンドが sensitive path を対象にする
 - **許可される操作**: `zsh scripts/release/sync-career-compass-secrets.sh --check`
-- **相互参照**: [`docs/ops/SECURITY.md`](./SECURITY.md), [`docs/release/ENV_REFERENCE.md`](../release/ENV_REFERENCE.md), `CLAUDE.md` の API / Error Handling Rules 節
+- **相互参照**: [`docs/ops/SECURITY.md`](./SECURITY.md), [`docs/release/setup/ENV_REFERENCE.md`](../release/setup/ENV_REFERENCE.md), `CLAUDE.md` の API / Error Handling Rules 節
 
 #### 5.3.5 `post-edit-dispatcher.sh`（PostToolUse, Edit|Write）
 

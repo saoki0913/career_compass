@@ -208,7 +208,7 @@ career_compass/
            ├─> 入力防御と sanitize
            ├─> RAGコンテキスト取得（ChromaDB + BM25）
            ├─> company evidence cards / reference quality profile / selected user facts を構築
-           ├─> rewrite-only 生成（strict → focused retry 1 → focused retry 2 → length-fix → degraded / 422）
+           ├─> rewrite-only 生成（strict → focused retry 1 → focused retry 2 → degraded / 422）
            ├─> 決定論的検証（文字数・文体・参考ES類似、短字数では final soft 可）
            └─> SSEで `rewrite → sources → complete` を返却
 

@@ -49,6 +49,21 @@ describe("PricingSection design-system guard", () => {
     expect(source).toContain('"monthly"');
   });
 
+  it("does not send paid LP pricing CTAs to the standalone pricing page", () => {
+    expect(source).not.toContain('href={plan.id === "free" ? "/login" : "/pricing"}');
+    expect(source).not.toContain('href="/pricing"');
+    expect(source).toContain("PaidPricingPlanButton");
+    expect(source).toContain("PricingCancelNotice");
+  });
+
+  it("keeps checkout and portal side effects outside the server pricing section", () => {
+    expect(source).not.toContain("getPricingSelectionAction");
+    expect(source).not.toContain("/api/stripe/checkout");
+    expect(source).not.toContain("/api/stripe/portal");
+    expect(source).not.toContain("localStorage");
+    expect(source).not.toContain("sessionStorage");
+  });
+
   it("imports lucide-react icons instead of using button images", () => {
     expect(source).toContain("lucide-react");
   });

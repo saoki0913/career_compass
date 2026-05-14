@@ -4,10 +4,12 @@ import { NextRequest } from "next/server";
 const {
   getRequestIdentityMock,
   dbSelectMock,
+  dbExecuteMock,
   dbInsertMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   dbSelectMock: vi.fn(),
+  dbExecuteMock: vi.fn(),
   dbInsertMock: vi.fn(),
 }));
 
@@ -18,6 +20,7 @@ vi.mock("@/bff/identity/request-identity", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     select: dbSelectMock,
+    execute: dbExecuteMock,
     insert: dbInsertMock,
   },
 }));
@@ -41,6 +44,28 @@ function makeThenableQuery(result: unknown) {
   query.then = ((resolve, reject) => Promise.resolve(result).then(resolve, reject)) as Query["then"];
   return query as Query;
 }
+
+function makeRejectedThenableQuery(error: unknown) {
+  type Query = {
+    where: (...args: unknown[]) => Query;
+    orderBy: (...args: unknown[]) => Query;
+    limit: (...args: unknown[]) => Query;
+  } & PromiseLike<unknown>;
+
+  const query: Partial<Query> = {};
+  query.where = vi.fn(() => query as Query);
+  query.orderBy = vi.fn(() => query as Query);
+  query.limit = vi.fn(() => query as Query);
+  query.then = ((resolve, reject) => Promise.reject(error).then(resolve, reject)) as Query["then"];
+  return query as Query;
+}
+
+const csrfHeaders = {
+  origin: "http://localhost:3000",
+  cookie: "csrf_token=test-csrf",
+  "x-csrf-token": "test-csrf",
+  "content-type": "application/json",
+};
 
 describe("normalizeGakuchikaListConversationStatus", () => {
   it("accepts in_progress and completed", async () => {
@@ -67,6 +92,7 @@ describe("api/gakuchika", () => {
   beforeEach(() => {
     getRequestIdentityMock.mockReset();
     dbSelectMock.mockReset();
+    dbExecuteMock.mockReset();
     dbInsertMock.mockReset();
   });
 
@@ -102,27 +128,26 @@ describe("api/gakuchika", () => {
     ];
     const conversations = [
       {
-        gakuchikaId: "gk-1",
+        gakuchika_id: "gk-1",
         status: "completed",
-        starScores: JSON.stringify({ stage: "interview_ready" }),
-        questionCount: 4,
-        updatedAt: new Date("2026-03-02T00:00:00.000Z"),
+        star_scores: JSON.stringify({ stage: "interview_ready" }),
+        question_count: 4,
       },
       {
-        gakuchikaId: "gk-2",
+        gakuchika_id: "gk-2",
         status: "in_progress",
-        starScores: null,
-        questionCount: 1,
-        updatedAt: new Date("2026-03-03T00:00:00.000Z"),
+        star_scores: null,
+        question_count: 1,
       },
     ];
 
-    const selectResults = [profile, contents, conversations];
+    const selectResults = [profile, contents];
     let selectCallIndex = 0;
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     dbSelectMock.mockImplementation(() => ({
       from: vi.fn(() => makeThenableQuery(selectResults[selectCallIndex++] ?? [])),
     }));
+    dbExecuteMock.mockResolvedValue(conversations);
 
     const { GET } = await import("@/app/api/gakuchika/route");
     const request = new NextRequest("http://localhost:3000/api/gakuchika");
@@ -134,8 +159,11 @@ describe("api/gakuchika", () => {
     expect(data.gakuchikas[0].conversationStatus).toBe("completed");
     expect(data.gakuchikas[0].questionCount).toBe(4);
     expect(data.gakuchikas[1].conversationStatus).toBe("in_progress");
-    expect(getRequestIdentityMock).toHaveBeenCalledWith(request);
-    expect(dbSelectMock).toHaveBeenCalledTimes(3);
+    expect(getRequestIdentityMock).toHaveBeenCalledWith(request, expect.objectContaining({
+      sessionErrorMode: "throw",
+    }));
+    expect(dbSelectMock).toHaveBeenCalledTimes(2);
+    expect(dbExecuteMock).toHaveBeenCalledTimes(1);
   });
 
   it("infers in_progress when questionCount>0 but raw status is invalid", async () => {
@@ -157,19 +185,19 @@ describe("api/gakuchika", () => {
     ];
     const conversations = [
       {
-        gakuchikaId: "gk-x",
+        gakuchika_id: "gk-x",
         status: "bogus",
-        starScores: null,
-        questionCount: 2,
-        updatedAt: new Date("2026-03-02T00:00:00.000Z"),
+        star_scores: null,
+        question_count: 2,
       },
     ];
-    const selectResults = [profile, contents, conversations];
+    const selectResults = [profile, contents];
     let selectCallIndex = 0;
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     dbSelectMock.mockImplementation(() => ({
       from: vi.fn(() => makeThenableQuery(selectResults[selectCallIndex++] ?? [])),
     }));
+    dbExecuteMock.mockResolvedValue(conversations);
 
     const { GET } = await import("@/app/api/gakuchika/route");
     const response = await GET(new NextRequest("http://localhost:3000/api/gakuchika"));
@@ -219,19 +247,82 @@ describe("api/gakuchika", () => {
         content: "模擬店のオペレーションを改善した。",
         charLimitType: "400",
       }),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: csrfHeaders,
     });
 
     const response = await POST(request);
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(getRequestIdentityMock).toHaveBeenCalledWith(request);
+    expect(getRequestIdentityMock).toHaveBeenCalledWith(request, expect.objectContaining({
+      sessionErrorMode: "throw",
+    }));
     expect(data.gakuchika.id).toBe("gk-new");
-    expect(data.gakuchika.userId).toBe("user-1");
+    expect(data.gakuchika.userId).toBeUndefined();
+    expect(data.gakuchika.guestId).toBeUndefined();
 
     vi.useRealTimers();
+  });
+
+  it("returns a structured 401 when list identity is missing", async () => {
+    getRequestIdentityMock.mockResolvedValue(null);
+
+    const { GET } = await import("@/app/api/gakuchika/route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/gakuchika"));
+    const data = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("X-Request-Id")).toBeTruthy();
+    expect(data.requestId).toBeTruthy();
+    expect(data.error).toMatchObject({
+      code: "GAKUCHIKA_LIST_AUTH_REQUIRED",
+      userMessage: "ログインが必要です。",
+      action: "ログインしてから、もう一度お試しください。",
+      retryable: false,
+    });
+  });
+
+  it("returns a structured 500 when list loading fails", async () => {
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    dbSelectMock
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => makeThenableQuery([{ plan: "free" }])),
+      }))
+      .mockImplementationOnce(() => ({
+        from: vi.fn(() => makeRejectedThenableQuery(new Error("db failed"))),
+      }));
+
+    const { GET } = await import("@/app/api/gakuchika/route");
+    const response = await GET(new NextRequest("http://localhost:3000/api/gakuchika"));
+    const data = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get("X-Request-Id")).toBeTruthy();
+    expect(data.error).toMatchObject({
+      code: "GAKUCHIKA_LIST_FETCH_FAILED",
+      userMessage: "ガクチカ一覧を読み込めませんでした。",
+      action: "時間を置いて、もう一度読み込んでください。",
+      retryable: true,
+    });
+    expect(JSON.stringify(data)).not.toContain("Internal server error");
+  });
+
+  it("returns a structured 400 before quota checks when create body is invalid", async () => {
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+
+    const { POST } = await import("@/app/api/gakuchika/route");
+    const response = await POST(new NextRequest("http://localhost:3000/api/gakuchika", {
+      method: "POST",
+      body: JSON.stringify({ title: "", content: "内容" }),
+      headers: csrfHeaders,
+    }));
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error).toMatchObject({
+      code: "GAKUCHIKA_TITLE_REQUIRED",
+      userMessage: "テーマは必須です。",
+    });
+    expect(dbSelectMock).not.toHaveBeenCalled();
   });
 });

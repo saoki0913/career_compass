@@ -115,6 +115,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
                           company.estimatedFaviconUrl,
                           company.name,
                           company.estimatedLogoDomains,
+                          company.estimatedLogoCandidates,
                         );
                         const status = getStatusConfig(company.status as CompanyStatus);
                         return (

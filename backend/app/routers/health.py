@@ -1,3 +1,4 @@
+import os
 import time
 
 from fastapi import APIRouter
@@ -7,10 +8,25 @@ from app.utils.secure_logger import get_logger
 router = APIRouter()
 logger = get_logger(__name__)
 
+SERVICE_NAME = "career-compass-backend"
+BUILD_SHA = os.getenv("RAILWAY_GIT_COMMIT_SHA")
+BUILD_TIME = os.getenv("BUILD_TIME")
+APP_ENV = os.getenv("APP_ENV") or os.getenv("ENVIRONMENT")
+
 
 @router.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+@router.get("/health/version")
+async def version_check():
+    return {
+        "service": SERVICE_NAME,
+        "sha": BUILD_SHA[:8] if BUILD_SHA else None,
+        "build_time": BUILD_TIME or None,
+        "environment": APP_ENV or None,
+    }
 
 
 @router.get("/health/ready")
@@ -58,13 +74,14 @@ async def readiness_check():
         for provider in ("anthropic", "openai"):
             cb = get_circuit_breaker(provider)
             if cb is not None:
-                circuits[provider] = {
+                circuit_key = f"provider_{len(circuits) + 1}"
+                circuits[circuit_key] = {
                     "state": "open" if cb.is_open() else "closed",
                     "failures": cb.failures,
                     "threshold": cb.threshold,
                 }
                 if cb.is_open():
-                    warnings.append(f"{provider}_circuit_open")
+                    warnings.append("provider_circuit_open")
         if circuits and all(c.get("state") == "open" for c in circuits.values() if c):
             warnings.append("all_llm_circuits_open")
     except Exception:

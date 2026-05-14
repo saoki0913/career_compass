@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { applications, companies, deadlines, tasks } from "@/lib/db/schema";
 import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { isOwnedByIdentity } from "@/bff/identity/owner-access";
+import type { TasksPageData } from "@/lib/dto/dashboard";
 
 type TaskStatusFilter = "open" | "done" | "all";
 
@@ -30,7 +31,7 @@ export async function getTasksPageData(
     companyId?: string | null;
     applicationId?: string | null;
   } = {}
-) {
+): Promise<TasksPageData> {
   const deadlineCompany = alias(companies, "tasks_deadline_company");
   const conditions = [buildTaskWhere(identity)];
 

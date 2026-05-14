@@ -6,4 +6,4 @@ export {
   safeParseMessages,
 } from "./parsers";
 export { serializeOrNull } from "./serializers";
-export { buildJsonHeaders, postJson, withQuery } from "./client-api";
+export { buildJsonHeaders, deleteJson, patchJson, postJson, putJson, withQuery } from "./client-api";

@@ -38,11 +38,11 @@
 ### モデル別特性
 - Claude（anthropic_claude）: 文字数制御が安定、gap 広め許容
 - GPT-5.4（openai_gpt5）: 中間的な gap
-- GPT-5.4-mini（openai_gpt5_mini）: gap 狭め、`early_length_fix_after_attempt: 2`
+- GPT-5.4-mini（openai_gpt5_mini）: gap 狭め
 - Gemini（google_gemini）: Claude に近い特性
 
 ### バリデーション段階
-- strict → focused_retry_1 → focused_retry_2 → length_fix → degraded → 422
+- strict → focused_retry_1 → focused_retry_2 → degraded → 422
 - 各段階でプロンプトの指示強度が変わる。リトライ時は `retry_guidance` が追加される。
 
 ## 品質基準

@@ -75,6 +75,7 @@ test("syncPipeline renders codex, claude, and cursor artifacts from canonical so
       "utf8",
     );
     assert.match(codexSkill, /^---\nname: grill-me\n/);
+    assert.match(codexSkill, /ユーザーに見える説明・質問・選択肢/);
     assert.match(codexSkill, /Ask questions until the plan is unambiguous\./);
 
     const codexCommand = readFileSync(
@@ -84,12 +85,14 @@ test("syncPipeline renders codex, claude, and cursor artifacts from canonical so
     assert.match(codexCommand, /description: Start the Grill Me interview workflow\./);
     assert.match(codexCommand, /<instructions>/);
     assert.match(codexCommand, /Use the canonical pipeline skill `grill-me`/);
+    assert.match(codexCommand, /確認が必要なときは/);
 
     const claudeSkill = readFileSync(
       path.join(repoRoot, ".claude/skills/grill-me/SKILL.md"),
       "utf8",
     );
     assert.match(claudeSkill, /language: ja/);
+    assert.match(claudeSkill, /自然で分かりやすい日本語/);
 
     // .claude/commands/ is intentionally not generated — Claude skills take precedence
     // over same-named commands, so we only emit SKILL.md under .claude/skills/.

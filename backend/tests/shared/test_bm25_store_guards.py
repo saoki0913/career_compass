@@ -106,3 +106,18 @@ def test_load_ignores_tenant_scoped_pickle(tmp_path, monkeypatch):
 
     assert BM25Index.load(company_id, tenant_key=tenant_key) is None
     assert pickle_path.exists()
+
+
+@pytest.mark.parametrize(
+    ("company_id", "tenant_key"),
+    [
+        ("../company", "a" * 32),
+        ("company/../../secret", "a" * 32),
+        ("company-1", "../tenant"),
+        ("company-1", "tenant/../../secret"),
+        (".hidden", "a" * 32),
+    ],
+)
+def test_bm25_storage_keys_reject_path_traversal(company_id, tenant_key):
+    with pytest.raises(ValueError):
+        BM25Index(company_id, tenant_key=tenant_key)

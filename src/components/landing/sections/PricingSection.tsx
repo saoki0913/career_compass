@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, ShieldCheck, Star } from "lucide-react";
 import { lpSectionAsset, LP_SECTION_ASSETS } from "@/lib/assets/image-registry";
-import { getMarketingPricingPlans } from "@/lib/marketing/pricing-plans";
+import { getMarketingPricingPlans, type MarketingPricingPlan } from "@/lib/marketing/pricing-plans";
 import { LpSparkleDecorations } from "@/components/landing/shared/LpSparkleDecorations";
+import { PaidPricingPlanButton } from "./PaidPricingPlanButton";
+import { PricingCancelNotice } from "./PricingCancelNotice";
 
 const pricingSparkles = [
   { x: 8, y: 10, size: 12, opacity: 0.3, color: "#b9d8ff" },
@@ -16,6 +18,12 @@ const trustPills = ["無料プランあり", "必要な分だけ使える", "あ
 function parsePrice(price: string) {
   const match = /^(¥)(.+)$/.exec(price);
   return match ? { currency: match[1], amount: match[2] } : { currency: "", amount: price };
+}
+
+function isPaidMarketingPlan(
+  plan: MarketingPricingPlan,
+): plan is MarketingPricingPlan & { id: "standard" | "pro" } {
+  return plan.id === "standard" || plan.id === "pro";
 }
 
 export function PricingSection() {
@@ -55,6 +63,7 @@ export function PricingSection() {
           <p className="mt-3 text-[16px] font-medium" style={{ color: "var(--lp-navy)" }}>
             まずは無料で試して、必要になったらアップグレード。
           </p>
+          <PricingCancelNotice />
         </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
@@ -120,18 +129,22 @@ export function PricingSection() {
                     </li>
                   ))}
                 </ul>
-                <Link
-                  href={plan.id === "free" ? "/login" : "/pricing"}
-                  className="mt-7 inline-flex min-h-[60px] items-center justify-center gap-4 rounded-full border-2 px-6 text-[18px] font-black transition-transform hover:-translate-y-0.5"
-                  style={{
-                    borderColor: "var(--lp-cta)",
-                    background: popular ? "var(--lp-cta)" : "#fff",
-                    color: popular ? "#fff" : "var(--lp-cta)",
-                  }}
-                >
-                  {plan.ctaLabel}
-                  <ArrowRight className="h-6 w-6" aria-hidden />
-                </Link>
+                {plan.id === "free" ? (
+                  <Link
+                    href="/login"
+                    className="mt-7 inline-flex min-h-[60px] items-center justify-center gap-4 rounded-full border-2 px-6 text-[18px] font-black transition-transform hover:-translate-y-0.5"
+                    style={{
+                      borderColor: "var(--lp-cta)",
+                      background: "#fff",
+                      color: "var(--lp-cta)",
+                    }}
+                  >
+                    {plan.ctaLabel}
+                    <ArrowRight className="h-6 w-6" aria-hidden />
+                  </Link>
+                ) : isPaidMarketingPlan(plan) ? (
+                  <PaidPricingPlanButton plan={plan} popular={popular} />
+                ) : null}
               </article>
             );
           })}

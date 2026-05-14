@@ -53,5 +53,7 @@ Plugin + MCP の 2 チャネルを活用し、タスクを並列で Codex エー
 
 - 並列実行中は Claude はファイル編集を行わない（競合防止）
 - 各サブタスクは互いに独立していること（同一ファイルを複数ジョブが編集しない）
+- code-reviewer が含まれる場合は blocking。全完了前に「大筋は変わらない」と推測して統合・計画確定・最終回答へ進まない
+- `/codex:status` timeout / pending / running は code-reviewer の完了ではない。待機を継続するか、ユーザーが明示的に待機不要と指示した場合だけ例外にする
 - 結果統合後に `/codex:review` で統合レビューを実行
 - 設計判断が含まれる場合は `/codex:adversarial-review` も実行

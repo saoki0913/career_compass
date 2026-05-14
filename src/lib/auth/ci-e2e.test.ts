@@ -6,6 +6,7 @@ import {
   hasValidCiE2EAuthSecret,
   isCiE2EAuthHostAllowed,
   isCiE2EAuthEnabled,
+  isProductionLikeCiE2EEnvironment,
   isProductionAppUrl,
 } from "@/lib/auth/ci-e2e";
 
@@ -55,5 +56,30 @@ describe("ci e2e auth helpers", () => {
     delete process.env.CI_E2E_AUTH_ALLOWED_HOSTS;
     delete process.env.CI_E2E_AUTH_ENABLED;
     delete process.env.CI_E2E_AUTH_SECRET;
+    delete process.env.VERCEL_ENV;
+    delete process.env.STRIPE_SECRET_KEY;
+    delete process.env.DATABASE_URL;
+  });
+
+  it("disables CI auth in production-like environments", () => {
+    process.env.CI_E2E_AUTH_ENABLED = "1";
+    process.env.CI_E2E_AUTH_SECRET = "top-secret-at-least-16";
+
+    process.env.VERCEL_ENV = "production";
+    expect(isProductionLikeCiE2EEnvironment()).toBe(true);
+    expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
+
+    delete process.env.VERCEL_ENV;
+    process.env.STRIPE_SECRET_KEY = "sk_live_placeholder";
+    expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
+
+    delete process.env.STRIPE_SECRET_KEY;
+    const productionDbHost = ["aws-1-ap-south-1", "pooler", "supabase", "com"].join(".");
+    process.env.DATABASE_URL = `postgresql://user:pass@${productionDbHost}:6543/postgres`;
+    expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
+
+    delete process.env.CI_E2E_AUTH_ENABLED;
+    delete process.env.CI_E2E_AUTH_SECRET;
+    delete process.env.DATABASE_URL;
   });
 });

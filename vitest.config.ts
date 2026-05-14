@@ -6,6 +6,10 @@ export default defineConfig({
     environment: "node",
     globals: true,
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+    env: {
+      // Skip T3 Env validation in tests — CI does not have the full secret set.
+      SKIP_ENV_VALIDATION: "1",
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],

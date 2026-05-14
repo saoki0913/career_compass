@@ -33,7 +33,7 @@ const config: KnipConfig = {
     duplicates: "warn",
   },
   ignoreDependencies: [
-    "trace-core", // trace-check binary invoked by security/scan/run-lightweight-scan.sh
+    "trace-core", // trace-check binary invoked by scripts/security/run-lightweight-scan.sh
   ],
   ignoreBinaries: [
     "python", // System Python used by backend import-linter in lint:architecture

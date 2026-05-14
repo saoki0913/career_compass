@@ -15,8 +15,6 @@ Rewrite Loop (max 3 attempts)
          │
          ▼
 Recovery Pipeline
-  ├── Length-fix (1 attempt, final_soft validation)
-  │     └── compound-aware: structural + length focus を同時指示
   └── Best-effort adoption (degraded_best_effort)
 ```
 
@@ -73,7 +71,7 @@ Recovery Pipeline
 
 ## 内部目標文字数（under_min_recovery オーバーシュート方式）
 
-LLM は consistently にアンダーシュートするため、`under_min_recovery` stage では内部目標を **char_max を超えて** 設定する。
+LLM は consistently にアンダーシュートするため、`under_min_recovery` stage では focused retry の生成目標を **char_max を超えて** 設定できる。最終提出文は strict 受理帯へ戻す。
 
 ### オーバーシュート値
 
@@ -85,9 +83,13 @@ LLM は consistently にアンダーシュートするため、`under_min_recove
 ### 計算ロジック
 
 ```python
-overshoot = abs(gap)  # gap is negative for recovery stage
+overshoot = compute_retry_overshoot(
+    char_min=char_min,
+    char_max=char_max,
+    latest_failed_length=latest_failed_length,
+)
 target_upper = char_max + overshoot
-target_lower = char_max + max(1, overshoot - 5)
+target_lower = char_max
 ```
 
 ### 効果例
@@ -98,7 +100,7 @@ target_lower = char_max + max(1, overshoot - 5)
 | 中文 | 190 | 200 | short | 210-215字 | 200字 | pass (>= 190) |
 | 長文 | 390 | 400 | long | 405-408字 | 393字 | pass (>= 390) |
 
-LLM prompt には strict受理帯（例: 140字〜150字）と内部目標帯（例: 160字〜165字）の両方が表示される。over_max した場合はセマンティック圧縮で対応。
+LLM prompt には strict受理帯（例: 140字〜150字）と生成目標帯（例: 150字〜165字）の両方が表示される。over_max した場合は重複する接続語・抽象語・補助説明を削って受理帯へ戻す。
 
 ---
 
@@ -111,7 +113,6 @@ LLM prompt には strict受理帯（例: 140字〜150字）と内部目標帯（
 | Rewrite | length_focus_min (medium) | 0.13 | char_max * 1.3 | バランス |
 | Rewrite | length_focus_min (small/tiny) | 0.11 | char_max * 1.3 | 微調整は保守的に |
 | Rewrite | 他の focus mode | 0.14 | char_max * 1.4 | 構造変更には適度な自由度 |
-| Length-fix | - | 0.12 | char_max * 1.2 | 既存テキストの拡張 |
 | GPT-5 mini | normal | 0.12 | char_max * 1.4 * 1.12 | mini のアンダーシュート補正 |
 
 ---

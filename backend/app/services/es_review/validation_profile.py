@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from app.services.es_review.enums import ValidationFailureCode
 from app.services.es_review.fact_guard import (
     _extract_experience_terms,
     _extract_numeric_expressions,
@@ -44,12 +45,12 @@ class ValidationProfile:
     degraded_block_codes: frozenset[str] = field(
         default_factory=lambda: frozenset(
             {
-                "empty",
-                "fragment",
-                "negative_self_eval",
-                "company_reference_in_companyless",
-                "hallucination",
-                "fact_preservation",
+                ValidationFailureCode.EMPTY.value,
+                ValidationFailureCode.FRAGMENT.value,
+                ValidationFailureCode.NEGATIVE_SELF_EVAL.value,
+                ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS.value,
+                ValidationFailureCode.HALLUCINATION.value,
+                ValidationFailureCode.FACT_PRESERVATION.value,
             }
         )
     )
@@ -76,10 +77,10 @@ LENIENT_PROFILE = ValidationProfile(
     hallucination_tier2_threshold=6.0,
     degraded_block_codes=frozenset(
         {
-            "empty",
-            "fragment",
-            "negative_self_eval",
-            "company_reference_in_companyless",
+            ValidationFailureCode.EMPTY.value,
+            ValidationFailureCode.FRAGMENT.value,
+            ValidationFailureCode.NEGATIVE_SELF_EVAL.value,
+            ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS.value,
         }
     ),
     best_effort_enabled=True,
@@ -137,10 +138,10 @@ def apply_information_tier_adjustments(
             hallucination_tier2_threshold=4.5,
             degraded_block_codes=frozenset(
                 {
-                    "empty",
-                    "fragment",
-                    "negative_self_eval",
-                    "company_reference_in_companyless",
+                    ValidationFailureCode.EMPTY.value,
+                    ValidationFailureCode.FRAGMENT.value,
+                    ValidationFailureCode.NEGATIVE_SELF_EVAL.value,
+                    ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS.value,
                 }
             ),
         )
@@ -151,10 +152,10 @@ def apply_information_tier_adjustments(
         hallucination_tier2_threshold=6.0,
         degraded_block_codes=frozenset(
             {
-                "empty",
-                "fragment",
-                "negative_self_eval",
-                "company_reference_in_companyless",
+                ValidationFailureCode.EMPTY.value,
+                ValidationFailureCode.FRAGMENT.value,
+                ValidationFailureCode.NEGATIVE_SELF_EVAL.value,
+                ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS.value,
             }
         ),
     )

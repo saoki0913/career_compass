@@ -1,6 +1,13 @@
 "use client";
 
 import { logError } from "@/lib/logger";
+import {
+  hasJapanese,
+  isTechnicalMessage,
+  isLikelyUserSafeMessage,
+} from "@/shared/errors/user-safe-message";
+
+export { hasJapanese, isTechnicalMessage, isLikelyUserSafeMessage };
 
 const DEFAULT_AUTH_REQUIRED_USER_MESSAGE = "ログインが必要です。";
 const DEFAULT_AUTH_REQUIRED_ACTION = "ログインしてから、もう一度お試しください。";
@@ -45,6 +52,15 @@ export class AppUiError extends Error {
   }
 }
 
+export interface UserFacingError {
+  readonly message: string;
+  readonly action?: string;
+  readonly code?: string;
+  readonly retryable: boolean;
+  readonly status?: number;
+  readonly clientNetworkFailure?: boolean;
+}
+
 type StructuredApiErrorPayload = {
   error?: {
     code?: string;
@@ -53,6 +69,9 @@ type StructuredApiErrorPayload = {
     retryable?: boolean;
     llmErrorType?: string;
   } | string;
+  userMessage?: string;
+  action?: string;
+  retryable?: boolean;
   requestId?: string;
   debug?: {
     developerMessage?: string;
@@ -71,25 +90,6 @@ export interface ApiErrorFallback {
   forbiddenMessage?: string;
   notFoundMessage?: string;
   validationMessage?: string;
-}
-
-function hasJapanese(text: string): boolean {
-  return /[\u3040-\u30ff\u3400-\u9fff]/.test(text);
-}
-
-function isTechnicalMessage(text: string): boolean {
-  return (
-    /(internal server error|failed to fetch|authentication required|permission denied|api|response|server log|trace|stack|sql|backend|request failed|request id|requestId|debug|developer|migration|schema|table|db\b)/i.test(
-      text
-    ) ||
-    /サーバーログ|API 応答|SQL|バックエンド|内部|開発|デバッグ|マイグレーション|migration|schema|スキーマ|テーブル|DB|requestId|リクエストID/i.test(
-      text
-    )
-  );
-}
-
-function isLikelyUserSafeMessage(text: string): boolean {
-  return hasJapanese(text) && !isTechnicalMessage(text);
 }
 
 /**
@@ -198,8 +198,36 @@ function safeJsonParse(text: string): StructuredApiErrorPayload | null {
   }
 }
 
+function getStructuredApiError(
+  payload: StructuredApiErrorPayload | null,
+): Exclude<StructuredApiErrorPayload["error"], string> | null {
+  if (payload?.error && typeof payload.error === "object") {
+    return payload.error;
+  }
+
+  if (
+    payload &&
+    typeof payload.code === "string" &&
+    typeof payload.userMessage === "string"
+  ) {
+    return {
+      code: payload.code,
+      userMessage: payload.userMessage,
+      action: payload.action,
+      retryable: payload.retryable,
+    };
+  }
+
+  return null;
+}
+
 function logDebugInfo(context: string, error: AppUiError, rawMessage: string | null) {
   if (process.env.NODE_ENV !== "development") {
+    return;
+  }
+
+  if (error.developerMessage?.startsWith("HTML response")) {
+    console.warn(`[${context}] ${error.code}: ${error.developerMessage} -- route may be recompiling`);
     return;
   }
 
@@ -235,26 +263,50 @@ export async function parseApiErrorResponse(
   context: string
 ): Promise<AppUiError> {
   const bodyText = await response.text();
+
+  const isHtmlResponse =
+    response.headers.get("content-type")?.includes("text/html") ||
+    /^<!doctype|^<html/i.test(bodyText.trimStart());
+
+  if (isHtmlResponse) {
+    const requestId = response.headers.get("X-Request-Id") || undefined;
+    const legacy = resolveLegacyMessage(null, response.status, fallback);
+    const isTransientRouteMiss = response.status === 404 || response.status >= 500;
+    const error = new AppUiError(legacy.message, {
+      code: legacy.code,
+      requestId,
+      action: response.status === 401 ? DEFAULT_AUTH_REQUIRED_ACTION : fallback.action,
+      retryable: isTransientRouteMiss ? true : (fallback.retryable ?? false),
+      status: response.status,
+      developerMessage: `HTML response (status ${response.status})`,
+    });
+    logDebugInfo(context, error, null);
+    return error;
+  }
+
   const payload = safeJsonParse(bodyText);
   const requestId = payload?.requestId || response.headers.get("X-Request-Id") || undefined;
+  const structuredError = getStructuredApiError(payload);
 
-  if (payload?.error && typeof payload.error === "object") {
+  if (structuredError) {
     const message =
       response.status === 401
         ? DEFAULT_AUTH_REQUIRED_USER_MESSAGE
-        : payload.error.userMessage || fallback.userMessage;
+        : structuredError.userMessage && isLikelyUserSafeMessage(structuredError.userMessage)
+          ? structuredError.userMessage
+          : fallback.userMessage;
     const action =
       response.status === 401
         ? DEFAULT_AUTH_REQUIRED_ACTION
-        : payload.error.action || fallback.action;
+        : structuredError.action || fallback.action;
     const error = new AppUiError(message, {
-      code: payload.error.code || payload.code || fallback.code,
+      code: structuredError.code || payload?.code || fallback.code,
       requestId,
       action,
-      retryable: payload.error.retryable ?? fallback.retryable ?? false,
+      retryable: structuredError.retryable ?? fallback.retryable ?? false,
       status: response.status,
-      developerMessage: payload.debug?.developerMessage,
-      details: payload.debug?.details,
+      developerMessage: payload?.debug?.developerMessage,
+      details: payload?.debug?.details,
     });
     logDebugInfo(context, error, null);
     return error;
@@ -275,6 +327,17 @@ export async function parseApiErrorResponse(
   });
   logDebugInfo(context, error, rawMessage);
   return error;
+}
+
+export function toUserFacingError(error: AppUiError): UserFacingError {
+  return {
+    message: error.message,
+    action: error.action,
+    code: error.code,
+    retryable: error.retryable,
+    status: error.status,
+    clientNetworkFailure: error.clientNetworkFailure,
+  };
 }
 
 export function toAppUiError(

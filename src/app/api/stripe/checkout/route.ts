@@ -6,48 +6,91 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { db } from "@/lib/db";
 import { subscriptions } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getPriceId, type PlanType, type BillingPeriod } from "@/lib/stripe/config";
 import { getAppUrl } from "@/lib/app-url";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { requireUserMutationRequest } from "@/bff/api/mutation-guard";
 import { logError } from "@/lib/logger";
-import { getCsrfFailureReason } from "@/lib/csrf";
 import { createHash } from "crypto";
+
+type CheckoutCancelSource = "lp-pricing";
+
+const NON_TERMINAL_SUBSCRIPTION_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+  "unpaid",
+  "paused",
+  "incomplete",
+]);
+
+function getCheckoutCancelUrl(appUrl: string, value: unknown): string {
+  const cancelSource: CheckoutCancelSource | null = value === "lp-pricing" ? "lp-pricing" : null;
+  if (cancelSource === "lp-pricing") {
+    return `${appUrl}/?checkout=canceled&source=lp-pricing#pricing`;
+  }
+  return `${appUrl}/pricing?canceled=true`;
+}
+
+function hasNonTerminalSubscriptionStatus(status: string | null | undefined): boolean {
+  return Boolean(status && NON_TERMINAL_SUBSCRIPTION_STATUSES.has(status));
+}
+
+function findNonTerminalStripeSubscription(
+  items: Stripe.Subscription[],
+): Stripe.Subscription | null {
+  return items.find((subscription) => hasNonTerminalSubscriptionStatus(subscription.status)) ?? null;
+}
+
+async function persistStripeCustomerId(userId: string, stripeCustomerId: string): Promise<string> {
+  const now = new Date();
+  await db
+    .insert(subscriptions)
+    .values({
+      id: crypto.randomUUID(),
+      userId,
+      stripeCustomerId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: subscriptions.userId,
+      set: {
+        stripeCustomerId: sql`coalesce(${subscriptions.stripeCustomerId}, ${stripeCustomerId})`,
+        updatedAt: now,
+      },
+    });
+
+  const [storedSubscription] = await db
+    .select()
+    .from(subscriptions)
+    .where(eq(subscriptions.userId, userId))
+    .limit(1);
+
+  if (!storedSubscription?.stripeCustomerId) {
+    throw new Error("Failed to persist Stripe customer id for checkout");
+  }
+
+  return storedSubscription.stripeCustomerId;
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const csrfFailure = getCsrfFailureReason(req);
-    if (csrfFailure) {
-      return createApiErrorResponse(req, {
-        status: 403,
-        code: "CSRF_VALIDATION_FAILED",
-        userMessage: "安全確認に失敗しました。ページを再読み込みして、もう一度お試しください。",
-        developerMessage: `CSRF validation failed: ${csrfFailure}`,
-      });
-    }
+    const guard = await requireUserMutationRequest(req);
+    if (!guard.ok) return guard.response;
 
     const appUrl = getAppUrl();
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session?.user) {
-      return createApiErrorResponse(req, {
-        status: 401,
-        code: "AUTH_REQUIRED",
-        userMessage: "ログイン状態を確認して、もう一度お試しください。",
-        developerMessage: "Authentication required",
-      });
-    }
+    const { session } = guard;
 
     const body = await req.json();
     const plan = body.plan as PlanType;
     const period = (body.period || "monthly") as BillingPeriod;
+    const cancelUrl = getCheckoutCancelUrl(appUrl, body.cancelSource);
 
     // Validate plan
     if (!plan || !["standard", "pro"].includes(plan)) {
@@ -91,41 +134,37 @@ export async function POST(req: NextRequest) {
       .where(eq(subscriptions.userId, session.user.id))
       .limit(1);
 
-    // Block checkout if user already has an active subscription
+    // Block checkout if user already has a non-terminal subscription.
     if (
       existingSubscription?.stripeSubscriptionId &&
       existingSubscription.status &&
-      ["active", "trialing"].includes(existingSubscription.status)
+      hasNonTerminalSubscriptionStatus(existingSubscription.status)
     ) {
       return createApiErrorResponse(req, {
         status: 409,
         code: "STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION",
-        userMessage: "すでに有効なプランがあります。プラン変更は設定画面から行えます。",
-        developerMessage: "User already has an active subscription; use the billing portal for changes",
+        userMessage: "既存のプラン手続きがあります。請求管理ページから確認してください。",
+        action: "設定画面の「請求管理」から、支払い状況やプラン変更を確認してください。",
+        developerMessage: "User already has a non-terminal subscription; use the billing portal for changes",
       });
     }
 
-    // Also check Stripe API for active/trialing subscriptions (handles concurrent POST before webhook fires)
+    // Also check Stripe API for non-terminal subscriptions (handles concurrent POST before webhook fires).
     if (existingSubscription?.stripeCustomerId) {
-      const [activeSubs, trialingSubs] = await Promise.all([
-        stripe.subscriptions.list({
-          customer: existingSubscription.stripeCustomerId,
-          status: "active",
-          limit: 1,
-        }),
-        stripe.subscriptions.list({
-          customer: existingSubscription.stripeCustomerId,
-          status: "trialing",
-          limit: 1,
-        }),
-      ]);
+      const stripeSubscriptions = await stripe.subscriptions.list({
+        customer: existingSubscription.stripeCustomerId,
+        status: "all",
+        limit: 100,
+      });
+      const nonTerminalSubscription = findNonTerminalStripeSubscription(stripeSubscriptions.data);
 
-      if (activeSubs.data.length > 0 || trialingSubs.data.length > 0) {
+      if (nonTerminalSubscription) {
         return createApiErrorResponse(req, {
           status: 409,
           code: "STRIPE_CHECKOUT_ACTIVE_SUBSCRIPTION",
-          userMessage: "すでに有効なプランがあります。プラン変更は設定画面から行えます。",
-          developerMessage: "Stripe customer already has an active or trialing subscription",
+          userMessage: "既存のプラン手続きがあります。請求管理ページから確認してください。",
+          action: "設定画面の「請求管理」から、支払い状況やプラン変更を確認してください。",
+          developerMessage: `Stripe customer already has a non-terminal subscription: ${nonTerminalSubscription.status}`,
         });
       }
     }
@@ -141,6 +180,7 @@ export async function POST(req: NextRequest) {
         },
       });
       stripeCustomerId = customer.id;
+      stripeCustomerId = await persistStripeCustomerId(session.user.id, stripeCustomerId);
     }
 
     // Create checkout session
@@ -173,8 +213,8 @@ export async function POST(req: NextRequest) {
           quantity: 1,
         },
       ],
-      success_url: `${appUrl}/dashboard?success=true&plan=${plan}`,
-      cancel_url: `${appUrl}/pricing?canceled=true`,
+      success_url: `${appUrl}/dashboard?checkout=return&session_id={CHECKOUT_SESSION_ID}&plan=${plan}`,
+      cancel_url: cancelUrl,
       metadata: {
         userId: session.user.id,
         plan: plan,

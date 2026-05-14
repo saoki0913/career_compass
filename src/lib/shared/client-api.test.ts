@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildJsonHeaders, postJson, withQuery } from "./client-api";
+import { buildJsonHeaders, deleteJson, patchJson, postJson, putJson, withQuery } from "./client-api";
 
 function getFetchInit(callIndex = 0): RequestInit {
   return (fetch as ReturnType<typeof vi.fn>).mock.calls[callIndex][1] as RequestInit;
@@ -102,5 +102,34 @@ describe("postJson", () => {
     const headers = new Headers(getFetchInit().headers);
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(headers.get("x-csrf-token")).toBeNull();
+  });
+
+  it("uses the same csrf-aware mutation path for PUT, PATCH, and DELETE", async () => {
+    vi.stubGlobal("document", { cookie: "csrf_token=test-csrf" });
+    vi.stubGlobal("window", {});
+
+    await putJson("/api/test/1", { name: "updated" });
+    await patchJson("/api/test/reorder", { ids: ["a", "b"] });
+    await deleteJson("/api/test/1");
+
+    expect(fetch).toHaveBeenNthCalledWith(1, "/api/test/1", expect.objectContaining({
+      method: "PUT",
+      credentials: "include",
+      body: JSON.stringify({ name: "updated" }),
+    }));
+    expect(fetch).toHaveBeenNthCalledWith(2, "/api/test/reorder", expect.objectContaining({
+      method: "PATCH",
+      credentials: "include",
+      body: JSON.stringify({ ids: ["a", "b"] }),
+    }));
+    expect(fetch).toHaveBeenNthCalledWith(3, "/api/test/1", expect.objectContaining({
+      method: "DELETE",
+      credentials: "include",
+      body: undefined,
+    }));
+    for (let index = 0; index < 3; index += 1) {
+      const headers = new Headers(getFetchInit(index).headers);
+      expect(headers.get("x-csrf-token")).toBe("test-csrf");
+    }
   });
 });

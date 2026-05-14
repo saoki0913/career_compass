@@ -74,7 +74,7 @@ $FINDINGS_SUMMARY
 
 対応:
   1. 指摘箇所を修正する
-  2. 正当な理由がある場合は deferral checkpoint を作成する
+  2. 正当な理由がある場合は、延期理由を記録してから続行する
 EOF
     exit 2
     ;;

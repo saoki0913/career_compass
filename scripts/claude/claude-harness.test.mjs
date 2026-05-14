@@ -280,6 +280,137 @@ test("pre-tool dispatcher allows non-secret private project files", () => {
   assert.equal(result.stderr, "");
 });
 
+test("exit-plan-codex-gate records plan exit without blocking decisions", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-exit-plan-home-"));
+  const stateDir = path.join(homeDir, ".claude/sessions/career_compass");
+  mkdirSync(stateDir, { recursive: true });
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/exit-plan-codex-gate.sh")], {
+    cwd: repoRoot,
+    input: JSON.stringify({ session_id: "sess-plan" }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(existsSync(path.join(stateDir, "plan-exited-sess-plan")), true);
+});
+
+test("exit-plan-codex-gate ignores stale invalid decision files", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-exit-plan-invalid-"));
+  const stateDir = path.join(homeDir, ".claude/sessions/career_compass");
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(path.join(stateDir, "codex-plan-review-decision-sess-plan"), "skip\n");
+  writeFileSync(path.join(stateDir, "codex-delegation-checkpoint-sess-plan"), "maybe\n");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/exit-plan-codex-gate.sh")], {
+    cwd: repoRoot,
+    input: JSON.stringify({ session_id: "sess-plan" }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, "");
+  assert.equal(existsSync(path.join(stateDir, "plan-exited-sess-plan")), true);
+});
+
+test("exit-plan-codex-gate records plan exit after valid decisions", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-exit-plan-valid-"));
+  const stateDir = path.join(homeDir, ".claude/sessions/career_compass");
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(path.join(stateDir, "codex-plan-review-decision-sess-plan"), "skip\n");
+  writeFileSync(path.join(stateDir, "codex-delegation-checkpoint-sess-plan"), "no-delegate\n");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/exit-plan-codex-gate.sh")], {
+    cwd: repoRoot,
+    input: JSON.stringify({ session_id: "sess-plan" }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(existsSync(path.join(stateDir, "plan-exited-sess-plan")), true);
+});
+
+test("exit-plan-codex-gate accepts existing plan review approval flag", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-exit-plan-compat-"));
+  const stateDir = path.join(homeDir, ".claude/sessions/career_compass");
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(path.join(stateDir, "codex-plan-review-approved-sess-plan"), "approved\n");
+  writeFileSync(path.join(stateDir, "codex-delegation-checkpoint-sess-plan"), "delegate\n");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/exit-plan-codex-gate.sh")], {
+    cwd: repoRoot,
+    input: JSON.stringify({ session_id: "sess-plan" }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(existsSync(path.join(stateDir, "plan-exited-sess-plan")), true);
+});
+
+test("impl-start-codex-gate blocks MultiEdit after plan exit without delegation checkpoint", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-impl-start-multiedit-"));
+  const stateDir = path.join(homeDir, ".claude/sessions/career_compass");
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(path.join(stateDir, "plan-exited-sess-plan"), "");
+
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/impl-start-codex-gate.sh")], {
+    cwd: repoRoot,
+    input: JSON.stringify({
+      session_id: "sess-plan",
+      tool_name: "MultiEdit",
+      tool_input: {
+        edits: [{ file_path: "src/lib/dashboard-utils.ts", old_string: "a", new_string: "b" }],
+      },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir, CLAUDE_PROJECT_DIR: repoRoot },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Codex 委譲判断/);
+});
+
+test("codex-delegate-gate blocks post_review without approval checkpoint", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "claude-post-review-gate-"));
+  const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/codex-delegate-gate.sh")], {
+    cwd: repoRoot,
+    input: JSON.stringify({
+      session_id: "sess-review",
+      tool_name: "Bash",
+      tool_input: { command: "bash scripts/codex/delegate.sh post_review" },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, HOME: homeDir },
+  });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /post_review/);
+  assert.match(result.stderr, /Codex post_review/);
+});
+
+test("commit-codex-gate blocks compound staging and commit commands", () => {
+  for (const command of ["git add . && git commit -m test", "git commit -am test"]) {
+    const result = spawnSync("bash", [path.join(repoRoot, ".claude/hooks/commit-codex-gate.sh")], {
+      cwd: repoRoot,
+      input: JSON.stringify({
+        session_id: "sess-commit",
+        tool_name: "Bash",
+        tool_input: { command },
+      }),
+      encoding: "utf8",
+      env: { ...process.env, CLAUDE_PROJECT_DIR: repoRoot },
+    });
+
+    assert.equal(result.status, 2, command);
+    assert.match(result.stderr, /git commit/);
+  }
+});
+
 test("claude bandaid guard handles apply_patch edits", () => {
   const homeDir = mkdtempSync(path.join(tmpdir(), "claude-hook-home-"));
   const riskyLine = "+const value = input as " + "any;";
@@ -394,6 +525,20 @@ test("post-tool-failure-triage suggests escalation for sandbox failures", () => 
   assert.equal(result.status, 0);
   const output = JSON.parse(result.stdout);
   assert.match(output.hookSpecificOutput.additionalContext, /escalated permissions/i);
+});
+
+test("claude bash output guard scans tool_response output", () => {
+  const secret = "sk-proj-" + "1234567890abcdefghijklmnop";
+  const result = runHook(
+    ".claude/hooks/post-bash-output-guard.sh",
+    JSON.stringify({
+      tool_name: "Bash",
+      tool_response: { stdout: `OPENAI_API_KEY=${secret}` },
+    }),
+  );
+
+  assert.equal(result.status, 0);
+  assert.match(result.stderr, /leaked secret material/i);
 });
 
 test("statusline renders git and cost context", () => {
@@ -589,6 +734,6 @@ test("codex delegation timeout guidance stays aligned at default 3600 / max 7200
   assert.match(agentsGuide, /--timeout 7200/);
   assert.match(claudeGuide, /default 3600s/);
   assert.match(claudeGuide, /--timeout 7200/);
-  assert.match(delegationSkill, /default timeout 3600s/);
+  assert.match(delegationSkill, /default(?: timeout)? 3600s/);
   assert.match(delegationSkill, /max 7200s/);
 });

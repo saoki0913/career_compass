@@ -1,6 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "crypto";
 
+// Implementation migrated from process.env to serverEnv (T3 Env).
+// serverEnv is a snapshot taken at module-evaluation time, so vi.resetModules()
+// is required before each dynamic import to pick up process.env changes.
 const SECRET = "test-secret-for-career-principal";
 
 function decodeBase64Url(value: string) {
@@ -25,6 +28,7 @@ describe("career-principal", () => {
   const originalSecret = process.env.CAREER_PRINCIPAL_HMAC_SECRET;
 
   beforeEach(() => {
+    vi.resetModules();
     process.env.CAREER_PRINCIPAL_HMAC_SECRET = SECRET;
   });
 

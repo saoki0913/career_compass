@@ -2,12 +2,13 @@
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { AppUiError, parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { parseSSEStream } from "@/hooks/conversation/sse-stream-parser";
 import { createStreamTimeout } from "@/hooks/conversation/stream-timeout";
 import { useStreamingTextPlayback } from "@/hooks/useStreamingTextPlayback";
 import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import { notifyError } from "@/lib/notifications";
+import { sanitizeSSEErrorMessage } from "@/shared/errors/user-safe-message";
 import { resolveRoleSelection } from "@/hooks/conversation/role-selection";
 import {
   continueInterviewStream,
@@ -542,7 +543,11 @@ export function useInterviewConversationController({
         }
 
         if (event.type === "error") {
-          throw new Error((event.message as string) || "AIサービスでエラーが発生しました。");
+          throw new AppUiError(sanitizeSSEErrorMessage(event.message), {
+            code: typeof event.code === "string" ? event.code : "INTERVIEW_STREAM_ERROR",
+            action: typeof event.action === "string" ? event.action : "時間を置いて、もう一度お試しください。",
+            retryable: typeof event.retryable === "boolean" ? event.retryable : true,
+          });
         }
 
         if (event.type === "complete") {

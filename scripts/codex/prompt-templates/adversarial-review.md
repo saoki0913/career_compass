@@ -1,58 +1,61 @@
-# Adversarial Design Review
+# 設計深掘りレビュー
 
-delegate.sh fallback 用テンプレート。codex-plugin-cc の `/codex:adversarial-review` が primary。
+delegate.sh fallback 用テンプレート。主に設計判断の妥当性を確認するために使う。
 
-## Review Focus
+## レビュー観点
 
 通常の post_review（OWASP, dead code, hotspot）とは異なり、設計判断の妥当性を問う。
 
-### 1. Design Decisions
-- Why was this approach chosen over alternatives?
-- What were the alternatives considered?
-- Is this the simplest solution that meets the requirements?
+### 1. 設計判断
+- なぜこの方法を選んだのか
+- 他にどの選択肢があったか
+- 要件を満たす最も単純な形になっているか
 
-### 2. Trade-off Analysis
-- What is being traded off (performance vs readability, flexibility vs simplicity)?
-- Is this the right balance for Career Compass's stage and scale?
-- Are there hidden costs that will surface later?
+### 2. トレードオフ
+- 何を優先し、何をあきらめているか
+- 現在の規模と運用段階に合っているか
+- 後で問題になりそうな隠れたコストがないか
 
-### 3. Assumption Validation
-- What assumptions does this code make about the data, environment, or usage patterns?
-- Are these assumptions documented or enforced?
-- What happens when these assumptions are violated?
+### 3. 前提の確認
+- データ、環境、利用パターンにどんな前提を置いているか
+- その前提はコードやテストで守られているか
+- 前提が崩れたときにどう失敗するか
 
-### 4. Maintainability
-- Will this be easy to modify when requirements change?
-- Does it introduce coupling that will resist future changes?
-- Is the abstraction level appropriate (not too low, not too high)?
+### 4. 保守性
+- 要件が変わったときに直しやすいか
+- 将来の変更を妨げる結合を増やしていないか
+- 抽象化の粒度が大きすぎたり小さすぎたりしないか
 
-### 5. Business Rule Alignment
-- Does this align with Career Compass business rules (CLAUDE.md)?
-- Success-only credit consumption?
-- JST datetime handling?
-- Guest/user dual ownership?
-- Deadline approval workflow?
+### 5. ビジネスルールとの整合
+- 成功時のみクレジットを消費するか
+- 日時基準は JST か
+- guest/user の所有者境界を守っているか
+- 締切はユーザー承認後に確定するか
 
-## Output Format
+## 回答ルール
+ユーザーに見える説明は、自然な日本語で簡潔に書いてください。内部の変数名、hook 名、
+checkpoint 名、artifact のファイル名は、判断に必要な場合だけ backtick で短く示してください。
+
+## 出力フォーマット
 
 ```
-## Status
+## 状態
 APPROVE / CONCERN / REDESIGN_SUGGESTED
 
-## Summary
-1-3 sentence summary of design assessment.
+## 概要
+1-3 文の要約
 
-## Design Questions
+## 設計上の確認点
 - question | context | risk_level(low/medium/high)
 
-## Trade-off Analysis
+## トレードオフ
 - trade-off | current_balance | recommendation
 
-## Recommendations
+## 改善提案
 - recommendation | priority(low/medium/high) | effort(low/medium/high)
 ```
 
-## Constraints
-- This is advisory, NOT blocking. Findings inform the developer but do not block commit.
-- Focus on design depth, not code style or formatting.
-- Reference existing patterns in the codebase when suggesting alternatives.
+## 制約
+- このレビューは助言目的であり、commit を直接ブロックしない。
+- コードスタイルではなく、設計の深さに集中する。
+- 代替案を出すときは、既存のコードパターンを参照する。

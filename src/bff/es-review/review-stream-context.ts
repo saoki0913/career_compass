@@ -201,7 +201,7 @@ export async function prepareReviewStreamContext(
 ): Promise<ReviewStreamPreparedContext> {
   const identity = await getRequestIdentity(request);
   if (!identity) return { ok: false, response: jsonErr(request, "ログインが必要です。", 401, "AUTH_REQUIRED") };
-  const limitResponse = await guardDailyTokenLimit(identity);
+  const limitResponse = await guardDailyTokenLimit(identity, request);
   if (limitResponse) return { ok: false, response: limitResponse };
   const { userId, guestId } = identity;
 

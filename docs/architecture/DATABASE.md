@@ -4,6 +4,12 @@
 
 ---
 
+## パフォーマンス方針
+
+一覧・ダッシュボード系 loader は必要カラムだけを取得し、本文や大きな JSON は詳細 endpoint で明示取得する。最新子レコードの取得は per-row query ではなく SQL 側で batch 化する。owner + sort/filter の query shape を変更した場合は、`src/lib/db/schema.ts` と `drizzle_pg/` の index を同時に更新する。詳細は `docs/architecture/PERFORMANCE_COST_GUARDRAILS.md` を参照。
+
+---
+
 ## 1. 技術スタック
 
 | 技術 | 用途 |

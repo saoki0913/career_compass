@@ -19,8 +19,7 @@
           {
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/pre-tool-dispatcher.sh\"",
-            "timeout": 30,
-            "statusMessage": "Checking tool safety gates"
+            "timeout": 30
           }
         ]
       }
@@ -66,12 +65,6 @@
     "Stop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/stop-plaintext-confirm-guard.sh\"",
-            "timeout": 30,
-            "statusMessage": "Checking closeout confirmations"
-          },
           {
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/stop-summary.sh\"",

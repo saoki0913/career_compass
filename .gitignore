@@ -48,11 +48,13 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
 .railway
 .secrets/
+.doctor-reports/
 
 # typescript
 *.tsbuildinfo
@@ -71,6 +73,8 @@ __pycache__/
 .venv/
 venv/
 .env
+/.ruff_cache/
+/backend/.ruff_cache/
 
 # Backend runtime data (ChromaDB, BM25 indices)
 backend/.ai/
@@ -153,6 +157,7 @@ public/next.svg
 public/vercel.svg
 public/window.svg
 quality/reports/
+drizzle_pg/rollback/
 
 # Local agent / marketing generation outputs
 docs/ops/agent-usage.log

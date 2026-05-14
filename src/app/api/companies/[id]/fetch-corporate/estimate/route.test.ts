@@ -259,4 +259,36 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
     expect(data.error.code).toBe("PUBLIC_SOURCE_CONFIRMATION_REQUIRED");
     expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
   });
+
+  it("does not expose raw upstream error messages when estimate fails", async () => {
+    const rawUpstreamError = "SQL failed at /internal/company-info with secret-token";
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: false,
+          errors: [rawUpstreamError],
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-corporate/estimate/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate/estimate", {
+      method: "POST",
+      body: JSON.stringify({ urls: ["https://example.com/company"] }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+    const serialized = JSON.stringify(data);
+
+    expect(response.status).toBe(500);
+    expect(data.error).toBe("企業情報の見積に失敗しました。");
+    expect(data.errors).toEqual([data.error]);
+    expect(serialized).not.toContain(rawUpstreamError);
+    expect(serialized).not.toContain("/internal/company-info");
+    expect(serialized).not.toContain("secret-token");
+  });
 });

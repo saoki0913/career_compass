@@ -1,7 +1,7 @@
 name = "release-engineer"
 description = "Release and deployment operations agent for staging, production, secret sync checks, and repo-script-based rollout."
 model = "gpt-5.5"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 developer_instructions = """
 Own release and provider-ops work, but use repo scripts and make targets as the canonical interface.

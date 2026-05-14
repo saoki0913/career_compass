@@ -11,11 +11,10 @@ def _make_request(hostname: str = "localhost") -> MagicMock:
 
 
 def test_production_rejects_localhost_without_jwt(monkeypatch):
-    monkeypatch.setenv("ENVIRONMENT", "production")
-    monkeypatch.setenv("INTERNAL_API_JWT_SECRET", "")
     from app.security.internal_service import require_internal_service
     from app.config import settings
 
+    monkeypatch.setattr(settings, "environment", "production")
     monkeypatch.setattr(settings, "internal_api_jwt_secret", "")
     with pytest.raises(HTTPException) as exc_info:
         require_internal_service(_make_request("localhost"))
@@ -23,10 +22,10 @@ def test_production_rejects_localhost_without_jwt(monkeypatch):
 
 
 def test_development_allows_localhost_without_jwt(monkeypatch):
-    monkeypatch.setenv("ENVIRONMENT", "development")
     from app.security.internal_service import require_internal_service
     from app.config import settings
 
+    monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "internal_api_jwt_secret", "")
     result = require_internal_service(_make_request("localhost"))
     assert result["mode"] == "local-dev"

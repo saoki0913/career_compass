@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Optional
 
 from app.prompts.es_quality_rules import (
@@ -52,8 +54,19 @@ def get_template_evaluation_axes(template_type: str) -> list[EvaluationAxis]:
     return [dict(axis) for axis in axes if str(axis.get("name") or "").strip()]
 
 
-def _format_template_evaluation_rubric(template_type: str) -> str:
-    axes = get_template_evaluation_axes(template_type)
+def _format_template_evaluation_rubric(
+    template_type: str = "",
+    *,
+    template_spec: TemplateDef | None = None,
+) -> str:
+    if template_spec is not None:
+        axes = [
+            dict(axis)
+            for axis in list(template_spec.get("evaluation_axes") or [])
+            if str(axis.get("name") or "").strip()
+        ]
+    else:
+        axes = get_template_evaluation_axes(template_type)
     if not axes:
         return ""
     lines = ["<evaluation_rubric>"]
@@ -68,26 +81,6 @@ def _format_template_evaluation_rubric(template_type: str) -> str:
     lines.append("</evaluation_rubric>")
     return "\n".join(lines)
 
-
-def _format_template_evaluation_rubric_from_spec(template_spec: TemplateDef) -> str:
-    axes = [
-        dict(axis)
-        for axis in list(template_spec.get("evaluation_axes") or [])
-        if str(axis.get("name") or "").strip()
-    ]
-    if not axes:
-        return ""
-    lines = ["<evaluation_rubric>"]
-    for axis in axes:
-        name = str(axis.get("name") or "").strip()
-        pass_condition = str(axis.get("pass_condition") or "").strip()
-        rewrite_instruction = str(axis.get("rewrite_instruction") or "").strip()
-        if not name:
-            continue
-        detail = " / ".join(part for part in [pass_condition, rewrite_instruction] if part)
-        lines.append(f"- {name}: {detail}")
-    lines.append("</evaluation_rubric>")
-    return "\n".join(lines)
 
 TEMPLATE_ROLES = {
     "basic": "就活ES作成のプロフェッショナル",
@@ -111,11 +104,6 @@ def get_template_default_grounding_level(template_type: str) -> str:
     return str(template_def.get("grounding_level") or "light")
 
 
-def get_template_labels() -> dict[str, str]:
-    """Get template type to label mapping for frontend."""
-    return {k: v["label"] for k, v in TEMPLATE_DEFS.items()}
-
-
 def get_template_company_grounding_policy(template_type: str) -> str:
     return grounding_level_to_policy(get_template_default_grounding_level(template_type))
 
@@ -133,10 +121,6 @@ def get_template_evaluation_checks(template_type: str) -> dict[str, Any]:
 
 def get_template_retry_guidance(template_type: str) -> dict[str, str]:
     return dict(get_template_spec(template_type).get("retry_guidance") or {})
-
-
-def get_template_company_usage(template_type: str) -> str:
-    return str(get_template_spec(template_type).get("company_usage") or "assistive")
 
 
 def get_template_fact_priority(template_type: str) -> str:
@@ -163,32 +147,64 @@ def _extract_deep_grounding_hint_terms(company_evidence_cards: Optional[list[dic
 def _format_deep_grounding_requirements(
     *,
     effective_grounding_level: str,
-    company_evidence_cards: Optional[list[dict]],
+    company_evidence_cards: list[dict] | None = None,
 ) -> str:
     if effective_grounding_level != "deep":
         return ""
     terms = _extract_deep_grounding_hint_terms(company_evidence_cards)
     terms_line = "、".join(terms) if terms else "企業根拠カードに含まれる固有の事業名・部署名・制度名・数値"
     return f"""
-<deep_grounding_requirements>
-- deep grounding では、企業根拠カード由来の固有候補を最低1つだけ本文に含める（候補: {terms_line}）
+<required_company_specifics>
+以下の固有候補から必ず1つだけ本文中に含めること（複数使用不可）:
+候補: {terms_line}
+
+使用ルール:
+- 選んだ1つを、自分の経験・強み・学びとの接続文として使う
 - カード外の固有施策・部署名・数値・成果は追加しない
-- 企業根拠と自分の経験・強み・学びを同じ文内で1回以上接続する
 - 固有候補の羅列や過剰反復は避け、本文の主張を補強する1軸に絞る
-</deep_grounding_requirements>""".strip()
+</required_company_specifics>"""
 
 
-def _format_template_required_elements(template_type: str) -> str:
-    items = [str(item).strip() for item in get_template_spec(template_type).get("required_elements", []) if str(item).strip()]
-    if not items:
+def _format_gakuchika_bias_guard(template_type: str) -> str:
+    if template_type in {"gakuchika", "basic"}:
         return ""
-    return "\n".join(["【設問で落としてはいけない要素】", *[f"- {item}" for item in items]])
+    return """
+<gakuchika_bias_guard>
+- ガクチカのエピソード説明は最小限に留め、設問の主題（志望動機/自己PR/入社後ビジョン等）に直接答える内容を優先する
+- ガクチカの経験は「根拠の一言」程度にとどめ、設問が求める結論・動機・展望を本文の6割以上にする
+</gakuchika_bias_guard>"""
 
 
-def _format_template_required_elements_from_spec(template_spec: TemplateDef) -> str:
+def _format_structure_template(template_type: str, char_max: int | None) -> str:
+    if char_max and char_max <= 220:
+        return ""
+    structure_map = {
+        "company_motivation": "結論（志望理由の核）→根拠（経験＋企業接点）→展望（入社後の貢献）",
+        "intern_reason": "結論（参加したい理由の核）→根拠（経験＋インターン接点）→目標（何を得たいか）",
+        "self_pr": "結論（強みの核）→根拠（エピソード＋行動＋成果）→再現性（仕事での活かし方）",
+        "gakuchika": "結論（取り組みの核）→状況・課題→行動→成果→学び",
+        "post_join_goals": "結論（実現したいことの核）→根拠（経験＋企業接点）→具体的なアクション",
+        "role_course_reason": "結論（選択理由の核）→根拠（経験＋適性）→展望（その職種での貢献）",
+    }
+    structure = structure_map.get(template_type)
+    if not structure:
+        return ""
+    return f"""
+<required_structure>
+- 推奨構成: {structure}
+- 第1文は必ず設問への直接的な回答にする（前置き・背景説明で始めない）
+</required_structure>"""
+
+
+def _format_template_required_elements(
+    template_type: str = "",
+    *,
+    template_spec: TemplateDef | None = None,
+) -> str:
+    spec = template_spec if template_spec is not None else get_template_spec(template_type)
     items = [
         str(item).strip()
-        for item in list(template_spec.get("required_elements") or [])
+        for item in list(spec.get("required_elements") or [])
         if str(item).strip()
     ]
     if not items:
@@ -196,17 +212,15 @@ def _format_template_required_elements_from_spec(template_spec: TemplateDef) -> 
     return "\n".join(["【設問で落としてはいけない要素】", *[f"- {item}" for item in items]])
 
 
-def _format_template_anti_patterns(template_type: str) -> str:
-    items = [str(item).strip() for item in get_template_spec(template_type).get("anti_patterns", []) if str(item).strip()]
-    if not items:
-        return ""
-    return "\n".join(["【避けるパターン】", *[f"- {item}" for item in items]])
-
-
-def _format_template_anti_patterns_from_spec(template_spec: TemplateDef) -> str:
+def _format_template_anti_patterns(
+    template_type: str = "",
+    *,
+    template_spec: TemplateDef | None = None,
+) -> str:
+    spec = template_spec if template_spec is not None else get_template_spec(template_type)
     items = [
         str(item).strip()
-        for item in list(template_spec.get("anti_patterns") or [])
+        for item in list(spec.get("anti_patterns") or [])
         if str(item).strip()
     ]
     if not items:
@@ -544,13 +558,12 @@ def _format_self_count_instruction(
     char_max: int | None,
     *,
     llm_model: str | None = None,
-    length_fix_mode: bool = False,
     latest_failed_length: int = 0,
 ) -> str:
     """Return a self-count instruction block inspired by CAPEL methodology.
 
     Guides the LLM to count characters during generation for better length compliance.
-    This acts as a "floor raise" — actual validation is still done by the existing
+    This acts as a "floor raise" -- actual validation is still done by the existing
     post-validation + retry system.
     """
     if not char_min and not char_max:
@@ -558,24 +571,30 @@ def _format_self_count_instruction(
 
     _ = llm_model
     if char_min and char_max:
-        target_desc = f"{char_max}字"
+        acceptance_desc = f"{char_min}字〜{char_max}字"
+        target_desc = f"{max(char_min, char_max - 5)}字前後"
         avg_target = char_max
     elif char_max:
+        acceptance_desc = f"{char_max}字以内"
         target_desc = f"{char_max}字以内"
         avg_target = char_max
     elif char_min:
+        acceptance_desc = f"{char_min}字以上"
         target_desc = f"{char_min}字以上"
         avg_target = char_min
     else:
+        acceptance_desc = "指定範囲"
         target_desc = "指定範囲"
         avg_target = 160
 
     sentence_count = max(2, round(avg_target / 40))
     lines = [
         "【文字数セルフチェック】",
-        f"- 目標: {target_desc}",
+        f"- 必須受理帯: {acceptance_desc}",
+        f"- 生成時の目安: {target_desc}",
         f"- 文量配分の目安: {sentence_count}文前後。1文ごとに結論・根拠・接続・締めの役割を持たせる",
-        "- Draft → 文字数を数える → 範囲に収まるよう Adjust",
+        "- Draft → 文字数を数える → strict受理帯に収まるよう Adjust",
+        "- 不足時は一般論を足さず、元回答にある行動の目的・対象・結果・学び・接続を具体化する",
     ]
     if latest_failed_length and char_min and latest_failed_length < char_min:
         lines.append(
@@ -585,8 +604,6 @@ def _format_self_count_instruction(
         lines.append(
             f"- 前回出力は{latest_failed_length}字で、上限まで{latest_failed_length - char_max}字超過。重複説明と補助論点を圧縮する"
         )
-    if length_fix_mode:
-        lines.append("- 調整時は意味を変えず、語尾・修飾・接続・既存事実の説明量で対応する")
     if char_max and char_max >= 320:
         lines.append("- 長文では第1文を結論、第2〜3文を根拠経験、第4文以降を学び・企業接点・今後に割り当てる")
 
@@ -754,12 +771,6 @@ def _format_required_template_playbook(
     if not char_max or char_max < 120:
         return ""
 
-    target = _format_target_char_window(
-        char_min,
-        char_max,
-        original_len=original_len,
-        llm_model=llm_model,
-    )
     template_kwargs = {
         "honorific": honorific,
         "role_name": role_name or "その職種・コース",
@@ -780,7 +791,6 @@ def _format_required_template_playbook(
 - {second}
 - {third}
 - {fourth}
-- 目標は {target} で、短く終えすぎない
 - 企業接点と貢献は1文に圧縮してよく、段階を増やしすぎない
 
 【書き出し例】
@@ -821,6 +831,254 @@ def _draft_generation_output_contract_json(*, kind: str, char_min: Optional[int]
 - 会話・材料にない企業固有事実・職種・数字を捏造しない
 - JSON 以外を出力しない"""
     raise ValueError(f"Unknown draft JSON kind: {kind}")
+
+
+# ---------------------------------------------------------------------------
+# Compositor functions — wrap multiple helpers into semantic XML sections
+# ---------------------------------------------------------------------------
+
+
+def _format_length_section(
+    *,
+    template_type: str,
+    char_min: int | None,
+    char_max: int | None,
+    stage: str,
+    original_len: int,
+    llm_model: str | None,
+    latest_failed_length: int,
+    length_control_mode: str,
+    length_shortfall: int | None,
+) -> str:
+    parts = [
+        _format_length_policy_block(
+            char_min, char_max,
+            stage=stage, original_len=original_len,
+            llm_model=llm_model, latest_failed_len=latest_failed_length,
+        ),
+        _format_self_count_instruction(
+            char_min, char_max,
+            llm_model=llm_model, latest_failed_length=latest_failed_length,
+        ),
+        _format_short_answer_guidance(
+            template_type, char_min, char_max,
+            stage=stage, original_len=original_len, llm_model=llm_model,
+        ),
+        _format_midrange_length_guidance(
+            template_type, char_min, char_max,
+            length_control_mode=length_control_mode,
+            length_shortfall=length_shortfall,
+            original_len=original_len, llm_model=llm_model,
+        ),
+    ]
+    content = "\n".join(p for p in parts if p.strip())
+    if not content.strip():
+        return ""
+    return f"\n<length>\n{content}\n</length>"
+
+
+def _format_style_section(
+    *,
+    template_type: str,
+    char_max: int | None,
+    grounding_mode: str,
+) -> str:
+    parts = [
+        f"<core_style>\n{_build_contextual_rules(template_type, char_max, grounding_mode)}\n</core_style>",
+        _format_prose_style_block(char_max),
+        _format_anti_ai_phrase_block(),
+        _format_gakuchika_bias_guard(template_type),
+    ]
+    content = "\n".join(p for p in parts if p.strip())
+    return f"\n<style>\n{content}\n</style>"
+
+
+def _format_template_section(
+    *,
+    template_def: TemplateDef,
+    template_type: str,
+    char_min: int | None,
+    char_max: int | None,
+    honorific: str,
+    role_name: str | None,
+    intern_name: str | None,
+    original_len: int,
+    llm_model: str | None,
+    include_template_focus: bool,
+    student_expressions: list[str] | None = None,
+) -> str:
+    parts: list[str] = []
+    if include_template_focus:
+        parts.append(f"<template_focus>\n{template_def['description']}\n</template_focus>")
+    parts.append(_format_template_required_elements(template_spec=template_def))
+    parts.append(_format_template_evaluation_rubric(template_spec=template_def))
+    parts.append(_format_structure_template(template_type, char_max))
+    parts.append(format_template_guidance(template_type))
+    parts.append(_format_template_anti_patterns(template_spec=template_def))
+    parts.append(_format_gakuchika_allocation_guide(template_type, char_min, char_max))
+    parts.append(_format_gakuchika_student_expressions(template_type, student_expressions))
+    parts.append(_format_gakuchika_fact_and_pii_rules(template_type))
+    parts.append(_format_required_template_playbook(
+        template_type, char_min, char_max,
+        honorific=honorific, role_name=role_name, intern_name=intern_name,
+        original_len=original_len, llm_model=llm_model,
+    ))
+    content = "\n".join(p for p in parts if p.strip())
+    if not content.strip():
+        return ""
+    return f"\n<template>\n{content}\n</template>"
+
+
+def _format_company_section(
+    *,
+    template_type: str,
+    template_def: TemplateDef,
+    company_evidence_cards: list[dict] | None,
+    has_rag: bool,
+    grounding_mode: str,
+    effective_company_grounding: str,
+    effective_grounding_level: str,
+    generic_role_mode: bool,
+    evidence_coverage_level: str,
+    company_name: str | None,
+    intern_name: str | None,
+    role_name: str | None,
+) -> str:
+    parts = [
+        _format_assistive_grounding_block(
+            effective_company_grounding=effective_company_grounding,
+            grounding_mode=grounding_mode,
+            company_name=company_name,
+        ),
+        _format_deep_grounding_requirements(
+            effective_grounding_level=effective_grounding_level,
+            company_evidence_cards=company_evidence_cards,
+        ),
+        _format_proper_noun_policy(
+            template_type=template_type,
+            intern_name=intern_name,
+            role_name=role_name,
+        ),
+        _format_company_guidance(
+            company_evidence_cards=company_evidence_cards,
+            has_rag=has_rag,
+            grounding_mode=grounding_mode,
+            requires_company_rag=bool(template_def.get("requires_company_rag")),
+            company_grounding=effective_company_grounding,
+            generic_role_mode=generic_role_mode,
+            evidence_coverage_level=evidence_coverage_level,
+            template_type=template_type,
+        ),
+    ]
+    content = "\n".join(p for p in parts if p.strip())
+    if not content.strip():
+        return ""
+    return f"\n<company>\n{content}\n</company>"
+
+
+def _format_context_section(
+    *,
+    reference_quality_block: str,
+    allowed_user_facts: list[dict] | None,
+    template_type: str,
+    char_max: int | None,
+) -> str:
+    parts = [
+        _format_reference_quality_guidance(reference_quality_block),
+        _format_user_fact_guidance(allowed_user_facts, template_type=template_type, char_max=char_max),
+    ]
+    content = "\n".join(p for p in parts if p.strip())
+    if not content.strip():
+        return ""
+    return f"\n<context>\n{content}\n</context>"
+
+
+def _format_retry_section(
+    *,
+    focus_mode: str,
+    focus_modes: list[str] | None,
+    focus_mode_context: FocusModeContext | None,
+    template_type: str,
+    question: str,
+    retry_items: list[str],
+) -> str:
+    parts = [
+        _format_focus_mode_guidance(focus_modes or focus_mode, context=focus_mode_context),
+        _format_question_specific_guidance(template_type, question),
+        _format_negative_reframe_guidance(template_type),
+    ]
+    if retry_items:
+        parts.append(
+            "【前回失敗の回避】\n" + "\n".join(f"- {item}" for item in retry_items)
+        )
+    content = "\n".join(p for p in parts if p.strip())
+    if not content.strip():
+        return ""
+    return f"\n<retry>\n{content}\n</retry>"
+
+
+# ---------------------------------------------------------------------------
+# RewriteStrategy — unified standard / fallback rewrite configuration
+# ---------------------------------------------------------------------------
+
+
+class RewriteStrategy(str, Enum):
+    STANDARD = "standard"
+    FALLBACK = "fallback"
+
+
+@dataclass(frozen=True)
+class _StrategyConfig:
+    role: str
+    task: str
+    absolute_preamble: str
+    core_closing: str
+    user_prompt_suffix: str
+    include_template_focus: bool
+    pass_focus_mode_context: bool
+    company_abstraction_fallback: str
+    output_contract_extra: str
+
+
+def _resolve_strategy_config(
+    strategy: RewriteStrategy,
+    template_role: str,
+    char_condition: str,
+) -> _StrategyConfig:
+    if strategy == RewriteStrategy.FALLBACK:
+        return _StrategyConfig(
+            role="日本語のES編集者",
+            task="元回答の事実を保ったまま、提出できる本文に安全に整える。",
+            absolute_preamble=(
+                "- 具体的事実は元回答とユーザー事実の範囲から出す\n"
+                "- 足りない情報は創作せず、一般化してつなぐ"
+            ),
+            core_closing="",
+            user_prompt_suffix="元の具体的事実を極力保ちつつ、構成だけを整えた安全な改善案本文を1件だけ返してください。",
+            include_template_focus=False,
+            pass_focus_mode_context=False,
+            company_abstraction_fallback="固有施策、社内体制、数値、成果を新しく断定しない",
+            output_contract_extra=f"\n- {char_condition}",
+        )
+    return _StrategyConfig(
+        role=template_role,
+        task="提出できる改善案本文を1件だけ作る。",
+        absolute_preamble=(
+            "- 元回答の具体的事実は保ち、構成と伝わり方を改善する\n"
+            "- ユーザー事実にない経験・役割・成果・数字を足さない"
+        ),
+        core_closing="- 最終文は具体的な行動や貢献で締め、抽象的な意気込みの羅列にしない",
+        user_prompt_suffix="この回答を、提出できる改善案に書き直してください。改善案本文のみを返してください。",
+        include_template_focus=True,
+        pass_focus_mode_context=True,
+        company_abstraction_fallback="企業根拠カードの固有名詞・施策名・組織名・英字略語を本文でそのまま増殖させない",
+        output_contract_extra="",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Draft generation prompt builder
+# ---------------------------------------------------------------------------
 
 
 def build_template_draft_generation_prompt(
@@ -890,22 +1148,24 @@ def build_template_draft_generation_prompt(
 </constraints>
 
 {_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
-
-<core_style>
-{_build_contextual_rules(template_type, char_max, grounding_mode)}
-</core_style>
-{_format_prose_style_block(char_max)}
-{_format_anti_ai_phrase_block()}
-
-<template_focus>
-{template_def["description"]}
-</template_focus>
-{_format_template_required_elements(template_type)}
-{format_template_guidance(template_type)}
-{_format_template_anti_patterns(template_type)}
-{_format_gakuchika_allocation_guide(template_type, char_min, char_max)}
-{_format_gakuchika_student_expressions(template_type, student_expressions)}
-{_format_gakuchika_fact_and_pii_rules(template_type)}
+{_format_style_section(
+    template_type=template_type,
+    char_max=char_max,
+    grounding_mode=grounding_mode,
+)}
+{_format_template_section(
+    template_def=template_def,
+    template_type=template_type,
+    char_min=char_min,
+    char_max=char_max,
+    honorific=honorific,
+    role_name=role_name,
+    intern_name=None,
+    original_len=original_len,
+    llm_model=llm_model,
+    include_template_focus=True,
+    student_expressions=student_expressions,
+)}
 {_format_focus_mode_guidance("normal")}
 {_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
 {_format_midrange_length_guidance(
@@ -919,26 +1179,25 @@ def build_template_draft_generation_prompt(
 )}
 {_format_question_specific_guidance(template_type, question)}
 {_format_negative_reframe_guidance(template_type)}
-{_format_company_guidance(
+{_format_company_section(
+    template_type=template_type,
+    template_def=template_def,
     company_evidence_cards=company_evidence_cards,
     has_rag=has_rag,
     grounding_mode=grounding_mode,
-    requires_company_rag=bool(template_def.get("requires_company_rag")),
-    company_grounding=effective_company_grounding,
+    effective_company_grounding=effective_company_grounding,
+    effective_grounding_level=effective_grounding_level,
     generic_role_mode=False,
     evidence_coverage_level=evidence_coverage_level,
-    template_type=template_type,
-)}
-{_format_reference_quality_guidance(reference_quality_block)}
-{_format_required_template_playbook(
-    template_type,
-    char_min,
-    char_max,
-    honorific=honorific,
-    role_name=role_name,
+    company_name=company_name,
     intern_name=None,
-    original_len=original_len,
-    llm_model=llm_model,
+    role_name=role_name,
+)}
+{_format_context_section(
+    reference_quality_block=reference_quality_block,
+    allowed_user_facts=None,
+    template_type=template_type,
+    char_max=char_max,
 )}
 """
 
@@ -959,6 +1218,11 @@ def build_template_draft_generation_prompt(
     user_prompt = "\n\n".join(blocks) + "\n\n上記のみを根拠にJSONを出力してください。"
 
     return system_prompt.strip(), user_prompt
+
+
+# ---------------------------------------------------------------------------
+# Rewrite prompt builder (unified standard + fallback via RewriteStrategy)
+# ---------------------------------------------------------------------------
 
 
 def build_template_rewrite_prompt(
@@ -990,6 +1254,7 @@ def build_template_rewrite_prompt(
     latest_failed_length: int = 0,
     focus_mode_context: FocusModeContext | None = None,
     template_spec_override: TemplateDef | None = None,
+    strategy: RewriteStrategy = RewriteStrategy.STANDARD,
 ) -> tuple[str, str]:
     template_def = template_spec_override or TEMPLATE_DEFS.get(template_type)
     if not template_def:
@@ -998,23 +1263,35 @@ def build_template_rewrite_prompt(
     honorific = get_company_honorific(industry)
     original_len = len(answer or "")
 
-    conditions = [f"設問: {question}"]
-    if company_name:
-        conditions.append(f"企業: {company_name}")
-    if industry:
-        conditions.append(f"業界: {industry}")
-    if intern_name:
-        conditions.append(f"インターン名: {intern_name}")
-    if role_name:
-        conditions.append(f"職種・コース名: {role_name}")
-    conditions.append(f"文字数: {_format_char_condition(char_min, char_max)}")
+    config = _resolve_strategy_config(
+        strategy,
+        template_role,
+        _format_char_condition(char_min, char_max),
+    )
+
+    if strategy == RewriteStrategy.FALLBACK:
+        conditions = [f"設問: {question}", f"文字数: {_format_char_condition(char_min, char_max)}"]
+        if company_name:
+            conditions.append(f"企業: {company_name}")
+        if industry:
+            conditions.append(f"業界: {industry}")
+        if intern_name:
+            conditions.append(f"インターン名: {intern_name}")
+        if role_name:
+            conditions.append(f"職種・コース名: {role_name}")
+    else:
+        conditions = [f"設問: {question}"]
+        if company_name:
+            conditions.append(f"企業: {company_name}")
+        if industry:
+            conditions.append(f"業界: {industry}")
+        if intern_name:
+            conditions.append(f"インターン名: {intern_name}")
+        if role_name:
+            conditions.append(f"職種・コース名: {role_name}")
+        conditions.append(f"文字数: {_format_char_condition(char_min, char_max)}")
 
     retry_items = _dedupe_text_items(list(retry_hints or ([] if not retry_hint else [retry_hint])))
-    retry_guidance = (
-        "\n【前回失敗の回避】\n" + "\n".join(f"- {item}" for item in retry_items)
-        if retry_items
-        else ""
-    )
     effective_grounding_level = grounding_level_override or get_template_default_grounding_level(
         template_type
     )
@@ -1031,26 +1308,30 @@ def build_template_rewrite_prompt(
         company_specificity_rule = "- 企業根拠カード由来の固有候補だけを1軸で使い、カード外の固有名詞・施策・数値は足さない"
         company_abstraction_rule = "- 固有候補を羅列せず、自分の経験・強み・学びとの接続文として使う"
     else:
-        company_specificity_rule = "- 企業根拠カードの固有名詞・施策名・組織名・英字略語を本文でそのまま増殖させない"
+        company_specificity_rule = f"- {config.company_abstraction_fallback}"
         company_abstraction_rule = "- 本文で企業に触れるときは、方向性・価値観・重視姿勢に抽象化する"
     target_stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
-    system_prompt = f"""あなたは{template_role}である。
 
-<task>
-提出できる改善案本文を1件だけ作る。
-</task>
+    core_closing_line = f"\n{config.core_closing}" if config.core_closing else ""
+
+    focus_mode_context_arg = focus_mode_context if config.pass_focus_mode_context else None
+
+    system_prompt = f"""あなたは{config.role}である。
+
+<role_task>
+{config.task}
+</role_task>
 
 <output_contract>
 - 出力は改善案本文のみ。1文字目から本文を書き始める
 - 説明、前置き、後書き、箇条書き、引用符、JSON、コードブロックは禁止
 - 「以下が改善案です」等のメタ説明は禁止
 - だ・である調で統一（「です」「ます」は1箇所も使わない）
-- 改行・空行を入れず、1段落の連続した文章として出力する
+- 改行・空行を入れず、1段落の連続した文章として出力する{config.output_contract_extra}
 </output_contract>
 
 <constraints priority="absolute">
-- 元回答の具体的事実は保ち、構成と伝わり方を改善する
-- ユーザー事実にない経験・役割・成果・数字を足さない
+{config.absolute_preamble}
 {_format_fact_preservation_rules()}
 - だ・である調で統一する
 {_format_reference_copy_safety_rules()}
@@ -1058,8 +1339,7 @@ def build_template_rewrite_prompt(
 
 <constraints priority="core">
 - 設問に正面から答える
-- 結論ファーストで書き、読み手に伝えたいことを明確にする
-- 最終文は具体的な行動や貢献で締め、抽象的な意気込みの羅列にしない
+- 結論ファーストで書き、読み手に伝えたいことを明確にする{core_closing_line}
 - 冗長な接続詞で文字数を浪費しない
 - role_name があっても別職種や別コースを仮定しない{_format_rewrite_closing_guidance(template_def)}
 </constraints>
@@ -1069,61 +1349,63 @@ def build_template_rewrite_prompt(
 {company_specificity_rule}
 {company_abstraction_rule}
 - {company_mention_rule}
-{_format_self_count_instruction(char_min, char_max, llm_model=llm_model, latest_failed_length=latest_failed_length)}
 </constraints>
-{_format_assistive_grounding_block(effective_company_grounding=effective_company_grounding, grounding_mode=grounding_mode, company_name=company_name)}
-{_format_deep_grounding_requirements(effective_grounding_level=effective_grounding_level, company_evidence_cards=company_evidence_cards)}
-{_format_proper_noun_policy(template_type=template_type, intern_name=intern_name, role_name=role_name)}
-{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model, latest_failed_len=latest_failed_length)}
-
-<core_style>
-{_build_contextual_rules(template_type, char_max, grounding_mode)}
-</core_style>
-{_format_prose_style_block(char_max)}
-{_format_anti_ai_phrase_block()}
-<template_focus>
-{template_def["description"]}
-</template_focus>
-{_format_template_required_elements_from_spec(template_def)}
-{_format_template_evaluation_rubric_from_spec(template_def)}
-{format_template_guidance(template_type)}
-{_format_template_anti_patterns_from_spec(template_def)}
-{_format_focus_mode_guidance(focus_modes or focus_mode, context=focus_mode_context)}
-{_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
-{_format_midrange_length_guidance(
-    template_type,
-    char_min,
-    char_max,
-    length_control_mode=length_control_mode,
-    length_shortfall=length_shortfall,
+{_format_length_section(
+    template_type=template_type,
+    char_min=char_min,
+    char_max=char_max,
+    stage=target_stage,
     original_len=original_len,
     llm_model=llm_model,
+    latest_failed_length=latest_failed_length,
+    length_control_mode=length_control_mode,
+    length_shortfall=length_shortfall,
 )}
-{_format_question_specific_guidance(template_type, question)}
-{_format_negative_reframe_guidance(template_type)}
-{_format_company_guidance(
-    company_evidence_cards=company_evidence_cards,
-    has_rag=has_rag,
-    grounding_mode=grounding_mode,
-    requires_company_rag=bool(template_def.get("requires_company_rag")),
-    company_grounding=effective_company_grounding,
-    generic_role_mode=generic_role_mode,
-    evidence_coverage_level=evidence_coverage_level,
+{_format_style_section(
     template_type=template_type,
+    char_max=char_max,
+    grounding_mode=grounding_mode,
 )}
-{_format_reference_quality_guidance(reference_quality_block)}
-{_format_user_fact_guidance(allowed_user_facts, template_type=template_type, char_max=char_max)}
-{_format_required_template_playbook(
-    template_type,
-    char_min,
-    char_max,
+{_format_template_section(
+    template_def=template_def,
+    template_type=template_type,
+    char_min=char_min,
+    char_max=char_max,
     honorific=honorific,
     role_name=role_name,
     intern_name=intern_name,
     original_len=original_len,
     llm_model=llm_model,
+    include_template_focus=config.include_template_focus,
 )}
-{retry_guidance}
+{_format_company_section(
+    template_type=template_type,
+    template_def=template_def,
+    company_evidence_cards=company_evidence_cards,
+    has_rag=has_rag,
+    grounding_mode=grounding_mode,
+    effective_company_grounding=effective_company_grounding,
+    effective_grounding_level=effective_grounding_level,
+    generic_role_mode=generic_role_mode,
+    evidence_coverage_level=evidence_coverage_level,
+    company_name=company_name,
+    intern_name=intern_name,
+    role_name=role_name,
+)}
+{_format_context_section(
+    reference_quality_block=reference_quality_block,
+    allowed_user_facts=allowed_user_facts,
+    template_type=template_type,
+    char_max=char_max,
+)}
+{_format_retry_section(
+    focus_mode=focus_mode,
+    focus_modes=focus_modes,
+    focus_mode_context=focus_mode_context_arg,
+    template_type=template_type,
+    question=question,
+    retry_items=retry_items,
+)}
 """
 
     user_prompt = f"""【条件】
@@ -1132,7 +1414,7 @@ def build_template_rewrite_prompt(
 【元の回答】
 {answer}
 
-この回答を、提出できる改善案に書き直してください。改善案本文のみを返してください。"""
+{config.user_prompt_suffix}"""
 
     return system_prompt, user_prompt
 
@@ -1166,138 +1448,33 @@ def build_template_fallback_rewrite_prompt(
     latest_failed_length: int = 0,
     template_spec_override: TemplateDef | None = None,
 ) -> tuple[str, str]:
-    template_def = template_spec_override or TEMPLATE_DEFS.get(template_type)
-    if not template_def:
-        raise ValueError(f"Unknown template type: {template_type}")
-    honorific = get_company_honorific(industry)
-    original_len = len(answer or "")
-
-    conditions = [f"設問: {question}", f"文字数: {_format_char_condition(char_min, char_max)}"]
-    if company_name:
-        conditions.append(f"企業: {company_name}")
-    if industry:
-        conditions.append(f"業界: {industry}")
-    if intern_name:
-        conditions.append(f"インターン名: {intern_name}")
-    if role_name:
-        conditions.append(f"職種・コース名: {role_name}")
-
-    retry_items = _dedupe_text_items(list(retry_hints or ([] if not retry_hint else [retry_hint])))
-    retry_guidance = (
-        "\n【前回失敗の回避】\n" + "\n".join(f"- {item}" for item in retry_items)
-        if retry_items
-        else ""
+    return build_template_rewrite_prompt(
+        template_type,
+        company_name,
+        industry,
+        question,
+        answer,
+        char_min,
+        char_max,
+        company_evidence_cards,
+        has_rag,
+        allowed_user_facts=allowed_user_facts,
+        intern_name=intern_name,
+        role_name=role_name,
+        grounding_mode=grounding_mode,
+        retry_hint=retry_hint,
+        retry_hints=retry_hints,
+        reference_quality_block=reference_quality_block,
+        generic_role_mode=generic_role_mode,
+        evidence_coverage_level=evidence_coverage_level,
+        length_control_mode=length_control_mode,
+        length_shortfall=length_shortfall,
+        focus_mode=focus_mode,
+        focus_modes=focus_modes,
+        company_grounding_override=company_grounding_override,
+        grounding_level_override=grounding_level_override,
+        llm_model=llm_model,
+        latest_failed_length=latest_failed_length,
+        template_spec_override=template_spec_override,
+        strategy=RewriteStrategy.FALLBACK,
     )
-    effective_grounding_level = grounding_level_override or get_template_default_grounding_level(
-        template_type
-    )
-    effective_company_grounding = company_grounding_override or grounding_level_to_policy(
-        effective_grounding_level
-    )
-    if grounding_mode == "none":
-        company_mention_rule = "この設問では企業名・企業敬称（貴社・御社・貴行等）を絶対に使わない。自分の経験と強みだけで完結させる"
-    elif effective_company_grounding == "assistive":
-        company_mention_rule = f"企業に言及するときは「{honorific}」を使う。本文全体で2回までにとどめる"
-    else:
-        company_mention_rule = f"企業名は本文中で1回までにとどめ、2回目以降は「{honorific}」を使う"
-    if effective_grounding_level == "deep":
-        company_specificity_rule = "- 企業根拠カード由来の固有候補だけを1軸で使い、カード外の固有名詞・施策・数値は足さない"
-        company_abstraction_rule = "- 固有候補を羅列せず、自分の経験・強み・学びとの接続文として使う"
-    else:
-        company_specificity_rule = "- 固有施策、社内体制、数値、成果を新しく断定しない"
-        company_abstraction_rule = "- 本文で企業に触れるときは、方向性・価値観・重視姿勢に抽象化する"
-    target_stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
-    system_prompt = f"""あなたは日本語のES編集者である。
-
-<task>
-元回答の事実を保ったまま、提出できる本文に安全に整える。
-</task>
-
-<output_contract>
-- 出力は本文のみ。1文字目から本文を書き始める
-- だ・である調（「です」「ます」は使わない）
-- {_format_char_condition(char_min, char_max)}
-- 改行・空行を入れず、1段落の連続した文章として出力する
-</output_contract>
-
-<constraints priority="absolute">
-- 具体的事実は元回答とユーザー事実の範囲から出す
-- 足りない情報は創作せず、一般化してつなぐ
-{_format_fact_preservation_rules()}
-- だ・である調で統一する
-{_format_reference_copy_safety_rules()}
-</constraints>
-
-<constraints priority="core">
-- 設問に正面から答える
-- 結論ファーストで書き、読み手に伝えたいことを明確にする
-- 最終文は具体的な行動や貢献で締める
-- 冗長な接続詞で文字数を浪費しない{_format_rewrite_closing_guidance(template_def)}
-</constraints>
-
-<constraints priority="target">
-- 企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う
-{company_specificity_rule}
-{company_abstraction_rule}
-- {company_mention_rule}
-{_format_self_count_instruction(char_min, char_max, llm_model=llm_model, latest_failed_length=latest_failed_length)}
-</constraints>
-{_format_assistive_grounding_block(effective_company_grounding=effective_company_grounding, grounding_mode=grounding_mode, company_name=company_name)}
-{_format_deep_grounding_requirements(effective_grounding_level=effective_grounding_level, company_evidence_cards=company_evidence_cards)}
-{_format_proper_noun_policy(template_type=template_type, intern_name=intern_name, role_name=role_name)}
-{_format_length_policy_block(char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model, latest_failed_len=latest_failed_length)}
-
-<core_style>
-{_build_contextual_rules(template_type, char_max, grounding_mode)}
-</core_style>
-{_format_prose_style_block(char_max)}
-{_format_anti_ai_phrase_block()}
-{_format_template_required_elements_from_spec(template_def)}
-{_format_template_evaluation_rubric_from_spec(template_def)}
-{format_template_guidance(template_type)}
-{_format_template_anti_patterns_from_spec(template_def)}
-{_format_focus_mode_guidance(focus_modes or focus_mode)}
-{_format_short_answer_guidance(template_type, char_min, char_max, stage=target_stage, original_len=original_len, llm_model=llm_model)}
-{_format_midrange_length_guidance(
-    template_type,
-    char_min,
-    char_max,
-    length_control_mode=length_control_mode,
-    length_shortfall=length_shortfall,
-    original_len=original_len,
-    llm_model=llm_model,
-)}
-{_format_question_specific_guidance(template_type, question)}
-{_format_negative_reframe_guidance(template_type)}
-{_format_company_guidance(
-    company_evidence_cards=company_evidence_cards,
-    has_rag=has_rag,
-    grounding_mode=grounding_mode,
-    requires_company_rag=bool(template_def.get("requires_company_rag")),
-    company_grounding=effective_company_grounding,
-    generic_role_mode=generic_role_mode,
-    evidence_coverage_level=evidence_coverage_level,
-    template_type=template_type,
-)}
-{_format_reference_quality_guidance(reference_quality_block)}
-{_format_user_fact_guidance(allowed_user_facts, template_type=template_type, char_max=char_max)}
-{_format_required_template_playbook(
-    template_type,
-    char_min,
-    char_max,
-    honorific=honorific,
-    role_name=role_name,
-    intern_name=intern_name,
-    original_len=original_len,
-    llm_model=llm_model,
-)}
-{retry_guidance}
-"""
-    user_prompt = f"""【条件】
-{chr(10).join(conditions)}
-
-【元の回答】
-{answer}
-
-元の具体的事実を極力保ちつつ、構成だけを整えた安全な改善案本文を1件だけ返してください。"""
-    return system_prompt, user_prompt

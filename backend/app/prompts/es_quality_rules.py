@@ -7,14 +7,17 @@ This module intentionally contains prompt guidance only. Validation remains in
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
+
+from app.prompts.es_templates._focus_modes import _dedupe_text_items
 
 
 @dataclass(frozen=True)
 class StyleRule:
     text: str
-    scope: str  # "all", "company", "short_only", "mid_long"
+    scope: Literal["all", "company", "short_only", "mid_long"]
     applicable_templates: frozenset[str] | None = None
-    priority: str = "should"  # "must", "should", "watch"
+    priority: Literal["must", "should", "watch"] = "should"
 
 
 STYLE_RULES: list[StyleRule] = [
@@ -162,18 +165,6 @@ ABSTRACT_EXAMPLES: dict[str, tuple[str, str]] = {
         "[元回答の経験]に表れた判断や行動を、[仕事での反映例]へつなぐ。",
     ),
 }
-
-
-def _dedupe_text_items(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for item in items:
-        text = str(item or "").strip()
-        if not text or text in seen:
-            continue
-        seen.add(text)
-        result.append(text)
-    return result
 
 
 def _build_contextual_rules(

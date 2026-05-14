@@ -6,10 +6,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { requireOwnerMutationRequest } from "@/bff/api/mutation-guard";
+import {
+  buildOwnerCondition,
+  requireRequestIdentity,
+} from "@/bff/identity/owner-access";
 import { db } from "@/lib/db";
-import { gakuchikaContents, gakuchikaConversations, userProfiles } from "@/lib/db/schema";
-import { eq, desc, isNull, asc, count, getTableColumns, sql } from "drizzle-orm";
+import { gakuchikaContents, userProfiles } from "@/lib/db/schema";
+import { eq, desc, asc, count, sql } from "drizzle-orm";
 import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/billing/plan-metadata";
 import {
   getGakuchikaSummaryKind,
@@ -24,6 +29,58 @@ type LatestGakuchikaConversation = {
   starScores: unknown;
   questionCount: number;
 };
+
+type GakuchikaResponseDto = {
+  id: string;
+  title: string;
+  content: string | null;
+  charLimitType: "300" | "400" | "500" | null;
+  summary: string | null;
+  sortOrder: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type GakuchikaListRow = GakuchikaResponseDto;
+
+function toGakuchikaResponseDto(row: GakuchikaResponseDto): GakuchikaResponseDto {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    charLimitType: row.charLimitType,
+    summary: row.summary,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function toGakuchikaListDto(
+  row: GakuchikaListRow,
+  latest: LatestGakuchikaConversation | undefined,
+) {
+  const rawStatus = latest?.status ?? null;
+  const qCount = Number(latest?.questionCount ?? 0);
+  const conversationStatus = normalizeGakuchikaListConversationStatus(rawStatus, qCount);
+
+  return {
+    id: row.id,
+    title: row.title,
+    summary: row.summary,
+    sortOrder: row.sortOrder,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    conversationStatus,
+    conversationState: safeParseConversationState(
+      latest?.starScores ?? null,
+      conversationStatus,
+    ),
+    questionCount: qCount,
+    summaryKind: getGakuchikaSummaryKind(row.summary),
+    summaryPreview: getGakuchikaSummaryPreview(row.summary),
+  };
+}
 
 /** DB 由来の生値を一覧 API 用に正規化。質問済みなのに status が取れない行は in_progress に寄せる。 */
 export function normalizeGakuchikaListConversationStatus(
@@ -53,7 +110,7 @@ async function loadLatestGakuchikaConversations(contentIds: string[]): Promise<L
         status,
         star_scores,
         question_count,
-        row_number() over (partition by gakuchika_id order by updated_at desc) as rn
+        row_number() over (partition by gakuchika_id order by updated_at desc, created_at desc, id desc) as rn
       from gakuchika_conversations
       where gakuchika_id = any(${contentIds}::text[])
     ) ranked
@@ -70,15 +127,27 @@ async function loadLatestGakuchikaConversations(contentIds: string[]): Promise<L
 
 export async function GET(request: NextRequest) {
   try {
-    const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    const identityResult = await requireRequestIdentity(request, {
+      codePrefix: "GAKUCHIKA_LIST",
+      logContext: "gakuchika-list-auth",
+      sessionErrorMode: "throw",
+    });
+    if (!identityResult.ok) {
+      return identityResult.response;
     }
 
-    const { userId, guestId } = identity;
+    const identity = identityResult.identity;
+    const { userId } = identity;
+    const ownerCondition = buildOwnerCondition(gakuchikaContents, identity);
+    if (!ownerCondition) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "GAKUCHIKA_LIST_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        developerMessage: "Valid owner identity is required",
+      });
+    }
 
     // Get user plan
     let plan: PlanTypeWithGuest = "guest";
@@ -91,41 +160,27 @@ export async function GET(request: NextRequest) {
       plan = (profile?.plan || "free") as PlanTypeWithGuest;
     }
 
-    const gakuchikaContentColumns = getTableColumns(gakuchikaContents);
     const contents = await db
-      .select(gakuchikaContentColumns)
+      .select({
+        id: gakuchikaContents.id,
+        title: gakuchikaContents.title,
+        content: gakuchikaContents.content,
+        charLimitType: gakuchikaContents.charLimitType,
+        summary: gakuchikaContents.summary,
+        sortOrder: gakuchikaContents.sortOrder,
+        createdAt: gakuchikaContents.createdAt,
+        updatedAt: gakuchikaContents.updatedAt,
+      })
       .from(gakuchikaContents)
-      .where(
-        userId
-          ? eq(gakuchikaContents.userId, userId)
-          : guestId
-          ? eq(gakuchikaContents.guestId, guestId)
-          : isNull(gakuchikaContents.id)
-      )
+      .where(ownerCondition)
       .orderBy(asc(gakuchikaContents.sortOrder), desc(gakuchikaContents.updatedAt));
 
     const contentIds = contents.map((row) => row.id);
     const convRows = await loadLatestGakuchikaConversations(contentIds);
     const latestConvByGakuchikaId = new Map(convRows.map((row) => [row.gakuchikaId, row]));
-
-    const gakuchikasWithConversation = contents.map((gakuchika) => {
-      const latest = latestConvByGakuchikaId.get(gakuchika.id);
-      const rawStatus = latest?.status ?? null;
-      const qCount = Number(latest?.questionCount ?? 0);
-      const conversationStatus = normalizeGakuchikaListConversationStatus(rawStatus, qCount);
-
-      return {
-        ...gakuchika,
-        conversationStatus,
-        conversationState: safeParseConversationState(
-          latest?.starScores ?? null,
-          conversationStatus,
-        ),
-        questionCount: qCount,
-        summaryKind: getGakuchikaSummaryKind(gakuchika.summary),
-        summaryPreview: getGakuchikaSummaryPreview(gakuchika.summary),
-      };
-    });
+    const gakuchikasWithConversation = contents.map((gakuchika) =>
+      toGakuchikaListDto(gakuchika, latestConvByGakuchikaId.get(gakuchika.id)),
+    );
 
     const currentCount = contents.length;
     const maxCount = PLAN_METADATA[plan].gakuchika;
@@ -136,27 +191,77 @@ export async function GET(request: NextRequest) {
       maxCount,
     });
   } catch (error) {
-    console.error("Error fetching gakuchikas:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "GAKUCHIKA_LIST_FETCH_FAILED",
+      userMessage: "ガクチカ一覧を読み込めませんでした。",
+      action: "時間を置いて、もう一度読み込んでください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "gakuchika-list",
+    });
   }
 }
 
 const VALID_CHAR_LIMITS = ["300", "400", "500"] as const;
+type ValidCharLimit = (typeof VALID_CHAR_LIMITS)[number];
+
+function parseCharLimitType(value: unknown): ValidCharLimit {
+  return VALID_CHAR_LIMITS.includes(value as ValidCharLimit)
+    ? (value as ValidCharLimit)
+    : "400";
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const identity = await getRequestIdentity(request);
-    if (!identity) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+    const mutationGuard = requireOwnerMutationRequest(request);
+    if (!mutationGuard.ok) {
+      return mutationGuard.response;
     }
 
+    const identityResult = await requireRequestIdentity(request, {
+      codePrefix: "GAKUCHIKA_CREATE",
+      logContext: "gakuchika-create-auth",
+      sessionErrorMode: "throw",
+    });
+    if (!identityResult.ok) {
+      return identityResult.response;
+    }
+
+    const identity = identityResult.identity;
     const { userId, guestId } = identity;
+    const ownerCondition = buildOwnerCondition(gakuchikaContents, identity);
+    if (!ownerCondition) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "GAKUCHIKA_CREATE_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        developerMessage: "Valid owner identity is required",
+      });
+    }
+
+    const body = await request.json().catch(() => null);
+    const title = typeof body?.title === "string" ? body.title.trim() : "";
+    const content = typeof body?.content === "string" ? body.content.trim() : "";
+    if (!title) {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "GAKUCHIKA_TITLE_REQUIRED",
+        userMessage: "テーマは必須です。",
+        action: "テーマを入力して、もう一度お試しください。",
+      });
+    }
+
+    if (!content) {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "GAKUCHIKA_CONTENT_REQUIRED",
+        userMessage: "ガクチカの内容は必須です。",
+        action: "内容を入力して、もう一度お試しください。",
+      });
+    }
 
     // Get user plan
     let plan: PlanTypeWithGuest = "guest";
@@ -174,53 +279,29 @@ export async function POST(request: NextRequest) {
     const [existingCount] = await db
       .select({ count: count() })
       .from(gakuchikaContents)
-      .where(
-        userId
-          ? eq(gakuchikaContents.userId, userId)
-          : guestId
-          ? eq(gakuchikaContents.guestId, guestId)
-          : isNull(gakuchikaContents.id)
-      );
+      .where(ownerCondition);
     const existingCountValue = Number(existingCount?.count ?? 0);
 
     if (existingCountValue >= maxGakuchika) {
-      return NextResponse.json(
-        { error: `ガクチカ素材の作成上限（${maxGakuchika}件）に達しています。プランをアップグレードしてください。` },
-        { status: 403 }
-      );
+      return createApiErrorResponse(request, {
+        status: 403,
+        code: "GAKUCHIKA_LIMIT_REACHED",
+        userMessage: `ガクチカ素材の作成上限（${maxGakuchika}件）に達しています。`,
+        action: "プランをアップグレードするか、既存の素材を整理してください。",
+      });
     }
 
-    const body = await request.json();
-    const { title, content, charLimitType } = body;
-
-    if (!title || !title.trim()) {
-      return NextResponse.json(
-        { error: "テーマは必須です" },
-        { status: 400 }
-      );
-    }
-
-    if (!content || !content.trim()) {
-      return NextResponse.json(
-        { error: "ガクチカの内容は必須です" },
-        { status: 400 }
-      );
-    }
-
-    // Validate charLimitType
-    const validCharLimitType = VALID_CHAR_LIMITS.includes(charLimitType)
-      ? charLimitType
-      : "400";
+    const validCharLimitType = parseCharLimitType(body?.charLimitType);
 
     const now = new Date();
-    const newGakuchika = await db
+    const [newGakuchika] = await db
       .insert(gakuchikaContents)
       .values({
         id: crypto.randomUUID(),
         userId,
         guestId,
-        title: title.trim(),
-        content: content.trim(),
+        title,
+        content,
         charLimitType: validCharLimitType,
         sortOrder: 0,
         createdAt: now,
@@ -228,12 +309,17 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    return NextResponse.json({ gakuchika: newGakuchika[0] });
+    return NextResponse.json({ gakuchika: toGakuchikaResponseDto(newGakuchika) });
   } catch (error) {
-    console.error("Error creating gakuchika:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "GAKUCHIKA_CREATE_FAILED",
+      userMessage: "ガクチカを作成できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "gakuchika-create",
+    });
   }
 }

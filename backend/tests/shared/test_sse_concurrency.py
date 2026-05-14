@@ -175,3 +175,32 @@ def test_acquire_reopens_after_release() -> None:
         assert client._keys() == []
 
     asyncio.run(run())
+
+
+def test_lease_has_cancellation_token() -> None:
+    """Lease exposes a CancellationToken that is cancelled on exit."""
+    client = FakeRedis()
+
+    async def run() -> None:
+        async with await SseLease.acquire(
+            actor_id="user-1", plan="standard", client=client
+        ) as lease:
+            assert hasattr(lease, "cancellation_token")
+            assert not lease.cancellation_token.is_cancelled
+        assert lease.cancellation_token.is_cancelled
+
+    asyncio.run(run())
+
+
+def test_noop_lease_cancellation_token() -> None:
+    """Noop lease (no Redis) still gets a real CancellationToken."""
+
+    async def run() -> None:
+        async with await SseLease.acquire(
+            actor_id="user-1", plan="standard", client=None
+        ) as lease:
+            assert lease._lease_id == "_noop"
+            assert not lease.cancellation_token.is_cancelled
+        assert lease.cancellation_token.is_cancelled
+
+    asyncio.run(run())

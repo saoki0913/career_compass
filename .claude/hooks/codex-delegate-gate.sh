@@ -1,5 +1,5 @@
 #!/bin/bash
-# PreToolUse(Bash): delegate.sh plan_review の実行前に
+# PreToolUse(Bash): delegate.sh plan_review / post_review の実行前に
 # AskUserQuestion での確認を機械的に強制する。
 # checkpoint が未設定ならブロック（exit 2）。
 set -euo pipefail
@@ -21,6 +21,8 @@ fi
 MODE=""
 if printf '%s' "$CMD" | grep -qE 'delegate\.sh[[:space:]]+plan_review'; then
   MODE="plan_review"
+elif printf '%s' "$CMD" | grep -qE 'delegate\.sh[[:space:]]+post_review'; then
+  MODE="post_review"
 fi
 
 if [ -z "$MODE" ]; then
@@ -49,12 +51,30 @@ CLAUDE.md §A に従い、Codex plan review の実行前に AskUserQuestion で
 ユーザー確認が必要です。
 
 手順:
-  1. AskUserQuestion で「Codex plan review を実行しますか？」と確認
-     - プラン内容のサマリを提示
-     - 選択肢: 「実行する」「スキップ」
+  1. AskUserQuestion では、人間が判断しやすい日本語で確認
+     - 例: 「この計画を、別のAIにもレビューさせますか？」
+     - プラン内容と、レビューすると何が分かるかを提示
+     - 選択肢: 「レビューする」「今回は省略する」
   2. ユーザーが承認したら:
      echo "approved" > $CHECKPOINT
   3. delegate.sh plan_review を再実行
+EOF
+    ;;
+  post_review)
+    cat >&2 <<EOF
+⛔ delegate.sh post_review をブロックしました。
+
+CLAUDE.md §B に従い、Codex post_review の実行前に AskUserQuestion で
+ユーザー確認が必要です。
+
+手順:
+  1. AskUserQuestion では、人間が判断しやすい日本語で確認
+     - 例: 「この変更を、別のAIにもコードレビューさせますか？」
+     - 対象範囲と、レビューで確認したいリスクを提示
+     - 選択肢: 「レビューする」「手元のレビューで進める」
+  2. ユーザーが承認したら:
+     echo "approved" > $CHECKPOINT
+  3. delegate.sh post_review を再実行
 EOF
     ;;
 esac

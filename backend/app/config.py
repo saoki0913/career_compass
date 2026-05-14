@@ -2,6 +2,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, AliasChoices, model_validator, field_validator
 from functools import lru_cache
 from pathlib import Path
+import os
+import re
+import warnings
+
+
+_PLACEHOLDER_PATTERNS = re.compile(
+    r"^(changeme|replace.?me|dummy|dev|test|xxx+|placeholder|todo)$", re.IGNORECASE
+)
+_MIN_SECRET_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -20,7 +29,15 @@ class Settings(BaseSettings):
 
     # ===== アプリケーション =====
     app_name: str = "就活Pass API"
+    environment: str = Field(
+        default="development",
+        validation_alias=AliasChoices("ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME"),
+    )
     debug: bool = False
+    live_es_review_capture_debug: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("LIVE_ES_REVIEW_CAPTURE_DEBUG"),
+    )
     company_search_debug: bool = False
     web_search_debug: bool = Field(
         default=False,
@@ -112,7 +129,7 @@ class Settings(BaseSettings):
     )
     sentry_environment: str = Field(
         default="",
-        validation_alias=AliasChoices("SENTRY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "ENVIRONMENT"),
+        validation_alias=AliasChoices("SENTRY_ENVIRONMENT"),
     )
     sentry_release: str = Field(
         default="",
@@ -462,6 +479,30 @@ class Settings(BaseSettings):
     # 短い制限でも最低この文字数の幅を確保
     es_char_tolerance_min: int = 20
 
+    @property
+    def is_production(self) -> bool:
+        return "production" in self._deployment_environment_names
+
+    @property
+    def is_staging(self) -> bool:
+        return "staging" in self._deployment_environment_names
+
+    @property
+    def is_deployed(self) -> bool:
+        return self.is_production or self.is_staging
+
+    @property
+    def _deployment_environment_names(self) -> set[str]:
+        return {
+            value.strip().lower()
+            for value in (
+                self.environment,
+                os.getenv("ENVIRONMENT", ""),
+                os.getenv("RAILWAY_ENVIRONMENT_NAME", ""),
+            )
+            if value and value.strip()
+        }
+
     @model_validator(mode="after")
     def validate_cors_origins(self):
         """Validate that CORS origins do not contain wildcard '*'."""
@@ -469,6 +510,67 @@ class Settings(BaseSettings):
             raise ValueError(
                 "CORS wildcard '*' is not allowed in production. "
                 "Please specify explicit origins in CORS_ORIGINS environment variable."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_deployed_requirements(self):
+        if not self.is_deployed:
+            return self
+
+        errors: list[str] = []
+        critical_fields = {
+            "internal_api_jwt_secret": "INTERNAL_API_JWT_SECRET",
+            "career_principal_hmac_secret": "CAREER_PRINCIPAL_HMAC_SECRET",
+            "tenant_key_secret": "TENANT_KEY_SECRET",
+        }
+
+        for field_name, env_name in critical_fields.items():
+            value = getattr(self, field_name).strip()
+            if not value:
+                errors.append(f"{env_name} はデプロイ環境では必須です。")
+            elif _PLACEHOLDER_PATTERNS.fullmatch(value):
+                errors.append(f"{env_name} にプレースホルダー値は使用できません。")
+            elif len(value) < _MIN_SECRET_LENGTH:
+                errors.append(
+                    f"{env_name} はデプロイ環境では {_MIN_SECRET_LENGTH} 文字以上にしてください。"
+                )
+
+        if not self.openai_api_key.strip():
+            errors.append("OPENAI_API_KEY はデプロイ環境では必須です。")
+        if not self.anthropic_api_key.strip():
+            errors.append("ANTHROPIC_API_KEY はデプロイ環境では必須です。")
+        if self.live_es_review_capture_debug:
+            errors.append(
+                "LIVE_ES_REVIEW_CAPTURE_DEBUG はデプロイ環境では使用できません。"
+            )
+
+        if not self.cors_origins:
+            errors.append("CORS_ORIGINS はデプロイ環境では必須です。")
+        else:
+            local_cors_origins = [
+                origin
+                for origin in self.cors_origins
+                if any(
+                    local in origin.lower()
+                    for local in ("localhost", "127.0.0.1", "[::1]")
+                )
+            ]
+            if local_cors_origins:
+                errors.append(
+                    "デプロイ環境の CORS_ORIGINS に localhost / 127.0.0.1 / [::1] は使用できません。"
+                )
+
+        if errors:
+            raise ValueError("デプロイ環境の設定が不正です: " + " ".join(errors))
+
+        if not self.sentry_environment.strip():
+            self.sentry_environment = self.environment
+        if self.is_production and not self.sentry_dsn.strip():
+            warnings.warn(
+                "本番環境で SENTRY_DSN が未設定です。エラー監視が無効になります。",
+                RuntimeWarning,
+                stacklevel=2,
             )
         return self
 
@@ -482,6 +584,7 @@ class Settings(BaseSettings):
         ),
         env_file_encoding="utf-8",
         extra="ignore",  # Ignore extra env vars
+        populate_by_name=True,
     )
 
 

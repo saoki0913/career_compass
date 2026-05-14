@@ -6,14 +6,7 @@ from app.services.es_review.orchestrator import (
     prepare_review_context,
     review_section_with_template,
 )
-
-
-class FakeTextResult:
-    def __init__(self, text: str = "添削結果。", *, success: bool = True):
-        self.success = success
-        self.data = {"text": text} if success else None
-        self.error = None
-        self.usage = None
+from tests.es_review.conftest import FakeTextResult
 
 
 @pytest.mark.asyncio

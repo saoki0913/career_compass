@@ -5,12 +5,34 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+# Guard: prevent .secrets/ from being committed
+if git diff --cached --name-only | grep -q '^\.secrets/'; then
+  echo "ERROR: Attempting to commit files from .secrets/ directory."
+  echo "These files must never be committed to git."
+  echo "Remove them with: git reset HEAD .secrets/"
+  exit 1
+fi
+
+
 node scripts/git-hooks/check-git-hygiene.mjs --staged
+
+if git diff --cached --name-only | grep -qE '^(src/env/|backend/app/config\.py|\.env\.example|\.github/workflows/)'; then
+  node scripts/git-hooks/check-env-var-drift.mjs --staged
+fi
+
+if git diff --cached --name-only | grep -qE '^(drizzle_pg/|supabase/migrations/|src/lib/db/schema\.ts)'; then
+  node scripts/ci/check-migration-safety.mjs --staged
+fi
+
+if git diff --cached --name-only | grep -qE '^src/lib/db/schema\.ts'; then
+  npx drizzle-kit check
+fi
+
 node scripts/git-hooks/enforce-local-ai-e2e.mjs
 
 # Lightweight security scan (critical = hard block, high = warning only)
 scan_exit=0
-bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical || scan_exit=$?
+bash scripts/security/run-lightweight-scan.sh --staged-only --fail-on=critical || scan_exit=$?
 if [ "$scan_exit" -eq 1 ]; then
   echo "[pre-commit] Security scan found critical issues. Commit blocked."
   exit 1

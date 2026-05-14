@@ -1,5 +1,6 @@
 import type { ProcessingStep } from "@/components/ui/EnhancedProcessingSteps";
 import type { StandardESReviewModel } from "@/lib/ai/es-review-models";
+import type { PublicReviewMeta } from "@/shared/contracts/es-review-sse";
 
 export interface SectionData {
   title: string;
@@ -48,55 +49,7 @@ export interface ReviewResult {
   rewrites: string[];
   template_review?: TemplateReview;
   improvement_explanation?: string;
-  review_meta?: {
-    llm_provider?: string;
-    llm_model?: string | null;
-    llm_model_alias?: string | null;
-    review_variant?: string;
-    grounding_mode?: "role_grounded" | "company_general" | "none";
-    primary_role?: string;
-    role_source?: string;
-    triggered_enrichment?: boolean;
-    enrichment_completed?: boolean;
-    enrichment_sources_added?: number;
-    reference_es_count?: number;
-    reference_es_mode?: string;
-    reference_quality_profile_used?: boolean;
-    reference_outline_used?: boolean;
-    reference_hint_count?: number;
-    reference_conditional_hints_applied?: boolean;
-    reference_profile_variance?: "low" | "medium" | "high" | null;
-    company_grounding_policy?: "required" | "assistive";
-    effective_company_grounding_policy?: "required" | "assistive";
-    recommended_grounding_level?: "none" | "light" | "standard" | "deep";
-    effective_grounding_level?: "none" | "light" | "standard" | "deep";
-    company_evidence_count?: number;
-    evidence_coverage_level?: "not_applicable" | "none" | "weak" | "partial" | "strong";
-    weak_evidence_notice?: boolean;
-    injection_risk?: string | null;
-    user_context_sources?: string[];
-    hallucination_guard_mode?: "advisory" | "hard_block" | "strict";
-    repair_dispatch_count?: number;
-    composite_retry_modes?: string[];
-    final_acceptance_source?: "rewrite" | "safe_rewrite" | "length_fix" | "degraded_best_effort";
-    classification_confidence?: "high" | "medium" | "low";
-    classification_secondary_candidates?: TemplateType[];
-    misclassification_recovery_applied?: boolean;
-    length_policy?: "strict" | "soft_ok";
-    length_shortfall?: number;
-    soft_min_floor_ratio?: number | null;
-    length_fix_attempted?: boolean;
-    length_fix_result?: "not_needed" | "strict_recovered" | "soft_recovered" | "failed";
-    rewrite_validation_status?: "strict_ok" | "soft_ok" | "degraded";
-    rewrite_validation_codes?: string[];
-    rewrite_validation_user_hint?: string | null;
-    fallback_triggered?: boolean;
-    grounding_repair_applied?: boolean;
-    ai_smell_tier?: number;
-    concrete_marker_count?: number;
-    opening_conclusion_chars?: number;
-    rewrite_sentence_count?: number;
-  };
+  review_meta?: PublicReviewMeta;
   billing_outcome?: {
     success?: boolean;
     billable?: boolean;

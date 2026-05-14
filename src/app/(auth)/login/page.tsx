@@ -3,7 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { getSafeRelativeReturnPath } from "@/lib/security/safe-return-path";
+import { normalizePostAuthReturnPath } from "@/lib/security/safe-return-path";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect } from "react";
 import Link from "next/link";
@@ -73,7 +73,7 @@ function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirect") || searchParams.get("callbackUrl");
-  const safeRedirect = getSafeRelativeReturnPath(redirectParam, "/dashboard");
+  const safeRedirect = normalizePostAuthReturnPath(redirectParam, "/dashboard");
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {

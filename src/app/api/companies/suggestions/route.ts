@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import {
+  checkRateLimit,
+  createAnonymousRateLimitKey,
+  RATE_LIMITS,
+} from "@/lib/rate-limit";
+import { cacheGet } from "@/lib/redis";
 
 interface CompanySuggestion {
   name: string;
@@ -62,14 +69,45 @@ function loadCompanyMappings(): Map<string, string> {
 }
 
 export async function GET(request: NextRequest) {
+  const rateLimitKey = createAnonymousRateLimitKey(
+    "companySuggestions",
+    request.headers
+  );
+  const rateLimit = await checkRateLimit(
+    rateLimitKey,
+    RATE_LIMITS.companySuggestions,
+    "companySuggestions"
+  );
+  if (!rateLimit.allowed) {
+    const response = createApiErrorResponse(request, {
+      status: 429,
+      code: "RATE_LIMITED",
+      userMessage: "しばらく待ってから再試行してください。",
+      action: `${rateLimit.resetIn}秒ほど待ってから、もう一度お試しください。`,
+    });
+    response.headers.set("Retry-After", String(rateLimit.resetIn));
+    response.headers.set("X-RateLimit-Remaining", String(rateLimit.remaining));
+    return response;
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const query = searchParams.get("q")?.trim() || "";
 
-  // Require at least 1 character for search
-  if (query.length < 1) {
+  // Require at least 2 characters to avoid one-keypress public enumeration.
+  if (query.length < 2) {
     return NextResponse.json({ suggestions: [] });
   }
 
+  const suggestions = await cacheGet(
+    `company-suggestions:${query}`,
+    async () => searchCompanies(query),
+    { ttlSeconds: 86400 },
+  );
+
+  return NextResponse.json({ suggestions });
+}
+
+function searchCompanies(query: string): CompanySuggestion[] {
   const companyMappings = loadCompanyMappings();
   const suggestions: CompanySuggestion[] = [];
 
@@ -98,5 +136,5 @@ export async function GET(request: NextRequest) {
     return aIndex - bIndex;
   });
 
-  return NextResponse.json({ suggestions });
+  return suggestions;
 }

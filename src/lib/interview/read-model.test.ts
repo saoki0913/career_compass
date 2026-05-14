@@ -68,12 +68,28 @@ describe("interview read-model parse helpers", () => {
           must_cover_topics: [],
           risk_topics: [],
           suggested_timeflow: [],
+          case_brief: {
+            business_context: "SaaS の解約率を下げる",
+            target_metric: "churn_rate",
+            constraints: ["3か月以内"],
+            candidate_task: "原因を切り分ける",
+            why_this_company: "B2B SaaS の理解を見るため",
+            case_followup_topics: ["segmentation"],
+            industry: "saas",
+            case_seed_version: "v1.0",
+          },
+          quality_lenses: ["logic", "company_fit"],
         }),
       );
       expect(plan).toMatchObject({
         interviewType: "case",
         priorityTopics: ["motivation"],
         openingTopic: "自己紹介",
+        caseBrief: {
+          business_context: "SaaS の解約率を下げる",
+          case_seed_version: "v1.0",
+        },
+        qualityLenses: ["logic", "company_fit"],
       });
     });
 
@@ -159,6 +175,11 @@ describe("interview read-model parse helpers", () => {
           must_cover_topics: ["role-fit"],
           risk_topics: ["consistency"],
           suggested_timeflow: ["intro", "deep-dive"],
+          case_brief: null,
+          quality_lenses: [{ axis: "logic", weight: 2 }],
+          contract_version: "interview-plan-v2",
+          plan_source: "fastapi",
+          fallback_reason: null,
         }),
       ).toEqual({
         interviewType: "case",
@@ -167,6 +188,11 @@ describe("interview read-model parse helpers", () => {
         mustCoverTopics: ["role-fit"],
         riskTopics: ["consistency"],
         suggestedTimeflow: ["intro", "deep-dive"],
+        caseBrief: null,
+        qualityLenses: [{ axis: "logic", weight: 2 }],
+        contractVersion: "interview-plan-v2",
+        planSource: "fastapi",
+        fallbackReason: null,
       });
     });
   });

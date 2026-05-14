@@ -69,7 +69,7 @@ const FEATURE_RECOMMENDATIONS = {
       id: "length-control",
       match: (reason) => reason.includes("char_count") || reason.includes("length_shortfall"),
       title: "文字数制御を優先確認",
-      description: "length-fix か prompt 制約が弱く、指定文字数帯に届いていないケースが多い。",
+      description: "focused retry か prompt 制約が弱く、指定文字数帯に届いていないケースが多い。",
       nextStep: "失敗 case の target window と rewrite/repair prompt を確認する。",
     },
     {

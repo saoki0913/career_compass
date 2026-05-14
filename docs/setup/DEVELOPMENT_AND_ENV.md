@@ -716,10 +716,13 @@ DATABASE_URL=postgresql://...
 # DIRECT_URL=postgresql://...   # マイグレーション用（推奨）
 BETTER_AUTH_SECRET=（32文字以上のランダム文字列）
 BETTER_AUTH_URL=http://localhost:3000
+BETTER_AUTH_TRUSTED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
 # アプリURL
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
+
+`BETTER_AUTH_TRUSTED_ORIGINS` はローカル開発では上記の固定値で問題ありません。本番値は `https://www.shupass.jp,https://shupass.jp` です。
 
 Google OAuth、Stripe は機能を使う段階で設定すればOKです。
 
@@ -761,6 +764,7 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 | `DIRECT_URL` | Supabase Postgres 直通URL（5432, マイグレーション推奨） | 🔶 | Supabase Dashboard |
 | `BETTER_AUTH_SECRET` | 認証シークレット | ✅ | `openssl rand -base64 32` |
 | `BETTER_AUTH_URL` | 認証ベースURL | ✅ | `http://localhost:3000` |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | Better Auth が信頼する origin | ✅ | `http://localhost:3000,http://127.0.0.1:3000` |
 | `GOOGLE_CLIENT_ID` | Google OAuth ID | 🔶 | Google Cloud Console |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth Secret | 🔶 | Google Cloud Console |
 | `STRIPE_SECRET_KEY` | Stripe シークレットキー | 🔶 | Stripe Dashboard |
@@ -770,12 +774,13 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 | `OPENAI_API_KEY` | OpenAI APIキー（Embeddings + GPT） | 🔶 | OpenAI Dashboard |
 | `ANTHROPIC_API_KEY` | Anthropic APIキー（Claude） | 🔶 | Anthropic Console |
 | `NEXT_PUBLIC_FASTAPI_URL` | FastAPI バックエンドURL | 🔶 | `http://localhost:8000`（開発時） |
-| `NEXT_PUBLIC_LOGO_DEV_TOKEN` | ダッシュボード企業アイコンの実ロゴ取得（Logo.dev publishable key） | 🔶 | Logo.dev Dashboard |
-| `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` | ダッシュボード企業アイコンの実ロゴ fallback（Brandfetch Logo API client ID） | 🔶 | Brandfetch Developer Portal |
+| `LOGO_DEV_TOKEN` | ダッシュボード企業アイコンの実ロゴ取得（Logo.dev image token） | 🔶 | Logo.dev Dashboard |
+| `LOGO_DEV_SECRET_KEY` | 企業名から公式 domain を解決する Logo.dev Brand Search API secret key | 🔶 | Logo.dev Dashboard |
+| `BRANDFETCH_CLIENT_ID` | ダッシュボード企業アイコンの実ロゴ fallback（Brandfetch Logo API client ID） | 🔶 | Brandfetch Developer Portal |
 
 ✅ = 必須、🔶 = 機能使用時に必要
 
-企業ロゴが favicon / 頭文字 avatar に落ちる場合は、まず `NEXT_PUBLIC_LOGO_DEV_TOKEN` を設定してください。Brandfetch も使う場合は `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` を追加します。どちらも未設定でもアプリは動作しますが、実ロゴの取得率は下がります。
+企業ロゴが頭文字 avatar に落ちる場合は、まず `LOGO_DEV_TOKEN` を設定してください。企業名しかない登録データを Logo.dev の domain lookup に寄せる場合は `LOGO_DEV_SECRET_KEY` も追加します。Brandfetch も使う場合は `BRANDFETCH_CLIENT_ID` を追加します。既存の `NEXT_PUBLIC_LOGO_DEV_TOKEN` / `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` は互換 alias として読みますが、新規設定では server-only 名を使います。favicon は企業ロゴとして表示しません。
 
 ---
 

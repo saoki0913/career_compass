@@ -51,15 +51,15 @@ describe("getHeadersIdentity", () => {
       "request-identity:get-session",
       expect.any(Error),
       expect.objectContaining({
-        hasDeviceToken: false,
+        hasGuestDeviceCookie: false,
+        hasSessionCookie: false,
       })
     );
   });
 
-  it("falls back to guest identity when session lookup fails but a device token is present", async () => {
+  it("ignores a public x-device-token header when session lookup fails", async () => {
     const { getHeadersIdentity } = await import("@/bff/identity/request-identity");
     getSessionMock.mockRejectedValue(new Error("Failed to get session"));
-    getGuestUserMock.mockResolvedValue({ id: "guest-1" });
     readGuestDeviceTokenFromCookieHeaderMock.mockReturnValue(null);
 
     await expect(
@@ -67,19 +67,16 @@ describe("getHeadersIdentity", () => {
         new Headers({
           "x-device-token": "device-token-123",
         }),
-        { allowDeviceTokenHeader: true },
       )
-    ).resolves.toEqual({
-      userId: null,
-      guestId: "guest-1",
-    });
+    ).resolves.toBeNull();
 
-    expect(getGuestUserMock).toHaveBeenCalledWith("device-token-123");
+    expect(getGuestUserMock).not.toHaveBeenCalled();
     expect(logErrorMock).toHaveBeenCalledWith(
       "request-identity:get-session",
       expect.any(Error),
       expect.objectContaining({
-        hasDeviceToken: true,
+        hasGuestDeviceCookie: false,
+        hasSessionCookie: false,
       })
     );
   });
@@ -115,10 +112,87 @@ describe("getHeadersIdentity", () => {
         })
       )
     ).resolves.toEqual({
+      kind: "guest",
+      type: "guest",
       userId: null,
       guestId: "guest-cookie",
     });
 
     expect(getGuestUserMock).toHaveBeenCalledWith("cookie-device-token");
+  });
+
+  it("returns the active user identity and ignores guest tokens when a session exists", async () => {
+    const { getHeadersIdentity } = await import("@/bff/identity/request-identity");
+    getSessionMock.mockResolvedValue({
+      user: { id: "user-1", role: "admin", banned: false },
+    });
+    readGuestDeviceTokenFromCookieHeaderMock.mockReturnValue("cookie-device-token");
+
+    await expect(
+      getHeadersIdentity(
+        new Headers({
+          cookie: "better-auth.session_token=session-token; guest_device_token=cookie-device-token",
+          "x-device-token": "header-device-token",
+        }),
+      )
+    ).resolves.toEqual({
+      kind: "user",
+      type: "user",
+      userId: "user-1",
+      guestId: null,
+      role: "admin",
+      banned: false,
+    });
+
+    expect(getGuestUserMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a currently banned user session", async () => {
+    const { getHeadersIdentity } = await import("@/bff/identity/request-identity");
+    getSessionMock.mockResolvedValue({
+      user: { id: "user-1", role: "user", banned: true, banExpires: null },
+    });
+
+    await expect(
+      getHeadersIdentity(
+        new Headers({
+          cookie: "better-auth.session_token=session-token",
+        })
+      )
+    ).resolves.toBeNull();
+
+    expect(getGuestUserMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when session lookup fails for a request with a Better Auth cookie", async () => {
+    const { getHeadersIdentity, RequestIdentitySessionError } = await import("@/bff/identity/request-identity");
+    getSessionMock.mockRejectedValue(new Error("Database unavailable"));
+    readGuestDeviceTokenFromCookieHeaderMock.mockReturnValue("cookie-device-token");
+
+    await expect(
+      getHeadersIdentity(
+        new Headers({
+          cookie: "better-auth.session_token=session-token; guest_device_token=cookie-device-token",
+        })
+      )
+    ).rejects.toBeInstanceOf(RequestIdentitySessionError);
+
+    expect(getGuestUserMock).not.toHaveBeenCalled();
+  });
+
+  it("does not accept a public x-device-token header", async () => {
+    const { getHeadersIdentity } = await import("@/bff/identity/request-identity");
+    getSessionMock.mockResolvedValue(null);
+    readGuestDeviceTokenFromCookieHeaderMock.mockReturnValue(null);
+
+    await expect(
+      getHeadersIdentity(
+        new Headers({
+          "x-device-token": "header-device-token",
+        })
+      )
+    ).resolves.toBeNull();
+
+    expect(getGuestUserMock).not.toHaveBeenCalled();
   });
 });

@@ -38,6 +38,12 @@ if [ -z "$MODE" ]; then
   exit 1
 fi
 
+case "$MODE" in
+  plan_review|post_review)
+    MODEL_REASONING_EFFORT="xhigh"
+    ;;
+esac
+
 if ! [[ "$TIMEOUT_SEC" =~ ^[0-9]+$ ]]; then
   echo "ERROR: --timeout must be an integer number of seconds." >&2
   exit 1
@@ -98,7 +104,7 @@ HARNESS_DIRECTIVES="## Codex Harness Activation
 2. Use AGENTS.md and .codex/config.toml routing to identify the best matching specialist under .codex/agents/*.toml.
 3. Read the chosen agent developer_instructions and enabled skills.config, then actively use the relevant guidance from .codex/skills/ and .agents/skills/.
 4. If the task spans multiple domains or requires scope/boundary judgment, consult architect first and then continue with the concrete specialist agent.
-5. In the final response, report which agent and skills you used. If none applied, explain why."
+5. Keep agent and skill choices as internal working context unless the user asks for those details."
 
 # imagegen skips harness directives to reduce overhead and avoid connection timeouts
 if [ "$MODE" = "imagegen" ]; then
@@ -285,49 +291,18 @@ jq -n \
     image_count: $image_count
   }' > "$RESULT_DIR/meta.json"
 
-if [ "$MODE" = "post_review" ]; then
-  REVIEW_SNAPSHOT="$(node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" current --project "$PROJECT_DIR")"
-  node - "$RESULT_DIR/result.md" "$RESULT_DIR/meta.json" "$REVIEW_SNAPSHOT" > "$RESULT_DIR/review.json" <<'NODE'
-const fs = require("node:fs");
-
-const resultPath = process.argv[2];
-const metaPath = process.argv[3];
-const snapshot = JSON.parse(process.argv[4]);
-const result = fs.existsSync(resultPath) ? fs.readFileSync(resultPath, "utf8") : "";
-const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-const statusMatch = result.match(/##\s*Status\s*\n+([A-Z_]+)/u);
-const reviewStatus = statusMatch ? statusMatch[1] : "NEEDS_DISCUSSION";
-const severityRank = { low: 1, medium: 2, high: 3, critical: 4 };
-let maxSeverity = "";
-for (const match of result.matchAll(/severity:\s*(critical|high|medium|low)\b/giu)) {
-  const severity = match[1].toLowerCase();
-  if (!maxSeverity || severityRank[severity] > severityRank[maxSeverity]) {
-    maxSeverity = severity;
-  }
-}
-process.stdout.write(`${JSON.stringify({
-  schemaVersion: 1,
-  requestId: meta.request_id,
-  executionStatus: meta.status,
-  reviewStatus,
-  maxSeverity,
-  headSha: snapshot.headSha,
-  stagedDiffHash: snapshot.stagedDiffHash,
-  files: snapshot.files,
-  createdAt: new Date().toISOString(),
-}, null, 2)}\n`);
-NODE
-fi
+DISPLAY_PATH="$(node "$PROJECT_DIR/scripts/codex/agent-dialogue.mjs" write --result-dir "$RESULT_DIR" --project "$PROJECT_DIR")"
 
 # ─── Output summary ──────────────────────────────────────────────
-echo "Codex delegation complete: mode=$MODE status=$STATUS request_id=$REQUEST_ID" >&2
-echo "Result: $RESULT_DIR/result.md" >&2
+echo "$(jq -r '.title' "$DISPLAY_PATH")" >&2
+echo "$(jq -r '.summary' "$DISPLAY_PATH")" >&2
+echo "次の対応: $(jq -r '.nextAction' "$DISPLAY_PATH")" >&2
 if [ "$MODE" = "imagegen" ] && [ "$IMAGE_COUNT" -gt 0 ]; then
-  echo "Generated $IMAGE_COUNT image(s). Manifest: $RESULT_DIR/images.json" >&2
+  echo "生成した画像: ${IMAGE_COUNT} 件" >&2
 fi
 
 if [ "$STATUS" != "SUCCESS" ]; then
-  echo "WARNING: Codex delegation failed (status=$STATUS, exit_code=$EXIT_CODE). Claude should continue with fallback." >&2
+  echo "Codexの実行を完了できませんでした。必要な部分だけ手元で引き継いでください。" >&2
   exit "$EXIT_CODE"
 fi
 

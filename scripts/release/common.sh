@@ -163,3 +163,18 @@ has_npm_script() {
   local script_name="$1"
   npm run | rg -q "^[[:space:]]+${script_name}$|^[[:space:]]+${script_name}[[:space:]]"
 }
+
+# redact_output — pipe filter that masks secret-like tokens in deploy/release output.
+# Usage:  some_command 2>&1 | redact_output
+redact_output() {
+  local line
+  while IFS= read -r line; do
+    line="${line//sk-[a-zA-Z0-9_-]*/sk-[REDACTED]}"
+    line="${line//sk_live_[a-zA-Z0-9_-]*/sk_live_[REDACTED]}"
+    line="${line//sk_test_[a-zA-Z0-9_-]*/sk_test_[REDACTED]}"
+    line="${line//whsec_[a-zA-Z0-9_-]*/whsec_[REDACTED]}"
+    line="${line//Bearer [a-zA-Z0-9._-]*/Bearer [REDACTED]}"
+    line="${line//postgresql:\/\/[^ ]*/postgresql://[REDACTED]}"
+    print -r -- "$line"
+  done
+}

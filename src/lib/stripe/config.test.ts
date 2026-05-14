@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// Implementation migrated from process.env to serverEnv (T3 Env).
 async function importConfig() {
   vi.resetModules();
   return import("@/lib/stripe/config");
@@ -10,7 +11,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("stripe config", () => {
+describe("stripe config (lazy getters)", () => {
+  it("does not crash on import when serverEnv is lazy", async () => {
+    const mod = await importConfig();
+    expect(mod.getPriceId).toBeTypeOf("function");
+    expect(mod.getPlanFromPriceId).toBeTypeOf("function");
+    expect(mod.getBillingPeriodFromPriceId).toBeTypeOf("function");
+  });
+
   it("returns annual price ids when configured", async () => {
     vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "price_std_month");
     vi.stubEnv("STRIPE_PRICE_STANDARD_ANNUAL", "price_std_year");

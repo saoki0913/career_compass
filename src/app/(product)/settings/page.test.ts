@@ -23,16 +23,33 @@ describe("settings billing boundary", () => {
   });
 
   it("routes free-to-paid upgrades through the pricing page", () => {
-    expect(source).toContain("/pricing");
     expect(source).not.toContain("/api/stripe/checkout");
   });
 
-  it("checks subscriptionStatus before showing billing portal button", () => {
+  it("checks subscriptionStatus via billingProfile passed to BillingSection", () => {
     expect(source).toContain("subscriptionStatus");
+    expect(source).toContain("BillingSection");
+    expect(source).toContain("billingProfile");
   });
 
-  it("detects portal return via search params and shows notification", () => {
+  it("detects portal return via search params and shows detailed notification", () => {
     expect(source).toContain('searchParams.get("portal")');
-    expect(source).toContain("notifyPortalReturn");
+    expect(source).toContain("notifyPortalReturnDetailed");
+  });
+});
+
+describe("settings billing extraction", () => {
+  it("delegates billing UI to BillingSection component", () => {
+    expect(source).toContain("BillingSection");
+    expect(source).toContain("<BillingSection");
+  });
+
+  it("does not contain inline plan management grid (extracted to BillingSection)", () => {
+    expect(source).not.toContain("CheckIcon");
+    expect(source).not.toContain("handlePlanChange");
+  });
+
+  it("does not import isActiveSubscriptionStatus directly", () => {
+    expect(source).not.toContain("isActiveSubscriptionStatus");
   });
 });

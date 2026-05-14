@@ -28,6 +28,8 @@ from app.utils import (
     llm_usage_cost,
 )
 from app.utils.secure_logger import get_logger
+from app.utils.cancellation import CancellationTokenLike
+from app.utils.llm_call_guard import guard_llm_call, call_with_cancellation
 
 logger = get_logger(__name__)
 
@@ -131,6 +133,13 @@ def consume_request_llm_cost_summary(feature: str | None = None) -> dict[str, An
         "usage_status": str(summary.get("usage_status") or "ok"),
         "models_used": list(summary.get("models_used") or []),
     }
+    call_count = int(summary.get("llm_call_count") or 0)
+    if call_count:
+        result["llm_call_count"] = call_count
+        result["llm_call_counts_by_kind"] = dict(summary.get("llm_call_counts_by_kind") or {})
+        result["llm_call_counts_by_provider"] = dict(
+            summary.get("llm_call_counts_by_provider") or {}
+        )
     est_usd_total = summary.get("est_usd_total")
     if isinstance(est_usd_total, (int, float)) and est_usd_total > 0:
         result["est_usd_total"] = round(float(est_usd_total), 6)
@@ -192,6 +201,29 @@ def log_llm_cost_event(
         trace_id=trace_id,
     )
     logger.info(line)
+
+
+def _record_llm_call_attempt(
+    *,
+    feature: str,
+    provider: str,
+    resolved_model: str,
+    call_kind: str,
+) -> None:
+    llm_usage_cost.record_request_llm_call_attempt(
+        feature=feature,
+        provider=provider,
+        resolved_model=resolved_model,
+        call_kind=call_kind,
+    )
+
+
+def _record_provider_success(provider: llm_model_routing.LLMProvider) -> None:
+    llm_client_registry.record_provider_success(provider)
+
+
+def _record_provider_failure(provider: llm_model_routing.LLMProvider) -> None:
+    llm_client_registry.record_provider_failure(provider)
 
 
 def log_selection_schedule_request_llm_cost(
@@ -485,6 +517,7 @@ async def call_llm_with_error(
     retry_on_parse: bool = False,
     parse_retry_instructions: Optional[str] = None,
     disable_fallback: bool = False,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> LLMResult:
     feature = feature or "unknown"
     requested_model = model or llm_model_routing.get_model_config().get(feature, "claude-sonnet")
@@ -507,6 +540,31 @@ async def call_llm_with_error(
         return LLMResult(success=False, error=error)
 
     model_display = llm_model_routing.get_model_display_name(target.actual_model)
+    if llm_client_registry.is_provider_circuit_open(target.provider):
+        return await _handle_circuit_open(
+            target=target,
+            requested_model=requested_model,
+            feature=feature,
+            start=start,
+            disable_fallback=disable_fallback,
+            retry_call=lambda fallback_model: call_llm_with_error(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                model=fallback_model,
+                feature=feature,
+                response_format=response_format,
+                json_schema=json_schema,
+                use_responses_api=use_responses_api,
+                retry_on_parse=retry_on_parse,
+                parse_retry_instructions=parse_retry_instructions,
+                disable_fallback=True,
+                cancellation_token=cancellation_token,
+            ),
+        )
+
     _log(feature, f"{model_display} を呼び出し中...")
     normalized_messages, used_user_message = _normalize_chat_messages(messages, user_message)
     message_count = 1 if used_user_message else len(normalized_messages)
@@ -525,6 +583,16 @@ async def call_llm_with_error(
     )
 
     try:
+        guard_result = guard_llm_call(cancellation_token, feature, target.provider)
+        if guard_result is not None:
+            return guard_result
+
+        _record_llm_call_attempt(
+            feature=feature,
+            provider=target.provider,
+            resolved_model=target.actual_model,
+            call_kind="structured",
+        )
         effective_use_responses_api = _should_use_openai_responses_api(
             provider=target.provider,
             feature=feature,
@@ -543,6 +611,7 @@ async def call_llm_with_error(
                 target.actual_model,
                 feature=feature,
             )
+            _record_provider_success(target.provider)
             if settings.debug:
                 content = raw_response or ""
                 _log_debug(
@@ -576,6 +645,7 @@ async def call_llm_with_error(
                 feature=feature,
             )
             usage_summary = _extract_gemini_usage_summary(payload)
+            _record_provider_success(target.provider)
             leakage_error = _output_leakage_error(
                 feature=feature,
                 model=target.actual_model or "",
@@ -597,6 +667,7 @@ async def call_llm_with_error(
                 json_schema=json_schema,
                 feature=feature,
             )
+            _record_provider_success(target.provider)
         else:
             result, usage_summary = await _call_openai_compatible(
                 provider=target.provider,
@@ -610,6 +681,7 @@ async def call_llm_with_error(
                 json_schema=json_schema,
                 feature=feature,
             )
+            _record_provider_success(target.provider)
 
         log_llm_cost_event(
             feature=feature,
@@ -653,6 +725,7 @@ async def call_llm_with_error(
         _log(feature, f"{_provider_display_name(target.provider)} refusal: {exc}", WARNING)
         return LLMResult(success=False, error=error)
     except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as exc:
+        _record_provider_failure(target.provider)
         return await _handle_provider_error(
             exc,
             target=target,
@@ -674,6 +747,7 @@ async def call_llm_with_error(
                 retry_on_parse=retry_on_parse,
                 parse_retry_instructions=parse_retry_instructions,
                 disable_fallback=True,
+                cancellation_token=cancellation_token,
             ),
         )
     except Exception as exc:
@@ -768,6 +842,7 @@ async def call_llm_text_with_error(
     feature: str | None = None,
     use_responses_api: bool = False,
     disable_fallback: bool = False,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> LLMResult:
     feature = feature or "unknown"
     requested_model = model or llm_model_routing.get_model_config().get(feature, "claude-sonnet")
@@ -790,6 +865,27 @@ async def call_llm_text_with_error(
         return LLMResult(success=False, error=error)
 
     model_display = llm_model_routing.get_model_display_name(target.actual_model)
+    if llm_client_registry.is_provider_circuit_open(target.provider):
+        return await _handle_circuit_open(
+            target=target,
+            requested_model=requested_model,
+            feature=feature,
+            start=start,
+            disable_fallback=disable_fallback,
+            retry_call=lambda fallback_model: call_llm_text_with_error(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                model=fallback_model,
+                feature=feature,
+                use_responses_api=use_responses_api,
+                disable_fallback=True,
+                cancellation_token=cancellation_token,
+            ),
+        )
+
     _log(feature, f"{model_display} を呼び出し中...")
     normalized_messages, used_user_message = _normalize_chat_messages(messages, user_message)
     message_count = 1 if used_user_message else len(normalized_messages)
@@ -807,6 +903,16 @@ async def call_llm_text_with_error(
     )
 
     try:
+        guard_result = guard_llm_call(cancellation_token, feature, target.provider)
+        if guard_result is not None:
+            return guard_result
+
+        _record_llm_call_attempt(
+            feature=feature,
+            provider=target.provider,
+            resolved_model=target.actual_model,
+            call_kind="text",
+        )
         raw_response = ""
         usage_summary: dict[str, int] | None = None
         if target.provider == "anthropic":
@@ -819,6 +925,7 @@ async def call_llm_text_with_error(
                 target.actual_model,
                 feature=feature,
             )
+            _record_provider_success(target.provider)
             leakage_error = _output_leakage_error(
                 feature=feature,
                 model=target.actual_model or "",
@@ -839,6 +946,7 @@ async def call_llm_text_with_error(
                 feature=feature,
             )
             usage_summary = _extract_gemini_usage_summary(payload)
+            _record_provider_success(target.provider)
             leakage_error = _output_leakage_error(
                 feature=feature,
                 model=target.actual_model or "",
@@ -858,6 +966,7 @@ async def call_llm_text_with_error(
                 model=target.actual_model,
                 feature=feature,
             )
+            _record_provider_success(target.provider)
         elif _should_use_openai_responses_api(
             provider=target.provider,
             feature=feature,
@@ -872,6 +981,7 @@ async def call_llm_text_with_error(
                 target.actual_model,
                 feature=feature,
             )
+            _record_provider_success(target.provider)
         else:
             raw_response, usage_summary = await _call_openai_compatible_raw_text(
                 provider=target.provider,
@@ -883,6 +993,7 @@ async def call_llm_text_with_error(
                 model=target.actual_model,
                 feature=feature,
             )
+            _record_provider_success(target.provider)
 
         leakage_error = _output_leakage_error(
             feature=feature,
@@ -931,6 +1042,7 @@ async def call_llm_text_with_error(
         return LLMResult(success=False, error=error, raw_text=raw_response)
 
     except (AnthropicAPIError, OpenAIAPIError, httpx.HTTPError) as exc:
+        _record_provider_failure(target.provider)
         return await _handle_provider_error(
             exc,
             target=target,
@@ -948,6 +1060,7 @@ async def call_llm_text_with_error(
                 feature=feature,
                 use_responses_api=use_responses_api,
                 disable_fallback=True,
+                cancellation_token=cancellation_token,
             ),
         )
     except Exception as exc:
@@ -990,6 +1103,51 @@ async def _try_text_fallback(
     except Exception as fallback_err:
         _log(feature, f"{fallback_model} フォールバック失敗: {fallback_err}", ERROR)
     return None
+
+
+async def _handle_circuit_open(
+    *,
+    target: llm_model_routing.ResolvedModelTarget,
+    requested_model: llm_model_routing.LLMModel,
+    feature: str,
+    start: float,
+    disable_fallback: bool,
+    retry_call: Any,
+) -> LLMResult:
+    fallback_model = None
+    if not disable_fallback:
+        fallback_model = llm_model_routing._feature_cross_fallback_model(feature, target.provider)
+    if fallback_model:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        _emit_fallback_event(
+            feature=feature,
+            primary_model=str(requested_model),
+            selected_model=fallback_model,
+            failure_reason="circuit_open",
+            latency_ms=latency_ms,
+            primary_provider=target.provider,
+        )
+        _log(
+            feature,
+            f"{_provider_display_name(target.provider)} circuit open、{fallback_model} にフォールバック",
+            WARNING,
+        )
+        try:
+            fallback_result = await retry_call(fallback_model)
+            if fallback_result.success and fallback_result.data:
+                _log(feature, f"{fallback_model} へのフォールバック成功", SUCCESS)
+                return fallback_result
+        except Exception as fallback_err:
+            _log(feature, f"{fallback_model} フォールバック失敗: {fallback_err}", ERROR)
+
+    error = _create_error(
+        "unknown",
+        target.provider,
+        feature,
+        f"{_provider_display_name(target.provider)} circuit breaker is open",
+    )
+    _log(feature, f"{_provider_display_name(target.provider)} circuit open", ERROR)
+    return LLMResult(success=False, error=error)
 
 
 async def _handle_provider_error(

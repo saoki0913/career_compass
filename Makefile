@@ -1,4 +1,4 @@
-.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression test-e2e-regression test-e2e-functional test-e2e-functional-es test-e2e-functional-gakuchika test-e2e-functional-motivation test-e2e-functional-interview test-e2e-functional-company-info-search test-e2e-functional-rag-ingest test-e2e-functional-selection-schedule test-e2e-functional-calendar test-e2e-functional-tasks-deadlines test-e2e-functional-notifications test-e2e-functional-company-crud test-e2e-functional-profile-settings test-e2e-functional-billing test-e2e-functional-search-query test-e2e-functional-local test-e2e-functional-local-company-info-search test-e2e-functional-local-selection-schedule test-e2e-functional-local-rag-ingest test-e2e-functional-local-gakuchika test-e2e-functional-local-motivation test-e2e-functional-local-interview test-e2e-functional-local-es test-e2e-functional-local-calendar test-e2e-functional-local-tasks-deadlines test-e2e-functional-local-notifications test-e2e-functional-local-company-crud test-e2e-functional-local-profile-settings test-e2e-functional-local-billing test-e2e-functional-local-search-query test-quality-all test-static test-coverage backend-test-coverage security-scan ai-live-local db-push db-generate db-studio clean \
+.PHONY: dev build start lint test test-ui test-ui-preflight test-ui-review test-major test-major-guest test-major-user test-major-live test-auth test-regression test-e2e-regression test-e2e-functional test-e2e-functional-es test-e2e-functional-gakuchika test-e2e-functional-motivation test-e2e-functional-interview test-e2e-functional-company-info-search test-e2e-functional-rag-ingest test-e2e-functional-selection-schedule test-e2e-functional-calendar test-e2e-functional-tasks-deadlines test-e2e-functional-notifications test-e2e-functional-company-crud test-e2e-functional-profile-settings test-e2e-functional-billing test-e2e-functional-search-query test-e2e-functional-local test-e2e-functional-local-company-info-search test-e2e-functional-local-selection-schedule test-e2e-functional-local-rag-ingest test-e2e-functional-local-gakuchika test-e2e-functional-local-motivation test-e2e-functional-local-interview test-e2e-functional-local-es test-e2e-functional-local-calendar test-e2e-functional-local-tasks-deadlines test-e2e-functional-local-notifications test-e2e-functional-local-company-crud test-e2e-functional-local-profile-settings test-e2e-functional-local-billing test-e2e-functional-local-search-query test-e2e-mocked test-e2e-live-contract test-quality-all test-quality-quick test-quality-canary test-static test-coverage backend-test-coverage security-scan check-env-drift ai-live-local db-push db-generate db-studio clean \
 	up down restart backend-test backend-test-search backend-lint backend-format logs check deps reset-db seed \
 	backend-deadcode frontend-deadcode deadcode \
 	db-migrate db-status db-check db-drop db-introspect db-fresh backend-install \
@@ -7,7 +7,8 @@
 	backend-test-content-type backend-test-content-type-unit backend-test-content-type-integration \
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
 	backend-test-live-es-review backend-test-interview-calibration \
-	deploy deploy-stage-all deploy-check deploy-migrate release-pr rollback-prod ops-status ops-auth-check ops-release-check ops-secrets-sync stripe-preflight \
+	deploy deploy-stage-all deploy-staging deploy-production deploy-check deploy-migrate deploy-status release-pr rollback-prod ops-status ops-auth-check ops-release-check ops-secrets-sync stripe-preflight doctor doctor-check \
+	db-validate db-migrate-check db-drift-check db-generate-rollback \
 	db-up db-down db-restart db-down-clean db-local-status \
 	supabase-start supabase-stop supabase-stop-clean supabase-status
 
@@ -222,9 +223,25 @@ test-e2e-functional-local-pages-smoke:
 test-e2e-functional-pages-smoke:
 	AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=pages-smoke bash scripts/ci/run-ai-live.sh
 
-## LLM / RAG / search quality checks (opt-in)
+## 第 1 層: モック化 functional テスト（API キー不要）
+test-e2e-mocked:
+	npx playwright test --config playwright.config.ts
+
+## 第 2 層: Live Contract（AI 5 フィーチャー、contract + 副作用検証）
+test-e2e-live-contract:
+	npx playwright test --config playwright.live-contract.config.ts
+
+## 第 3 層: Quality — フル品質チェック (Judge あり, opt-in)
 test-quality-all:
 	AI_LIVE_TEST_CATEGORY=quality AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=all bash scripts/ci/run-ai-live.sh
+
+## 第 3 層: Quality — クイック品質チェック (Judge なし)
+test-quality-quick:
+	AI_LIVE_TEST_CATEGORY=quality LIVE_AI_CONVERSATION_LLM_JUDGE=0 AI_LIVE_SUITE=$(SUITE) AI_LIVE_FEATURE=all bash scripts/ci/run-ai-live.sh
+
+## 第 3 層: Quality — モデルカナリア (ES Review のみ, 複数モデル)
+test-quality-canary:
+	LIVE_ES_REVIEW_CASE_SET=canary LIVE_ES_REVIEW_PROVIDERS=all make test-e2e-functional-local-es
 
 ## Static checks (opt-in)
 test-static:
@@ -233,7 +250,11 @@ test-static:
 
 ## Lightweight security scan (staged critical only)
 security-scan:
-	bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical
+	bash scripts/security/run-lightweight-scan.sh --staged-only --fail-on=critical
+
+## Env var drift detection (T3 Env / backend config / .env.example / CI)
+check-env-drift:
+	node scripts/git-hooks/check-env-var-drift.mjs
 
 # ===========================================
 # データベース (Drizzle + Supabase/PostgreSQL)
@@ -571,6 +592,14 @@ deploy:
 deploy-stage-all:
 	zsh scripts/release/release-career-compass.sh --stage-all
 
+## staging 環境のみデプロイ
+deploy-staging:
+	zsh scripts/release/deploy-staging.sh
+
+## 本番環境のみデプロイ（staging health gate あり）
+deploy-production:
+	zsh scripts/release/deploy-production.sh
+
 ## develop -> main の手動 release PR を作成
 release-pr:
 	zsh scripts/release/create-career-compass-release-pr.sh
@@ -579,68 +608,33 @@ release-pr:
 rollback-prod:
 	zsh scripts/release/rollback-career-compass.sh --target "$(TARGET)" --dry-run
 
-## ヘルスチェックのみ実行（スタンドアロン）
+## ヘルスチェックのみ実行（verify-health.sh 経由）
 deploy-check:
-	@echo "=== Health Check ==="
-	@echo ""
-	@FRONTEND_OK=0; \
-	BACKEND_OK=0; \
-	for i in $$(seq 1 $(HEALTH_CHECK_RETRIES)); do \
-		echo "-> チェック $$i/$(HEALTH_CHECK_RETRIES)..."; \
-		if [ "$$FRONTEND_OK" = "0" ]; then \
-			HTTP_CODE=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 $(FRONTEND_URL) 2>/dev/null); \
-			if [ "$$HTTP_CODE" = "200" ]; then \
-				echo "  Frontend ($(FRONTEND_URL)): OK ($$HTTP_CODE)"; \
-				FRONTEND_OK=1; \
-			else \
-				echo "  Frontend ($(FRONTEND_URL)): $$HTTP_CODE"; \
-			fi; \
-		else \
-			echo "  Frontend: OK"; \
-		fi; \
-		if [ "$$BACKEND_OK" = "0" ]; then \
-			HTTP_CODE=$$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 $(BACKEND_URL)/health 2>/dev/null); \
-			if [ "$$HTTP_CODE" = "200" ]; then \
-				echo "  Backend  ($(BACKEND_URL)/health): OK ($$HTTP_CODE)"; \
-				BACKEND_OK=1; \
-			else \
-				echo "  Backend  ($(BACKEND_URL)/health): $$HTTP_CODE"; \
-			fi; \
-		else \
-			echo "  Backend:  OK"; \
-		fi; \
-		if [ "$$FRONTEND_OK" = "1" ] && [ "$$BACKEND_OK" = "1" ]; then \
-			break; \
-		fi; \
-		if [ "$$i" -lt "$(HEALTH_CHECK_RETRIES)" ]; then \
-			echo "  $(HEALTH_CHECK_INTERVAL)秒後にリトライ..."; \
-			sleep $(HEALTH_CHECK_INTERVAL); \
-		fi; \
-		echo ""; \
-	done; \
-	echo ""; \
-	if [ "$$FRONTEND_OK" = "1" ]; then \
-		echo "[OK]   Frontend: $(FRONTEND_URL)"; \
-	else \
-		echo "[FAIL] Frontend: $(FRONTEND_URL)"; \
-	fi; \
-	if [ "$$BACKEND_OK" = "1" ]; then \
-		echo "[OK]   Backend:  $(BACKEND_URL)/health"; \
-	else \
-		echo "[FAIL] Backend:  $(BACKEND_URL)/health"; \
-	fi
+	zsh scripts/release/verify-health.sh $${HEALTH_TARGET:-production} --skip-seo --skip-playwright
 
 ## 本番DBマイグレーション（.env.production 必須）
 deploy-migrate:
-	@if [ ! -f .env.production ]; then \
-		echo "ERROR: .env.production が見つかりません。"; \
-		echo "作成方法:"; \
-		echo "  DIRECT_URL=postgresql://postgres.<ref>:<pass>@<host>:5432/postgres"; \
-		exit 1; \
-	fi
-	@echo "-> 本番DBマイグレーション実行中..."
-	npm run db:migrate:prod
-	@echo "-> マイグレーション完了"
+	node scripts/release/run-migrations.mjs --env production --json
+
+## migration ファイルと baseline safety を検証
+db-validate:
+	bash scripts/ci/validate-migrations.sh
+
+## 本番DB migration dry-run / pending 確認
+db-migrate-check:
+	node scripts/release/run-migrations.mjs --env production --dry-run --json
+
+## 本番DB drift 汎用チェック
+db-drift-check:
+	node scripts/ci/check-schema-drift.mjs --env production --json
+
+## rollback SQL artifact を生成（実行はしない）
+db-generate-rollback:
+	node scripts/release/generate-rollback.mjs --all
+
+## ローカル deploy state cache を表示
+deploy-status:
+	bash scripts/release/deployment-state.sh show
 
 ## 安全ラッパー経由で主要 CLI の状態を確認
 ops-status:
@@ -665,6 +659,14 @@ ops-secrets-sync:
 ## Stripe 本番 preflight（Products / Webhook / Portal / Account の整合チェック）
 stripe-preflight:
 	npm run stripe:check-live-readiness -- --json
+
+## 本番環境の診断 + 修復ループ（P0/P1 を自動トリアージ）
+doctor:
+	zsh scripts/release/production-doctor.sh
+
+## 診断のみ（修復なし）
+doctor-check:
+	zsh scripts/release/production-doctor.sh --collect-only
 
 # ===========================================
 # ヘルプ
@@ -725,14 +727,23 @@ help:
 	@echo "    make logs         - バックエンドログ表示"
 	@echo ""
 	@echo "  🚀 デプロイ:"
-	@echo "    make deploy         - staged 済み release scope で本番反映"
+	@echo "    make deploy           - staged 済み release scope で本番反映"
 	@echo "    make deploy-stage-all - ローカル変更を全部 stage して本番反映"
-	@echo "    make release-pr     - develop -> main の release PR 作成"
+	@echo "    make deploy-staging   - staging 環境のみデプロイ"
+	@echo "    make deploy-production - 本番のみデプロイ（staging gate あり）"
+	@echo "    make release-pr       - develop -> main の release PR 作成"
 	@echo "    make rollback-prod TARGET=<id-or-sha> - rollback dry-run"
-	@echo "    make deploy-check   - ヘルスチェックのみ（Frontend + Backend）"
-	@echo "    make deploy-migrate - 本番DBマイグレーションのみ"
-	@echo "    make ops-status     - provider auth の現状確認"
-	@echo "    make ops-auth-check - provider auth の厳密確認"
+	@echo "    make deploy-check     - ヘルスチェック（verify-health.sh 経由）"
+	@echo "    make deploy-migrate   - advisory-lock runner 経由の本番DBマイグレーション"
+	@echo "    make deploy-status    - ローカル deploy state cache 表示"
+	@echo "    make db-validate      - migration ファイルと baseline safety 検証"
+	@echo "    make db-migrate-check - 本番DB migration dry-run / pending 確認"
+	@echo "    make db-drift-check   - 本番DB drift 汎用チェック"
+	@echo "    make db-generate-rollback - rollback SQL artifact 生成"
+	@echo "    make doctor           - 本番診断 + P0/P1 トリアージ"
+	@echo "    make doctor-check     - 診断のみ（修復なし）"
+	@echo "    make ops-status       - provider auth の現状確認"
+	@echo "    make ops-auth-check   - provider auth の厳密確認"
 	@echo "    make ops-release-check - release 前提（auth/secrets/branch）確認"
 	@echo "    make ops-secrets-sync - secret inventory / provider key drift 確認"
 	@echo "    make stripe-preflight - Stripe 本番アカウントの整合チェック"

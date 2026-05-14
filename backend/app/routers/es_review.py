@@ -168,8 +168,6 @@ from app.services.es_review.retry import (
     _rewrite_validation_degraded_hint,
     _rewrite_validation_soft_hint,
     _describe_retry_reason,
-    _resolve_rewrite_length_control_mode,
-    _length_profile_stage_from_mode,
     _length_shortfall_bucket,
     _es_review_temperature,
     _openai_es_review_output_cap,
@@ -357,51 +355,6 @@ def _evaluate_grounding_mode(
         return "role_grounded"
     return "company_general"
 
-
-def _capture_rewrite_debug_enabled() -> bool:
-    return os.getenv("LIVE_ES_REVIEW_CAPTURE_DEBUG", "").strip() == "1"
-
-
-def _append_rewrite_attempt_trace(
-    trace: list[dict[str, Any]],
-    *,
-    stage: str,
-    text: str,
-    accepted: bool,
-    retry_reason: str = "",
-    attempt_index: int = 0,
-    total_rewrite_attempts: int = 0,
-    prompt_mode: str = "",
-    prompt_modes: list[str] | None = None,
-    failure_codes: list[str] | None = None,
-    fix_pass: int = 0,
-    length_fix_total: int = 0,
-) -> None:
-    if not _capture_rewrite_debug_enabled():
-        return
-    row: dict[str, Any] = {
-        "stage": stage,
-        "accepted": accepted,
-        "char_count": len(text or ""),
-        "text": text or "",
-    }
-    if retry_reason:
-        row["retry_reason"] = retry_reason
-    if attempt_index:
-        row["attempt_index"] = attempt_index
-    if total_rewrite_attempts:
-        row["total_rewrite_attempts"] = total_rewrite_attempts
-    if prompt_mode:
-        row["prompt_mode"] = prompt_mode
-    if prompt_modes:
-        row["prompt_modes"] = list(prompt_modes)
-    if failure_codes:
-        row["failure_codes"] = list(failure_codes)
-    if fix_pass:
-        row["fix_pass"] = fix_pass
-    if length_fix_total:
-        row["length_fix_total"] = length_fix_total
-    trace.append(row)
 
 def _build_user_context_template_sources(request: ReviewRequest) -> list[TemplateSource]:
     """Non-URL citation cards for user-provided context included in this review request."""
@@ -682,6 +635,7 @@ async def review_section_with_template(
     enrichment_sources_added: int = 0,
     injection_risk: str | None = None,
     progress_queue: "asyncio.Queue | None" = None,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> ReviewResponse:
     """Router compatibility wrapper for the ES review service use case."""
     return await _run_review_section_with_template(
@@ -700,6 +654,7 @@ async def review_section_with_template(
         enrichment_sources_added=enrichment_sources_added,
         injection_risk=injection_risk,
         progress_queue=progress_queue,
+        cancellation_token=cancellation_token,
     )
 
 
@@ -745,6 +700,23 @@ def _extract_user_facing_message(detail: Any) -> str:
             if isinstance(val, str) and val:
                 return val
     return "入力内容に問題があります。内容を確認してもう一度お試しください。"
+
+
+def _summarize_http_exception_detail_for_log(detail: Any) -> dict[str, Any]:
+    """Return log-safe HTTPException metadata without raw ES/debug text."""
+    if not isinstance(detail, dict):
+        return {"detail_type": type(detail).__name__}
+    summary: dict[str, Any] = {
+        "error_type": detail.get("error_type"),
+        "provider": detail.get("provider"),
+        "has_debug": isinstance(detail.get("debug"), dict),
+    }
+    debug = detail.get("debug")
+    if isinstance(debug, dict):
+        summary["attempt_failure_count"] = len(debug.get("attempt_failures") or [])
+        trace = debug.get("rewrite_attempt_trace")
+        summary["rewrite_attempt_trace_count"] = len(trace) if isinstance(trace, list) else 0
+    return summary
 
 
 async def _generate_review_progress(
@@ -1083,7 +1055,9 @@ async def _generate_review_progress(
                 result = await review_task
             except HTTPException as e:
                 logger.warning(
-                    f"[ES添削/SSE] HTTPException {e.status_code}: {e.detail}"
+                    "[ES添削/SSE] HTTPException %s: %s",
+                    e.status_code,
+                    _summarize_http_exception_detail_for_log(e.detail),
                 )
                 if 400 <= e.status_code < 500:
                     message = _extract_user_facing_message(e.detail)

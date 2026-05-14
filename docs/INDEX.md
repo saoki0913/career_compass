@@ -1,6 +1,6 @@
 # ドキュメント一覧（地図）
 
-**最終更新**: 2026-05-04
+**最終更新**: 2026-05-13
 
 **この文書の目的**: `docs/` 配下にある現行 Markdown 文書への入口です。初めて読む人は「最初に読む」から入り、変更作業をする人は「作業別入口」から該当カテゴリへ進んでください。
 
@@ -30,10 +30,10 @@
 | 認証・ゲスト・課金を変更する | [features/AUTH.md](./features/AUTH.md) → [features/CREDITS.md](./features/CREDITS.md) → [architecture/BILLING_STATE_MACHINE.md](./architecture/BILLING_STATE_MACHINE.md) |
 | プロンプト・AI 品質を確認する | [features/AI_PROMPTS.md](./features/AI_PROMPTS.md) → [prompts/](#プロンプト--ai-品質-prompts-quality) → [testing/ES_REVIEW_QUALITY.md](./testing/ES_REVIEW_QUALITY.md) |
 | マーケティング LP を変更する | [marketing/LP.md](./marketing/LP.md) → [marketing/README.md](./marketing/README.md) → 実装済み [features/](#機能-features) |
-| リリース・本番運用をする | [release/PRODUCTION.md](./release/PRODUCTION.md) → [release/ENV_REFERENCE.md](./release/ENV_REFERENCE.md) → provider 別 release docs → [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) |
+| リリース・本番運用をする | [release/README.md](./release/README.md) → [release/ops/RUNBOOK.md](./release/ops/RUNBOOK.md) → [release/ops/REGULAR_RELEASE.md](./release/ops/REGULAR_RELEASE.md) → [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) |
 | テスト・commit gate を確認する | [testing/E2E.md](./testing/E2E.md) → [ops/TEST_HARNESS.md](./ops/TEST_HARNESS.md) |
 | デッドコードを削除する | [ops/DEAD_CODE_REMOVAL.md](./ops/DEAD_CODE_REMOVAL.md) → [architecture/REFACTORING_TEST_CONTRACTS.md](./architecture/REFACTORING_TEST_CONTRACTS.md) |
-| 本番リリース前の完成項目を確認する | [plan/execution-order.md](./plan/execution-order.md) → [release/PRODUCTION.md](./release/PRODUCTION.md) → [ops/SECURITY.md](./ops/SECURITY.md) |
+| 本番リリース前の完成項目を確認する | [plan/execution-order.md](./plan/execution-order.md) → [release/ops/RUNBOOK.md](./release/ops/RUNBOOK.md) → [ops/SECURITY.md](./ops/SECURITY.md) |
 
 ---
 
@@ -108,7 +108,6 @@
 | [prompts/common/README.md](./prompts/common/README.md) | JSON 修復、provider 追記、漏洩防止などの共通プロンプト面 |
 | [prompts/es-review/templates/gakuchika.md](./prompts/es-review/templates/gakuchika.md) | ES 添削のガクチカ設問向け評価観点 |
 | [prompts/es-review/templates/intern-goals.md](./prompts/es-review/templates/intern-goals.md) | ES 添削のインターン目標設問向け評価観点 |
-| [prompts/es-review/support/length-fix.md](./prompts/es-review/support/length-fix.md) | ES 添削の字数調整向け評価観点 |
 | [prompts/es-review/support/explanation.md](./prompts/es-review/support/explanation.md) | ES 添削の改善説明向け評価観点 |
 | [quality/es-review-quality-assessment-2026-04-30.md](./quality/es-review-quality-assessment-2026-04-30.md) | ES 添削品質の評価結果・改善観点 |
 
@@ -129,21 +128,36 @@
 
 ## リリース (release/)
 
-`release/` は本番作業の手順正本です。provider CLI の手打ち操作ではなく、repo の Makefile / scripts と各 provider 文書の順に確認します。
+`release/` は本番作業の手順正本です。`setup/` はプロバイダ初期設定（一度きり）、`ops/` は日常運用（繰り返し）。`make deploy` 一発で AI が全工程を実行し、危険な操作のみ人間に確認を取る構成。
 
 | 文書 | 説明 |
 |------|------|
-| [release/PRODUCTION.md](./release/PRODUCTION.md) | 本番リリースの全体フロー（一覧表あり） |
-| [release/DOMAIN_OPERATIONS.md](./release/DOMAIN_OPERATIONS.md) | `shupass.jp` のドメイン運用正本。Web、Google Workspace メール運用、解約判断を統合 |
-| [release/DOMAIN.md](./release/DOMAIN.md) | 旧分割文書の案内。Web ドメイン接続の旧入口 |
-| [release/EMAIL_GOOGLE_WORKSPACE.md](./release/EMAIL_GOOGLE_WORKSPACE.md) | 旧分割文書の案内。Google Workspace メール運用の旧入口 |
-| [release/SUPABASE.md](./release/SUPABASE.md) | 本番 Supabase |
-| [release/STRIPE.md](./release/STRIPE.md) | Stripe 本番 |
-| [release/RAILWAY.md](./release/RAILWAY.md) | Railway（FastAPI） |
-| [release/VERCEL.md](./release/VERCEL.md) | Vercel（Next.js） |
-| [release/EXTERNAL_SERVICES.md](./release/EXTERNAL_SERVICES.md) | OAuth、CORS 等 |
-| [release/ENV_REFERENCE.md](./release/ENV_REFERENCE.md) | 環境変数クイックリファレンス。secret 実値ではなく key set と配置先の確認入口 |
-| [release/INDIVIDUAL_BUSINESS_COMPLIANCE.md](./release/INDIVIDUAL_BUSINESS_COMPLIANCE.md) | 特商法・個人事業、Stripe 審査・公開表記の確認入口 |
+| [release/README.md](./release/README.md) | ナビゲーションインデックス。セットアップ / 運用の入口 |
+
+### 運用手順書 (release/ops/)
+
+| 文書 | 説明 |
+|------|------|
+| [release/ops/RUNBOOK.md](./release/ops/RUNBOOK.md) | 全シナリオの概要・判断フロー・共通前提条件 |
+| [release/ops/REGULAR_RELEASE.md](./release/ops/REGULAR_RELEASE.md) | 通常リリース（develop → main）9ステップ |
+| [release/ops/DB_MIGRATION.md](./release/ops/DB_MIGRATION.md) | DB 移行の 4 フェーズ + ドリフト検出 |
+| [release/ops/INCIDENT_ROLLBACK.md](./release/ops/INCIDENT_ROLLBACK.md) | 障害対応トリアージ + ロールバック手順 |
+| [release/ops/SECRETS_MANAGEMENT.md](./release/ops/SECRETS_MANAGEMENT.md) | シークレット追加・更新・ローテーション |
+| [release/ops/HOOK_SAFETY_MAP.md](./release/ops/HOOK_SAFETY_MAP.md) | Hook → 操作のマッピング表 |
+
+### 初期セットアップ (release/setup/)
+
+| 文書 | 説明 |
+|------|------|
+| [release/setup/PRODUCTION_SETUP.md](./release/setup/PRODUCTION_SETUP.md) | 本番環境の初期構築手順（アーキテクチャ図あり） |
+| [release/setup/SUPABASE.md](./release/setup/SUPABASE.md) | 本番 Supabase |
+| [release/setup/STRIPE.md](./release/setup/STRIPE.md) | Stripe 本番 |
+| [release/setup/RAILWAY.md](./release/setup/RAILWAY.md) | Railway（FastAPI） |
+| [release/setup/VERCEL.md](./release/setup/VERCEL.md) | Vercel（Next.js） |
+| [release/setup/EXTERNAL_SERVICES.md](./release/setup/EXTERNAL_SERVICES.md) | OAuth、CORS 等 |
+| [release/setup/DOMAIN_OPERATIONS.md](./release/setup/DOMAIN_OPERATIONS.md) | `shupass.jp` のドメイン運用正本 |
+| [release/setup/ENV_REFERENCE.md](./release/setup/ENV_REFERENCE.md) | 環境変数クイックリファレンス |
+| [release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md](./release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md) | 特商法・個人事業、Stripe 審査・公開表記 |
 
 ---
 

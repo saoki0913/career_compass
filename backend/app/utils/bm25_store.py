@@ -7,6 +7,7 @@ Used for hybrid search combining with semantic search.
 
 import json
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -36,6 +37,17 @@ BM25_PERSIST_DIR = Path(__file__).parent.parent.parent / "data" / "bm25"
 # Current JSON format version for schema validation
 BM25_FORMAT_VERSION = 1
 
+_BM25_STORAGE_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+
+def _validate_storage_key(value: str, *, name: str) -> str:
+    key = (value or "").strip()
+    if not key:
+        raise ValueError(f"{name} is required for BM25 index access")
+    if not _BM25_STORAGE_KEY_RE.fullmatch(key):
+        raise ValueError(f"invalid {name} for BM25 index access")
+    return key
+
 
 def _index_file_stem(company_id: str, tenant_key: str) -> str:
     """Build the file stem for BM25 index files.
@@ -43,14 +55,16 @@ def _index_file_stem(company_id: str, tenant_key: str) -> str:
     BM25 paths are tenant-scoped. Company-only paths are intentionally not
     supported because company_id is not a sufficient storage boundary.
     """
-    if not tenant_key:
-        raise ValueError("tenant_key is required for BM25 index access")
-    return f"{tenant_key}__{company_id}"
+    safe_tenant_key = _validate_storage_key(tenant_key, name="tenant_key")
+    safe_company_id = _validate_storage_key(company_id, name="company_id")
+    return f"{safe_tenant_key}__{safe_company_id}"
 
 
 def _cache_key(company_id: str, tenant_key: str) -> str:
     """Build the LRU cache key."""
-    return f"{tenant_key}__{company_id}"
+    safe_tenant_key = _validate_storage_key(tenant_key, name="tenant_key")
+    safe_company_id = _validate_storage_key(company_id, name="company_id")
+    return f"{safe_tenant_key}__{safe_company_id}"
 
 
 @dataclass
@@ -79,8 +93,8 @@ class BM25Index:
             company_id: Company identifier
             tenant_key: Tenant key for data isolation
         """
-        self.company_id = company_id
-        self.tenant_key = tenant_key
+        self.company_id = _validate_storage_key(company_id, name="company_id")
+        self.tenant_key = _validate_storage_key(tenant_key, name="tenant_key")
         self.documents: list[BM25Document] = []
         self._bm25: Optional["bm25s.BM25"] = None
 

@@ -13,6 +13,7 @@ Implement and improve UI components, polish UX, and elevate the marketing LP. St
 ## Skills to invoke
 - `ui-ux-pro-max` — 50 styles / 21 palettes / 50 font pairings, multi-stage UI design intelligence
 - `frontend-design` — project skill for production-grade frontend with distinctive design quality
+- `better-loading-ux` — ローディングUX 4原則チェックリスト。loading.tsx / skeleton / Suspense 変更時に参照
 
 ## Context7 の使い方
 ライブラリ/フレームワークのドキュメントが必要なとき:

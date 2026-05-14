@@ -1,10 +1,18 @@
 {
+  "effortLevel": "high",
   "env": {
     "BASH_DEFAULT_TIMEOUT_MS": "3600000",
     "BASH_MAX_TIMEOUT_MS": "7200000"
   },
   "permissions": {
+    "allow": [
+      "Bash(npx tsc --noEmit *)",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_click"
+    ],
     "deny": [
+      "Read(.secrets/**)",
       "Read(/codex-company/.secrets/**)",
       "Read(/secrets/**)",
       "Read(/private/**)",
@@ -36,6 +44,15 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-edit-dispatcher.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post-bash-output-guard.sh"
           }
         ]
       }

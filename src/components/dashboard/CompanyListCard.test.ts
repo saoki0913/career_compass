@@ -38,17 +38,26 @@ describe("CompanyProgressCard", () => {
     expect(source).toContain('referrerPolicy="strict-origin-when-cross-origin"');
   });
 
-  it("passes estimated logo domains to logo source builder", async () => {
+  it("passes estimated logo candidates to logo source builder", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./CompanyListCard.tsx", import.meta.url), "utf8");
     expect(source).toContain("company.estimatedLogoDomains");
+    expect(source).toContain("company.estimatedLogoCandidates");
   });
 
-  it("prioritizes estimated favicon URL before domain fallbacks", () => {
+  it("ignores corporate and favicon URLs unless verified logo candidates exist", () => {
     const urls = getCompanyLogoSources("https://example.com", "https://assets.example.com/favicon.png");
-    expect(urls?.primary).toBe("https://assets.example.com/favicon.png");
-    expect(urls?.fallbacks[0]).toContain("google.com/s2/favicons");
-    expect(urls?.fallbacks.some((url) => url.includes("icons.duckduckgo.com"))).toBe(true);
+    expect(urls?.primary).toBe("/api/company-logos?provider=logo-dev&domain=example.com&policy=official-logo-v2");
+    expect(JSON.stringify(urls)).not.toContain("assets.example.com");
+  });
+
+  it("keeps verified logo domains behind the local proxy", () => {
+    const urls = getCompanyLogoSources(null, null, "Example", ["example.com"]);
+    expect(urls?.primary).toBe("/api/company-logos?provider=logo-dev&domain=example.com&policy=official-logo-v2");
+    expect(urls?.fallbacks[0]).toBe("/api/company-logos?provider=brandfetch&domain=example.com&policy=official-logo-v2");
+    expect(urls?.fallbacks).not.toContain("https://assets.example.com/favicon.png");
+    expect(JSON.stringify(urls)).not.toContain("provider=google-favicon");
+    expect(JSON.stringify(urls)).not.toContain("provider=duckduckgo-favicon");
   });
 
   it("shows per-column illustrations for empty pipeline columns", async () => {

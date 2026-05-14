@@ -17,6 +17,17 @@ function fakeResponse(events: Record<string, unknown>[]): Response {
   return { body: makeSSEBodyFromObjects(events) } as unknown as Response;
 }
 
+function fakeTextResponse(text: string): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(encoder.encode(text));
+      controller.close();
+    },
+  });
+  return new Response(body);
+}
+
 async function collectEvents(stream: ReadableStream<Uint8Array>): Promise<Record<string, unknown>[]> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
@@ -91,9 +102,8 @@ describe("createSSEProxyStream", () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(onError).toHaveBeenCalledWith({
       type: "error",
-      message: "AI処理中にエラーが発生しました。しばらくしてからもう一度お試しください。",
+      message: "AIサービスでエラーが発生しました。",
       code: "TEST_STREAM_FAILED",
-      requestId: "req-1",
       action: "時間を置いて、もう一度お試しください。",
       retryable: true,
       error_type: "provider_failure",
@@ -118,9 +128,8 @@ describe("createSSEProxyStream", () => {
 
     expect(events[0]).toEqual({
       type: "error",
-      message: "AI処理中にエラーが発生しました。しばらくしてからもう一度お試しください。",
+      message: "AIサービスでエラーが発生しました。",
       code: "TEST_STREAM_FAILED",
-      requestId: "req-1",
       action: "時間を置いて、もう一度お試しください。",
       retryable: true,
       error_type: "tenant_key_not_configured",
@@ -221,7 +230,6 @@ describe("createSSEProxyStream", () => {
     expect(events[0].type).toBe("error");
     expect(events[0]).toMatchObject({
       code: "TEST_EMPTY_RESPONSE",
-      requestId: "req-1",
       retryable: true,
     });
     expect(onFinally).toHaveBeenCalledWith({ success: false });
@@ -306,6 +314,33 @@ describe("createSSEProxyStream", () => {
     expect(events[1]).toEqual({ type: "complete", data: {} });
   });
 
+  it("does not forward malformed upstream data blocks raw", async () => {
+    const upstream = fakeTextResponse("data: provider stack trace secret token leaked\n\n");
+    const onFinally = vi.fn();
+
+    const stream = createSSEProxyStream(upstream, { ...baseOpts, onFinally });
+    const events = await collectEvents(stream);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "error",
+      code: "TEST_MALFORMED_UPSTREAM_EVENT",
+      retryable: true,
+    });
+    expect(JSON.stringify(events)).not.toContain("provider stack trace");
+    expect(JSON.stringify(events)).not.toContain("secret token");
+    expect(onFinally).toHaveBeenCalledWith({ success: false });
+  });
+
+  it("suppresses non-data SSE comments without emitting an error", async () => {
+    const upstream = fakeTextResponse(": keep-alive\n\ndata: {\"type\":\"complete\",\"data\":{}}\n\n");
+
+    const stream = createSSEProxyStream(upstream, baseOpts);
+    const events = await collectEvents(stream);
+
+    expect(events).toEqual([{ type: "complete", data: {} }]);
+  });
+
   it("onComplete error emits error event to client and stops", async () => {
     const upstream = fakeResponse([
       { type: "complete", data: {} },
@@ -320,9 +355,23 @@ describe("createSSEProxyStream", () => {
     expect(events[0].type).toBe("error");
     expect(events[0]).toMatchObject({
       code: "TEST_COMPLETE_HOOK_FAILED",
-      requestId: "req-1",
       retryable: true,
     });
     expect(onFinally).toHaveBeenCalledOnce();
+  });
+
+  it("does not include requestId in browser-forwarded error events", async () => {
+    const upstream = fakeResponse([
+      { type: "error", message: "何かエラーが発生しました", code: "STREAM_FAIL" },
+    ]);
+    const stream = createSSEProxyStream(
+      upstream,
+      { ...baseOpts, feature: "test", requestId: "req-secret-123" },
+    );
+    const events = await collectEvents(stream);
+    for (const event of events) {
+      expect(event).not.toHaveProperty("requestId");
+      expect(JSON.stringify(event)).not.toContain("req-secret-123");
+    }
   });
 });

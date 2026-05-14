@@ -1,5 +1,10 @@
 # 監視・ログ・障害対応 設計計画書
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+> **現状同期メモ（2026-05-13）**: FastAPI principal / internal JWT / SSE lease は導入済みだが、SSE actor key は feature 間で不一致があり、client disconnect → provider abort → lease release → billing cancel の end-to-end contract と FastAPI error envelope は未統一。`plan-sync:fastapi-sse-contract` を優先する。
+
+
 作成日: 2026-05-05 JST
 ステータス: 設計完了（実装待ち）
 対象: 就活Pass 全サービス（Next.js / FastAPI / Supabase / 外部 API）

@@ -36,7 +36,7 @@
 
 - `es-review/`: ES 添削の評価ドキュメントです。詳細は `es-review/README.md` を参照してください。
 - `es-review/templates/`: ES 添削の設問タイプ別 prompt snapshot です。
-- `es-review/support/`: ES 添削の共通 rewrite / draft / length fix / explanation などの prompt snapshot です。
+- `es-review/support/`: ES 添削の共通 rewrite / fallback rewrite / draft / explanation などの prompt snapshot です。
 - `gakuchika/`: ガクチカ作成・深掘りの prompt snapshot です。
 - `motivation/`: 志望動機作成の prompt snapshot です。
 - `interview/`: 模擬面接の prompt snapshot です。

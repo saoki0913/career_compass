@@ -95,7 +95,7 @@ def test_scoring_uses_template_and_length_thresholds() -> None:
     assert result["score"] == 4.5
     assert result["tier"] == 2
     assert result["band"] == "short"
-    assert result["threshold"] == 3.0
+    assert result["threshold"] == 4.0
     assert [w["code"] for w in result["warnings"]] == [
         "abstract_buzzword",
         "value_creation",
@@ -113,7 +113,7 @@ def test_scoring_tier_one_when_below_mid_long_default_threshold() -> None:
     assert result["score"] == 2.0
     assert result["tier"] == 1
     assert result["band"] == "mid_long"
-    assert result["threshold"] == 4.0
+    assert result["threshold"] == 5.5
 
 
 def test_retry_hints_use_first_three_warnings_and_dedupe() -> None:

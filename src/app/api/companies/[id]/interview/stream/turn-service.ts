@@ -1,5 +1,6 @@
 import { INTERVIEW_TURN_CREDIT_COST } from "@/lib/credits";
 import {
+  getInterviewStageStatus,
   normalizeInterviewTurnMeta,
   type InterviewPlan,
   type InterviewTurnMeta,
@@ -154,11 +155,11 @@ export async function completeInterviewTurnStream(args: {
     messages,
     questionCount: turnState.turnCount,
     stageStatus:
-      args.upstreamData.stage_status ?? {
-        currentTopicLabel: turnMeta?.interviewSetupNote ?? turnState.currentTopic,
+      args.upstreamData.stage_status ?? getInterviewStageStatus({
+        currentTopicLabel: turnMeta?.topic ?? turnState.currentTopic,
         coveredTopics: turnState.coveredTopics,
         remainingTopics: turnState.remainingTopics,
-      },
+      }),
     questionStage:
       typeof args.upstreamData.question_stage === "string"
         ? args.upstreamData.question_stage

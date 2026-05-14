@@ -1,14 +1,12 @@
 #!/bin/zsh
 #
-# Sync provider env from the canonical secrets bundle (codex-company .secrets).
+# Sync provider env from the canonical secrets bundle.
 #
-# Default bundle directory: ${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass
-#   (see scripts/release/career-compass-secrets-root.sh)
-#
-# Override priority (highest first):
+# SSOT resolution (highest priority first):
 #   1. --secret-dir PATH
-#   2. CAREER_COMPASS_SECRETS_DIR (path to the career_compass bundle folder itself)
-#   3. default as above
+#   2. CAREER_COMPASS_SECRETS_DIR env var
+#   3. ${repo_root}/.secrets  (project-local, primary SSOT)
+#   4. ${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass  (codex-company fallback)
 
 set -euo pipefail
 
@@ -24,14 +22,16 @@ vercel_env_scope="both"
 cli_secret_dir=""
 repo_slug="saoki0913/career_compass"
 check_provider_drift=1
+output_json=0
 
 usage() {
   cat <<'EOF'
-Usage: sync-career-compass-secrets.sh [--check|--apply] [--target all|vercel-staging|vercel-production|railway-staging|railway-production|github|supabase|google-oauth] [--vercel-env production|preview|both] [--secret-dir PATH] [--skip-provider-drift]
+Usage: sync-career-compass-secrets.sh [--check|--apply] [--target all|vercel-staging|vercel-production|railway-staging|railway-production|github|supabase|google-oauth] [--vercel-env production|preview|both] [--secret-dir PATH] [--skip-provider-drift] [--json]
 
-Secrets bundle (Vercel/Railway/supabase env files) lives under codex-company:
-  Default: ${CODEX_COMPANY_SECRETS_ROOT:-$CODEX_COMPANY_ROOT/.secrets}/career_compass
-  Or set CAREER_COMPASS_SECRETS_DIR to that bundle path, or pass --secret-dir.
+Secrets bundle (Vercel/Railway/supabase env files):
+  Primary: ${repo_root}/.secrets (project-local SSOT)
+  Fallback: ${CODEX_COMPANY_SECRETS_ROOT}/career_compass (codex-company)
+  Override: CAREER_COMPASS_SECRETS_DIR or --secret-dir
 
 Google OAuth file: <same secrets root>/google-oauth/career_compass.env
 
@@ -62,6 +62,9 @@ while [[ $# -gt 0 ]]; do
     --skip-provider-drift)
       check_provider_drift=0
       ;;
+    --json)
+      output_json=1
+      ;;
     -h|--help)
       usage
       exit 0
@@ -78,14 +81,152 @@ case "$vercel_env_scope" in
   *) release_die "Invalid --vercel-env: ${vercel_env_scope}. Expected production, preview, or both." ;;
 esac
 
+# --check --json: delegate to secret-plan.sh which outputs structured JSON to stdout.
+# All existing --check behavior is preserved when --json is not set.
+if [[ "$mode" == "check" && "$output_json" == "1" ]]; then
+  plan_args=(--target "$target")
+  [[ -n "$cli_secret_dir" ]] && plan_args+=(--secret-dir "$cli_secret_dir")
+  [[ "$vercel_env_scope" != "both" ]] && plan_args+=(--vercel-env "$vercel_env_scope")
+  exec zsh "${script_dir}/lib/secret-plan.sh" "${plan_args[@]}"
+fi
 if [[ -n "$cli_secret_dir" ]]; then
   secret_dir="$cli_secret_dir"
 elif [[ -n "${CAREER_COMPASS_SECRETS_DIR:-}" ]]; then
   secret_dir="$CAREER_COMPASS_SECRETS_DIR"
+elif [[ -d "${repo_root}/.secrets" ]]; then
+  secret_dir="${repo_root}/.secrets"
 else
   secret_dir="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass"
 fi
 google_oauth_file="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/google-oauth/career_compass.env"
+
+# Detect bundle layout.
+# Subdirectory layout: .secrets/production/ and .secrets/staging/ subdirs (repo-local).
+# Flat layout: files directly under secret_dir (codex-company convention).
+detect_secret_layout() {
+  if [[ -d "${secret_dir}/production" || -d "${secret_dir}/staging" ]]; then
+    print -r -- "subdir"
+  else
+    print -r -- "flat"
+  fi
+}
+
+SECRET_LAYOUT="$(detect_secret_layout)"
+
+# Merge env files into a temp file (subdir layout only).
+# Later files override earlier ones for duplicate keys.
+merge_env_files() {
+  local outfile="$1"
+  shift
+  local file
+  : > "$outfile"
+  for file in "$@"; do
+    [[ -f "$file" ]] || continue
+    cat "$file" >> "$outfile"
+    printf "\\n" >> "$outfile"
+  done
+}
+
+# Resolve the bundle file for a given target, accounting for layout.
+# For flat layout: returns the existing flat file path.
+# For subdir layout: merges component files into a temp file and returns it.
+TEMP_BUNDLE_FILES=()
+
+resolve_bundle_file() {
+  local tgt="$1"
+  local temp_file
+
+  if [[ "$SECRET_LAYOUT" == "flat" ]]; then
+    case "$tgt" in
+      vercel-staging)     print -r -- "${secret_dir}/vercel-staging.env" ;;
+      vercel-production)  print -r -- "${secret_dir}/vercel-production.env" ;;
+      railway-staging)    print -r -- "${secret_dir}/railway-staging.env" ;;
+      railway-production) print -r -- "${secret_dir}/railway-production.env" ;;
+      github)             print -r -- "${secret_dir}/github-actions.env" ;;
+      supabase)           print -r -- "${secret_dir}/supabase.env" ;;
+      google-oauth)       print -r -- "${google_oauth_file}" ;;
+      *) release_die "Unknown target for resolve_bundle_file: $tgt" ;;
+    esac
+    return 0
+  fi
+
+  # Subdirectory layout: merge component env files into a temp file
+  temp_file="$(mktemp /tmp/career-compass-bundle-${tgt}.XXXXXX)"
+  TEMP_BUNDLE_FILES+=("$temp_file")
+  case "$tgt" in
+    vercel-staging)
+      merge_env_files "$temp_file" \
+        "${secret_dir}/staging/shared.env" \
+        "${secret_dir}/staging/nextjs.env"
+      ;;
+    vercel-production)
+      merge_env_files "$temp_file" \
+        "${secret_dir}/production/shared.env" \
+        "${secret_dir}/production/nextjs.env"
+      ;;
+    railway-staging)
+      merge_env_files "$temp_file" \
+        "${secret_dir}/staging/shared.env" \
+        "${secret_dir}/staging/fastapi.env"
+      ;;
+    railway-production)
+      merge_env_files "$temp_file" \
+        "${secret_dir}/production/shared.env" \
+        "${secret_dir}/production/fastapi.env"
+      ;;
+    github)
+      merge_env_files "$temp_file" \
+        "${secret_dir}/ci/github-actions.env"
+      ;;
+    supabase)
+      merge_env_files "$temp_file" \
+        "${secret_dir}/production/shared.env" \
+        "${secret_dir}/production/supabase.env"
+      ;;
+    google-oauth)
+      merge_env_files "$temp_file" \
+        "${secret_dir}/google-oauth.env"
+      ;;
+    *) release_die "Unknown target for resolve_bundle_file (subdir): $tgt" ;;
+  esac
+  print -r -- "$temp_file"
+}
+
+# Validate that cross-service variables (shared.env) have identical values
+# in nextjs.env and fastapi.env for the same environment.
+validate_shared_env_consistency() {
+  [[ "$SECRET_LAYOUT" == "subdir" ]] || return 0
+  local env_name
+  for env_name in staging production; do
+    local shared_file="${secret_dir}/${env_name}/shared.env"
+    local nextjs_file="${secret_dir}/${env_name}/nextjs.env"
+    local fastapi_file="${secret_dir}/${env_name}/fastapi.env"
+    [[ -f "$shared_file" ]] || continue
+    local shared_key
+    while IFS= read -r shared_key || [[ -n "$shared_key" ]]; do
+      [[ -n "$shared_key" ]] || continue
+      local nextjs_val fastapi_val
+      nextjs_val="$(get_env_value "$nextjs_file" "$shared_key" 2>/dev/null || true)"
+      fastapi_val="$(get_env_value "$fastapi_file" "$shared_key" 2>/dev/null || true)"
+      [[ -z "$nextjs_val" || -z "$fastapi_val" ]] && continue
+      if [[ "$nextjs_val" != "$fastapi_val" ]]; then
+        release_die "${env_name}: ${shared_key} の値が nextjs.env と fastapi.env で不一致です。shared.env で統一してください"
+      fi
+    done < <(iter_env_keys "$shared_file")
+  done
+  release_log "Cross-service shared variable consistency: OK"
+}
+
+validate_shared_env_consistency
+
+# Cleanup temp bundle files on exit
+cleanup_temp_bundles() {
+  local f
+  for f in "${TEMP_BUNDLE_FILES[@]+"${TEMP_BUNDLE_FILES[@]}"}"; do
+    rm -f "$f"
+  done
+}
+trap cleanup_temp_bundles EXIT
 
 require_file() {
   [[ -f "$1" ]] || release_die "Missing required file: $1"
@@ -421,9 +562,10 @@ apply_google_oauth_env() {
   run_real zsh "${repo_root}/scripts/auth/import-google-oauth-to-vercel.sh"
 }
 
+
 if should_run_target "vercel-staging"; then
-  staging_file="${secret_dir}/vercel-staging.env"
-  github_file="${secret_dir}/github-actions.env"
+  staging_file="$(resolve_bundle_file vercel-staging)"
+  github_file="$(resolve_bundle_file github)"
   staging_project_id="$(require_env_value "$staging_file" "VERCEL_PROJECT_ID")"
   staging_team_id="$(require_env_value "$staging_file" "VERCEL_TEAM_ID")"
   validate_env_file "$staging_file"
@@ -476,7 +618,7 @@ if should_run_target "vercel-staging"; then
 fi
 
 if should_run_target "vercel-production"; then
-  production_file="${secret_dir}/vercel-production.env"
+  production_file="$(resolve_bundle_file vercel-production)"
   production_project_id="$(require_env_value "$production_file" "VERCEL_PROJECT_ID")"
   production_team_id="$(require_env_value "$production_file" "VERCEL_TEAM_ID")"
   validate_env_file "$production_file"
@@ -502,7 +644,7 @@ if should_run_target "vercel-production"; then
 fi
 
 if should_run_target "railway-staging"; then
-  railway_staging_file="${secret_dir}/railway-staging.env"
+  railway_staging_file="$(resolve_bundle_file railway-staging)"
   railway_staging_project_id="$(require_env_value "$railway_staging_file" "RAILWAY_PROJECT_ID")"
   railway_staging_service_name="$(require_env_value "$railway_staging_file" "RAILWAY_SERVICE_NAME")"
   railway_staging_environment_name="$(require_env_value "$railway_staging_file" "RAILWAY_ENVIRONMENT_NAME")"
@@ -519,7 +661,7 @@ if should_run_target "railway-staging"; then
 fi
 
 if should_run_target "railway-production"; then
-  railway_production_file="${secret_dir}/railway-production.env"
+  railway_production_file="$(resolve_bundle_file railway-production)"
   railway_production_project_id="$(require_env_value "$railway_production_file" "RAILWAY_PROJECT_ID")"
   railway_production_service_name="$(require_env_value "$railway_production_file" "RAILWAY_SERVICE_NAME")"
   railway_production_environment_name="$(require_env_value "$railway_production_file" "RAILWAY_ENVIRONMENT_NAME")"
@@ -535,8 +677,8 @@ if should_run_target "railway-production"; then
   fi
 fi
 
-if should_run_target "github" && [[ -f "${secret_dir}/github-actions.env" ]]; then
-  github_file="${secret_dir}/github-actions.env"
+if should_run_target "github"; then
+  github_file="$(resolve_bundle_file github)"
   validate_env_file "$github_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying GitHub Actions env"
@@ -558,7 +700,7 @@ if should_run_target "github" && [[ -f "${secret_dir}/github-actions.env" ]]; th
 fi
 
 if should_run_target "supabase"; then
-  supabase_file="${secret_dir}/supabase.env"
+  supabase_file="$(resolve_bundle_file supabase)"
   SUPABASE_PRODUCTION_PROJECT_REF="$(require_env_value "$supabase_file" "SUPABASE_PRODUCTION_PROJECT_REF")"
   validate_env_file "$supabase_file"
   if [[ "$mode" == "apply" ]]; then
@@ -572,7 +714,8 @@ if should_run_target "supabase"; then
   fi
 fi
 
-if should_run_target "google-oauth" && [[ -f "$google_oauth_file" ]]; then
+if should_run_target "google-oauth"; then
+  google_oauth_file="$(resolve_bundle_file google-oauth)"
   validate_env_file "$google_oauth_file"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Google OAuth env to Vercel"

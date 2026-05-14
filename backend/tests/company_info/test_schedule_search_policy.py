@@ -1,6 +1,9 @@
+from types import SimpleNamespace
+
 import pytest
 
 from app.routers import company_info
+from app.services.company_info import fetch_schedule as schedule_service
 from app.routers.company_info import (
     FetchRequest,
     SCHEDULE_LLM_FALLBACK_MAX_CHARS,
@@ -15,6 +18,10 @@ from app.routers.company_info import (
 )
 from app.utils.company_names import classify_company_domain_relation
 from app.utils.web_search import is_trusted_schedule_job_site
+
+
+def _allow_public_url(_url: str) -> SimpleNamespace:
+    return SimpleNamespace(allowed=True, reason=None)
 
 
 def test_trusted_schedule_job_sites_allow_whitelist_domains():
@@ -185,6 +192,27 @@ def test_schedule_follow_links_exclude_mypage_even_if_anchor_looks_relevant():
     assert follow_links == ["https://www.mitsui-steel.com/recruit/guideline.html"]
 
 
+def test_schedule_follow_link_filter_rejects_non_public_urls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _fake_validate_public_url(url: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            allowed=not url.startswith("https://127.0.0.1/"),
+            reason="内部アドレスにはアクセスできません。",
+        )
+
+    monkeypatch.setattr(schedule_service, "validate_public_url", _fake_validate_public_url)
+
+    follow_links = schedule_service._filter_public_schedule_follow_links(
+        [
+            "https://127.0.0.1/recruit/guideline.html",
+            "https://www.mitsui-steel.com/recruit/guideline.html",
+        ]
+    )
+
+    assert follow_links == ["https://www.mitsui-steel.com/recruit/guideline.html"]
+
+
 @pytest.mark.asyncio
 async def test_fetch_schedule_response_fetches_follow_up_html_via_firecrawl(
     monkeypatch: pytest.MonkeyPatch,
@@ -193,6 +221,7 @@ async def test_fetch_schedule_response_fetches_follow_up_html_via_firecrawl(
     primary_url = "https://www.mitsui-steel.com/recruit/"
     follow_url = "https://www.mitsui-steel.com/recruit/guideline.html"
     monkeypatch.setattr(company_info.settings, "firecrawl_api_key", "fc-test")
+    monkeypatch.setattr(schedule_service, "validate_public_url", _allow_public_url)
 
     async def _fake_fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
         if url == primary_url:
@@ -275,6 +304,7 @@ async def test_fetch_schedule_response_runs_google_ocr_only_once_for_pdf_follow_
     pdf_url = "https://www.mitsui-steel.com/recruit/guideline.pdf"
     second_pdf_url = "https://www.mitsui-steel.com/recruit/outline.pdf"
     monkeypatch.setattr(company_info.settings, "firecrawl_api_key", "fc-test")
+    monkeypatch.setattr(schedule_service, "validate_public_url", _allow_public_url)
 
     async def _fake_fetch_page_content(url: str, timeout: float = 30.0) -> bytes:
         if url == primary_url:

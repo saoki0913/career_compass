@@ -66,7 +66,6 @@ _CATEGORIES: tuple[AiSmellCategoryDef, ...] = (
         patterns=_compile_patterns(
             r"多角的(?:な|に)",
             r"包括的(?:な|に)",
-            r"主体的(?:な|に)",
             r"能動的(?:な|に)",
             r"俯瞰的(?:な|に)",
             r"多様な(?:関係者|人々|価値観)",
@@ -74,7 +73,7 @@ _CATEGORIES: tuple[AiSmellCategoryDef, ...] = (
         ),
         requires_specificity_check=True,
         penalty=2.0,
-        prompt_label="抽象修飾: 多角的、包括的、主体的、能動的、俯瞰的、多様な関係者、幅広い視野",
+        prompt_label="抽象修飾: 多角的、包括的、能動的、俯瞰的、多様な関係者、幅広い視野",
         retry_hint="「多角的」「包括的」等の抽象修飾語を、具体的な対象や方法に置き換える",
         replacement_rule="抽象修飾語を消し、元回答の事実から具体的な対象・数・方法を抽出して書く",
         ng_ok_examples=(
@@ -170,10 +169,10 @@ _CATEGORIES: tuple[AiSmellCategoryDef, ...] = (
 _CATEGORY_BY_CODE = {category.category: category for category in _CATEGORIES}
 
 _AI_SMELL_TIER2_THRESHOLDS: dict[str, dict[str, float]] = {
-    "gakuchika": {"short": 3.0, "mid_long": 3.5},
-    "self_pr": {"short": 3.0, "mid_long": 3.5},
-    "work_values": {"short": 3.0, "mid_long": 3.5},
-    "_default": {"short": 3.5, "mid_long": 4.0},
+    "gakuchika": {"short": 4.0, "mid_long": 5.0},
+    "self_pr": {"short": 4.0, "mid_long": 5.0},
+    "work_values": {"short": 4.0, "mid_long": 5.0},
+    "_default": {"short": 4.5, "mid_long": 5.5},
 }
 
 

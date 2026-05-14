@@ -25,6 +25,24 @@ describe("parseUiPreflightArgs", () => {
     });
   });
 
+  it("accepts route as an explicit option", () => {
+    expect(
+      parseUiPreflightArgs(["--route", "/dashboard", "--surface=product"])
+    ).toEqual({
+      authMode: "none",
+      routePath: "/dashboard",
+      surface: "product",
+    });
+
+    expect(
+      parseUiPreflightArgs(["--route=/pricing", "--surface=marketing", "--auth=none"])
+    ).toEqual({
+      authMode: "none",
+      routePath: "/pricing",
+      surface: "marketing",
+    });
+  });
+
   it("rejects missing routes", () => {
     expect(() => parseUiPreflightArgs(["--surface=marketing"])).toThrow(/Usage:/);
   });

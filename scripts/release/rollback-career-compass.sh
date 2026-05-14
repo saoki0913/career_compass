@@ -50,4 +50,4 @@ if [[ "$dry_run" == "1" ]]; then
   exit 0
 fi
 
-release_die "Provider rollback execution is intentionally not automated yet. Use --dry-run output for planning, then run provider-specific rollback through release-engineer approval."
+release_die "Provider rollback execution is intentionally not automated. Follow docs/release/ops/INCIDENT_ROLLBACK.md and prefer roll-forward unless release-engineer approval explicitly covers provider rollback and DB compatibility."

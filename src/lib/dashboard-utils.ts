@@ -5,6 +5,9 @@ import {
   getSelectionPhaseForStatus,
   getStatusConfig,
 } from "@/lib/constants/status";
+import type { CompanyLogoCandidate, CompanyLogoProvider } from "@/lib/company-logo-types";
+
+const LOGO_DOMAIN_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 
 export type PipelineColumn = SelectionPhaseConfig;
 export const PIPELINE_COLUMNS = COMPANY_SELECTION_PHASE_COLUMNS;
@@ -15,6 +18,7 @@ interface CompanyForPipeline {
   status: CompanyStatus;
   corporateUrl: string | null;
   estimatedLogoDomains?: string[] | null;
+  estimatedLogoCandidates?: CompanyLogoCandidate[] | null;
   estimatedFaviconUrl?: string | null;
   nearestDeadline: {
     title: string;
@@ -72,135 +76,121 @@ export function getCompanyLogoSources(
   corporateUrl: string | null,
   estimatedFaviconUrl?: string | null,
   companyName?: string,
-  estimatedLogoDomains?: string[] | null
+  estimatedLogoDomains?: string[] | null,
+  estimatedLogoCandidates?: CompanyLogoCandidate[] | null
 ): CompanyLogoSources | null {
   const sources: string[] = [];
-  const logoDomains = extractLogoDomains(corporateUrl, estimatedFaviconUrl, estimatedLogoDomains);
-  const logoDevToken = getLogoDevToken();
-  const brandfetchClientId = getBrandfetchClientId();
+  const logoCandidates = normalizeLogoCandidates(estimatedLogoCandidates, estimatedLogoDomains);
+  const domains = normalizeLogoDomains(logoCandidates, estimatedLogoDomains, corporateUrl);
+  const nameCandidates = logoCandidates.filter((candidate) => candidate.kind === "allowlisted-name");
+  const officialAssets = logoCandidates.filter((candidate) => candidate.kind === "official-asset");
 
-  if (logoDevToken) {
-    for (const domain of logoDomains) {
-      sources.push(
-        `https://img.logo.dev/${domain}?token=${encodeURIComponent(logoDevToken)}&size=128&format=png&retina=true&fallback=404`
-      );
+  for (const candidate of officialAssets) {
+    sources.push(buildLogoProxyUrl({ provider: "official", asset: candidate.assetKey }));
+  }
+
+  for (const domain of domains) {
+    sources.push(buildLogoProxyUrl({ provider: "logo-dev", domain }));
+    sources.push(buildLogoProxyUrl({ provider: "brandfetch", domain }));
+  }
+
+  if (domains.length === 0) {
+    for (const candidate of nameCandidates) {
+      sources.push(buildLogoProxyUrl({ provider: "logo-dev-name", nameKey: candidate.nameKey }));
+      sources.push(buildLogoProxyUrl({ provider: "brandfetch-name", nameKey: candidate.nameKey }));
+    }
+    const normalizedName = normalizeCompanyLogoName(companyName);
+    if (normalizedName) {
+      sources.push(buildLogoProxyUrl({ provider: "logo-dev-name", name: normalizedName }));
+      sources.push(buildLogoProxyUrl({ provider: "brandfetch-name", name: normalizedName }));
     }
   }
 
-  if (brandfetchClientId) {
-    for (const domain of logoDomains) {
-      sources.push(
-        `https://cdn.brandfetch.io/domain/${domain}/w/128/h/128/type/icon/fallback/404?c=${encodeURIComponent(brandfetchClientId)}`
-      );
-    }
-  }
-
-  if (logoDevToken && companyName) {
-    sources.push(
-      `https://img.logo.dev/name/${encodeURIComponent(companyName)}?token=${encodeURIComponent(logoDevToken)}&size=128&format=png&retina=true&fallback=404`
-    );
-  }
-
-  const directFavicon = normalizeExternalImageUrl(estimatedFaviconUrl);
-  if (directFavicon) sources.push(directFavicon);
-
-  for (const domain of logoDomains) {
-    sources.push(`https://www.google.com/s2/favicons?domain=${domain}&sz=128`);
-  }
-  for (const domain of logoDomains) {
-    sources.push(`https://icons.duckduckgo.com/ip3/${domain}.ico`);
-  }
+  void estimatedFaviconUrl;
 
   const uniqueSources = Array.from(new Set(sources));
   const [primary, ...fallbacks] = uniqueSources;
   return primary ? { primary, fallbacks } : null;
 }
 
-function getLogoDevToken(): string | null {
-  const value = process.env.NEXT_PUBLIC_LOGO_DEV_TOKEN;
-  return typeof value === "string" && value.length > 0 ? value : null;
+function buildLogoProxyUrl(input: {
+  provider: CompanyLogoProvider;
+  asset?: string;
+  domain?: string;
+  nameKey?: string;
+  name?: string;
+}): string {
+  const params = new URLSearchParams({ provider: input.provider });
+  if (input.asset) params.set("asset", input.asset);
+  if (input.domain) params.set("domain", input.domain);
+  if (input.nameKey) params.set("nameKey", input.nameKey);
+  if (input.name) params.set("name", input.name);
+  params.set("policy", "official-logo-v2");
+  return `/api/company-logos?${params.toString()}`;
 }
 
-function getBrandfetchClientId(): string | null {
-  const value = process.env.NEXT_PUBLIC_BRANDFETCH_CLIENT_ID;
-  return typeof value === "string" && value.length > 0 ? value : null;
+function normalizeLogoCandidates(
+  estimatedLogoCandidates: CompanyLogoCandidate[] | null | undefined,
+  estimatedLogoDomains: string[] | null | undefined,
+): CompanyLogoCandidate[] {
+  if (estimatedLogoCandidates?.length) {
+    return estimatedLogoCandidates.filter(isUsableLogoCandidate);
+  }
+
+  return (estimatedLogoDomains ?? [])
+    .map(normalizeDomainCandidate)
+    .filter((domain): domain is string => Boolean(domain))
+    .map((domain) => ({
+      kind: "domain",
+      domain,
+      source: "mapping.logo_domains",
+      confidence: "high",
+    } satisfies CompanyLogoCandidate));
 }
 
-function extractLogoDomains(
+function isUsableLogoCandidate(candidate: CompanyLogoCandidate): boolean {
+  if (candidate.kind === "official-asset") return candidate.assetKey.length > 0;
+  if (candidate.kind === "allowlisted-name") return candidate.confidence === "high" && candidate.nameKey.trim().length > 0;
+  return Boolean(normalizeDomainCandidate(candidate.domain));
+}
+
+function normalizeLogoDomains(
+  candidates: CompanyLogoCandidate[],
+  estimatedLogoDomains: string[] | null | undefined,
   corporateUrl: string | null | undefined,
-  estimatedFaviconUrl: string | null | undefined,
-  estimatedLogoDomains: string[] | null | undefined
 ): string[] {
-  return Array.from(
+  const storedDomains = Array.from(
     new Set([
-      ...(estimatedLogoDomains ?? []).map(normalizeDomainCandidate).filter((domain): domain is string => Boolean(domain)),
-      extractHostname(corporateUrl),
-      extractFaviconServiceDomain(estimatedFaviconUrl),
-      extractNonServiceHostname(estimatedFaviconUrl),
-    ].filter((domain): domain is string => Boolean(domain)))
+      ...candidates
+        .filter((candidate): candidate is Extract<CompanyLogoCandidate, { kind: "domain" }> => candidate.kind === "domain")
+        .map((candidate) => normalizeDomainCandidate(candidate.domain)),
+      ...(estimatedLogoDomains ?? []).map(normalizeDomainCandidate),
+    ].filter((domain): domain is string => Boolean(domain))),
   );
-}
 
-function extractFaviconServiceDomain(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname === "www.google.com" && parsed.pathname === "/s2/favicons") {
-      return parsed.searchParams.get("domain");
-    }
-    if (parsed.hostname === "icons.duckduckgo.com") {
-      const match = parsed.pathname.match(/^\/ip3\/(.+)\.ico$/);
-      return match ? match[1] : null;
-    }
-    return null;
-  } catch {
-    return null;
+  if (storedDomains.length > 0) {
+    return storedDomains;
   }
+
+  const corporateDomain = normalizeDomainCandidate(corporateUrl ?? null);
+  return corporateDomain ? [corporateDomain] : [];
 }
 
-function extractHostname(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return null;
-  }
-}
-
-function extractNonServiceHostname(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname === "www.google.com" && parsed.pathname === "/s2/favicons") {
-      return null;
-    }
-    if (parsed.hostname === "icons.duckduckgo.com" && parsed.pathname.startsWith("/ip3/")) {
-      return null;
-    }
-    return parsed.hostname;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeDomainCandidate(domain: string): string | null {
+function normalizeDomainCandidate(domain: string | null | undefined): string | null {
+  if (!domain) return null;
   try {
     const parsed = new URL(domain.includes("://") ? domain : `https://${domain}`);
-    return parsed.hostname || null;
+    return LOGO_DOMAIN_PATTERN.test(parsed.hostname) ? parsed.hostname : null;
   } catch {
     return null;
   }
 }
 
-function normalizeExternalImageUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return null;
-    return parsed.toString();
-  } catch {
-    return null;
-  }
+function normalizeCompanyLogoName(name: string | null | undefined): string | null {
+  const trimmed = name?.trim();
+  if (!trimmed || trimmed.length > 100) return null;
+  if (/[\u0000-\u001F\u007F]/.test(trimmed)) return null;
+  return trimmed;
 }
 
 const AVATAR_COLORS = [

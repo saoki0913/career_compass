@@ -6,7 +6,7 @@
  */
 
 import useSWR from "swr";
-import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { parseApiErrorResponse, toAppUiError, toUserFacingError } from "@/lib/api-errors";
 import { notifySwrUserFacingFailure } from "@/lib/client-error-ui";
 import { buildAuthFetchHeaders } from "@/lib/swr-fetcher";
 
@@ -141,7 +141,7 @@ export function useCredits(opts: UseCreditsOptions = {}) {
 
   const credits = data ?? null;
   const errorMessage =
-    error instanceof Error ? error.message : error != null ? String(error) : null;
+    error != null ? toUserFacingError(toAppUiError(error, CREDITS_FETCH_FALLBACK, "useCredits.display")).message : null;
 
   const selectionScheduleRemaining = credits?.monthlyFree.selectionSchedule?.remaining ?? 0;
   const selectionScheduleLimit = credits?.monthlyFree.selectionSchedule?.limit ?? 0;

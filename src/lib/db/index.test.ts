@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+// Implementation migrated from process.env to serverEnv (T3 Env).
 describe("db module", () => {
   it("exports db instance", async () => {
     const mod = await import("./index");

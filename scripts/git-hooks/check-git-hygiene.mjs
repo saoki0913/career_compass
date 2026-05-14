@@ -94,6 +94,8 @@ function isAllowedImagePath(filePath) {
 
 function isEnvOrSecretPath(filePath) {
   const base = path.posix.basename(filePath);
+  if (base.endsWith(".example")) return false;
+  if (filePath.includes("/secrets-examples/")) return false;
   return (
     base === ".env" ||
     base.startsWith(".env.") ||

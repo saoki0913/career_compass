@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import type { CompanyLogoAssetKey, CompanyLogoCandidate } from "@/lib/company-logo-types";
 
 /**
  * Company domain estimator
@@ -16,19 +17,32 @@ interface CompanyMappingsFile {
 
 interface CompanyMappingObject {
   domains: string[];
+  logo_asset_key?: CompanyLogoAssetKey;
   logo_domains?: string[];
+  logo_names?: CompanyLogoNameMapping[];
+  logo_name_lookup_allowed?: boolean;
   parent?: string;
   allow_parent_domains_for?: string[];
 }
 
+interface CompanyLogoNameMapping {
+  key: string;
+  name: string;
+}
+
 interface CompanyDomainEntry {
   domains: string[];
+  logoAssetKey: CompanyLogoAssetKey | null;
   logoDomains: string[];
+  logoNames: CompanyLogoNameMapping[];
 }
 
 export interface CompanyLogoProfile {
+  candidates: CompanyLogoCandidate[];
   logoDomains: string[];
-  fallbackFaviconUrl: string | null;
+  logoAssetKey: CompanyLogoAssetKey | null;
+  fallback: { kind: "initials" };
+  fallbackFaviconUrl: null;
 }
 
 /** Module-level cache: loaded once per process */
@@ -88,12 +102,18 @@ function loadMappings(): Map<string, CompanyDomainEntry> {
       const domains = isCompanyMappingObject(value)
         ? value.domains
         : value;
+      const logoAssetKey = isCompanyMappingObject(value)
+        ? value.logo_asset_key ?? null
+        : null;
       const logoDomains = isCompanyMappingObject(value)
         ? value.logo_domains ?? []
         : [];
+      const logoNames = isCompanyMappingObject(value)
+        ? normalizeLogoNameMappings(key, value)
+        : [];
 
       if (Array.isArray(domains) && domains.length > 0) {
-        result.set(key, { domains, logoDomains });
+        result.set(key, { domains, logoAssetKey, logoDomains, logoNames });
       }
     }
 
@@ -129,18 +149,79 @@ export function estimateCompanyLogoProfile(companyName: string): CompanyLogoProf
   const entry = getMappingEntry(companyName);
   if (!entry) return null;
 
-  const logoDomains = unique([
-    ...entry.logoDomains.flatMap(resolveLogoDomainCandidates),
-    ...entry.domains.flatMap(resolveLogoDomainCandidates),
-  ]).slice(0, MAX_LOGO_DOMAINS);
+  const explicitLogoDomains = unique(entry.logoDomains.flatMap(resolveLogoDomainCandidates)).slice(0, MAX_LOGO_DOMAINS);
+  const promotedLogoDomains = unique(
+    entry.domains.flatMap(resolvePromotedLogoDomainCandidates).filter((domain) => !explicitLogoDomains.includes(domain))
+  ).slice(0, Math.max(0, MAX_LOGO_DOMAINS - explicitLogoDomains.length));
+  const logoDomains = [...explicitLogoDomains, ...promotedLogoDomains];
+  const candidates: CompanyLogoCandidate[] = [
+    ...explicitLogoDomains.map((domain) => ({
+      kind: "domain",
+      domain,
+      source: "mapping.logo_domains",
+      confidence: "high",
+    } satisfies CompanyLogoCandidate)),
+    ...promotedLogoDomains.map((domain) => ({
+      kind: "domain",
+      domain,
+      source: "promoted.mapping.domains",
+      confidence: "low",
+    } satisfies CompanyLogoCandidate)),
+    ...(entry.logoAssetKey
+      ? [
+          {
+            kind: "official-asset" as const,
+            assetKey: entry.logoAssetKey,
+            source: "mapping.logo_asset_key" as const,
+            confidence: "high" as const,
+          },
+        ]
+      : []),
+    ...entry.logoNames.map((logoName) => ({
+      kind: "allowlisted-name",
+      nameKey: logoName.key,
+      source: "mapping.logo_names",
+      confidence: "high",
+    } satisfies CompanyLogoCandidate)),
+  ];
 
-  const primaryDomain = logoDomains[0] ?? null;
   return {
+    candidates,
     logoDomains,
-    fallbackFaviconUrl: primaryDomain
-      ? `https://www.google.com/s2/favicons?domain=${primaryDomain}&sz=128`
-      : null,
+    logoAssetKey: entry.logoAssetKey,
+    fallback: { kind: "initials" },
+    fallbackFaviconUrl: null,
   };
+}
+
+export function isMappedCompanyLogoDomain(domain: string): boolean {
+  const normalized = normalizeDomainToken(domain);
+  if (!normalized) return false;
+
+  for (const entry of loadMappings().values()) {
+    const explicitLogoDomains = unique(entry.logoDomains.flatMap(resolveLogoDomainCandidates));
+    const logoDomains = unique([
+      ...explicitLogoDomains,
+      ...entry.domains.flatMap(resolvePromotedLogoDomainCandidates).filter((candidate) => !explicitLogoDomains.includes(candidate)),
+    ]);
+    if (logoDomains.includes(normalized)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function resolveMappedCompanyLogoName(nameKey: string): string | null {
+  const normalizedKey = normalizeLogoNameKey(nameKey);
+  if (!normalizedKey) return null;
+
+  for (const entry of loadMappings().values()) {
+    const match = entry.logoNames.find((logoName) => logoName.key === normalizedKey);
+    if (match) return match.name;
+  }
+
+  return null;
 }
 
 function getMappingEntry(companyName: string): CompanyDomainEntry | null {
@@ -179,6 +260,12 @@ function resolveLogoDomainCandidates(token: string): string[] {
   return [`${domain}.co.jp`, `${domain}.com`, `${domain}.jp`];
 }
 
+function resolvePromotedLogoDomainCandidates(token: string): string[] {
+  const domain = normalizeDomainToken(token);
+  if (!domain || !isRealHostname(domain)) return [];
+  return [domain];
+}
+
 function normalizeDomainToken(token: string): string | null {
   const trimmed = token.trim().toLowerCase();
   if (!trimmed) return null;
@@ -192,6 +279,39 @@ function normalizeDomainToken(token: string): string | null {
 
 function isRealHostname(domain: string): boolean {
   return /\.(?:co\.jp|ne\.jp|or\.jp|go\.jp|ac\.jp|ed\.jp|com|jp|net|org|co|io|ai|bank)$/i.test(domain);
+}
+
+function normalizeLogoNameMappings(
+  companyKey: string,
+  value: CompanyMappingObject,
+): CompanyLogoNameMapping[] {
+  const names = (value.logo_names ?? [])
+    .map((entry) => {
+      const key = normalizeLogoNameKey(entry.key);
+      const name = normalizeLogoNameValue(entry.name);
+      return key && name ? { key, name } : null;
+    })
+    .filter((entry): entry is CompanyLogoNameMapping => entry !== null);
+
+  if (names.length > 0 || !value.logo_name_lookup_allowed) {
+    return names;
+  }
+
+  const key = normalizeLogoNameKey(`company:${companyKey}`);
+  const name = normalizeLogoNameValue(companyKey);
+  return key && name ? [{ key, name }] : [];
+}
+
+function normalizeLogoNameKey(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 120) return null;
+  return trimmed;
+}
+
+function normalizeLogoNameValue(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 100) return null;
+  return trimmed;
 }
 
 function unique(values: string[]): string[] {

@@ -195,6 +195,7 @@ class DeleteByUrlsResponse(BaseModel):
     urls_deleted: list[str]
     chunks_deleted: int
     errors: list[str]
+    deletion: Optional[dict] = None
 
 
 class CrawlCorporateRequest(BaseModel):

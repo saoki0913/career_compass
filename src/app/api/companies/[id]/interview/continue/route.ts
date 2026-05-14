@@ -8,6 +8,7 @@ import {
   INTERVIEW_CONTINUE_CREDIT_COST,
 } from "@/lib/credits";
 import {
+  getInterviewStageStatus,
   normalizeInterviewTurnMeta,
   type InterviewPlan,
   type InterviewTurnMeta,
@@ -52,7 +53,7 @@ export async function POST(
     });
   }
 
-  const limitResponse = await guardDailyTokenLimit(identity);
+  const limitResponse = await guardDailyTokenLimit(identity, request);
   if (limitResponse) return limitResponse;
 
   const { id: companyId } = await params;
@@ -217,11 +218,11 @@ export async function POST(
           messages,
           questionCount: turnState.turnCount,
           stageStatus:
-            upstreamData.stage_status ?? {
-              currentTopicLabel: turnMeta?.interviewSetupNote ?? turnState.currentTopic,
+            upstreamData.stage_status ?? getInterviewStageStatus({
+              currentTopicLabel: turnMeta?.topic ?? turnState.currentTopic,
               coveredTopics: turnState.coveredTopics,
               remainingTopics: turnState.remainingTopics,
-            },
+            }),
           questionStage:
             typeof upstreamData.question_stage === "string"
               ? upstreamData.question_stage

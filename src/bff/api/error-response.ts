@@ -16,6 +16,7 @@ type CreateApiErrorResponseOptions = {
   logContext?: string;
   extra?: Record<string, unknown>;
   requestId?: string;
+  headers?: HeadersInit;
 };
 
 const DEFAULT_AUTH_REQUIRED_USER_MESSAGE = "ログインが必要です。";
@@ -59,6 +60,9 @@ export function createApiErrorResponse(
     );
   }
 
+  const headers = new Headers(options.headers);
+  headers.set("X-Request-Id", requestId);
+
   return NextResponse.json(
     {
       error: {
@@ -82,9 +86,7 @@ export function createApiErrorResponse(
     },
     {
       status: options.status,
-      headers: {
-        "X-Request-Id": requestId,
-      },
+      headers,
     }
   );
 }

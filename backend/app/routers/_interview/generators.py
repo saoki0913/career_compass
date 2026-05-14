@@ -187,6 +187,8 @@ async def _generate_start_progress(
         setup = _gen_self._build_setup(payload)
         yield _sse_event("progress", {"step": "plan", "progress": 12, "label": "面接計画を整理中..."})
         plan_prompt = _build_plan_prompt(payload)
+        plan_source = "llm_validated"
+        fallback_reason = None
         try:
             plan_data = None
             async for kind, llm_payload in _gen_self._stream_llm_json_completion(
@@ -194,7 +196,6 @@ async def _generate_start_progress(
                 user_message="面接計画をJSONで生成してください。",
                 stream_string_fields=[],
                 schema_hints={
-                    "interview_type": "string",
                     "priority_topics": "array",
                     "opening_topic": "string",
                     "must_cover_topics": "array",
@@ -211,7 +212,18 @@ async def _generate_start_progress(
         except Exception:
             logger.warning("[Interview] plan generation failed; using deterministic fallback", exc_info=True)
             plan_data = None
-        interview_plan = _normalize_interview_plan(plan_data or _fallback_plan(payload, setup))
+            plan_source = "deterministic_fallback"
+            fallback_reason = "plan_generation_failed"
+        if plan_data is None and plan_source == "llm_validated":
+            plan_source = "deterministic_fallback"
+            fallback_reason = "empty_plan_response"
+        interview_plan = _normalize_interview_plan(
+            plan_data or _fallback_plan(payload, setup),
+            setup=setup,
+            payload=payload,
+            plan_source=plan_source,
+            fallback_reason=fallback_reason,
+        )
         yield _sse_event("field_complete", {"path": "interview_plan", "value": interview_plan})
 
         yield _sse_event("progress", {"step": "opening", "progress": 42, "label": "最初の質問を準備中..."})

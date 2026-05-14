@@ -71,6 +71,10 @@ def _dynamic_length_focus_min(ctx: FocusModeContext | None) -> str:
     lines.append(strategy)
     lines.append("- 一般論の水増しではなく、元回答にある事実・経験・判断のつながりを補う")
     lines.append("- 新しい経験・数値・役職・企業施策を捏造しない")
+    if ctx.char_max:
+        lines.append(
+            f"- 伸ばした後に{ctx.char_max}字を超える場合は、重複する接続語・抽象語・補助説明を削って上限内に戻す"
+        )
     return "\n".join(lines)
 
 

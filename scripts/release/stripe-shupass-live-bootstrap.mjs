@@ -50,7 +50,7 @@ async function main() {
     console.log(line);
   }
   if (webhookResult.webhookSecret) {
-    console.log(`STRIPE_WEBHOOK_SECRET=${webhookResult.webhookSecret}`);
+    console.log("# STRIPE_WEBHOOK_SECRET was created; store it in the canonical secrets bundle only.");
   } else {
     console.log(
       "# STRIPE_WEBHOOK_SECRET: 既存 Webhook の場合は Dashboard → Webhooks → 該当エンドポイント → Signing secret をコピー"

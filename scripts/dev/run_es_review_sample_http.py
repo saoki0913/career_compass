@@ -344,7 +344,7 @@ def main() -> None:
             print(f"  {rewrite}")
             print(f"\n{'─' * 60}")
             print("■ メタ情報:")
-            print(f"  - model: {meta.get('llm_model', '?')} / retries: {meta.get('rewrite_attempt_count', '?')} / length_fix: {meta.get('length_fix_result', '?')}")
+            print(f"  - model: {meta.get('llm_model', '?')} / retries: {meta.get('rewrite_attempt_count', '?')}")
             print(f"  - grounding: {meta.get('grounding_mode', '?')} / evidence: {meta.get('evidence_coverage_level', '?')} ({meta.get('company_evidence_count', 0)}件)")
             print(f"  - validation: {meta.get('rewrite_validation_status', '?')}")
             codes = meta.get("rewrite_validation_codes", [])

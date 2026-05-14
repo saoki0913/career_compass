@@ -27,3 +27,6 @@ class TemplateDef(TypedDict, total=False):
     fact_priority: str
     extra_fields: list[str]
     rewrite_closing_guidance: str
+    negative_reframe_guidance: list[str]
+    question_focus_rules: list[dict[str, Any]]
+    playbook: dict[str, str]

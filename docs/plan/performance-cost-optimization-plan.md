@@ -1,5 +1,10 @@
 # パフォーマンス改善・コスト最適化 戦略計画書
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+> **現状同期メモ（2026-05-13）**: Anthropic prompt caching は公式仕様上、静的 content block に `cache_control` を付ける設計が必要。ES review の system prompt に user-specific material が混ざる場合は cache safety を優先し、cache key 固定や cache_control 追加をそのまま進めない。
+
+
 > **作成日**: 2026-05-05
 > **ステータス**: 作成完了
 > **対象**: career_compass (就活Pass) 全体 — LLM API / Frontend / DB / RAG
@@ -87,12 +92,11 @@
 1. Primary call (Claude Sonnet)
 2. REWRITE attempt 2 (retry.py L36: `REWRITE_MAX_ATTEMPTS=3`)
 3. REWRITE attempt 3
-4. LENGTH_FIX pass (retry.py L37: `LENGTH_FIX_REWRITE_ATTEMPTS=1`)
-5. JSON repair: GPT-mini (llm.py L653-725)
-6. JSON repair fallback: Claude Sonnet (llm.py L687)
-7. Cross-provider fallback (llm_model_routing.py L169-194)
+4. JSON repair: GPT-mini (llm.py L653-725)
+5. JSON repair fallback: Claude Sonnet (llm.py L687)
+6. Cross-provider fallback (llm_model_routing.py L169-194)
 
-**理論最悪**: 9 LLM calls / 1操作 | **実測推定平均**: 1.5-2.5 calls
+**理論最悪**: 8 LLM calls / 1操作 | **実測推定平均**: 1.5-2.5 calls
 
 #### Prompt Caching 現状
 
@@ -241,7 +245,7 @@
 
 #### S2: ES Review Retry 最適化 [O-02, P1]
 
-**根本原因**: `REWRITE_MAX_ATTEMPTS=3` + `LENGTH_FIX_REWRITE_ATTEMPTS=1` で最大 4 full LLM calls。
+**根本原因**: `REWRITE_MAX_ATTEMPTS=3` により、文字数・構成・根拠不足が収束しないケースで最大 3 full rewrite LLM calls が発生する。
 
 **改善方向** (O-06 データ取得後):
 - Per-request cost cap (`get_request_total_tokens()` L245-254 で閾値判定)

@@ -3,6 +3,7 @@ import { alias } from "drizzle-orm/pg-core";
 
 import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { isOwnedByIdentity } from "@/bff/identity/owner-access";
+import type { DeadlinesPageData, TodayTaskData } from "@/lib/dto/dashboard";
 import { db } from "@/lib/db";
 import {
   applications,
@@ -161,7 +162,7 @@ function selectDeepDiveTask(taskRows: TodayTaskRow[]) {
   return [...taskRows].sort(compareDeepDiveOrder)[0] ?? null;
 }
 
-export async function getUpcomingDeadlinesData(identity: RequestIdentity, days = 7) {
+export async function getUpcomingDeadlinesData(identity: RequestIdentity, days = 7): Promise<DeadlinesPageData> {
   const maxDays = Math.min(Number.isFinite(days) && days > 0 ? days : 7, 30);
   const now = new Date();
   const endDate = new Date(now.getTime());
@@ -208,7 +209,7 @@ export async function getUpcomingDeadlinesData(identity: RequestIdentity, days =
   };
 }
 
-export async function getTodayTaskData(identity: RequestIdentity) {
+export async function getTodayTaskData(identity: RequestIdentity): Promise<TodayTaskData> {
   const now = new Date();
   const in72h = new Date(now.getTime() + 72 * 60 * 60 * 1000);
   const deadlineCompany = alias(companies, "today_deadline_company");

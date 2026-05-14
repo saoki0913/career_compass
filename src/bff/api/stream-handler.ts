@@ -112,7 +112,7 @@ export function createConversationStreamHandler<TContext>(
         });
       }
 
-      const limitResponse = await guardDailyTokenLimit(identity);
+      const limitResponse = await guardDailyTokenLimit(identity, request);
       if (limitResponse) return limitResponse;
 
       if (config.rateLimit) {

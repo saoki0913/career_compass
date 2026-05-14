@@ -1,5 +1,10 @@
 # 認証・ゲスト/ユーザー所有権 API 境界統一計画
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+> **現状同期メモ（2026-05-13）**: 共通 identity / owner / structured error 部品は整っているが、raw error response、`guestId!` を使う feature helper、company fetch route の usecase 分離、deadline 保存後の billing confirm 失敗境界、Stripe webhook route 肥大化は未完了として統合 JSON で追跡する。
+
+
 作成日: 2026-05-04 JST
 
 ## 1. 目的

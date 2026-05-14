@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton, SkeletonButton, SkeletonPill } from "@/components/ui/skeleton";
+import { DelayedMessage } from "@/components/ui/DelayedMessage";
 import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
 import { cn } from "@/lib/utils";
 import {
@@ -50,7 +52,6 @@ import {
   FileTextIcon,
   DocumentIcon,
   SparklesIcon,
-  LoadingSpinner,
 } from "./company-detail/icons";
 import {
   getDaysUntilDeadline,
@@ -77,6 +78,38 @@ interface ESDocument {
   type: string;
   status: string;
   updatedAt: string;
+}
+
+function CompanyDetailZoneSkeleton({ message }: { message: string }) {
+  return (
+    <div className="space-y-3 py-1" role="status" aria-busy="true">
+      <span className="sr-only">{message}</span>
+      <div className="flex gap-2 overflow-hidden pb-1" aria-hidden="true">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <SkeletonPill key={index} className="h-8 w-[5.5rem] shrink-0" shimmerDelayMs={index * 30} />
+        ))}
+      </div>
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={index}
+          className="flex items-start gap-3 rounded-lg border border-border/50 bg-muted/20 p-3"
+          aria-hidden="true"
+        >
+          <Skeleton className="mt-0.5 h-5 w-5 shrink-0 rounded-full" shimmerDelayMs={index * 45} />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap gap-2">
+              <SkeletonPill className="h-5 w-16" shimmerDelayMs={index * 45 + 10} />
+              <SkeletonPill className="h-5 w-14" shimmerDelayMs={index * 45 + 20} />
+            </div>
+            <Skeleton className="h-4 w-full max-w-xs rounded-md" shimmerDelayMs={index * 45 + 30} />
+            <Skeleton className="h-3 w-40 rounded-md" shimmerDelayMs={index * 45 + 40} />
+          </div>
+          <SkeletonButton className="h-8 w-8 shrink-0 rounded-md" shimmerDelayMs={index * 45 + 50} />
+        </div>
+      ))}
+      <DelayedMessage delayMs={2000} message="通常より時間がかかっています。最新の情報を取得しています。" />
+    </div>
+  );
 }
 
 interface CompanyDetailPageClientProps {
@@ -819,9 +852,7 @@ export default function CompanyDetailPageClient({
           </CardHeader>
           <CardContent className="pt-0">
             {isLoadingDeadlines ? (
-              <div className="flex items-center justify-center py-6">
-                <LoadingSpinner />
-              </div>
+              <CompanyDetailZoneSkeleton message="締切と予定を読み込んでいます" />
             ) : deadlines.length === 0 ? (
               <div className="text-center py-6 text-muted-foreground">
                 <CalendarIcon />
@@ -917,9 +948,7 @@ export default function CompanyDetailPageClient({
               </CardHeader>
               <CardContent className="pt-0">
                 {isLoadingApplications ? (
-                  <div className="flex items-center justify-center py-6">
-                    <LoadingSpinner />
-                  </div>
+                  <CompanyDetailZoneSkeleton message="応募枠を読み込んでいます" />
                 ) : applications.length === 0 ? (
                   <div className="text-center py-6">
                     <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-3">
@@ -1033,9 +1062,7 @@ export default function CompanyDetailPageClient({
             </CardHeader>
             <CardContent className="pt-0">
               {isLoadingES ? (
-                <div className="flex items-center justify-center py-6">
-                  <LoadingSpinner />
-                </div>
+                <CompanyDetailZoneSkeleton message="この企業のESを読み込んでいます" />
               ) : esDocuments.length === 0 ? (
                 <div className="text-center py-6 text-muted-foreground">
                   <p className="text-sm">まだESが作成されていません</p>

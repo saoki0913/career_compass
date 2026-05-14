@@ -1,5 +1,8 @@
 # 19 カテゴリ計画書 - 実行順序（Codex レビュー反映版）
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+
 ## Context
 
 就活Pass の品質改善計画 19 カテゴリの最適な実行順序を決定する。全カテゴリの計画書は作成済み（#6, #10 を除く）。2026-05-05 時点で #17 監視 Phase 0 の repo 内 P0 は実装済み、外部ダッシュボード設定は運用手順化済み。2-3 並列トラック、品質優先、期限なし。
@@ -56,7 +59,7 @@
 **Gate**: #17 は focused sanitizer / Sentry scrub / health tests、`tsc`、lint、security static、`git diff --check` pass。Sentry 必須 3 monitors の green と backend event 到達は外部 dashboard で完了確認する。#15 は coverage レポート生成可能、#14 は法務ドラフト外部確認に送付済み。
 
 **#17 Phase 0 実装メモ (2026-05-05)**:
-- `docs/plan/monitoring-release-final-tasks.json` で状態管理を開始し、`scripts/plan/update-monitoring-task-status.mjs` で更新する。
+- 2026-05-13 以降、状態管理の正本は統合 `docs/plan/plan-tasks.json` に移行した。旧 `scripts/plan/update-monitoring-task-status.mjs` は互換 wrapper として統合 JSON を更新する。
 - `src/lib/sanitize.ts` / `backend/app/utils/sanitizer.py` を追加し、logger と Sentry beforeSend の共通 scrubber とした。
 - Sentry は Replay 完全 OFF、`sendDefaultPii=false`、DSN 未設定 no-op。Next.js と FastAPI の初期化を追加済み。
 - `/health/ready` は provider key configured boolean を返さない。
@@ -64,7 +67,7 @@
 - SSL expiry monitor、cron heartbeat / Sentry Crons、Loki / Grafana、`/health/deep`、Drizzle slow query logger は Phase 1+ へ延期する。
 
 **#15 P0 実装メモ (2026-05-05)**:
-- `docs/plan/test-quality-gate-tasks.json` で状態管理を開始し、`scripts/plan/update-test-quality-task-status.mjs` で `Todo / Doing / Blocked / Review / Done` を更新する。
+- 2026-05-13 以降、状態管理の正本は統合 `docs/plan/plan-tasks.json`。旧 `scripts/plan/update-test-quality-task-status.mjs` は互換 wrapper として統合 JSON を更新する。
 - `@vitest/coverage-v8` と `pytest-cov` を導入し、`make test-coverage` / `make backend-test-coverage` で HTML + JSON coverage を生成できる。
 - `backend/pytest.ini` は `pythonpath = . ..` とし、`app.*` / `backend.app.*` の既存 import 混在に対応した。
 - `backend-test-coverage` は決定的テストを対象にし、`integration / golden_eval / llm_judge / calibration` は除外する。外部接続を伴う品質評価は P1+ の Quality gate で扱う。
@@ -73,7 +76,7 @@
 - 検証: `make test-coverage` pass (290 files / 1297 tests), `make backend-test-coverage` pass (1477 passed / 42 deselected), focused BFF Vitest pass, harness node tests pass。
 
 **#14 Phase 0 実装メモ (2026-05-06)**:
-- `docs/plan/legal-commercial-support-tasks.json` で状態管理を開始し、`scripts/plan/update-legal-commercial-task-status.mjs` で `Todo / Doing / Blocked / Review / Done` を更新する。
+- 2026-05-13 以降、状態管理の正本は統合 `docs/plan/plan-tasks.json`。旧 `scripts/plan/update-legal-commercial-task-status.mjs` は互換 wrapper として統合 JSON を更新する。
 - `/terms` に AI生成物の権利と責任、AI機能の免責、返金例外・損害賠償制限を追加した。AIプロバイダの学習不使用は断定せず、管理API利用・契約設定の範囲に限定した。
 - Stripe Checkout 表示と `managed-config.json` の返金・解約短文を `/terms#billing` と整合させた。
 - 課金 P0 として `consumeCredits` transaction 化、plan allocation 差分更新、past_due/dispute hold の credit-layer gate、`charge.refunded` / `charge.dispute.created` / `charge.dispute.closed` webhook、billing status アプリ内通知を追加した。
@@ -100,7 +103,7 @@
 **完了実績:**
 - 2026-05-07: **Track A #1 Security 全 20 タスク完了**（3 sub-phase: Auth Week 1, Backend Week 2, Billing Week 3）
 - 2026-05-07: **Track B #8 P0 全 5 Critical bugs 解消** — T-01 JST基準違反一掃 (5箇所)、T-02 KeyError crash修正、T-03 タスク生成冪等性保証、T-04 タスク巻き戻しバグ修正、T-05 HTML テーブル構造保持
-- 2026-05-09: **#17 監視 release minimum 完了** — `docs/plan/monitoring-release-readiness-tasks.json` で状態管理を開始し、product/global error boundary の Sentry capture、Sentry event scrub allowlist 強化、Vercel/Sentry/secrets/公開 health の CLI baseline を記録した。frontend Sentry は First Event 到達済み、backend Sentry は project active だが No events yet のため手動 follow-up とする。
+- 2026-05-09: **#17 監視 release minimum 完了** — product/global error boundary の Sentry capture、Sentry event scrub allowlist 強化、Vercel/Sentry/secrets/公開 health の CLI baseline を記録した。frontend Sentry は First Event 到達済み、backend Sentry は project active だが No events yet のため手動 follow-up とする。2026-05-13 以降の状態管理は統合 `docs/plan/plan-tasks.json` を正本とする。
 - 2026-05-10: **Sentry-first 外部監視の現状整理** — frontend uptime monitor は Dashboard で `Uptime` / `200` check-in まで確認済み。backend uptime は Sentry の `*.railway.app` domain-wide limit により Railway 生成ドメインでは作成できないため、`api.shupass.jp` などの独自 backend domain 設定後の最後の手作業に回す。
 - 2026-05-10: **Phase 2 Track A #3 Auth P0 release hardening 完了** — guest migration の CSRF / owner table 棚卸し / atomic claim を現状同期し、migration 衝突時の user-wins 処理、owner-conditioned mutation helper、`submissions/[id]` / `deadlines/[id]` / `calendar/events/[id]` の id+owner mutation、外部 sync の local mutation 成功後実行、高リスク mutation の session 解決例外 `503` fail-closed を実装した。#3 の P1（Owner Access Facade の広域展開、structured error 全面統一、FastAPI principal inventory）は残タスクとして継続する。
 - 2026-05-11: **Phase 2 Track A #3 Auth P1 release-final 完了** — Owner Access facade、applications / notifications の structured error と owner-conditioned mutation、production/staging company search fallback の `503` fail-closed、company search / fetch-schedule / Gakuchika JSON AI / interview drill の `X-Career-Principal` 必須化、企業 RAG / PDF upload の usage reservation + owner-conditioned persistence service を実装した。DB migration を伴う index / partial unique / RLS policy は #5 DB/RLS pre-release に送る。

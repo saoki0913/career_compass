@@ -12,6 +12,7 @@ describe("robots", () => {
         "/entry-sheet-ai",
         "/es-ai-guide",
         "/shukatsu-kanri",
+        "/pricing",
         "/data-source-policy",
       ])
     );
@@ -20,11 +21,8 @@ describe("robots", () => {
         "/dashboard",
         "/companies",
         "/api/",
-        "/pricing",
       ])
     );
-    expect(primaryRule?.allow).not.toEqual(
-      expect.arrayContaining(["/pricing"])
-    );
+    expect(primaryRule?.disallow).not.toEqual(expect.arrayContaining(["/pricing"]));
   });
 });

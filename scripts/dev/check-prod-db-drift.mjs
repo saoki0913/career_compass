@@ -9,6 +9,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
+import {
+  detectDrizzleMetaSchema,
+  readAppliedDrizzleMigrations,
+} from "../ci/migration-config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(__dirname, "..", "..");
@@ -47,6 +51,34 @@ const requiredSubscriptionColumns = [
   "billing_hold_started_at",
   "billing_hold_ended_at",
 ];
+const requiredBetterAuthAdminColumns = {
+  users: {
+    role: {
+      dataType: "text",
+      nullable: false,
+      defaultPattern: /'user'::text|'user'/,
+    },
+    banned: {
+      dataType: "boolean",
+      nullable: false,
+      defaultPattern: /false/,
+    },
+    ban_reason: {
+      dataType: "text",
+      nullable: true,
+    },
+    ban_expires: {
+      dataType: "timestamp with time zone",
+      nullable: true,
+    },
+  },
+  sessions: {
+    impersonated_by: {
+      dataType: "text",
+      nullable: true,
+    },
+  },
+};
 const requiredInterviewColumns = {
   interview_conversations: [
     "role_track",
@@ -155,27 +187,66 @@ try {
     }\n`,
   );
 
-  const metaSchemas = await sql`
-    SELECT table_schema
-    FROM information_schema.tables
-    WHERE table_name = '__drizzle_migrations'
-      AND table_schema IN ('drizzle', 'public')
-    ORDER BY CASE table_schema WHEN 'drizzle' THEN 0 ELSE 1 END
-    LIMIT 1
+  const betterAuthAdminColumnRows = await sql`
+    SELECT table_name, column_name, data_type, is_nullable, column_default
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND (
+        (table_name = 'users' AND column_name IN ('role', 'banned', 'ban_reason', 'ban_expires'))
+        OR (table_name = 'sessions' AND column_name = 'impersonated_by')
+      )
   `;
-  const metaSchema = metaSchemas[0]?.table_schema;
+  const presentBetterAuthAdminColumns = new Map(
+    betterAuthAdminColumnRows.map((row) => [`${row.table_name}.${row.column_name}`, row]),
+  );
+  const invalidBetterAuthAdminColumns = [];
+  for (const [tableName, columns] of Object.entries(requiredBetterAuthAdminColumns)) {
+    for (const [columnName, expected] of Object.entries(columns)) {
+      const qualifiedName = `${tableName}.${columnName}`;
+      const row = presentBetterAuthAdminColumns.get(qualifiedName);
+      if (!row) {
+        invalidBetterAuthAdminColumns.push(`${qualifiedName}:missing`);
+        continue;
+      }
+      if (row.data_type !== expected.dataType) {
+        invalidBetterAuthAdminColumns.push(`${qualifiedName}:type=${row.data_type}`);
+      }
+      if ((row.is_nullable === "YES") !== expected.nullable) {
+        invalidBetterAuthAdminColumns.push(`${qualifiedName}:nullable=${row.is_nullable}`);
+      }
+      if (expected.defaultPattern && !expected.defaultPattern.test(String(row.column_default ?? ""))) {
+        invalidBetterAuthAdminColumns.push(`${qualifiedName}:default`);
+      }
+    }
+  }
+
+  const betterAuthAdminConstraints = await sql`
+    SELECT conname, pg_get_constraintdef(oid) AS definition
+    FROM pg_constraint
+    WHERE conname = 'users_role_allowed'
+  `;
+  const hasRoleConstraint = betterAuthAdminConstraints.some((row) => {
+    const definition = String(row.definition ?? "");
+    return /role/.test(definition) && /user/.test(definition) && /admin/.test(definition);
+  });
+  if (!hasRoleConstraint) {
+    invalidBetterAuthAdminColumns.push("users_role_allowed:missing");
+  }
+  process.stdout.write(
+    `[check-prod-db-drift] better auth admin columns: ${
+      invalidBetterAuthAdminColumns.length === 0 ? "OK" : `MISSING (${invalidBetterAuthAdminColumns.join(", ")})`
+    }\n`,
+  );
+
+  const metaSchema = await detectDrizzleMetaSchema(sql);
   if (!metaSchema) {
     console.error(
       "[check-prod-db-drift] __drizzle_migrations テーブルがありません。npm run db:migrate:prod を実行してください。"
     );
     process.exitCode = 1;
   } else {
-    const countSql =
-      metaSchema === "drizzle"
-        ? sql`SELECT count(*)::int AS count FROM drizzle.__drizzle_migrations`
-        : sql`SELECT count(*)::int AS count FROM public.__drizzle_migrations`;
-    const [{ count: appliedRaw }] = await countSql;
-    const applied = Number(appliedRaw);
+    const appliedMigrations = await readAppliedDrizzleMigrations(sql, metaSchema);
+    const applied = appliedMigrations.length;
     console.log(
       "[check-prod-db-drift] __drizzle_migrations applied:",
       applied,
@@ -216,6 +287,13 @@ try {
   if (missingSubscriptionColumns.length > 0) {
     process.stderr.write(
       `[check-prod-db-drift] subscriptions billing hold 必須カラムが不足しています (${missingSubscriptionColumns.join(", ")})。ES添削などのクレジット消費機能は 503 になり得ます。make deploy-migrate を実行してください。\n`,
+    );
+    process.exitCode = 1;
+  }
+
+  if (invalidBetterAuthAdminColumns.length > 0) {
+    process.stderr.write(
+      `[check-prod-db-drift] Better Auth Admin 必須カラムが不足しています (${invalidBetterAuthAdminColumns.join(", ")})。Google ログインや管理セッションが 500 になり得ます。make deploy-migrate を実行してください。\n`,
     );
     process.exitCode = 1;
   }

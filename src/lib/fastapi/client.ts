@@ -1,5 +1,6 @@
 import "server-only";
 
+import { serverEnv } from "@/env/server";
 import { createInternalServiceJwt } from "@/lib/fastapi/internal-jwt";
 import {
   CAREER_PRINCIPAL_HEADER,
@@ -13,8 +14,8 @@ function normalizeConfiguredUrl(value?: string) {
 
 function getFastApiBaseUrl() {
   const url =
-    normalizeConfiguredUrl(process.env.FASTAPI_URL) ||
-    normalizeConfiguredUrl(process.env.BACKEND_URL) ||
+    normalizeConfiguredUrl(serverEnv.FASTAPI_URL) ||
+    normalizeConfiguredUrl(serverEnv.BACKEND_URL) ||
     "http://localhost:8000";
   return url.replace(/\/+$/, "");
 }

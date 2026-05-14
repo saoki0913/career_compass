@@ -3,20 +3,7 @@ import re
 import pytest
 
 from app.routers.es_review import ReviewRequest, TemplateRequest, review_section_with_template
-
-
-class FakeJsonResult:
-    def __init__(self, data=None, *, success: bool = True):
-        self.success = success
-        self.data = data
-        self.error = None
-
-
-class FakeTextResult:
-    def __init__(self, text: str, *, success: bool = True):
-        self.success = success
-        self.data = {"text": text} if success else None
-        self.error = None
+from tests.es_review.conftest import FakeJsonResult, FakeTextResult
 
 
 def _assert_dearu_style(text: str) -> None:
@@ -368,7 +355,7 @@ async def test_final_quality_over_max_retry_recovers_without_422(monkeypatch: py
     assert 390 <= len(rewrite) <= 400
     _assert_dearu_style(rewrite)
     assert result.review_meta is not None
-    assert result.review_meta.length_fix_attempted is False
+    assert result.review_meta.final_acceptance_source in {"rewrite", "safe_rewrite"}
 
 
 @pytest.mark.asyncio

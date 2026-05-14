@@ -5,6 +5,28 @@
 
 import { redactSensitive, scrubObject } from "@/lib/sanitize";
 
+type SafeLogPrimitive = string | number | boolean | null | undefined;
+type SafeLogValue = SafeLogPrimitive | SafeLogValue[] | { [key: string]: SafeLogValue };
+
+export type SafeLogContext = {
+  requestId?: string;
+  route?: string;
+  method?: string;
+  status?: number;
+  statusCode?: number;
+  event?: string;
+  eventType?: string;
+  feature?: string;
+  service?: string;
+  provider?: string;
+  plan?: string;
+  code?: string;
+  action?: string;
+  count?: number;
+  durationMs?: number;
+  [key: string]: SafeLogValue;
+};
+
 interface SanitizedError {
   message: string;
   name?: string;
@@ -22,7 +44,7 @@ function sanitizeError(error: unknown): SanitizedError {
       result.code = (error as Record<string, unknown>).code as string;
     }
     if (process.env.NODE_ENV === "development") {
-      result.stack = error.stack;
+      result.stack = error.stack ? redactSensitive(error.stack) : undefined;
     }
     return result;
   }
@@ -46,4 +68,51 @@ export function logError(context: string, error: unknown, extra?: Record<string,
     Object.assign(payload, scrubObject(extra));
   }
   console.error(JSON.stringify(payload));
+}
+
+function logStructured(
+  level: "info" | "warn",
+  context: string,
+  extra?: SafeLogContext,
+): void {
+  const payload: Record<string, unknown> = { context };
+  if (extra) {
+    Object.assign(payload, scrubObject(normalizeLogContext(extra)));
+  }
+  const line = JSON.stringify(payload);
+  if (level === "warn") {
+    console.warn(line);
+    return;
+  }
+  console.info(line);
+}
+
+export function logInfo(context: string, extra?: SafeLogContext): void {
+  logStructured("info", context, extra);
+}
+
+export function logWarn(context: string, extra?: SafeLogContext): void {
+  logStructured("warn", context, extra);
+}
+
+function normalizeLogContext(extra: SafeLogContext): SafeLogContext {
+  const normalized: SafeLogContext = { ...extra };
+  for (const key of ["route", "url", "path"]) {
+    const value = normalized[key];
+    if (typeof value === "string") {
+      normalized[key] = scrubUrlLikeValue(value);
+    }
+  }
+  return normalized;
+}
+
+function scrubUrlLikeValue(value: string): string {
+  try {
+    const parsed = value.startsWith("/")
+      ? new URL(value, "https://local.invalid")
+      : new URL(value);
+    return value.startsWith("/") ? parsed.pathname : `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return redactSensitive(value);
+  }
 }

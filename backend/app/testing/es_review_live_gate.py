@@ -43,10 +43,7 @@ def _live_gate_allows_soft_min_shortfall(
     if _soft_min_shortfall(rewrite, char_min=char_min, char_max=char_max, final_attempt=True) <= 0:
         return False
     policy = getattr(review_meta, "length_policy", "") or ""
-    fix_res = getattr(review_meta, "length_fix_result", "") or ""
     if policy == "soft_ok":
-        return True
-    if fix_res == "soft_recovered":
         return True
     return False
 
@@ -1015,6 +1012,172 @@ EXTENDED_ONLY_CASES: tuple[LiveESReviewCase, ...] = (
         expected_focus_tokens=("強み", "整理", "準備", "進める"),
         expected_user_fact_tokens=("ゼミ", "論点", "認識ずれ", "確認"),
         forbidden_anywhere_tokens=("経験不足", "自信がない"),
+    ),
+    _case(
+        case_id="company_motivation_zero_rag_unknown_company_short",
+        case_set=EXTENDED_CASE_SET,
+        template_type="company_motivation",
+        question="ベクトルを志望する理由を140字以内で教えてください。",
+        answer="接客のアルバイトで顧客の要望を整理し、提案に結びつけた経験を、企業のコミュニケーション支援に生かしたい。",
+        company_name="ベクトル",
+        char_min=130,
+        char_max=140,
+        char_band="short",
+        company_context="selected_no_rag",
+        grounding_mode="company_general",
+        expected_policy="required",
+        expected_effective_policy="company_general",
+        expected_min_company_evidence=0,
+        expected_weak_evidence_notice=True,
+        expected_focus_tokens=("志望", "惹", "価値", "理由", "魅力"),
+        expected_user_fact_tokens=("接客", "アルバイト", "顧客", "提案"),
+        expected_company_tokens=("コミュニケーション", "支援"),
+        rag_sources=[],
+    ),
+    _case(
+        case_id="gakuchika_extreme_short_100char",
+        case_set=EXTENDED_CASE_SET,
+        template_type="gakuchika",
+        question="学生時代に力を入れたことを100字以内で教えてください。",
+        answer="半年間のカナダ留学中、現地学生との共同発表で進行役を務め、意見の食い違いを整理して全員が納得する構成にまとめた。",
+        char_min=90,
+        char_max=100,
+        char_band="short",
+        company_context="companyless",
+        grounding_mode="none",
+        expected_policy="assistive",
+        expected_effective_policy="none",
+        expected_focus_tokens=("力を入れた", "留学", "発表"),
+        expected_user_fact_tokens=("カナダ", "留学", "共同発表", "進行役"),
+    ),
+    _case(
+        case_id="post_join_goals_extreme_long_2000char",
+        case_set=EXTENDED_CASE_SET,
+        template_type="post_join_goals",
+        question="三菱商事で実現したいことと、そのために必要な経験・スキルについて2000字以内で教えてください。",
+        answer=(
+            "大学時代にNPOで教育支援プロジェクトを立ち上げ、地域の学習塾と連携して中学生向けの無料学習会を運営した。"
+            "企画段階では地域ごとのニーズ調査を行い、参加者30名の学習状況を個別に把握した。"
+            "講師の確保では大学内の5つのサークルに声をかけ、延べ15名のボランティア講師を組織した。"
+            "運営面では週次の振り返り会議を設け、参加者の理解度に応じたカリキュラム調整を繰り返した。"
+            "結果として、参加者の定期テスト平均点が15点向上し、継続参加率も80%を維持できた。"
+            "この経験を通じて、多様な関係者の意見を整理し、限られたリソースで最大の成果を出す力を培った。"
+            "入社後はまず現場で事業理解を深め、投資案件の評価に必要な分析力と判断力を養いたい。"
+            "将来的には、社会課題の解決に資する新規事業の立案に携わり、現場で培った実行力を生かして事業を形にしたい。"
+        ),
+        company_name="三菱商事",
+        role_name="総合職",
+        char_min=1990,
+        char_max=2000,
+        char_band="long",
+        company_context="strong_same_company",
+        grounding_mode="company_general",
+        expected_policy="required",
+        expected_effective_policy="company_general",
+        expected_min_company_evidence=2,
+        expected_focus_tokens=("実現したい", "獲得したい", "挑戦", "将来", "入社後", "経験"),
+        expected_user_fact_tokens=("NPO", "教育支援", "30名", "15名", "15点", "80%"),
+        expected_company_tokens=("投資", "事業開発", "社会課題", "現場"),
+        rag_sources=[
+            {
+                "content_type": "midterm_plan",
+                "title": "中期戦略",
+                "excerpt": "社会課題解決に資する新規事業への投資を進める。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/ir/strategy/",
+            },
+            {
+                "content_type": "new_grad_recruitment",
+                "title": "新卒採用",
+                "excerpt": "若手から現場経験を積み、事業理解を深める。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/newgrad/",
+            },
+        ],
+    ),
+    _case(
+        case_id="intern_reason_club_activity_background_medium",
+        case_set=EXTENDED_CASE_SET,
+        template_type="intern_reason",
+        question="サマーインターンへの参加理由を200字以内で教えてください。",
+        answer="サッカー部のキャプテンとして、部員40名の意見を集約し、練習メニューの再構成と試合戦略の共有体制を整えた。実務でもチームの方向性をそろえながら成果に結びつける力を試したい。",
+        company_name="三井物産",
+        role_name="Business Intelligence",
+        intern_name="Business Intelligence Internship",
+        char_min=190,
+        char_max=200,
+        char_band="medium",
+        company_context="role_grounded",
+        grounding_mode="role_grounded",
+        expected_policy="required",
+        expected_effective_policy="role_grounded",
+        expected_min_company_evidence=1,
+        expected_focus_tokens=(
+            "参加",
+            "学びたい",
+            "志望",
+            "試したい",
+            "惹",
+            "関心",
+            "期待",
+            "実践",
+            "体感",
+            "機会",
+            "鍛え",
+            "得たい",
+        ),
+        expected_user_fact_tokens=("サッカー", "キャプテン", "40名", "練習"),
+        expected_company_tokens=("Business Intelligence", "実務", "インターン"),
+        rag_sources=[
+            {
+                "content_type": "new_grad_recruitment",
+                "title": "Business Intelligence Internship",
+                "excerpt": "チームで課題に取り組み、分析を意思決定へつなげる。",
+                "source_url": "https://www.mitsui.com/jp/ja/recruit/internship/business-intelligence/",
+            },
+        ],
+    ),
+    _case(
+        case_id="self_pr_part_time_numeric_retention_medium",
+        case_set=EXTENDED_CASE_SET,
+        template_type="self_pr",
+        question="あなたの強みを220字以内で教えてください。",
+        answer="担当生徒3名それぞれの理解度を分析し、苦手分野に絞った教材を作成した結果、3名全員の偏差値を平均12ポイント向上させた。相手に合わせた伝え方を工夫し、成果に結びつける力がある。",
+        char_min=210,
+        char_max=220,
+        char_band="medium",
+        company_context="companyless",
+        grounding_mode="none",
+        expected_policy="assistive",
+        expected_effective_policy="none",
+        expected_focus_tokens=("強み", "力", "工夫"),
+        expected_user_fact_tokens=("3名", "偏差値", "12ポイント", "教材"),
+    ),
+    _case(
+        case_id="work_values_role_grounded_short",
+        case_set=EXTENDED_CASE_SET,
+        template_type="work_values",
+        question="仕事をする上で大切にしたいことを140字以内で教えてください。",
+        answer="目の前の相手が何に困っているかを正確に把握し、解決策を形にすることを大切にしたい。家庭教師の経験で、課題を特定して成果に結びつける過程にやりがいを感じた。",
+        company_name="三菱商事",
+        role_name="営業職",
+        char_min=130,
+        char_max=140,
+        char_band="short",
+        company_context="role_grounded",
+        grounding_mode="role_grounded",
+        expected_policy="assistive",
+        expected_effective_policy="role_grounded",
+        expected_min_company_evidence=1,
+        expected_focus_tokens=("大切", "価値観", "やりがい", "重視"),
+        expected_user_fact_tokens=("家庭教師", "課題", "成果"),
+        expected_company_tokens=("営業", "現場", "価値"),
+        rag_sources=[
+            {
+                "content_type": "employee_interviews",
+                "title": "社員インタビュー",
+                "excerpt": "現場で課題を見つけ、解決策を形にする。",
+                "source_url": "https://www.mitsubishicorp.com/jp/ja/recruit/people/interview/",
+            },
+        ],
     ),
 )
 

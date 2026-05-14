@@ -11,7 +11,6 @@ from dataclasses import asdict
 from typing import Any, Optional
 
 from evals.company_info_search.fixtures.search_expectations import (
-    RunJudgment as LegacyRunJudgment,
     judge_corporate_run,
     judge_recruitment_run,
 )
@@ -114,45 +113,32 @@ def _find_raw_official_rank(record: RunRecord) -> Optional[int]:
     return None
 
 
-def _convert_legacy_judgment(
-    legacy: LegacyRunJudgment,
+def _enrich_judgment(
+    judgment: RunJudgment,
     record: RunRecord,
 ) -> RunJudgment:
-    """Convert a legacy RunJudgment to our enhanced RunJudgment with grade."""
-    j = RunJudgment(
-        passed=legacy.passed,
-        official_found=legacy.official_found,
-        official_rank=legacy.official_rank,
-        source_type_correct=legacy.source_type_correct,
-        company_match_correct=legacy.company_match_correct,
-        year_match_correct=legacy.year_match_correct,
-        url_pattern_match=legacy.url_pattern_match,
-        confidence_appropriate=legacy.confidence_appropriate,
-        details=legacy.details,
-        failure_reasons=list(legacy.failure_reasons),
-    )
-
+    """Add graded fields to a base RunJudgment."""
     # Compute raw official rank
-    j.raw_official_rank = _find_raw_official_rank(record)
+    judgment.raw_official_rank = _find_raw_official_rank(record)
 
     # Compute metadata score
-    j.metadata_score = _compute_metadata_score(j, record.kind)
+    judgment.metadata_score = _compute_metadata_score(judgment, record.kind)
 
     # Compute grade
     if record.error:
-        j.grade = JudgmentGrade.ERROR
+        judgment.grade = JudgmentGrade.ERROR
     else:
-        j.grade = _compute_grade(
-            rank=j.official_rank,
-            metadata_score=j.metadata_score,
-            raw_official_rank=j.raw_official_rank,
+        judgment.grade = _compute_grade(
+            rank=judgment.official_rank,
+            metadata_score=judgment.metadata_score,
+            raw_official_rank=judgment.raw_official_rank,
         )
-    j.grade_score = j.grade.score
+    judgment.grade_score = judgment.grade.score
 
     # Ensure passed is consistent with grade
-    j.passed = j.grade.is_pass
+    judgment.passed = judgment.grade.is_pass
 
-    return j
+    return judgment
 
 
 def _required_signals_ok(judgment: RunJudgment, kind: str) -> bool:
@@ -215,7 +201,7 @@ class ResultJudge:
 
         # Call existing judgment functions
         if record.kind.startswith("recruitment_"):
-            legacy_j = judge_recruitment_run(
+            base_judgment = judge_recruitment_run(
                 candidates=record.candidates,
                 raw_results=raw_dicts,
                 domain_patterns=domain_patterns,
@@ -223,7 +209,7 @@ class ResultJudge:
             )
         elif record.kind.startswith("content_type:"):
             content_type = record.kind.split(":", 1)[1]
-            legacy_j = judge_corporate_run(
+            base_judgment = judge_corporate_run(
                 candidates=record.candidates,
                 raw_results=raw_dicts,
                 domain_patterns=domain_patterns,
@@ -239,8 +225,7 @@ class ResultJudge:
                 details="Meta/skip",
             )
 
-        # Convert to enhanced judgment with grade
-        judgment = _convert_legacy_judgment(legacy_j, record)
+        judgment = _enrich_judgment(base_judgment, record)
         judgment.failure_codes = _build_failure_codes(judgment, record.kind)
 
         required_ok = _required_signals_ok(judgment, record.kind)

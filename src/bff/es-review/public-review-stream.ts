@@ -1,3 +1,11 @@
+import type {
+  EvidenceCoverageLevel,
+  FinalAcceptanceSource,
+  GroundingMode,
+  PublicReviewMeta,
+  ValidationStatus,
+} from "@/shared/contracts/es-review-sse";
+
 type PublicESReviewSource = {
   source_url: string;
   content_type: string;
@@ -5,25 +13,6 @@ type PublicESReviewSource = {
   title?: string;
   domain?: string;
   excerpt?: string;
-};
-
-type PublicReviewMeta = {
-  llm_provider?: string;
-  llm_model?: string | null;
-  llm_model_alias?: string | null;
-  review_variant?: string;
-  grounding_mode?: string;
-  primary_role?: string;
-  reference_es_count?: number;
-  evidence_coverage_level?: string;
-  weak_evidence_notice?: boolean;
-  rewrite_validation_status?: string;
-  rewrite_validation_user_hint?: string | null;
-  final_acceptance_source?: string;
-  ai_smell_tier?: number;
-  concrete_marker_count?: number;
-  opening_conclusion_chars?: number;
-  rewrite_sentence_count?: number;
 };
 
 const PROGRESS_COPY: Record<string, { label: string; subLabel?: string }> = {
@@ -50,6 +39,11 @@ function numberValue(value: unknown): number | undefined {
 
 function booleanValue(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function stringValueAs<T extends string>(value: unknown): T | undefined {
+  const text = stringValue(value);
+  return text as T | undefined;
 }
 
 function sanitizeProgress(event: Record<string, unknown>): Record<string, unknown> {
@@ -98,16 +92,22 @@ function sanitizeReviewMeta(value: unknown): PublicReviewMeta | undefined {
     ...(typeof meta.llm_model === "string" || meta.llm_model === null ? { llm_model: meta.llm_model } : {}),
     ...(typeof meta.llm_model_alias === "string" || meta.llm_model_alias === null ? { llm_model_alias: meta.llm_model_alias } : {}),
     ...(stringValue(meta.review_variant) ? { review_variant: stringValue(meta.review_variant) } : {}),
-    ...(stringValue(meta.grounding_mode) ? { grounding_mode: stringValue(meta.grounding_mode) } : {}),
+    ...(stringValueAs<GroundingMode>(meta.grounding_mode) ? { grounding_mode: stringValueAs<GroundingMode>(meta.grounding_mode) } : {}),
     ...(stringValue(meta.primary_role) ? { primary_role: stringValue(meta.primary_role) } : {}),
     ...(numberValue(meta.reference_es_count) !== undefined ? { reference_es_count: numberValue(meta.reference_es_count) } : {}),
-    ...(stringValue(meta.evidence_coverage_level) ? { evidence_coverage_level: stringValue(meta.evidence_coverage_level) } : {}),
+    ...(stringValueAs<EvidenceCoverageLevel>(meta.evidence_coverage_level)
+      ? { evidence_coverage_level: stringValueAs<EvidenceCoverageLevel>(meta.evidence_coverage_level) }
+      : {}),
     ...(booleanValue(meta.weak_evidence_notice) !== undefined ? { weak_evidence_notice: booleanValue(meta.weak_evidence_notice) } : {}),
-    ...(stringValue(meta.rewrite_validation_status) ? { rewrite_validation_status: stringValue(meta.rewrite_validation_status) } : {}),
+    ...(stringValueAs<ValidationStatus>(meta.rewrite_validation_status)
+      ? { rewrite_validation_status: stringValueAs<ValidationStatus>(meta.rewrite_validation_status) }
+      : {}),
     ...(typeof meta.rewrite_validation_user_hint === "string" || meta.rewrite_validation_user_hint === null
       ? { rewrite_validation_user_hint: meta.rewrite_validation_user_hint }
       : {}),
-    ...(stringValue(meta.final_acceptance_source) ? { final_acceptance_source: stringValue(meta.final_acceptance_source) } : {}),
+    ...(stringValueAs<FinalAcceptanceSource>(meta.final_acceptance_source)
+      ? { final_acceptance_source: stringValueAs<FinalAcceptanceSource>(meta.final_acceptance_source) }
+      : {}),
     ...(numberValue(meta.ai_smell_tier) !== undefined ? { ai_smell_tier: numberValue(meta.ai_smell_tier) } : {}),
     ...(numberValue(meta.concrete_marker_count) !== undefined ? { concrete_marker_count: numberValue(meta.concrete_marker_count) } : {}),
     ...(numberValue(meta.opening_conclusion_chars) !== undefined ? { opening_conclusion_chars: numberValue(meta.opening_conclusion_chars) } : {}),

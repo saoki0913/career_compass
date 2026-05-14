@@ -10,6 +10,15 @@ interface UseCompanySuggestionsResult {
   isLoading: boolean;
 }
 
+export const COMPANY_SUGGESTIONS_MIN_QUERY_LENGTH = 2;
+
+export function normalizeCompanySuggestionsQuery(query: string): string | null {
+  const normalizedQuery = query.trim();
+  return normalizedQuery.length >= COMPANY_SUGGESTIONS_MIN_QUERY_LENGTH
+    ? normalizedQuery
+    : null;
+}
+
 export function useCompanySuggestions(
   query: string,
   debounceMs: number = 200
@@ -17,30 +26,39 @@ export function useCompanySuggestions(
   const [suggestions, setSuggestions] = useState<CompanySuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
-    // Clear suggestions if query is too short
-    if (query.trim().length < 1) {
+    const normalizedQuery = normalizeCompanySuggestionsQuery(query);
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
+    let isActive = true;
+
+    if (!normalizedQuery) {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
       setSuggestions([]);
       setIsLoading(false);
-      return;
+      return () => {
+        isActive = false;
+      };
     }
 
-    // Debounce the API call
     const timeoutId = setTimeout(async () => {
-      // Cancel previous request if any
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-
-      abortControllerRef.current = new AbortController();
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       setIsLoading(true);
 
       try {
         const response = await fetch(
-          `/api/companies/suggestions?q=${encodeURIComponent(query.trim())}`,
-          { signal: abortControllerRef.current.signal }
+          `/api/companies/suggestions?q=${encodeURIComponent(normalizedQuery)}`,
+          { signal: controller.signal }
         );
+
+        if (!isActive || requestSeqRef.current !== requestSeq) {
+          return;
+        }
 
         if (response.ok) {
           const data = await response.json();
@@ -49,29 +67,28 @@ export function useCompanySuggestions(
           setSuggestions([]);
         }
       } catch (error) {
-        // Ignore abort errors
-        if (error instanceof Error && error.name !== "AbortError") {
+        const isAbortError = error instanceof Error && error.name === "AbortError";
+        if (!isAbortError && isActive && requestSeqRef.current === requestSeq) {
           console.error("Failed to fetch company suggestions:", error);
           setSuggestions([]);
         }
       } finally {
-        setIsLoading(false);
+        if (isActive && requestSeqRef.current === requestSeq) {
+          if (abortControllerRef.current === controller) {
+            abortControllerRef.current = null;
+          }
+          setIsLoading(false);
+        }
       }
     }, debounceMs);
 
     return () => {
+      isActive = false;
       clearTimeout(timeoutId);
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
     };
   }, [query, debounceMs]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
-  }, []);
 
   return { suggestions, isLoading };
 }

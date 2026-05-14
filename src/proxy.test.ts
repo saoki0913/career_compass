@@ -1,13 +1,25 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+function getDirective(csp: string | null, directive: string): string {
+  return (csp ?? "")
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith(`${directive} `)) ?? "";
+}
+
 describe("proxy CSP", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
   it("adds a nonce-based CSP to authenticated product routes", async () => {
     const { proxy } = await import("@/proxy");
     const request = new NextRequest("http://localhost:3000/dashboard", {
       headers: {
         accept: "text/html",
-        cookie: "__Secure-better-auth.session_token=session-token",
+        cookie: "__Secure-better-auth.session_token=session-token; better-auth.session_token=session-token",
       },
     });
 
@@ -32,6 +44,52 @@ describe("proxy CSP", () => {
     expect(response.status).toBe(200);
   });
 
+  it("normalizes stale profile callbacks for unauthenticated protected routes", async () => {
+    const { proxy } = await import("@/proxy");
+    const request = new NextRequest("http://localhost:3000/settings/profile", {
+      headers: {
+        accept: "text/html",
+      },
+    });
+
+    const response = await proxy(request);
+    const location = response.headers.get("location");
+
+    expect(response.status).toBe(307);
+    expect(location).toContain("/login?callbackUrl=%2Fprofile");
+  });
+
+  it("keeps /profile protected and returns to it after login", async () => {
+    const { proxy } = await import("@/proxy");
+    const request = new NextRequest("http://localhost:3000/profile", {
+      headers: {
+        accept: "text/html",
+      },
+    });
+
+    const response = await proxy(request);
+    const location = response.headers.get("location");
+
+    expect(response.status).toBe(307);
+    expect(location).toContain("/login?callbackUrl=%2Fprofile");
+  });
+
+  it("uses normalized callback URLs when authenticated users visit login", async () => {
+    const { proxy } = await import("@/proxy");
+    const request = new NextRequest("http://localhost:3000/login?callbackUrl=/settings/profile", {
+      headers: {
+        accept: "text/html",
+        cookie: "__Secure-better-auth.session_token=session-token; better-auth.session_token=session-token",
+      },
+    });
+
+    const response = await proxy(request);
+    const location = response.headers.get("location");
+
+    expect(response.status).toBe(307);
+    expect(location).toBe("http://localhost:3000/profile");
+  });
+
   it("adds a nonce-based CSP to public marketing routes too", async () => {
     const { proxy } = await import("@/proxy");
     const request = new NextRequest("http://localhost:3000/", {
@@ -47,6 +105,38 @@ describe("proxy CSP", () => {
     expect(csp).toContain("script-src 'self'");
     expect(csp).toContain("'nonce-");
     expect(csp).toContain("'strict-dynamic'");
+  });
+
+  it("includes configured Sentry ingest origin in HTML connect-src", async () => {
+    vi.stubEnv(
+      "NEXT_PUBLIC_SENTRY_DSN",
+      "https://public-key@o4511335749058560.ingest.us.sentry.io/4511335849132032"
+    );
+    const { proxy } = await import("@/proxy");
+    const request = new NextRequest("http://localhost:3000/dashboard", {
+      headers: {
+        accept: "text/html",
+        cookie: "__Secure-better-auth.session_token=session-token",
+      },
+    });
+
+    const response = await proxy(request);
+    const connectSrc = getDirective(response.headers.get("Content-Security-Policy"), "connect-src");
+
+    expect(connectSrc).toContain("https://o4511335749058560.ingest.us.sentry.io");
+    expect(connectSrc).not.toContain("public-key");
+  });
+
+  it("does not attach CSP to API or static asset requests", async () => {
+    const { proxy } = await import("@/proxy");
+
+    const apiResponse = await proxy(new NextRequest("http://localhost:3000/api/auth/plan"));
+    const staticResponse = await proxy(new NextRequest("http://localhost:3000/favicon.ico", {
+      headers: { accept: "text/html" },
+    }));
+
+    expect(apiResponse.headers.get("Content-Security-Policy")).toBeNull();
+    expect(staticResponse.headers.get("Content-Security-Policy")).toBeNull();
   });
 });
 

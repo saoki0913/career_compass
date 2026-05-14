@@ -3,6 +3,7 @@
 import type { ConversationStreamAdapter } from "@/hooks/conversation";
 import { streamGakuchikaConversation } from "@/features/gakuchika/application/client-api";
 import { getDefaultConversationState } from "@/features/gakuchika/domain/conversation-state";
+import { sanitizeSSEErrorMessage } from "@/shared/errors/user-safe-message";
 import {
   getProcessingPhase,
   normalizeGakuchikaMessages,
@@ -107,7 +108,10 @@ export function createGakuchikaStreamAdapter(deps: {
       if (event.type === "error") {
         return {
           action: "error",
-          message: (event.message as string) || "AIエラーが発生しました",
+          message: sanitizeSSEErrorMessage(event.message, "AIエラーが発生しました"),
+          code: typeof event.code === "string" ? event.code : undefined,
+          action_hint: typeof event.action === "string" ? event.action : undefined,
+          retryable: typeof event.retryable === "boolean" ? event.retryable : undefined,
           context,
         };
       }

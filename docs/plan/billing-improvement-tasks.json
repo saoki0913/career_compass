@@ -125,7 +125,7 @@
       "title": "staging → 本番デプロイ",
       "phase": 5,
       "priority": "P0",
-      "status": "pending",
+      "status": "in_progress",
       "assignee": "release-engineer",
       "files": []
     }

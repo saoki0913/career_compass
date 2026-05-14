@@ -1,5 +1,10 @@
 # LLM/RAG セキュリティ監査 -- OWASP LLM Top 10 準拠
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+> **現状同期メモ（2026-05-13）**: RAG stored injection の sanitize / risk metadata / quarantine / tenant isolation は一部実装済み。次の P0 は `RagChunkMetadata` 型契約、private material の OCR/embedding 前 gate、Chroma/BM25/Redis 削除 receipt の実測化、cache invalidation である。詳細タスクは `plan-sync:rag-metadata-contract` を参照する。
+
+
 作成日: 2026-05-04 JST
 
 ## 1. 目的・スコープ

@@ -45,15 +45,14 @@ from ._prompt_builder import (
     build_template_rewrite_prompt,
     draft_synthetic_question_company_motivation,
     get_template_company_grounding_policy,
-    get_template_company_usage,
     get_template_default_grounding_level,
     get_template_evaluation_axes,
     get_template_evaluation_checks,
     get_template_fact_priority,
-    get_template_labels,
     get_template_retry_guidance,
     get_template_spec,
     grounding_level_to_policy,
+    RewriteStrategy,
 )
 from ._rag_profiles import (
     TEMPLATE_RAG_PROFILES,

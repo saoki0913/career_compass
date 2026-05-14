@@ -39,9 +39,20 @@ import {
 import { GakuchikaListPageHeaderSkeleton } from "@/components/skeletons/GakuchikaListPageHeaderSkeleton";
 import type { FilterTab, SortOption } from "@/components/shared";
 import { Reorder } from "framer-motion";
-import { reportUserFacingError } from "@/lib/client-error-ui";
+import { parseApiErrorResponse, toAppUiError, type AppUiError, type UserFacingError } from "@/lib/api-errors";
+import { notifyUserFacingAppError, reportUserFacingError } from "@/lib/client-error-ui";
+import {
+  createGakuchika,
+  deleteGakuchika,
+  fetchGakuchikaList,
+  reorderGakuchikas,
+  updateGakuchikaTitle,
+  type GakuchikaCreateResponse,
+  type GakuchikaListResponse,
+} from "@/lib/gakuchika/client-api";
 import { getGakuchikaListStatusKey } from "@/lib/gakuchika/list-status";
 import {
+  AlertCircle,
   GripVertical,
   Pencil,
   Trash2,
@@ -51,6 +62,7 @@ import {
   Layers,
   List,
   Loader2,
+  RefreshCcw,
 } from "lucide-react";
 
 // Filter tabs
@@ -72,12 +84,6 @@ const sortOptions: SortOption[] = [
 ];
 
 type SortKey = "date_desc" | "date_asc" | "title_asc" | "title_desc";
-
-function buildHeaders(): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-  };
-}
 
 // ─── New Gakuchika Modal ────────────────────────────────────────────
 
@@ -120,9 +126,11 @@ function NewGakuchikaModal({
       onClose();
     } catch (err) {
       setError(reportUserFacingError(err, {
-        code: "GAKUCHIKA_FETCH_FAILED",
-        userMessage: "ガクチカ一覧を読み込めませんでした。",
-      }, "GakuchikaPage:fetch"));
+        code: "GAKUCHIKA_CREATE_FAILED",
+        userMessage: "ガクチカを作成できませんでした。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        retryable: true,
+      }, "GakuchikaPage:create"));
     } finally {
       setIsSubmitting(false);
     }
@@ -217,6 +225,48 @@ function NewGakuchikaModal({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+interface GakuchikaListErrorStateProps {
+  error: UserFacingError;
+  isRetrying: boolean;
+  onRetry: () => void;
+}
+
+function GakuchikaListErrorState({
+  error,
+  isRetrying,
+  onRetry,
+}: GakuchikaListErrorStateProps) {
+  return (
+    <div className="flex min-h-[360px] flex-col items-center justify-center px-4 py-16 text-center">
+      <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
+        <AlertCircle className="h-7 w-7 text-destructive/70" aria-hidden="true" />
+      </div>
+      <h3 className="text-lg font-semibold text-foreground">
+        ガクチカ一覧を読み込めませんでした
+      </h3>
+      <p className="mt-2 max-w-md text-sm text-muted-foreground">
+        保存済みの内容は削除されていません。通信状況を確認して、もう一度読み込んでください。
+      </p>
+      {error.action ? (
+        <p className="mt-1 max-w-md text-xs text-muted-foreground">{error.action}</p>
+      ) : null}
+      <Button
+        type="button"
+        onClick={onRetry}
+        disabled={isRetrying}
+        className="mt-6"
+      >
+        {isRetrying ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+        )}
+        <span className="ml-1.5">{isRetrying ? "読み込み中..." : "再読み込み"}</span>
+      </Button>
+    </div>
   );
 }
 
@@ -409,6 +459,7 @@ export default function GakuchikaListPage() {
   const { isReady, isAuthenticated } = useAuth();
   const [gakuchikas, setGakuchikas] = useState<Gakuchika[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<AppUiError | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [currentCount, setCurrentCount] = useState(0);
   const [maxCount, setMaxCount] = useState(0);
@@ -443,29 +494,48 @@ export default function GakuchikaListPage() {
       setIsLoading(true);
     }
     try {
-      const response = await fetch("/api/gakuchika", {
-        headers: buildHeaders(),
-        credentials: "include",
-      });
+      const response = await fetchGakuchikaList();
 
       if (!response.ok) {
-        throw new Error("Failed to fetch");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "GAKUCHIKA_LIST_FETCH_FAILED",
+            userMessage: "ガクチカ一覧を読み込めませんでした。",
+            action: "時間を置いて、もう一度読み込んでください。",
+            retryable: true,
+          },
+          "GakuchikaListPage.fetchGakuchikas",
+        );
       }
 
-      const data = await response.json();
+      const data = await response.json() as GakuchikaListResponse;
       setGakuchikas(data.gakuchikas || []);
       setCurrentCount(data.currentCount ?? 0);
       setMaxCount(data.maxCount ?? 0);
       setQuotaLoaded(true);
+      setLoadError(null);
     } catch (err) {
-      console.error("Error fetching gakuchikas:", err);
-      setQuotaLoaded(false);
+      const ui = toAppUiError(
+        err,
+        {
+          code: "GAKUCHIKA_LIST_FETCH_FAILED",
+          userMessage: "ガクチカ一覧を読み込めませんでした。",
+          action: "時間を置いて、もう一度読み込んでください。",
+          retryable: true,
+        },
+        "GakuchikaListPage.fetchGakuchikas",
+      );
+      notifyUserFacingAppError(ui);
+      if (!silent || gakuchikas.length === 0) {
+        setLoadError(ui);
+      }
     } finally {
       if (!silent) {
         setIsLoading(false);
       }
     }
-  }, []);
+  }, [gakuchikas.length]);
 
   const prevPathnameRef = useRef<string | null>(null);
 
@@ -498,19 +568,22 @@ export default function GakuchikaListPage() {
   }, [isAuthenticated, pathname, fetchGakuchikas]);
 
   const handleCreate = async (title: string, content: string) => {
-    const response = await fetch("/api/gakuchika", {
-      method: "POST",
-      headers: buildHeaders(),
-      credentials: "include",
-      body: JSON.stringify({ title, content }),
-    });
+    const response = await createGakuchika({ title, content });
 
     if (!response.ok) {
-      const data = await response.json();
-      throw new Error(data.error || "Failed to create");
+      throw await parseApiErrorResponse(
+        response,
+        {
+          code: "GAKUCHIKA_CREATE_FAILED",
+          userMessage: "ガクチカを作成できませんでした。",
+          action: "入力内容を確認して、もう一度お試しください。",
+          retryable: true,
+        },
+        "GakuchikaListPage.handleCreate",
+      );
     }
 
-    const data = await response.json();
+    const data = await response.json() as GakuchikaCreateResponse;
     router.push(`/gakuchika/${data.gakuchika.id}`);
   };
 
@@ -528,15 +601,19 @@ export default function GakuchikaListPage() {
     if (!editTitle.trim()) return;
 
     try {
-      const response = await fetch(`/api/gakuchika/${id}`, {
-        method: "PUT",
-        headers: buildHeaders(),
-        credentials: "include",
-        body: JSON.stringify({ title: editTitle.trim() }),
-      });
+      const response = await updateGakuchikaTitle(id, editTitle.trim());
 
       if (!response.ok) {
-        throw new Error("Failed to update");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "GAKUCHIKA_UPDATE_FAILED",
+            userMessage: "ガクチカを更新できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaListPage.handleEditSave",
+        );
       }
 
       setGakuchikas((prev) =>
@@ -545,7 +622,12 @@ export default function GakuchikaListPage() {
       setEditingId(null);
       setEditTitle("");
     } catch (err) {
-      console.error("Error updating title:", err);
+      reportUserFacingError(err, {
+        code: "GAKUCHIKA_UPDATE_FAILED",
+        userMessage: "ガクチカを更新できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+      }, "GakuchikaListPage.handleEditSave");
     }
   };
 
@@ -562,27 +644,38 @@ export default function GakuchikaListPage() {
 
     setIsDeleting(true);
     try {
-      const response = await fetch(`/api/gakuchika/${deleteId}`, {
-        method: "DELETE",
-        headers: buildHeaders(),
-        credentials: "include",
-      });
+      const response = await deleteGakuchika(deleteId);
 
       if (!response.ok) {
-        throw new Error("Failed to delete");
+        throw await parseApiErrorResponse(
+          response,
+          {
+            code: "GAKUCHIKA_DELETE_FAILED",
+            userMessage: "ガクチカを削除できませんでした。",
+            action: "時間を置いて、もう一度お試しください。",
+            retryable: true,
+          },
+          "GakuchikaListPage.handleDeleteConfirm",
+        );
       }
 
       setGakuchikas((prev) => prev.filter((g) => g.id !== deleteId));
       setCurrentCount((prev) => Math.max(0, prev - 1));
       setDeleteId(null);
     } catch (err) {
-      console.error("Error deleting gakuchika:", err);
+      reportUserFacingError(err, {
+        code: "GAKUCHIKA_DELETE_FAILED",
+        userMessage: "ガクチカを削除できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+      }, "GakuchikaListPage.handleDeleteConfirm");
     } finally {
       setIsDeleting(false);
     }
   };
 
   const handleReorder = (newOrder: Gakuchika[]) => {
+    const previousOrder = gakuchikas;
     setGakuchikas(newOrder);
 
     if (reorderTimeoutRef.current) {
@@ -592,14 +685,27 @@ export default function GakuchikaListPage() {
     reorderTimeoutRef.current = setTimeout(async () => {
       try {
         const orderedIds = newOrder.map((g) => g.id);
-        await fetch("/api/gakuchika/reorder", {
-          method: "PATCH",
-          headers: buildHeaders(),
-          credentials: "include",
-          body: JSON.stringify({ orderedIds }),
-        });
+        const response = await reorderGakuchikas(orderedIds);
+        if (!response.ok) {
+          throw await parseApiErrorResponse(
+            response,
+            {
+              code: "GAKUCHIKA_REORDER_FAILED",
+              userMessage: "ガクチカの並び替えを保存できませんでした。",
+              action: "一覧を再読み込みして、もう一度お試しください。",
+              retryable: true,
+            },
+            "GakuchikaListPage.handleReorder",
+          );
+        }
       } catch (err) {
-        console.error("Error reordering:", err);
+        setGakuchikas(previousOrder);
+        reportUserFacingError(err, {
+          code: "GAKUCHIKA_REORDER_FAILED",
+          userMessage: "ガクチカの並び替えを保存できませんでした。",
+          action: "一覧を再読み込みして、もう一度お試しください。",
+          retryable: true,
+        }, "GakuchikaListPage.handleReorder");
       }
     }, 500);
   };
@@ -791,6 +897,12 @@ export default function GakuchikaListPage() {
         {/* Content */}
         {isLoading ? (
           <ListPageSkeleton variant="gakuchika" />
+        ) : loadError && gakuchikas.length === 0 ? (
+          <GakuchikaListErrorState
+            error={loadError}
+            isRetrying={isLoading}
+            onRetry={() => void fetchGakuchikas()}
+          />
         ) : gakuchikas.length === 0 ? (
           <ListPageEmptyState
             icon={
@@ -878,7 +990,7 @@ export default function GakuchikaListPage() {
         )}
 
         {/* Mobile FAB */}
-        {!isLoading && (
+        {!isLoading && !(loadError && gakuchikas.length === 0) && (
           <Button
             onClick={() => setShowNewModal(true)}
             disabled={isAtLimit}

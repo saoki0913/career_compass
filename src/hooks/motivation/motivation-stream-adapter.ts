@@ -2,6 +2,7 @@
 
 import type { ConversationStreamAdapter } from "@/hooks/conversation";
 import { streamMotivationConversation } from "@/features/motivation/application/client-api";
+import { sanitizeSSEErrorMessage } from "@/shared/errors/user-safe-message";
 import type {
   CausalGap,
   ConversationMode,
@@ -106,7 +107,10 @@ export function createMotivationStreamAdapter(deps: {
       if (event.type === "error") {
         return {
           action: "error",
-          message: (event.message as string) || "AIサービスでエラーが発生しました",
+          message: sanitizeSSEErrorMessage(event.message, "AIサービスでエラーが発生しました"),
+          code: typeof event.code === "string" ? event.code : undefined,
+          action_hint: typeof event.action === "string" ? event.action : undefined,
+          retryable: typeof event.retryable === "boolean" ? event.retryable : undefined,
           context,
         };
       }

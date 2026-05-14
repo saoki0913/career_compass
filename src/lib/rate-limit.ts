@@ -9,7 +9,8 @@
  */
 
 import { Ratelimit } from "@upstash/ratelimit";
-import { Redis } from "@upstash/redis";
+import { createHash } from "crypto";
+import { getRedis, getRedisNamespace, isRedisConfigured } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,6 +43,9 @@ export const RATE_LIMITS = {
   corporateDelete: { maxTokens: 4, refillRate: 0.1, windowMs: 60000 },
   statusPoll: { maxTokens: 30, refillRate: 0.5, windowMs: 60000 },
   guestAuth: { maxTokens: 5, refillRate: 0.08, windowMs: 60000 },
+  guestAuthAnonymous: { maxTokens: 10, refillRate: 0.16, windowMs: 60000 },
+  companySuggestions: { maxTokens: 40, refillRate: 1, windowMs: 60000 },
+  companyLogo: { maxTokens: 120, refillRate: 2, windowMs: 60000 },
   contact: { maxTokens: 3, refillRate: 0.05, windowMs: 60000 },
   guestMigrate: { maxTokens: 3, refillRate: 0.033, windowMs: 60000 },
 } as const;
@@ -52,28 +56,19 @@ export const RATE_LIMITS = {
 
 const upstashLimiters = new Map<string, Ratelimit>();
 
-function isUpstashConfigured(): boolean {
-  return !!(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
-}
-
 function getUpstashLimiter(operation: string, config: RateLimitConfig): Ratelimit {
   const existing = upstashLimiters.get(operation);
   if (existing) return existing;
 
-  const redis = new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL!,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-  });
-
   // Match the in-memory semantics: refillRate is tokens per second.
   const limiter = new Ratelimit({
-    redis,
+    redis: getRedis()!,
     limiter: Ratelimit.tokenBucket(
       config.refillRate,
       "1000 ms",
       config.maxTokens     // maxTokens (burst)
     ),
-    prefix: `rl:${operation}`,
+    prefix: `cc:${getRedisNamespace()}:rl:${operation}`,
     analytics: false,
   });
 
@@ -168,7 +163,7 @@ export async function checkRateLimit(
   const op = operation || key.split(":")[0];
 
   // Fallback to in-memory when Upstash is not configured
-  if (!isUpstashConfigured()) {
+  if (!isRedisConfigured()) {
     logRateLimitFallback(op, key, "upstash_unavailable");
     return checkRateLimitInMemory(key, config);
   }
@@ -198,4 +193,30 @@ export function createRateLimitKey(
 ): string {
   const identifier = userId || guestId || "anonymous";
   return `${operation}:${identifier}`;
+}
+
+function getClientIpFromHeaders(headers: Headers): string | null {
+  const directIp =
+    headers.get("cf-connecting-ip")?.trim() ||
+    headers.get("x-real-ip")?.trim();
+  if (directIp) return directIp;
+
+  const forwardedFor = headers.get("x-forwarded-for");
+  const firstForwardedIp = forwardedFor?.split(",")[0]?.trim();
+  return firstForwardedIp && firstForwardedIp.length > 0 ? firstForwardedIp : null;
+}
+
+function hashRateLimitIdentifier(identifier: string): string {
+  return createHash("sha256").update(identifier).digest("hex").slice(0, 32);
+}
+
+export function createAnonymousRateLimitKey(
+  operation: string,
+  headers: Headers
+): string {
+  const ip = getClientIpFromHeaders(headers);
+  const anonymousPrincipal = ip
+    ? `anonymous-ip:${hashRateLimitIdentifier(ip)}`
+    : "anonymous";
+  return createRateLimitKey(operation, null, anonymousPrincipal);
 }

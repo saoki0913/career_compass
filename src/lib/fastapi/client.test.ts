@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const originalFetch = global.fetch;
 
+// Implementation migrated from process.env to serverEnv (T3 Env).
 describe("fetchFastApiWithPrincipal", () => {
   beforeEach(() => {
     vi.resetModules();

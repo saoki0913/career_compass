@@ -131,7 +131,7 @@ export async function POST(
       return NextResponse.json({ summary: existingSummary, cached: true });
     }
 
-    const limitResponse = await guardDailyTokenLimit(identity);
+    const limitResponse = await guardDailyTokenLimit(identity, request);
     if (limitResponse) return limitResponse;
     const rateLimited = await enforceRateLimitLayers(
       request,

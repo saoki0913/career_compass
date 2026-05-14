@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 from urllib.parse import urlparse
 
@@ -117,10 +118,24 @@ def _format_rejected_source_log_lines(sources: list[dict[str, Any]]) -> str:
         "  "
         + f"{index}. reason={source.get('validation_reason', '-')}"
         + f" / type={source.get('content_type', '-')}"
-        + f" / title={source.get('title', '-')}"
-        + f" / url={source.get('source_url', '-')}"
+        + f" / title_hash={_hash_log_text(source.get('title'))}"
+        + f" / url_host={_url_host_for_log(str(source.get('source_url') or ''))}"
         for index, source in enumerate(sources, start=1)
     )
+
+
+def _hash_log_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "-"
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def _url_host_for_log(value: str) -> str:
+    try:
+        return urlparse(value).netloc or "-"
+    except Exception:
+        return "-"
 
 
 def _format_source_log_lines(sources: list[TemplateSource]) -> str:
@@ -129,6 +144,8 @@ def _format_source_log_lines(sources: list[TemplateSource]) -> str:
     return "\n".join(
         "  "
         + f"{index}. [{source.content_type_label or source.content_type}] "
-        + f"title={source.title or '-'} / domain={source.domain or '-'} / url={source.source_url or '-'}"
+        + f"title_hash={_hash_log_text(source.title)}"
+        + f" / domain={source.domain or '-'}"
+        + f" / url_host={_url_host_for_log(source.source_url or '')}"
         for index, source in enumerate(sources, start=1)
     )

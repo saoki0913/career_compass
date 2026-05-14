@@ -18,7 +18,6 @@ class LengthControlProfile:
     source_fill_ratio: float
     required_growth: int
     latest_failed_length: int
-    early_length_fix_after_attempt: int
 
 
 @dataclass(frozen=True)
@@ -124,34 +123,29 @@ def compute_retry_overshoot(
 
 _MODEL_FAMILY_DEFAULTS = {
     "openai_gpt5_mini": {
-        _DEFAULT_STAGE_KEY: {"short": 8, "medium": 16, "long": 20},
+        _DEFAULT_STAGE_KEY: {"short": 10, "medium": 18, "long": 20},
         _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 16, "long": 18},
-        "early_length_fix_after_attempt": 2,
     },
     "openai_gpt5": {
-        _DEFAULT_STAGE_KEY: {"short": 8, "medium": 14, "long": 18},
+        _DEFAULT_STAGE_KEY: {"short": 10, "medium": 16, "long": 18},
         _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 14, "long": 16},
-        "early_length_fix_after_attempt": 2,
     },
     "anthropic_claude": {
-        _DEFAULT_STAGE_KEY: {"short": 8, "medium": 12, "long": 14},
+        _DEFAULT_STAGE_KEY: {"short": 10, "medium": 14, "long": 14},
         _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 14, "long": 16},
-        "early_length_fix_after_attempt": 2,
     },
     "google_gemini": {
-        _DEFAULT_STAGE_KEY: {"short": 8, "medium": 12, "long": 14},
+        _DEFAULT_STAGE_KEY: {"short": 10, "medium": 14, "long": 14},
         _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 14, "long": 16},
-        "early_length_fix_after_attempt": 2,
     },
     "generic": {
-        _DEFAULT_STAGE_KEY: {"short": 8, "medium": 12, "long": 14},
+        _DEFAULT_STAGE_KEY: {"short": 10, "medium": 14, "long": 14},
         _RECOVERY_STAGE_KEY: {"short": 0, "medium": 0, "long": 0},
         _TIGHT_STAGE_KEY: {"short": 10, "medium": 14, "long": 16},
-        "early_length_fix_after_attempt": 2,
     },
 }
 
@@ -218,7 +212,6 @@ def resolve_length_control_profile(
         source_fill_ratio=round(ratio, 4),
         required_growth=required_growth,
         latest_failed_length=int(latest_failed_len or 0),
-        early_length_fix_after_attempt=int(profile["early_length_fix_after_attempt"]),
     )
 
 
@@ -293,9 +286,9 @@ def resolve_length_target_plan(
     )
 
 
-# 文字数パイプライン: メイン rewrite → _validate_rewrite_candidate →（必要時）length_fix。
+# 文字数パイプライン: メイン rewrite → focused retry → degraded / 422。
 # 内部目標帯は compute_internal_target_gap / _format_target_char_window で
-# メイン・フォールバック・length_fix プロンプトに一貫して埋め込む。
+# メイン・フォールバックプロンプトに一貫して埋め込む。
 
 
 def compute_internal_target_gap(
@@ -375,16 +368,20 @@ def _format_length_policy_block(
     )
     target_window = format_generation_target(plan)
     acceptance_band = format_acceptance_band(plan)
-    final_floor = f"{int(char_max * 0.9 + 0.999999999)}字" if char_max else "未指定"
     long_line = ""
     if char_min and char_max and char_max >= 350:
         long_line = (
             f"\n- 長文設問: 設問が求める複数の軸を削らず、{char_min}字未満で終えない。"
             "最終文まで strict 帯内に収める"
         )
+    recovery_line = ""
+    if plan.generation_exceeds_acceptance and char_max is not None:
+        recovery_line = (
+            f"\n- 文字数不足の再調整では生成時だけ上限寄せを許すが、最終提出文は必ず{char_max}字以内へ圧縮する"
+        )
     return f"""<length_policy>
 - strict受理帯: {acceptance_band}
-- 今回の内部目標帯: {target_window}
-- strictに届かない場合でも、最終段だけ {final_floor} 以上なら受理余地がある
-- ただし soft救済は最後だけで、通常段では strict を守る{long_line}
+- 今回の生成目標帯: {target_window}
+- 最終提出文は strict受理帯から外さない。文字数不足も上限超過も不合格
+- 文字数調整は新事実で埋めず、元回答にある行動の目的・対象・結果・学び・接続で行う{recovery_line}{long_line}
 </length_policy>"""

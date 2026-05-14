@@ -1,5 +1,8 @@
 # 個人情報・機密情報保護 深掘り改善計画
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+
 作成日: 2026-05-04 JST
 
 ## 1. 目的
@@ -181,7 +184,7 @@ Status は以下だけを使う。
 | Todo | P0 | AI Outbound | `AIOutboundPolicy` を導入する | `backend/app/services/es_review`, `backend/app/services/motivation`, `backend/app/services/gakuchika`, `backend/app/routers/_interview`, `backend/app/utils/llm.py` | 各 feature が LLM/OCR/embedding に送る field、最大長、禁止 field、telemetry 可否を宣言し、payload contract test が通る。 | 2026-05-04 |
 | Todo | P0 | PDF/OCR | 非公開・個人 PDF の external I/O gate を作る | `backend/app/routers/company_info_pdf.py`, `backend/app/utils/pdf_ocr.py`, `src/app/api/companies/[id]/fetch-corporate-upload/route.ts` | `source_kind`, 明示同意、分類、送信先記録がない PDF は OCR/embedding/LLM に到達しない。private material は metadata で追跡できる。 | 2026-05-04 |
 | Todo | P0 | RAG Storage | private material 由来 RAG の保存先を追跡可能にする | `backend/app/rag/vector_store.py`, `backend/app/utils/bm25_store.py`, `backend/app/utils/cache.py` | Chroma metadata、BM25 JSON、Redis key/value audit に source kind / tenant key / company id / source id が入り、削除対象を正確に特定できる。 | 2026-05-04 |
-| Todo | P0 | RAG Deletion | RAG 削除を同期検証可能にする | `delete-corporate-urls/route.ts`, `build_rag_source.py`, `vector_store.py` | URL削除、会社削除、退会で Chroma、BM25、Redis、Supabase object、`companyPdfIngestJobs` の削除結果が確認できる。失敗は retryable audit に残る。 | 2026-05-04 |
+| Todo | P0 | RAG Deletion | RAG 削除を同期検証可能にする | `delete-corporate-urls/route.ts`, `build_rag_source.py`, `vector_store.py` | URL削除、会社削除、退会で Chroma、BM25、Redis の削除結果が確認できる。失敗は retryable audit に残る。 | 2026-05-04 |
 | Todo | P0 | Account Deletion | 退会時の外部サービス revoke / 匿名化 / 残存削除を設計する | `src/app/api/settings/account/route.ts`, `src/app/api/stripe/checkout/route.ts`, `src/lib/calendar/connection.ts`, `contact_messages` | Google revoke、Stripe customer 匿名化または保持根拠、contact 匿名化、RAG削除が退会フローに含まれ、失敗時の再試行方針がある。 | 2026-05-04 |
 | Todo | P0 | Browser Payload | owner id / guest id / internal id の browser 返却を削る | `src/lib/server/*loaders.ts`, `src/app/api/documents/**`, `src/app/api/guest/migrate/route.ts` | `userId`, `guestId`, internal telemetry、不要な document content が list/create/update response に出ない。 | 2026-05-04 |
 | Todo | P1 | Logging | TS / Python logger を PII allowlist + recursive redaction にする | `src/lib/logger.ts`, `backend/app/utils/secure_logger.py`, `src/lib/fastapi/sse-proxy.ts` | email/IP/UA/userId/guest token/OAuth token/ES本文/URL query が stdout/stderr に raw 出力されない snapshot test がある。 | 2026-05-04 |
@@ -274,7 +277,7 @@ cd backend && pytest \
 
 ### 10.3 RAG 削除検証
 
-- URL 削除: Chroma chunk、BM25 JSON document、Redis context、`companyPdfIngestJobs`、Supabase object が削除される。
+- URL 削除: Chroma chunk、BM25 JSON document、Redis context が削除される。
 - 会社削除: company 配下の RAG 実体が全削除される。
 - 退会: user 配下の company/RAG/cache/storage が削除または匿名化される。
 - 再取込: URL v1 -> v2 で旧 chunk が消え、別URLは残り、失敗時は旧 v1 が残る。
@@ -350,4 +353,3 @@ where google_refresh_token is not null
 | Date | Status | Note |
 |---|---|---|
 | 2026-05-04 | Done | 現状実装を監査し、個人情報・機密情報保護の計画書を作成。実装変更は未実施。 |
-

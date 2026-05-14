@@ -1,5 +1,6 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { getDatabaseEnvStatus } from "@/env/capabilities";
 import * as relations from "./relations";
 import * as tables from "./schema";
 
@@ -9,9 +10,16 @@ declare const globalThis: typeof global & {
   __career_compass_postgres__?: ReturnType<typeof postgres>;
 };
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseEnvStatus = getDatabaseEnvStatus();
+const databaseUrl = databaseEnvStatus.configured ? databaseEnvStatus.env.DATABASE_URL : undefined;
+const missingDatabaseMessage = databaseEnvStatus.configured
+  ? undefined
+  : `Database environment is not configured: ${[
+      ...databaseEnvStatus.missing.map((key) => `${key} is missing`),
+      ...databaseEnvStatus.invalid.map((key) => `${key} is invalid`),
+    ].join(", ")}`;
 
-function createMissingDb(): PostgresJsDatabase<typeof schema> {
+function createMissingDb(message = "DATABASE_URL is not set"): PostgresJsDatabase<typeof schema> {
   // Avoid throwing at module-import time (e.g. during `next build`) so that
   // marketing pages can be built without DB creds. Any actual DB usage should
   // fail fast with a clear error.
@@ -22,7 +30,7 @@ function createMissingDb(): PostgresJsDatabase<typeof schema> {
         // Prevent accidental Promise-like behavior.
         if (prop === "then") return undefined;
         return () => {
-          throw new Error("DATABASE_URL is not set");
+          throw new Error(message);
         };
       },
     }
@@ -30,7 +38,7 @@ function createMissingDb(): PostgresJsDatabase<typeof schema> {
 }
 
 const db: PostgresJsDatabase<typeof schema> = (() => {
-  if (!databaseUrl) return createMissingDb();
+  if (!databaseEnvStatus.configured || !databaseUrl) return createMissingDb(missingDatabaseMessage);
 
   const shouldDisableSsl =
     databaseUrl.includes("localhost") || databaseUrl.includes("127.0.0.1");
@@ -44,7 +52,7 @@ const db: PostgresJsDatabase<typeof schema> = (() => {
       // Supabase requires TLS; local Postgres commonly doesn't.
       ssl: shouldDisableSsl ? false : "require",
       // Conservative default to avoid connection spikes in serverless.
-      max: Number(process.env.DATABASE_POOL_SIZE) || (shouldDisableSsl ? 10 : 5),
+      max: databaseEnvStatus.env.DATABASE_POOL_SIZE ?? (shouldDisableSsl ? 10 : 5),
       // Prevent stale connections across Vercel freeze/thaw cycles.
       idle_timeout: 20,
       connect_timeout: 10,

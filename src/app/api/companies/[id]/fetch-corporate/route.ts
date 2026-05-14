@@ -13,7 +13,7 @@ import { createApiErrorResponse } from "@/bff/api/error-response";
 import { persistCompanyRagSourcesAfterUsageReservation } from "@/bff/company-rag/persist-sources";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { companies, companyPdfIngestJobs, userProfiles } from "@/lib/db/schema";
+import { companies, userProfiles } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { headers } from "next/headers";
 import {
@@ -565,15 +565,8 @@ export async function GET(
     }
 
     const corporateInfoUrls = parseCorporateInfoSources(company.corporateInfoUrls);
-    const jobs = await db
-      .select()
-      .from(companyPdfIngestJobs)
-      .where(eq(companyPdfIngestJobs.companyId, companyId));
-
-    const jobsBySourceUrl = new Map(jobs.map((job) => [job.sourceUrl, job]));
     const backfilledUrls = await Promise.all(
       corporateInfoUrls.map(async (entry): Promise<CorporateInfoSource> => {
-        const job = jobsBySourceUrl.get(entry.url);
         const urlBackfilledType =
           entry.contentType ||
           (entry.kind !== "upload_pdf" ? detectContentTypeFromUrl(entry.url) || "corporate_site" : undefined);
@@ -597,46 +590,9 @@ export async function GET(
             }
           : compliance;
 
-        if (!job) {
-          const nextEntry: CorporateInfoSource = {
-            ...entry,
-            contentType: urlBackfilledType,
-            complianceStatus: normalizedCompliance.complianceStatus,
-            complianceReasons: normalizedCompliance.complianceReasons,
-            complianceCheckedAt: normalizedCompliance.complianceCheckedAt,
-            policyVersion: normalizedCompliance.policyVersion,
-          };
-          return {
-            ...nextEntry,
-            trustedForEsReview: inferTrustedForEsReview(nextEntry),
-          };
-        }
-
-        let secondaryContentTypes = entry.secondaryContentTypes || [];
-        if (typeof job.secondaryContentTypes === "string") {
-          try {
-            const parsedSecondary = JSON.parse(job.secondaryContentTypes);
-            if (Array.isArray(parsedSecondary)) {
-              secondaryContentTypes = parsedSecondary.filter(
-                (value): value is NonNullable<CorporateInfoSource["contentType"]> => typeof value === "string"
-              );
-            }
-          } catch {
-            // Ignore invalid JSON in legacy rows.
-          }
-        }
-
         const nextEntry: CorporateInfoSource = {
           ...entry,
-          status: job.status,
-          jobId: job.id,
-          errorMessage: job.lastError || entry.errorMessage,
-          contentType: (job.detectedContentType as CorporateInfoSource["contentType"]) || urlBackfilledType,
-          secondaryContentTypes,
-          chunksStored: job.chunksStored || entry.chunksStored,
-          extractedChars: job.extractedChars || entry.extractedChars,
-          extractionMethod: job.extractionMethod || entry.extractionMethod,
-          updatedAt: job.updatedAt?.toISOString() || entry.updatedAt,
+          contentType: urlBackfilledType,
           complianceStatus: normalizedCompliance.complianceStatus,
           complianceReasons: normalizedCompliance.complianceReasons,
           complianceCheckedAt: normalizedCompliance.complianceCheckedAt,

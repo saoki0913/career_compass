@@ -74,4 +74,11 @@ export type StreamEventResult<TDomainState, TContext = void> =
       playbackText: string;
       context: TContext;
     }
-  | { action: "error"; message: string; context: TContext };
+  | {
+      action: "error";
+      message: string;
+      code?: string;
+      action_hint?: string;
+      retryable?: boolean;
+      context: TContext;
+    };

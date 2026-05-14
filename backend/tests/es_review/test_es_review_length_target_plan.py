@@ -55,7 +55,7 @@ def test_length_policy_block_formats_acceptance_and_generation_target_separately
     )
 
     assert "strict受理帯: 390字〜400字" in block
-    assert "今回の内部目標帯: 400字" in block
+    assert "今回の生成目標帯: 400字" in block
     assert "長文設問: 設問が求める複数の軸を削らず、390字未満で終えない" in block
 
 
@@ -70,8 +70,9 @@ def test_length_policy_block_shows_overshoot_target_with_failed_len() -> None:
     )
 
     assert "strict受理帯: 390字〜400字" in block
-    assert "今回の内部目標帯: 400字〜" in block
-    assert "今回の内部目標帯: 390字" not in block
+    assert "今回の生成目標帯: 400字〜" in block
+    assert "今回の生成目標帯: 390字" not in block
+    assert "最終提出文は必ず400字以内へ圧縮する" in block
 
 
 def test_compute_retry_overshoot_various_shortfalls() -> None:
@@ -97,7 +98,7 @@ def test_length_target_plan_keeps_generation_target_for_short_openai_mini() -> N
     )
 
     assert plan.acceptance_band == LengthBand(72, 140)
-    assert plan.generation_target == LengthBand(131, 140)
+    assert plan.generation_target == LengthBand(129, 140)
     assert format_generation_target(plan) == _format_target_char_window(
         72,
         140,
@@ -109,7 +110,7 @@ def test_length_target_plan_keeps_generation_target_for_short_openai_mini() -> N
         140,
         original_len=len(answer),
         llm_model="gpt-5.4-mini",
-    ) == 9
+    ) == 11
 
 
 def test_length_target_plan_handles_one_sided_limits() -> None:
@@ -117,6 +118,6 @@ def test_length_target_plan_handles_one_sided_limits() -> None:
     min_only = resolve_length_target_plan(120, None, original_len=12)
 
     assert format_acceptance_band(max_only) == "200字以内"
-    assert format_generation_target(max_only) == "190字〜200字"
+    assert format_generation_target(max_only) == "188字〜200字"
     assert format_acceptance_band(min_only) == "120字以上"
     assert format_generation_target(min_only) == "120字以上"

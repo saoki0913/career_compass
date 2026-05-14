@@ -39,9 +39,17 @@ export function getAppOrigin(): string {
 }
 
 export function getClientAuthBaseUrl(): string {
+  const configuredUrl =
+    normalizeUrl(process.env.NEXT_PUBLIC_APP_URL) ||
+    normalizeUrl(process.env.BETTER_AUTH_URL);
+
   if (typeof window !== "undefined") {
-    return window.location.origin;
+    const currentOrigin = window.location.origin;
+    if (currentOrigin.startsWith("http://localhost") || currentOrigin.startsWith("http://127.0.0.1")) {
+      return currentOrigin;
+    }
+    return configuredUrl ?? currentOrigin;
   }
 
-  return getAppUrl();
+  return configuredUrl ?? getAppUrl();
 }

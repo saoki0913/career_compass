@@ -458,6 +458,8 @@ class TestChromaDBTenantIsolation:
         )
 
         assert result["total_deleted"] > 0
+        assert result["deletion"]["complete"] is True
+        assert result["deletion"]["residuals"] == {}
         assert len(remaining_a) > 0
         assert remaining_b == []
 
@@ -487,8 +489,13 @@ class TestChromaDBTenantIsolation:
             tenant_key=tenant_keys["tenant_b"],
         )
 
-        assert vector_store.delete_company_rag(company_id, tenant_key=tenant_keys["tenant_a"])
+        receipt = vector_store.delete_company_rag_with_receipt(
+            company_id,
+            tenant_key=tenant_keys["tenant_a"],
+        )
 
+        assert receipt.complete is True
+        assert receipt.residuals == {}
         assert not vector_store.has_company_rag(company_id, tenant_key=tenant_keys["tenant_a"])
         assert vector_store.has_company_rag(company_id, tenant_key=tenant_keys["tenant_b"])
 

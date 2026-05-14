@@ -5,7 +5,24 @@ const LOCAL_DEV_ORIGINS = [
   "http://127.0.0.1:3000",
 ];
 
-function normalizeOrigin(value?: string | null): string | null {
+const PRODUCTION_ORIGINS = [
+  "https://www.shupass.jp",
+  "https://shupass.jp",
+];
+
+function isStrictOriginValidationEnabled() {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.VERCEL_ENV === "production" ||
+    process.env.VERCEL_ENV === "preview"
+  );
+}
+
+function isProductionDeployment() {
+  return process.env.VERCEL_ENV === "production";
+}
+
+export function normalizeOrigin(value?: string | null): string | null {
   const trimmed = value?.trim();
   if (!trimmed) {
     return null;
@@ -18,40 +35,95 @@ function normalizeOrigin(value?: string | null): string | null {
   }
 }
 
-function parseOriginList(value?: string): string[] {
+function parseRawOriginEntries(value?: string): string[] {
   const trimmed = value?.trim();
   if (!trimmed) {
     return [];
   }
 
   if (trimmed.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .map((entry) => normalizeOrigin(String(entry)))
-          .filter((entry): entry is string => Boolean(entry));
-      }
-    } catch {
-      return [];
+    const parsed: unknown = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) {
+      throw new Error("BETTER_AUTH_TRUSTED_ORIGINS JSON value must be an array.");
+    }
+    return parsed.map((entry) => String(entry));
+  }
+
+  return trimmed.split(",");
+}
+
+function isLocalhostOrigin(origin: string) {
+  const { hostname, protocol } = new URL(origin);
+  return (
+    protocol === "http:" &&
+    (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1")
+  );
+}
+
+export function parseTrustedOriginList(value?: string, options: { strict?: boolean } = {}): string[] {
+  const entries = parseRawOriginEntries(value);
+  const origins: string[] = [];
+  const invalidEntries: string[] = [];
+
+  for (const entry of entries) {
+    const origin = normalizeOrigin(entry);
+    if (!origin) {
+      invalidEntries.push(entry.trim() || "(empty)");
+      continue;
+    }
+    origins.push(origin);
+  }
+
+  if (options.strict && invalidEntries.length > 0) {
+    throw new Error(`Invalid BETTER_AUTH_TRUSTED_ORIGINS entries: ${invalidEntries.join(", ")}`);
+  }
+
+  return origins;
+}
+
+function assertTrustedOriginsAreSafe(origins: Set<string>) {
+  if (origins.size === 0) {
+    throw new Error("BETTER_AUTH_TRUSTED_ORIGINS must be configured in deployed environments.");
+  }
+
+  for (const origin of origins) {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== "https:" && !isLocalhostOrigin(origin)) {
+      throw new Error("BETTER_AUTH_TRUSTED_ORIGINS must use HTTPS outside local development.");
+    }
+    if (isLocalhostOrigin(origin)) {
+      throw new Error("BETTER_AUTH_TRUSTED_ORIGINS must not include localhost in deployed environments.");
     }
   }
 
-  return trimmed
-    .split(",")
-    .map((entry) => normalizeOrigin(entry))
-    .filter((entry): entry is string => Boolean(entry));
+  if (isProductionDeployment()) {
+    for (const origin of PRODUCTION_ORIGINS) {
+      if (!origins.has(origin)) {
+        throw new Error(`BETTER_AUTH_TRUSTED_ORIGINS must include ${origin} in production.`);
+      }
+    }
+  }
 }
 
-export function getTrustedOrigins(): string[] {
-  const origins = new Set<string>(parseOriginList(process.env.BETTER_AUTH_TRUSTED_ORIGINS));
+export function getTrustedOrigins(value = process.env.BETTER_AUTH_TRUSTED_ORIGINS): string[] {
+  const strict = isStrictOriginValidationEnabled();
+  const configuredOrigins = parseTrustedOriginList(value, { strict });
+  if (strict && configuredOrigins.length === 0) {
+    throw new Error("BETTER_AUTH_TRUSTED_ORIGINS must be configured in deployed environments.");
+  }
+
+  const origins = new Set<string>(configuredOrigins);
 
   origins.add(getAppOrigin());
 
-  if (process.env.NODE_ENV !== "production") {
+  if (!strict) {
     for (const origin of LOCAL_DEV_ORIGINS) {
       origins.add(origin);
     }
+  }
+
+  if (strict) {
+    assertTrustedOriginsAreSafe(origins);
   }
 
   return [...origins];

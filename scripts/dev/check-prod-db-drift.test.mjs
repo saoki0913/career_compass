@@ -22,3 +22,17 @@ test("production DB drift check covers runtime interview persistence requirement
     assert.match(source, new RegExp(`"${columnName}"`), `${columnName} must be required`);
   }
 });
+
+test("production DB drift check covers Better Auth Admin requirements", () => {
+  for (const required of [
+    "role",
+    "banned",
+    "ban_reason",
+    "ban_expires",
+    "impersonated_by",
+    "users_role_allowed",
+  ]) {
+    assert.match(source, new RegExp(required), `${required} must be checked`);
+  }
+  assert.match(source, /better auth admin columns/i);
+});

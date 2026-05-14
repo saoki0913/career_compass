@@ -14,6 +14,7 @@ from collections import Counter
 from typing import Optional
 
 from app.config import settings
+from app.privacy.outbound_policy import prepare_outbound_text
 from app.prompts.hybrid_search_prompts import (
     HYDE_SCHEMA,
     HYDE_SYSTEM_PROMPT,
@@ -393,6 +394,41 @@ def _should_short_circuit_search(results: list[dict], n_results: int) -> bool:
         return True
 
     return False
+
+
+def _select_weak_search_llm_rescue(
+    query: str,
+    results: list[dict],
+    *,
+    profile: str,
+    effective_expand: bool,
+    effective_hyde: bool,
+) -> str:
+    """Choose one LLM-assisted rescue strategy for weak first-pass retrieval."""
+    if effective_expand and not effective_hyde:
+        return "expansion"
+    if effective_hyde and not effective_expand:
+        return "hyde"
+    if not effective_expand and not effective_hyde:
+        return "none"
+
+    q = (query or "").strip()
+    q_lower = q.lower()
+    has_fact_intent = any(kw in q_lower for kw in _DEADLINE_KEYWORDS | _FACT_KEYWORDS)
+    has_date_or_number = bool(re.search(r"(\d{4}年|\d{1,2}月|\d{1,2}日|\d+[%％])", q))
+    if profile in {"fact_lookup", "short_query"} or has_fact_intent or has_date_or_number:
+        return "expansion"
+
+    top_score = _result_confidence_score(results[0]) if results else 0.0
+    diversity = _content_type_diversity(results)
+
+    if len(q) >= 80 and profile in {"long_form", "culture_fit", "default"}:
+        return "hyde"
+    if top_score < 0.35 or diversity <= 1:
+        return "expansion"
+    if profile in {"long_form", "culture_fit"}:
+        return "hyde"
+    return "expansion"
 
 
 def _should_rerank(results: list[dict], threshold: float) -> bool:
@@ -796,13 +832,19 @@ async def expand_queries_with_llm(
     if cached is not None:
         return cached[:max_queries]
 
+    outbound_query = prepare_outbound_text(
+        query,
+        purpose="query_expansion",
+        sensitivity="user_personal",
+        retention="ephemeral",
+    ).text
     is_short = len(query) < SHORT_QUERY_THRESHOLD
 
     if is_short:
         # Lightweight prompt for short queries (e.g. "商社", "投資銀行")
         system_prompt = QUERY_EXPANSION_SYSTEM_SHORT
         user_message = QUERY_EXPANSION_USER_SHORT.format(
-            query=query,
+            query=outbound_query,
             max_queries=max_queries,
         )
         user_message += QUERY_EXPANSION_OUTPUT_FORMAT
@@ -810,7 +852,7 @@ async def expand_queries_with_llm(
         system_prompt = QUERY_EXPANSION_SYSTEM
 
         user_message = QUERY_EXPANSION_USER.format(
-            query=query,
+            query=outbound_query,
             max_queries=max_queries,
         )
 
@@ -856,7 +898,13 @@ async def generate_hypothetical_document(query: str) -> str:
 
     system_prompt = HYDE_SYSTEM_PROMPT
 
-    user_message = HYDE_USER_MESSAGE.format(query=query)
+    outbound_query = prepare_outbound_text(
+        query,
+        purpose="hyde",
+        sensitivity="user_personal",
+        retention="ephemeral",
+    ).text
+    user_message = HYDE_USER_MESSAGE.format(query=outbound_query)
 
     llm_result = await call_llm_with_error(
         system_prompt=system_prompt,
@@ -1037,6 +1085,17 @@ async def dense_hybrid_search(
             and len(query) <= EXPANSION_MAX_QUERY_CHARS
         )
         effective_hyde = use_hyde and len(query) <= HYDE_MAX_QUERY_CHARS
+        rescue_strategy = _select_weak_search_llm_rescue(
+            query,
+            initial_results,
+            profile=profile,
+            effective_expand=effective_expand,
+            effective_hyde=effective_hyde,
+        )
+        effective_expand = effective_expand and rescue_strategy == "expansion"
+        effective_hyde = effective_hyde and rescue_strategy == "hyde"
+        if settings.debug and rescue_strategy != "none":
+            logger.info("[RAG] weak initial search rescue strategy=%s", rescue_strategy)
 
         queries = [query]
         keyword_seeds = _extract_keywords(query)

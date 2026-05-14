@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.utils.public_url_guard import validate_public_url
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
@@ -34,6 +35,17 @@ async def scrape_url_with_schema(
         return FirecrawlScrapeResult(
             success=False,
             diagnostics={"error": "firecrawl_not_configured"},
+        )
+
+    validation = validate_public_url(url)
+    if not validation.allowed:
+        logger.warning("[firecrawl] rejected unsafe URL: %s", validation.reason)
+        return FirecrawlScrapeResult(
+            success=False,
+            diagnostics={
+                "error": "unsafe_url",
+                "reason": validation.reason,
+            },
         )
 
     payload = {

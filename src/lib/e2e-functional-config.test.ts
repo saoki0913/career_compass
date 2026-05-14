@@ -87,4 +87,13 @@ describe("E2E functional config", () => {
     expect(makefile).toMatch(/^test-static:/m);
     expect(makefile).toMatch(/^security-scan:/m);
   });
+
+  it("adds 3-tier test architecture Makefile targets", () => {
+    const makefile = read("Makefile");
+
+    expect(makefile).toMatch(/^test-e2e-mocked:/m);
+    expect(makefile).toMatch(/^test-e2e-live-contract:/m);
+    expect(makefile).toMatch(/^test-quality-quick:/m);
+    expect(makefile).toMatch(/^test-quality-canary:/m);
+  });
 });

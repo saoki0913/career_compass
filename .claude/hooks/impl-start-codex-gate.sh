@@ -1,5 +1,5 @@
 #!/bin/bash
-# PreToolUse (Edit|Write): Plan mode 使用後、最初の実装 Edit/Write を委譲判断まで block する。
+# PreToolUse (Edit|Write): defense-in-depth after Plan mode exit.
 # plan-exited フラグがなければ (Plan mode 未使用) 素通り。
 set -euo pipefail
 
@@ -10,6 +10,9 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../.codex/hooks/lib/codex-hook-utils.sh
 . "$HOOK_DIR/../../.codex/hooks/lib/codex-hook-utils.sh"
+if [ -z "$FILE_PATH" ]; then
+  FILE_PATH=$(printf '%s' "$INPUT" | jq -r '[.tool_input.edits[]?.file_path?, .tool_input.edits[]?.path?] | map(select(. != null and . != "")) | .[0] // empty' 2>/dev/null || true)
+fi
 if [ -z "$FILE_PATH" ]; then
   FILE_PATH=$(codex_primary_file_path "$INPUT")
 fi
@@ -37,20 +40,21 @@ if [ ! -f "$DELEGATION_FLAG" ]; then
 ⛔ 実装開始をブロックしました。
 
 Plan mode が使用されましたが、Codex 委譲判断が未完了です。
-CLAUDE.md §A: 最初の Edit|Write の前に委譲判断を行ってください。
+CLAUDE.md §A: ExitPlanMode の前に plan review と委譲判断を完了してください。
 
 手順:
-  1. AskUserQuestion で「この実装を Codex に委譲しますか？」と確認
+  1. AskUserQuestion では、人間が判断しやすい日本語で確認する
+     例: 「この実装を別のAI作業者にも担当させますか？」
      以下の情報を提示すること:
-       a. 委譲スコープ（変更対象ファイル一覧・推定変更行数）
-       b. 推奨 Codex エージェント（.codex/agents/*.toml から最適なもの）
-       c. コンテキスト準備計画（Section C-4 のどの要素を含めるか）
-       d. 推定所要時間（小: ~5min, 中: ~15min, 大: ~30min）
-       e. 委譲戦略オプション（一括 vs 分割）
+       a. どのファイル・範囲を任せるか
+       b. 任せる理由と、任せない場合の進め方
+       c. 共有する前提情報
+       d. 目安時間
+       e. 一括で任せるか、一部だけ任せるか
   2. ユーザーの回答をメモに記録
   3. フラグ設定: echo "<decision>" > $DELEGATION_FLAG
      (<decision> = delegate / no-delegate / partial)
-  4. 再度 Edit|Write を実行
+  4. 必要なら ExitPlanMode の確認 checkpoint も作成してから再度 Edit|Write を実行
 EOF
   exit 2
 fi

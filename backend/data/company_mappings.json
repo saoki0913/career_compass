@@ -52,10 +52,22 @@
   "mappings": {
     "_section_01": "=== 商社 ===",
     "_subsection_01a": "--- 総合商社 ---",
-    "三井物産": [
-      "mitsui",
-      "mitsuibussan"
-    ],
+    "三井物産": {
+      "domains": [
+        "mitsui",
+        "mitsuibussan"
+      ],
+      "logo_asset_key": "mitsui-corporate-horizontal",
+      "logo_domains": [
+        "mitsui.com"
+      ],
+      "logo_names": [
+        {
+          "key": "mitsui-and-co",
+          "name": "Mitsui & Co."
+        }
+      ]
+    },
     "三菱商事": {
       "domains": [
         "career-mc",
@@ -63,6 +75,12 @@
       ],
       "logo_domains": [
         "mitsubishicorp.com"
+      ],
+      "logo_names": [
+        {
+          "key": "mitsubishi-corporation",
+          "name": "Mitsubishi Corporation"
+        }
       ]
     },
     "伊藤忠商事": [
@@ -645,6 +663,16 @@
     "東京海上日動火災保険": {
       "domains": [
         "tokiomarine-nichido"
+      ],
+      "logo_asset_key": "tokio-marine-nichido",
+      "logo_domains": [
+        "tokiomarine-nichido.co.jp"
+      ],
+      "logo_names": [
+        {
+          "key": "tokio-marine-nichido",
+          "name": "Tokio Marine Nichido"
+        }
       ],
       "parent": "東京海上ホールディングス"
     },
@@ -4865,9 +4893,21 @@
     },
     "_section_08": "=== 不動産・建設 ===",
     "_subsection_08a": "--- デベロッパー ---",
-    "三井不動産": [
-      "mitsuifudosan"
-    ],
+    "三井不動産": {
+      "domains": [
+        "mitsuifudosan"
+      ],
+      "logo_asset_key": "mitsuifudosan-corporate",
+      "logo_domains": [
+        "mitsuifudosan.co.jp"
+      ],
+      "logo_names": [
+        {
+          "key": "mitsui-fudosan",
+          "name": "Mitsui Fudosan"
+        }
+      ]
+    },
     "三菱地所": [
       "mec"
     ],
@@ -5660,11 +5700,22 @@
       "kuronekoyamato",
       "yamato"
     ],
-    "佐川急便": [
-      "sagawa-exp.co.jp",
-      "sagawa-exp",
-      "sagawa"
-    ],
+    "佐川急便": {
+      "domains": [
+        "sagawa-exp.co.jp",
+        "sagawa-exp",
+        "sagawa"
+      ],
+      "logo_domains": [
+        "sagawa-exp.co.jp"
+      ],
+      "logo_names": [
+        {
+          "key": "sagawa-express",
+          "name": "Sagawa Express"
+        }
+      ]
+    },
     "日本通運": [
       "nipponexpress",
       "nittsu"

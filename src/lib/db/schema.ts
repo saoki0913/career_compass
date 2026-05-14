@@ -318,6 +318,9 @@ export const subscriptions = pgTable(
     status: text("status"),
     currentPeriodEnd: timestamptz("current_period_end"),
     cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    lastStripeEventId: text("last_stripe_event_id"),
+    lastStripeEventCreatedAt: timestamptz("last_stripe_event_created_at"),
+    lastEntitlementSyncedAt: timestamptz("last_entitlement_synced_at"),
     billingHoldStatus: text("billing_hold_status", { enum: ["none", "dispute"] }).notNull().default("none"),
     billingHoldReason: text("billing_hold_reason"),
     billingHoldStripeDisputeId: text("billing_hold_stripe_dispute_id"),
@@ -328,11 +331,18 @@ export const subscriptions = pgTable(
   },
   (t) => [
     // Frequently queried from Stripe webhooks.
+    uniqueIndex("subscriptions_stripe_customer_id_ux")
+      .on(t.stripeCustomerId)
+      .where(sql`${t.stripeCustomerId} is not null`),
     uniqueIndex("subscriptions_stripe_subscription_id_ux").on(t.stripeSubscriptionId),
     index("subscriptions_billing_hold_active_idx")
       .on(t.userId)
       .where(sql`${t.billingHoldStatus} <> 'none'`),
     check("subscriptions_billing_hold_status_check", sql`${t.billingHoldStatus} in ('none', 'dispute')`),
+    check(
+      "subscriptions_status_check",
+      sql`${t.status} is null or ${t.status} in ('active', 'trialing', 'past_due', 'unpaid', 'paused', 'incomplete', 'incomplete_expired', 'canceled', 'refunded', 'dispute_lost', 'free')`,
+    ),
   ]
 );
 
@@ -377,6 +387,10 @@ export const creditTransactions = pgTable(
     }).notNull(),
     referenceId: text("reference_id"),
     description: text("description"),
+    status: text("status", { enum: ["applied", "reserved", "confirmed", "canceling", "canceled"] }).notNull().default("applied"),
+    idempotencyKey: text("idempotency_key"),
+    operationId: text("operation_id"),
+    stripeEventId: text("stripe_event_id"),
     balanceAfter: integer("balance_after").notNull(),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
   },
@@ -384,6 +398,12 @@ export const creditTransactions = pgTable(
     index("credit_transactions_user_id_idx").on(t.userId),
     index("credit_transactions_user_created_at_idx").on(t.userId, t.createdAt),
     index("credit_transactions_reference_id_idx").on(t.referenceId),
+    uniqueIndex("credit_transactions_idempotency_key_ux")
+      .on(t.idempotencyKey)
+      .where(sql`${t.idempotencyKey} is not null`),
+    index("credit_transactions_operation_id_idx").on(t.operationId),
+    index("credit_transactions_stripe_event_id_idx").on(t.stripeEventId),
+    check("credit_transactions_status_check", sql`${t.status} in ('applied', 'reserved', 'confirmed', 'canceling', 'canceled')`),
   ]
 );
 
@@ -473,6 +493,7 @@ export const notifications = pgTable(
     title: text("title").notNull(),
     message: text("message").notNull(),
     data: jsonb("data").$type<JsonRecord>(),
+    sourceEventId: text("source_event_id"),
     isRead: boolean("is_read").notNull().default(false),
     createdAt: timestamptz("created_at").notNull().defaultNow(),
     expiresAt: timestamptz("expires_at"),
@@ -490,6 +511,9 @@ export const notifications = pgTable(
     index("notifications_guest_unread_created_at_idx")
       .on(t.guestId, t.createdAt.desc())
       .where(sql`${t.isRead} = false`),
+    uniqueIndex("notifications_billing_source_event_user_ux")
+      .on(t.userId, t.sourceEventId)
+      .where(sql`${t.type} = 'billing_status' and ${t.userId} is not null and ${t.sourceEventId} is not null`),
   ]
 );
 

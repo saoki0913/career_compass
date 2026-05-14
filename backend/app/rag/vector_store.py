@@ -80,6 +80,13 @@ class RagDeletionVerification:
     residuals: dict[str, int]
 
 
+@dataclass(frozen=True)
+class RagDeletionReceipt:
+    complete: bool
+    deleted: dict[str, int]
+    residuals: dict[str, int]
+
+
 def _make_ingest_session_id() -> str:
     return uuid4().hex
 
@@ -95,6 +102,9 @@ def validate_rag_source_metadata(
     company_id: str,
     source_id: str,
     consent_reference: str | None = None,
+    pii_redaction_status: str | None = None,
+    retention_until: str | None = None,
+    provider_policy: str | None = None,
 ) -> dict[str, str]:
     raw_kind = (source_kind or "corporate_public").strip()
     normalized_kind = (
@@ -109,14 +119,27 @@ def validate_rag_source_metadata(
     if not source_id:
         raise ValueError("source_id is required for RAG source metadata")
     consent = (consent_reference or "").strip()
-    if normalized_kind == "private_user_material" and not consent:
-        raise ValueError("private user material requires explicit consent")
+    redaction = (pii_redaction_status or "").strip()
+    retention = (retention_until or "").strip()
+    policy = (provider_policy or "").strip()
+    if normalized_kind == "private_user_material":
+        if not consent:
+            raise ValueError("private user material requires explicit consent")
+        if not redaction:
+            raise ValueError("private user material requires pii_redaction_status")
+        if not retention:
+            raise ValueError("private user material requires retention_until")
+        if policy != "explicit_consent_required":
+            raise ValueError("private user material requires explicit provider_policy")
     return {
         "source_kind": normalized_kind,
         "tenant_key": tenant_key,
         "company_id": company_id,
         "source_id": source_id,
         "consent_reference": consent,
+        "pii_redaction_status": redaction,
+        "retention_until": retention,
+        "provider_policy": policy,
     }
 
 
@@ -140,6 +163,56 @@ def verify_rag_deletion_complete(
         if int(value) > 0
     }
     return RagDeletionVerification(complete=not residuals, residuals=residuals)
+
+
+def _count_chroma_records(
+    company_id: str,
+    *,
+    tenant_key: str,
+    backends: Optional[list[EmbeddingBackend]] = None,
+    where_extra: Optional[dict] = None,
+) -> int:
+    total = 0
+    for backend in backends or get_configured_backends():
+        for name in _collection_names_for_backend(backend):
+            collection = _get_collection(name)
+            results = collection.get(
+                where=_company_where(company_id, tenant_key, where_extra),
+                include=[],
+            )
+            total += len(results.get("ids") or [])
+    return total
+
+
+def _bm25_exists(company_id: str, *, tenant_key: str) -> bool:
+    from app.utils.bm25_store import BM25Index
+
+    return BM25Index.exists(company_id, tenant_key=tenant_key)
+
+
+def _delete_bm25_index(company_id: str, *, tenant_key: str) -> int:
+    from app.utils.bm25_store import BM25Index
+
+    return 1 if BM25Index.delete(company_id, tenant_key=tenant_key) else 0
+
+
+def _count_bm25_source_records(
+    company_id: str,
+    *,
+    tenant_key: str,
+    source_urls: list[str],
+) -> int:
+    from app.utils.bm25_store import BM25Index
+
+    index = BM25Index.load(company_id, tenant_key=tenant_key)
+    if index is None:
+        return 0
+    source_url_set = set(source_urls)
+    return sum(
+        1
+        for doc in index.documents
+        if isinstance(doc.metadata, dict) and doc.metadata.get("source_url") in source_url_set
+    )
 
 
 def _make_source_document_id(
@@ -406,7 +479,9 @@ async def store_company_info(
         ids = []
 
         for idx, chunk in enumerate(content_chunks):
-            text = chunk.get("text", "")
+            raw_text = str(chunk.get("text", ""))
+            risk = assess_rag_injection_risk(raw_text)
+            text = sanitize_rag_context(raw_text)
             if not text or len(text.strip()) < 10:
                 continue
 
@@ -434,6 +509,9 @@ async def store_company_info(
                             metadata[key] = value
                         else:
                             metadata[key] = ""
+            metadata["injection_risk_level"] = risk.level
+            metadata["injection_risk_reasons"] = ",".join(risk.reasons[:5])
+            metadata["quarantine"] = risk.quarantine
 
             documents.append(text)
             metadatas.append(metadata)
@@ -639,11 +717,70 @@ def delete_company_rag(
                 collection.delete(where=_company_where(company_id, tenant_key))
                 deleted_any = True
         logger.info("RAG data deleted (company_id: %s...)", company_id[:8])
-        schedule_bm25_update(company_id, tenant_key=tenant_key)
+        _delete_bm25_index(company_id, tenant_key=tenant_key)
         return deleted_any
     except Exception as e:
         logger.error("delete_company_rag error: %s", e, exc_info=True)
         return False
+
+
+def delete_company_rag_with_receipt(
+    company_id: str,
+    backends: Optional[list[EmbeddingBackend]] = None,
+    *,
+    tenant_key: str,
+    redis_remaining: int = 0,
+    supabase_object_remaining: int = 0,
+    ingest_job_remaining: int = 0,
+) -> RagDeletionReceipt:
+    deleted = {"chroma": 0, "bm25": 0}
+    try:
+        read_backends = backends or get_configured_backends()
+        for backend in read_backends:
+            for name in _collection_names_for_backend(backend):
+                collection = _get_collection(name)
+                before = len(
+                    collection.get(
+                        where=_company_where(company_id, tenant_key),
+                        include=[],
+                    ).get("ids")
+                    or []
+                )
+                collection.delete(where=_company_where(company_id, tenant_key))
+                deleted["chroma"] += before
+        deleted["bm25"] = _delete_bm25_index(company_id, tenant_key=tenant_key)
+        chroma_remaining = _count_chroma_records(
+            company_id,
+            tenant_key=tenant_key,
+            backends=read_backends,
+        )
+        verification = verify_rag_deletion_complete(
+            chroma_remaining=chroma_remaining,
+            bm25_remaining=1 if _bm25_exists(company_id, tenant_key=tenant_key) else 0,
+            redis_remaining=redis_remaining,
+            supabase_object_remaining=supabase_object_remaining,
+            ingest_job_remaining=ingest_job_remaining,
+        )
+        logger.info(
+            "RAG deletion receipt (company_id: %s...) complete=%s chroma_deleted=%d bm25_deleted=%d residuals=%s",
+            company_id[:8],
+            verification.complete,
+            deleted["chroma"],
+            deleted["bm25"],
+            sorted(verification.residuals.keys()),
+        )
+        return RagDeletionReceipt(
+            complete=verification.complete,
+            deleted=deleted,
+            residuals=verification.residuals,
+        )
+    except Exception as e:
+        logger.error("delete_company_rag_with_receipt error: %s", e, exc_info=True)
+        return RagDeletionReceipt(
+            complete=False,
+            deleted=deleted,
+            residuals={"error": 1},
+        )
 
 
 # ============================================================
@@ -665,6 +802,9 @@ async def store_full_text_content(
     source_kind: str = "corporate_public",
     source_id: str | None = None,
     consent_reference: str | None = None,
+    pii_redaction_status: str | None = None,
+    retention_until: str | None = None,
+    provider_policy: str | None = None,
 ) -> dict:
     """
     Store full text content from a web page in vector database.
@@ -713,6 +853,9 @@ async def store_full_text_content(
             company_id=company_id,
             source_id=source_id or _make_source_hash(source_url),
             consent_reference=consent_reference,
+            pii_redaction_status=pii_redaction_status,
+            retention_until=retention_until,
+            provider_policy=provider_policy,
         )
         effective_type = content_type or content_channel or "corporate_site"
         chunk_size, chunk_overlap = get_chunk_settings(effective_type)
@@ -1280,7 +1423,11 @@ def delete_company_rag_by_urls(
         - total_deleted: Total chunks deleted
         - per_url: Dict mapping URL to deleted count
     """
-    result = {"total_deleted": 0, "per_url": {}}
+    result: dict[str, object] = {
+        "total_deleted": 0,
+        "per_url": {},
+        "deletion": {"complete": True, "deleted": {"chroma": 0}, "residuals": {}},
+    }
 
     if not source_urls:
         return result
@@ -1321,11 +1468,40 @@ def delete_company_rag_by_urls(
             result["total_deleted"],
             company_id[:8],
         )
-        schedule_bm25_update(company_id, tenant_key=tenant_key)
+        update_bm25_index(company_id, tenant_key=tenant_key)
+        residual_chroma = 0
+        for url in source_urls:
+            residual_chroma += _count_chroma_records(
+                company_id,
+                tenant_key=tenant_key,
+                backends=read_backends,
+                where_extra={"source_url": url},
+            )
+        verification = verify_rag_deletion_complete(
+            chroma_remaining=residual_chroma,
+            bm25_remaining=_count_bm25_source_records(
+                company_id,
+                tenant_key=tenant_key,
+                source_urls=source_urls,
+            ),
+            redis_remaining=0,
+            supabase_object_remaining=0,
+            ingest_job_remaining=0,
+        )
+        result["deletion"] = {
+            "complete": verification.complete,
+            "deleted": {"chroma": result["total_deleted"]},
+            "residuals": verification.residuals,
+        }
         return result
 
     except Exception as e:
         logger.error("delete_company_rag_by_urls error: %s", e, exc_info=True)
+        result["deletion"] = {
+            "complete": False,
+            "deleted": {"chroma": result["total_deleted"]},
+            "residuals": {"error": 1},
+        }
         return result
 
 

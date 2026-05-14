@@ -10,6 +10,10 @@ from typing import Optional, Literal
 import openai
 
 from app.config import settings
+from app.privacy.outbound_policy import prepare_outbound_text
+from app.utils.secure_logger import get_logger
+
+logger = get_logger(__name__)
 
 # Default embedding model
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
@@ -50,7 +54,7 @@ def get_available_backends() -> list[EmbeddingBackend]:
                 dimension=EMBEDDING_DIMENSION,
             )
         ]
-    print("[埋め込み] ⚠️ OPENAI_API_KEY 未設定のため埋め込み利用不可")
+    logger.warning("[埋め込み] OPENAI_API_KEY 未設定のため埋め込み利用不可")
     return []
 
 
@@ -136,22 +140,28 @@ async def generate_embedding(
 
     backend = backend or resolve_embedding_backend()
     if backend is None:
-        print(
-            "[埋め込み] ❌ 利用可能な埋め込みバックエンドなし（OPENAI_API_KEY未設定）"
-        )
+        logger.error("[埋め込み] 利用可能な埋め込みバックエンドなし（OPENAI_API_KEY未設定）")
         return None
 
     max_len = settings.embedding_max_input_chars
+    outbound = prepare_outbound_text(
+        text,
+        purpose="embedding",
+        sensitivity="private_material",
+        retention="indexed",
+        provider_policy="explicit_consent_required",
+        max_chars=max_len,
+    )
 
     try:
         client = get_openai_embedding_client()
         response = await client.embeddings.create(
             model=backend.model,
-            input=text[:max_len],
+            input=outbound.text,
         )
         return response.data[0].embedding
     except Exception as e:
-        print(f"[埋め込み] ❌ OpenAI 埋め込み失敗: {e}")
+        logger.error("[埋め込み] OpenAI 埋め込み失敗: %s", e)
         return None
 
 
@@ -181,9 +191,7 @@ async def generate_embeddings_batch(
 
     backend = backend or resolve_embedding_backend()
     if backend is None:
-        print(
-            "[埋め込み] ❌ 利用可能な埋め込みバックエンドなし（OPENAI_API_KEY未設定）"
-        )
+        logger.error("[埋め込み] 利用可能な埋め込みバックエンドなし（OPENAI_API_KEY未設定）")
         return [None] * len(texts)
 
     max_len = settings.embedding_max_input_chars
@@ -193,7 +201,11 @@ async def generate_embeddings_batch(
     # Split into batches to avoid token limit (300K max, using 250K for safety)
     batches = _split_into_token_batches(valid_texts, max_len)
     if len(batches) > 1:
-        print(f"[埋め込み] ℹ️ {len(valid_texts)}テキストを{len(batches)}バッチに分割")
+        logger.info(
+            "[埋め込み] batch split: texts=%d batches=%d",
+            len(valid_texts),
+            len(batches),
+        )
 
     results: list[Optional[list[float]]] = [None] * len(texts)
 
@@ -201,25 +213,45 @@ async def generate_embeddings_batch(
         try:
             response = await client.embeddings.create(
                 model=backend.model,
-                input=[t[:max_len] for _, t in batch],
+                input=[
+                    prepare_outbound_text(
+                        t,
+                        purpose="embedding",
+                        sensitivity="private_material",
+                        retention="indexed",
+                        provider_policy="explicit_consent_required",
+                        max_chars=max_len,
+                    ).text
+                    for _, t in batch
+                ],
             )
             for embedding_item, (orig_idx, _) in zip(response.data, batch):
                 results[orig_idx] = embedding_item.embedding
         except Exception as e:
-            print(f"[埋め込み] ❌ OpenAI バッチ埋め込み失敗: {e}")
-            print(
-                f"[埋め込み] ⚠️ バッチ失敗のため個別リトライにフォールバック ({len(batch)}件)"
+            logger.error("[埋め込み] OpenAI バッチ埋め込み失敗: %s", e)
+            logger.warning(
+                "[埋め込み] バッチ失敗のため個別リトライにフォールバック (%d件)",
+                len(batch),
             )
             for orig_idx, text in batch:
                 try:
                     response = await client.embeddings.create(
                         model=backend.model,
-                        input=text[:max_len],
+                        input=prepare_outbound_text(
+                            text,
+                            purpose="embedding",
+                            sensitivity="private_material",
+                            retention="indexed",
+                            provider_policy="explicit_consent_required",
+                            max_chars=max_len,
+                        ).text,
                     )
                     results[orig_idx] = response.data[0].embedding
                 except Exception as item_error:
-                    print(
-                        f"[埋め込み] ❌ 個別埋め込み失敗 index={orig_idx}: {item_error}"
+                    logger.error(
+                        "[埋め込み] 個別埋め込み失敗 index=%d: %s",
+                        orig_idx,
+                        item_error,
                     )
 
     return results

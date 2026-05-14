@@ -19,7 +19,7 @@ import {
   userProfiles,
   users,
 } from "@/lib/db/schema";
-import type { PlanType } from "@/lib/stripe/config";
+import type { PlanType } from "@/lib/billing/plan-metadata";
 
 const DEFAULT_TEST_EMAIL = "ci-e2e-user@shupass.jp";
 const DEFAULT_TEST_NAME = "CI E2E User";

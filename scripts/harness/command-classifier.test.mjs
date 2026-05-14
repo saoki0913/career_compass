@@ -40,6 +40,32 @@ test("detects provider and release command modes", () => {
   assert.deepEqual(classify("npx vercel deploy --prod").releaseModes, ["provider"]);
   assert.deepEqual(classify("make ops-release-check").releaseModes, ["check"]);
   assert.deepEqual(classify("make deploy-stage-all").releaseModes, ["stage-all"]);
+  assert.deepEqual(classify("make deploy-migrate").releaseModes, ["production"]);
+  assert.deepEqual(classify("make deploy-staging").releaseModes, ["staging"]);
+  assert.deepEqual(classify("make deploy-production").releaseModes, ["production"]);
+  assert.equal(classify("make doctor").releaseProvider, false);
+  assert.equal(classify("make ops-release-check").releaseReadOnly, true);
+  assert.equal(classify("zsh scripts/release/release-career-compass.sh --check").releaseReadOnly, true);
+  assert.equal(classify("zsh scripts/release/release-career-compass.sh --check --staging-only").releaseReadOnly, false);
+  assert.equal(classify("zsh scripts/release/release-career-compass.sh --check --staging-only").releaseMutating, true);
+  assert.equal(classify("zsh scripts/release/sync-career-compass-secrets.sh --check --target all").releaseReadOnly, true);
+  assert.equal(classify("zsh scripts/release/sync-career-compass-secrets.sh --check --apply --target all").releaseMutating, true);
+  assert.equal(classify("zsh scripts/release/sync-career-compass-secrets.sh --apply --target vercel-production").releaseMutating, true);
+  assert.equal(classify("zsh scripts/release/sync-career-compass-secrets.sh --apply").secretApplyProduction, true);
+  assert.equal(classify("make ops-secrets-sync SYNC_MODE=--apply TARGET=all").secretApplyProduction, true);
+  assert.equal(classify("make ops-secrets-sync SYNC_MODE=--apply").secretApplyProduction, true);
+  assert.equal(classify("node scripts/release/run-migrations.mjs --env production --dry-run").releaseReadOnly, true);
+  assert.equal(classify("node scripts/release/run-migrations.mjs --env production --json").migrationApply, true);
+  assert.equal(classify("node scripts/release/run-migrations.mjs --env local --json").migrationApply, false);
+  assert.equal(classify("node scripts/release/run-migrations.mjs --json").migrationApply, false);
+  assert.equal(classify("scripts/release/run-migrations.mjs --env production --json").migrationApply, true);
+  assert.equal(classify("make deploy-production").productionPromotion, true);
+  assert.equal(classify("scripts/release/deploy-production.sh --confirm").productionPromotion, true);
+  assert.equal(classify("make deploy-migrate").migrationApply, true);
+  assert.equal(classify("make ops-release-check deploy-production").releaseMutating, true);
+  assert.equal(classify("make ops-release-check deploy-production").releaseReadOnly, false);
+  assert.equal(classify("make ops-release-check deploy-migrate").migrationApply, true);
+  assert.equal(classify("make ops-status deploy-production").productionPromotion, true);
 });
 
 test("detects unsafe recursive delete and allows safe cache targets", () => {

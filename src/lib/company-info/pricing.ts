@@ -1,4 +1,4 @@
-import type { PlanTypeWithGuest } from "@/lib/stripe/config";
+import type { PlanTypeWithGuest } from "@/lib/billing/plan-metadata";
 
 export type CompanyInfoEligiblePlan = PlanTypeWithGuest;
 export type PaidPlan = Exclude<PlanTypeWithGuest, "guest">;

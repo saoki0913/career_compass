@@ -41,7 +41,6 @@ def load_review_meta_records(path: Path) -> list[dict[str, Any]]:
 
 def summarize_review_meta_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     retry_distribution: Counter[int] = Counter()
-    length_fix_results: Counter[str] = Counter()
     provider_counts: Counter[str] = Counter()
     model_counts: Counter[str] = Counter()
     length_profile_counts: Counter[str] = Counter()
@@ -52,7 +51,6 @@ def summarize_review_meta_records(records: list[dict[str, Any]]) -> dict[str, An
 
     for meta in records:
         retry_distribution[int(meta.get("rewrite_attempt_count") or 0)] += 1
-        length_fix_results[str(meta.get("length_fix_result") or "not_needed")] += 1
         provider_counts[str(meta.get("llm_provider") or "unknown")] += 1
         model_counts[str(meta.get("llm_model") or "unknown")] += 1
         if meta.get("length_profile_id"):
@@ -66,10 +64,8 @@ def summarize_review_meta_records(records: list[dict[str, Any]]) -> dict[str, An
             quality_signal_counts["weak_evidence_notice"] += 1
         if meta.get("length_policy") == "soft_ok":
             quality_signal_counts["soft_ok"] += 1
-        if meta.get("length_fix_result") == "soft_recovered" or meta.get("rewrite_validation_status") == "soft_ok":
-            quality_signal_counts["soft_recovered"] += 1
-        if meta.get("length_fix_attempted"):
-            quality_signal_counts["length_fix_attempted"] += 1
+        if meta.get("rewrite_validation_status") == "soft_ok":
+            quality_signal_counts["soft_ok_validation"] += 1
         if meta.get("fallback_triggered"):
             quality_signal_counts["fallback_triggered"] += 1
         if meta.get("misclassification_recovery_applied"):
@@ -98,7 +94,6 @@ def summarize_review_meta_records(records: list[dict[str, Any]]) -> dict[str, An
         "total_reviews": total,
         "retry_distribution": {str(k): v for k, v in sorted(retry_distribution.items())},
         "average_rewrite_attempts": round(average_rewrite_attempts, 3),
-        "length_fix_results": dict(length_fix_results),
         "providers": dict(provider_counts),
         "models": dict(model_counts),
         "length_profiles": dict(length_profile_counts),

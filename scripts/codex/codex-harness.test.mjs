@@ -1,15 +1,31 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { tmpdir } from "node:os";
+
+import {
+  buildDisplayArtifact,
+  buildReviewArtifact,
+  buildRunArtifact,
+  buildUserQuestionDisplay,
+} from "./agent-dialogue.mjs";
 
 const repoRoot = process.cwd();
 
 function runHook(relativePath, input) {
   return spawnSync("bash", [path.join(repoRoot, relativePath)], {
     cwd: repoRoot,
+    input,
+    encoding: "utf8",
+  });
+}
+
+function runHookWithEnv(relativePath, input, env) {
+  return spawnSync("bash", [path.join(repoRoot, relativePath)], {
+    cwd: repoRoot,
+    env: { ...process.env, ...env },
     input,
     encoding: "utf8",
   });
@@ -33,6 +49,67 @@ test("codex harness docs and commands exist", () => {
   }
 });
 
+test("codex dialogue artifacts separate internal run data from user-facing display", () => {
+  const resultDir = path.join(tmpdir(), "codex-dialogue-fixture");
+  const meta = {
+    mode: "post_review",
+    request_id: "post_review-20260513-demo",
+    model: "gpt-5.5",
+    timestamp: "2026-05-13T00:00:00Z",
+    exit_code: 0,
+    duration_ms: 1200,
+    status: "SUCCESS",
+    context_file: null,
+    timeout_sec: 3600,
+    image_count: 0,
+  };
+  const run = buildRunArtifact({ meta, resultDir, project: repoRoot });
+  const review = buildReviewArtifact({
+    meta,
+    result: [
+      "## 状態",
+      "REQUEST_CHANGES",
+      "",
+      "## 指摘",
+      "- severity: high | src/example.ts:12 | 入力値の検証が不足しています。",
+    ].join("\n"),
+    snapshot: {
+      headSha: "abc123",
+      stagedDiffHash: "internal-hash",
+      files: ["src/example.ts"],
+    },
+  });
+  const display = buildDisplayArtifact({ run, review });
+  const displayText = JSON.stringify(display);
+
+  assert.equal(review.stagedDiffHash, "internal-hash");
+  assert.equal(display.title, "コードレビューが完了");
+  assert.match(display.summary, /修正が必要/);
+  assert.doesNotMatch(displayText, /stagedDiffHash|headSha|checkpoint|meta\.json|review\.json|tool_input/);
+});
+
+test("codex question display keeps AskUserQuestion wording human-readable", () => {
+  const display = buildUserQuestionDisplay({
+    question: "この変更では、どの確認を実行しますか？",
+    recommendedOption: "必要な確認を実行する",
+    impactSummary: "選んだ確認だけを実行し、結果を見てから次へ進みます。",
+    options: [
+      {
+        label: "必要な確認を実行する",
+        description: "変更範囲に合う確認を先に済ませます。",
+      },
+      {
+        label: "今回は実行しない",
+        description: "確認を省略する理由を記録して次へ進みます。",
+      },
+    ],
+  });
+  const displayText = JSON.stringify(display);
+
+  assert.match(display.question, /どの確認を実行しますか/);
+  assert.doesNotMatch(displayText, /SESSION_ID|checkpoint|stagedDiffHash|tool_input|AskUserQuestionTool/);
+});
+
 test("git-push-guard blocks force push", () => {
   const result = runHook(".codex/hooks/git-push-guard.sh", JSON.stringify({
     command: "git push --force origin main",
@@ -50,7 +127,8 @@ test("git-push-guard blocks normal push without approval checkpoint", () => {
   }));
 
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /approval checkpoint/i);
+  assert.match(result.stderr, /push はまだ実行できません/);
+  assert.match(result.stderr, /対象コミットを確認/);
 });
 
 test("secrets-guard blocks direct secret reads", () => {
@@ -81,6 +159,17 @@ test("secrets-guard blocks bash reads of env files", () => {
 
   assert.equal(result.status, 2);
   assert.match(result.stderr, /env|key|secrets/i);
+});
+
+test("codex bash output guard scans tool_response output", () => {
+  const secret = "sk-proj-" + "1234567890abcdefghijklmnop";
+  const result = runHook(".codex/hooks/post-bash-output-guard.sh", JSON.stringify({
+    tool_name: "Bash",
+    tool_response: { stdout: `OPENAI_API_KEY=${secret}` },
+  }));
+
+  assert.equal(result.status, 0);
+  assert.match(result.stderr, /leaked secret material/i);
 });
 
 test("secrets-guard allows non-secret private project files", () => {
@@ -144,7 +233,7 @@ test("codex config aligns with the 13-agent routing and shared MCP set", () => {
 
   assert.match(source, /^\[agents\]$/m);
   assert.match(source, /^\[features\]$/m);
-  assert.match(source, /^codex_hooks = true$/m);
+  assert.match(source, /^(codex_)?hooks = true$/m);
   assert.match(source, /^max_threads = 6$/m);
   assert.match(source, /^max_depth = 1$/m);
   assert.match(source, /^\[mcp_servers\.playwright\]$/m);
@@ -191,9 +280,9 @@ test("codex lifecycle hooks are wired for safety and quality gates", () => {
   const preToolHooks = config.hooks.PreToolUse.flatMap((entry) => entry.hooks);
   assert.equal(preToolHooks.length, 1);
   assert.match(preToolHooks[0].command, /pre-tool-dispatcher\.sh/);
-  assert.match(preToolHooks[0].statusMessage, /tool safety gates/i);
+  assert.equal("statusMessage" in preToolHooks[0], false);
   assert.match(source, /features\.codex_hooks|session-orientation\.sh|pre-tool-dispatcher\.sh/s);
-  assert.match(source, /stop-plaintext-confirm-guard\.sh/);
+  assert.doesNotMatch(source, /stop-plaintext-confirm-guard\.sh/);
 });
 
 test("codex user-prompt router allows questions about secret file procedures", () => {
@@ -217,6 +306,45 @@ test("codex post-tool hooks stay limited to edit follow-ups", () => {
   assert.match(editPostToolEntry.hooks[0].command, /post-edit-dispatcher\.sh/);
 });
 
+test("codex hooks and commands do not tell Codex to call AskUserQuestion", () => {
+  const checkedPaths = [
+    ".codex/hooks/git-branch-guard.sh",
+    ".codex/hooks/test-category-gate.sh",
+    ".codex/hooks/stop-plaintext-confirm-guard.sh",
+    ".codex/commands/reset-changes.md",
+    ".codex/commands/update-docs.md",
+    ".codex/skills/quality-gate-audit/SKILL.md",
+  ];
+
+  for (const relativePath of checkedPaths) {
+    const source = readFileSync(path.join(repoRoot, relativePath), "utf8");
+    assert.doesNotMatch(source, /AskUserQuestionTool/);
+    assert.doesNotMatch(source, /Ask the user with AskUserQuestion/);
+    assert.doesNotMatch(source, /requires AskUserQuestion approval/);
+    assert.doesNotMatch(source, /AskUserQuestion で/);
+  }
+});
+
+test("codex branch and test gates describe checkpoint-based confirmation", () => {
+  const branch = runHook(".codex/hooks/git-branch-guard.sh", JSON.stringify({
+    session_id: "sess-branch",
+    tool_name: "Bash",
+    tool_input: { command: "git checkout -b feature/demo" },
+  }));
+  assert.equal(branch.status, 2);
+  assert.match(branch.stderr, /ブランチ作成はまだ実行できません/);
+  assert.match(branch.stderr, /用途と理由を確認/);
+
+  const testGate = runHook(".codex/hooks/test-category-gate.sh", JSON.stringify({
+    session_id: "sess-test",
+    tool_name: "Bash",
+    tool_input: { command: "npx tsc --noEmit" },
+  }));
+  assert.equal(testGate.status, 2);
+  assert.match(testGate.stderr, /この確認コマンドはまだ実行できません/);
+  assert.match(testGate.stderr, /どの確認を実行するか先に決める必要があります/);
+});
+
 test("codex pre-tool dispatcher keeps harmless bash commands quiet", () => {
   const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
     tool_name: "Bash",
@@ -238,6 +366,19 @@ test("codex pre-tool dispatcher still blocks force push", () => {
   assert.match(result.stderr, /force/i);
 });
 
+test("codex pre-tool dispatcher blocks compound staging and commit commands", () => {
+  for (const command of ["git add . && git commit -m test", "git commit -am test"]) {
+    const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+      session_id: "sess-commit",
+      tool_name: "Bash",
+      tool_input: { command },
+    }));
+
+    assert.equal(result.status, 2, command);
+    assert.match(result.stderr, /大きなコミット|対象ファイルを明示/);
+  }
+});
+
 test("codex pre-tool dispatcher blocks provider CLI and direct static checks without category approval", () => {
   const provider = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
     session_id: "sess-release",
@@ -245,7 +386,7 @@ test("codex pre-tool dispatcher blocks provider CLI and direct static checks wit
     tool_input: { command: "vercel deploy --prod" },
   }));
   assert.equal(provider.status, 2);
-  assert.match(provider.stderr, /provider|deploy|release/i);
+  assert.match(provider.stderr, /リリースまたは外部サービス操作/);
 
   const staticCheck = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
     session_id: "sess-static",
@@ -253,12 +394,123 @@ test("codex pre-tool dispatcher blocks provider CLI and direct static checks wit
     tool_input: { command: "npx tsc --noEmit" },
   }));
   assert.equal(staticCheck.status, 2);
-  assert.match(staticCheck.stderr, /Test command blocked/i);
+  assert.match(staticCheck.stderr, /この確認コマンドはまだ実行できません/);
+});
+
+test("codex pre-tool dispatcher allows read-only release checks without release approval", () => {
+  for (const command of [
+    "make ops-release-check",
+    "zsh scripts/release/release-career-compass.sh --check",
+    "zsh scripts/release/sync-career-compass-secrets.sh --check --target all",
+  ]) {
+    const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+      session_id: "sess-release-check",
+      tool_name: "Bash",
+      tool_input: { command },
+    }));
+
+    assert.equal(result.status, 0, command);
+    assert.equal(result.stderr, "", command);
+  }
+});
+
+test("codex pre-tool dispatcher blocks production secret apply through make variable syntax", () => {
+  const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+    session_id: "sess-secret-apply",
+    tool_name: "Bash",
+    tool_input: { command: "make ops-secrets-sync SYNC_MODE=--apply TARGET=all" },
+  }));
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /本番向けシークレット/);
+});
+
+test("codex pre-tool dispatcher runs later guards after a satisfied migration gate", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "codex-union-gates-"));
+  mkdirSync(path.join(homeDir, ".codex/sessions/career_compass"), { recursive: true });
+
+  const checkpoint = spawnSync("node", [
+    path.join(repoRoot, "scripts/harness/diff-snapshot.mjs"),
+    "checkpoint",
+    "--kind",
+    "migration",
+    "--decision",
+    "approved",
+    "--project",
+    repoRoot,
+  ], { cwd: repoRoot, encoding: "utf8" });
+  assert.equal(checkpoint.status, 0);
+  writeFileSync(
+    path.join(homeDir, ".codex/sessions/career_compass/migration-approved-sess-union"),
+    checkpoint.stdout,
+    "utf8",
+  );
+
+  const result = runHookWithEnv(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+    session_id: "sess-union",
+    cwd: repoRoot,
+    tool_name: "Bash",
+    tool_input: { command: "make deploy-production deploy-migrate" },
+  }), { HOME: homeDir });
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /本番へ反映する前に/);
+});
+
+test("codex migration safety guard fails closed when dry-run classification is unavailable", () => {
+  const result = runHook(".codex/hooks/migration-safety-guard.sh", JSON.stringify({
+    session_id: "sess-migrate",
+    tool_name: "Bash",
+    tool_input: { command: "scripts/release/run-migrations.mjs --env production --json" },
+  }));
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /MIGRATION_DRY_RUN_UNAVAILABLE|DB変更を反映/);
+});
+
+test("codex migration safety guard blocks non-empty dry-run failure JSON", () => {
+  const fakeProject = mkdtempSync(path.join(tmpdir(), "codex-migration-json-"));
+  mkdirSync(path.join(fakeProject, "scripts/harness"), { recursive: true });
+  mkdirSync(path.join(fakeProject, "scripts/release"), { recursive: true });
+  copyFileSync(
+    path.join(repoRoot, "scripts/harness/guard-core.sh"),
+    path.join(fakeProject, "scripts/harness/guard-core.sh"),
+  );
+  copyFileSync(
+    path.join(repoRoot, "scripts/harness/command-classifier.mjs"),
+    path.join(fakeProject, "scripts/harness/command-classifier.mjs"),
+  );
+  writeFileSync(
+    path.join(fakeProject, "scripts/release/run-migrations.mjs"),
+    [
+      "process.stdout.write(JSON.stringify({",
+      "  pending: 0,",
+      "  supabasePending: 0,",
+      "  historyErrors: ['drizzle history diverged'],",
+      "  blockers: [],",
+      "  classifications: [],",
+      "  exitCode: 1,",
+      "}));",
+      "process.exit(1);",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const result = runHook(".codex/hooks/migration-safety-guard.sh", JSON.stringify({
+    session_id: "sess-migrate-json",
+    cwd: fakeProject,
+    tool_name: "Bash",
+    tool_input: { command: "scripts/release/run-migrations.mjs --env production --json" },
+  }));
+
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /MIGRATION_HISTORY_DIVERGED/);
 });
 
 test("codex pre-tool dispatcher routes important test commands to test-category gate", () => {
   for (const [index, command] of [
-    "bash security/scan/run-lightweight-scan.sh --staged-only --fail-on=critical",
+    "bash scripts/security/run-lightweight-scan.sh --staged-only --fail-on=critical",
     "AI_LIVE_LOCAL_FEATURES=gakuchika bash scripts/dev/run-ai-live-local.sh",
     "npm run test:e2e:functional:local:gakuchika",
     "npm run test:quality:all",
@@ -276,7 +528,7 @@ test("codex pre-tool dispatcher routes important test commands to test-category 
       tool_input: { command },
     }));
     assert.equal(important.status, 2, command);
-    assert.match(important.stderr, /Test command blocked/i, command);
+    assert.match(important.stderr, /この確認コマンドはまだ実行できません/, command);
   }
 });
 
@@ -310,7 +562,7 @@ test("codex test-category gate rejects uncovered quality feature", () => {
   });
 
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /quality checkpoint .* does not cover command feature: motivation/);
+  assert.match(result.stderr, /必要な確認がまだ選ばれていません/);
 });
 
 test("codex user-prompt router treats hook stalls as harness diagnostics", () => {
@@ -338,7 +590,7 @@ test("delegate wrapper injects explicit codex harness activation guidance", () =
   assert.match(source, /\.codex\/skills\//);
   assert.match(source, /\.agents\/skills\//);
   assert.match(source, /architect.*first/i);
-  assert.match(source, /report which agent and skills you used/i);
+  assert.match(source, /internal working context/i);
 });
 
 test("codex post-edit dispatcher reminds AI feature E2E once per session", () => {
@@ -523,7 +775,7 @@ test("codex destructive rm guard blocks unsafe recursive deletion", () => {
   }));
 
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /Unsafe destructive delete/i);
+  assert.match(result.stderr, /この削除操作は実行できません/);
 });
 
 test("codex destructive guard blocks git clean", () => {
@@ -533,7 +785,7 @@ test("codex destructive guard blocks git clean", () => {
   }));
 
   assert.equal(result.status, 2);
-  assert.match(result.stderr, /destructive|git clean/i);
+  assert.match(result.stderr, /この削除操作は実行できません/);
 });
 
 test("codex permission request guard denies force push approval", () => {
@@ -561,10 +813,9 @@ test("delegate.sh isolates delegated Codex runs from user-level MCP startup", ()
   assert.doesNotMatch(source, /features\.rmcp_client\s*=\s*true/);
   assert.doesNotMatch(source, /experimental_use_rmcp_client\s*=\s*true/);
 
-  const caseBlock = source.match(/case "\$MODE" in([\s\S]*?)esac/);
-  assert.ok(caseBlock, "case block must exist in delegate.sh");
-
-  const modeBlocks = caseBlock[1].split(/\n\s*;;\s*\n/);
+  const caseBlocks = [...source.matchAll(/case "\$MODE" in([\s\S]*?)esac/g)].map((match) => match[1]);
+  assert.ok(caseBlocks.length > 0, "case block must exist in delegate.sh");
+  const modeBlocks = caseBlocks.flatMap((caseBlock) => caseBlock.split(/\n\s*;;\s*\n/));
   const expectedModes = ["plan_review", "implementation", "post_review", "imagegen"];
 
   for (const modeName of expectedModes) {
@@ -578,7 +829,7 @@ test("delegate.sh isolates delegated Codex runs from user-level MCP startup", ()
   }
 });
 
-test("codex stop plaintext confirmation guard asks Codex to continue", () => {
+test("codex stop plaintext confirmation guard is advisory and never blocks closeout", () => {
   const result = runHook(".codex/hooks/stop-plaintext-confirm-guard.sh", JSON.stringify({
     stop_hook_active: false,
     last_assistant_message: "コミットしますか？ push はまだしません。",
@@ -586,6 +837,5 @@ test("codex stop plaintext confirmation guard asks Codex to continue", () => {
 
   assert.equal(result.status, 0);
   const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.decision, "block");
-  assert.match(parsed.reason, /plain text/i);
+  assert.equal(parsed.continue, true);
 });

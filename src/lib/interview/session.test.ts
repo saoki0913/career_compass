@@ -53,12 +53,12 @@ describe("interview session helpers", () => {
 
   it("converts internal topic keys to Japanese display labels", () => {
     expect(labelTopic("motivation_fit")).toBe("志望動機");
-    expect(labelTopic("technical_depth")).toBe("技術力");
-    expect(labelTopic("pressure_followup")).toBe("圧迫深掘り");
-    expect(labelTopic("experience")).toBe("経験・ガクチカ");
+    expect(labelTopic("technical_depth")).toBe("技術理解");
+    expect(labelTopic("pressure_followup")).toBe("深掘り耐性");
+    expect(labelTopic("experience")).toBe("経験");
     expect(labelTopic("company_understanding")).toBe("企業理解");
     expect(labelTopic("志望動機")).toBe("志望動機");
-    expect(labelTopic("unknown_key")).toBe("unknown key");
+    expect(labelTopic("unknown_key")).toBe("確認項目");
   });
 
   it("normalizes v2.1 turn state and derives covered topics from deterministic coverage", () => {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { resolveE2EFunctionalScope } from "./e2e-functional-scope.mjs";
-import { resolveE2EFunctionalFeatureForPath } from "./e2e-functional-features.mjs";
+import {
+  resolveE2EFunctionalFeatureForPath,
+  AI_LIVE_CONTRACT_FEATURES,
+  AI_FEATURES,
+  getE2EFunctionalFeatureConfig,
+  getLiveContractCommand,
+  LIVE_CONTRACT_COMMAND,
+} from "./e2e-functional-features.mjs";
 
 describe("resolveE2EFunctionalScope", () => {
   it("does not run when no files changed", () => {
@@ -139,5 +146,58 @@ describe("resolveE2EFunctionalScope", () => {
     );
 
     expect(feature).toBe("gakuchika");
+  });
+
+  it("maps live-contract spec changes to all features", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: ["e2e/live-contract/ai-live-contract.spec.ts"],
+    });
+
+    expect(scope.shouldRun).toBe(true);
+    expect(scope.features.length).toBe(14);
+  });
+
+  it("maps e2e/mocks changes to all features", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: ["e2e/mocks/gakuchika.ts"],
+    });
+
+    expect(scope.shouldRun).toBe(true);
+    expect(scope.features.length).toBe(14);
+  });
+
+  it("maps playwright.live-contract.config.ts to all features", () => {
+    const scope = resolveE2EFunctionalScope({
+      changedFiles: ["playwright.live-contract.config.ts"],
+    });
+
+    expect(scope.shouldRun).toBe(true);
+    expect(scope.features.length).toBe(14);
+  });
+});
+
+describe("testLayers and live-contract exports", () => {
+  it("AI_LIVE_CONTRACT_FEATURES matches AI_FEATURES", () => {
+    expect(AI_LIVE_CONTRACT_FEATURES).toEqual(AI_FEATURES);
+  });
+
+  it("AI features have live-contract in testLayers", () => {
+    for (const feature of AI_FEATURES) {
+      const config = getE2EFunctionalFeatureConfig(feature);
+      expect(config?.testLayers).toContain("live-contract");
+    }
+  });
+
+  it("non-AI features have only functional in testLayers", () => {
+    const nonAiFeatures = ["calendar", "tasks-deadlines", "notifications", "company-crud", "billing", "search-query", "pages-smoke"];
+    for (const feature of nonAiFeatures) {
+      const config = getE2EFunctionalFeatureConfig(feature);
+      expect(config?.testLayers).toEqual(["functional"]);
+    }
+  });
+
+  it("getLiveContractCommand returns the make target", () => {
+    expect(getLiveContractCommand()).toBe(LIVE_CONTRACT_COMMAND);
+    expect(LIVE_CONTRACT_COMMAND).toBe("make test-e2e-live-contract");
   });
 });

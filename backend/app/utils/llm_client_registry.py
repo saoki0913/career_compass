@@ -154,11 +154,42 @@ def get_circuit_breaker(provider: "LLMProvider") -> CircuitBreaker:
     raise ValueError(f"No circuit breaker for provider: {provider}")
 
 
+def get_provider_circuit_breaker(provider: "LLMProvider") -> CircuitBreaker | None:
+    """Return the provider circuit breaker, or None for providers without one."""
+    if provider in ("anthropic", "openai"):
+        return get_circuit_breaker(provider)
+    return None
+
+
+def is_provider_circuit_open(provider: "LLMProvider") -> bool:
+    """Whether the provider should be skipped due to an open circuit."""
+    circuit = get_provider_circuit_breaker(provider)
+    return bool(circuit and circuit.is_open())
+
+
+def record_provider_failure(provider: "LLMProvider") -> None:
+    """Record a provider/API failure for circuit-breaker accounting."""
+    circuit = get_provider_circuit_breaker(provider)
+    if circuit is not None:
+        circuit.record_failure()
+
+
+def record_provider_success(provider: "LLMProvider") -> None:
+    """Record a successful provider response for circuit-breaker accounting."""
+    circuit = get_provider_circuit_breaker(provider)
+    if circuit is not None:
+        circuit.record_success()
+
+
 __all__ = [
     "CircuitBreaker",
     "LLMClientRegistry",
+    "get_provider_circuit_breaker",
     "get_registry",
     "set_registry",
     "reset_registry",
     "get_circuit_breaker",
+    "is_provider_circuit_open",
+    "record_provider_failure",
+    "record_provider_success",
 ]

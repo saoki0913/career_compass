@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 
-import { parseApiErrorResponse } from "@/lib/api-errors";
+import { AppUiError, parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 
 import { useOperationLock } from "@/hooks/useOperationLock";
@@ -153,7 +153,11 @@ export function useConversationRuntime<
             }
 
             case "error":
-              throw new Error(result.message);
+              throw new AppUiError(result.message, {
+                code: result.code ?? adapter.errorMeta.code,
+                action: result.action_hint ?? adapter.errorMeta.action,
+                retryable: result.retryable ?? adapter.errorMeta.retryable,
+              });
           }
         }
 

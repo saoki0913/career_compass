@@ -17,6 +17,31 @@ def test_health_check_is_public_liveness_only() -> None:
     assert response.json() == {"status": "healthy"}
 
 
+def test_version_check_exposes_minimal_build_metadata(monkeypatch) -> None:
+    monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "abcdef1234567890")
+    monkeypatch.setenv("BUILD_TIME", "2026-05-13T00:00:00Z")
+    monkeypatch.setenv("APP_ENV", "production")
+
+    from app.routers import health
+
+    health.BUILD_SHA = "abcdef1234567890"
+    health.BUILD_TIME = "2026-05-13T00:00:00Z"
+    health.APP_ENV = "production"
+
+    response = TestClient(make_app()).get("/health/version", headers={"host": "localhost"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service": "career-compass-backend",
+        "sha": "abcdef12",
+        "build_time": "2026-05-13T00:00:00Z",
+        "environment": "production",
+    }
+    serialized = str(response.json()).lower()
+    assert "railway_git" not in serialized
+    assert "repo" not in serialized
+
+
 def test_readiness_does_not_expose_provider_key_configuration() -> None:
     response = TestClient(make_app()).get("/health/ready", headers={"host": "localhost"})
 

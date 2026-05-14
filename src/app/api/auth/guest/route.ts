@@ -16,7 +16,12 @@ import {
 } from "@/lib/auth/guest-cookie";
 import { getCsrfFailureReason } from "@/lib/csrf";
 import { logError } from "@/lib/logger";
-import { checkRateLimit, createRateLimitKey, RATE_LIMITS } from "@/lib/rate-limit";
+import {
+  checkRateLimit,
+  createAnonymousRateLimitKey,
+  createRateLimitKey,
+  RATE_LIMITS,
+} from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,11 +34,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const anonymousRateLimitKey = createAnonymousRateLimitKey(
+      "guestAuthAnonymous",
+      request.headers
+    );
+    const anonymousRateLimit = await checkRateLimit(
+      anonymousRateLimitKey,
+      RATE_LIMITS.guestAuthAnonymous,
+      "guestAuthAnonymous"
+    );
+    if (!anonymousRateLimit.allowed) {
+      const response = createApiErrorResponse(request, {
+        status: 429,
+        code: "RATE_LIMITED",
+        userMessage: "しばらく待ってから再試行してください。",
+        action: `${anonymousRateLimit.resetIn}秒ほど待ってから、もう一度お試しください。`,
+      });
+      response.headers.set("Retry-After", String(anonymousRateLimit.resetIn));
+      response.headers.set(
+        "X-RateLimit-Remaining",
+        String(anonymousRateLimit.remaining)
+      );
+      return response;
+    }
+
     const deviceToken = readGuestDeviceToken(request) || issueGuestDeviceToken();
 
     // Rate limit guest session creation by device token
     const rateLimitKey = createRateLimitKey("guestAuth", null, deviceToken);
-    const rateLimit = await checkRateLimit(rateLimitKey, RATE_LIMITS.guestAuth);
+    const rateLimit = await checkRateLimit(
+      rateLimitKey,
+      RATE_LIMITS.guestAuth,
+      "guestAuth"
+    );
     if (!rateLimit.allowed) {
       const response = createApiErrorResponse(request, {
         status: 429,

@@ -4,7 +4,7 @@
 
 ## 目的
 
-- UI 変更を `ui:preflight` と Playwright review に乗せる
+- UI 変更を verification harness と Playwright review に乗せる
 - release を repo 正本の script / make target に寄せる
 - demo 動画、RAG、security、SEO、bugfix、refactor、infra 連携の入口を統一する
 

@@ -59,6 +59,7 @@ deny_patterns = [
     "*.pem",
     "*.key",
     "*.p12",
+    ".secrets/**",
     "secrets/**",
     "private/**",
     "codex-company/.secrets/**",

@@ -38,7 +38,6 @@ def _stream_event(payload: dict[str, object]) -> SimpleNamespace:
         (
             INTERVIEW_PLAN_SCHEMA,
             {
-                "interview_type",
                 "priority_topics",
                 "opening_topic",
                 "must_cover_topics",
@@ -208,6 +207,78 @@ async def test_start_stream_emits_plan_before_opening_question(monkeypatch: pyte
     assert complete_event["data"]["turn_state"]["coverageState"][0]["topic"] == "motivation_fit"
     assert complete_event["data"]["turn_state"]["turn_meta"]["turn_action"] in {"ask", "shift"}
     assert complete_event["data"]["turn_state"]["turn_meta"]["intent_key"].startswith("motivation_fit:")
+
+
+@pytest.mark.asyncio
+async def test_start_stream_uses_typed_deterministic_plan_when_plan_parse_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_stream(*args, **kwargs):
+        if kwargs["feature"] == "interview_plan":
+            yield SimpleNamespace(
+                type="error",
+                result=SimpleNamespace(
+                    success=False,
+                    data=None,
+                    error=SimpleNamespace(message="AIからの応答を解析できませんでした。"),
+                ),
+            )
+            return
+
+        yield _stream_event(
+            {
+                "question": "このケースの前提をどのように整理しますか。",
+                "question_stage": "opening",
+                "focus": "ケース前提の構造化",
+                "interview_setup_note": "ケースの構造化力を確認する",
+                "turn_meta": {
+                    "topic": "case_fit",
+                    "turn_action": "ask",
+                    "focus_reason": "初回導入",
+                    "depth_focus": "logic",
+                    "followup_style": "reason_check",
+                    "intent_key": "case_fit:reason_check",
+                    "should_move_next": False,
+                },
+            }
+        )
+
+    monkeypatch.setattr("app.routers._interview.generators.call_llm_streaming_fields", fake_stream)
+
+    request = InterviewStartRequest(
+        company_name="ケース株式会社",
+        company_summary="金融機関向けの業務改善を行う。",
+        motivation_summary="金融の非効率を改善したい。",
+        gakuchika_summary="ゼミで調査設計を担当。",
+        academic_summary="経済学を専攻。",
+        es_summary="構造化力を訴求。",
+        seed_summary="金融業界の店舗収益改善ケース",
+        selected_industry="金融",
+        selected_role="コンサルタント",
+        role_track="consulting",
+        interview_format="case",
+        selection_type="fulltime",
+        interview_stage="mid",
+        interviewer_type="line_manager",
+        strictness_mode="standard",
+    )
+
+    events = []
+    async for payload in _generate_start_progress(request):
+        events.append(json.loads(payload.removeprefix("data: ").strip()))
+
+    plan_event = next(e for e in events if e["type"] == "field_complete" and e["path"] == "interview_plan")
+    plan = plan_event["value"]
+    assert plan["contract_version"] == "interview_plan.v2"
+    assert plan["plan_source"] == "deterministic_fallback"
+    assert plan["fallback_reason"] == "plan_generation_failed"
+    assert plan["interview_type"] == "new_grad_case"
+    assert plan["case_brief"]["industry"] == "finance"
+    assert plan["quality_lenses"][0]["topic"] == "case_fit"
+
+    complete_event = next(e for e in events if e["type"] == "complete")
+    assert complete_event["data"]["question_stage"] == "opening"
+    assert complete_event["data"]["interview_plan"]["case_brief"]["industry"] == "finance"
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@
 
 import useSWR from "swr";
 import { buildAuthFetchHeaders } from "@/lib/swr-fetcher";
-import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { parseApiErrorResponse, toAppUiError, toUserFacingError } from "@/lib/api-errors";
 import { notifySwrUserFacingFailure } from "@/lib/client-error-ui";
 import { useAuth } from "@/components/auth/AuthProvider";
 
@@ -148,7 +148,7 @@ export function useDeadlinesDashboard(
       completionRate: 0,
     },
     isLoading: isAuthLoading || isLoading,
-    error: error instanceof Error ? error.message : error != null ? String(error) : null,
+    error: error != null ? toUserFacingError(toAppUiError(error, FETCH_FALLBACK, "useDeadlinesDashboard.display")).message : null,
     mutate,
   };
 }

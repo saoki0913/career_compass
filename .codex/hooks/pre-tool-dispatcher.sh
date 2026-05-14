@@ -41,6 +41,18 @@ case "$TOOL" in
       run_hook "destructive-rm-guard.sh"
     fi
 
+    if guard_command_is_migration_apply "$CMD"; then
+      run_hook "migration-safety-guard.sh"
+    fi
+
+    if guard_command_is_production_promotion "$CMD"; then
+      run_hook "production-promotion-guard.sh"
+    fi
+
+    if guard_command_is_secret_apply_production "$CMD"; then
+      run_hook "secret-apply-guard.sh"
+    fi
+
     if guard_command_is_release_or_provider "$CMD"; then
       run_hook "release-provider-guard.sh"
     fi

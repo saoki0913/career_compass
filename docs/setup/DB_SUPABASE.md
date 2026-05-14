@@ -192,7 +192,7 @@ Supabase Cloud では以下の接続方法があります:
 
 ```env
 # 本番用 DATABASE_URL
-DATABASE_URL=postgresql://postgres.{PROJECT_REF}:{PASSWORD}@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
+DATABASE_URL=postgresql://postgres.<PROJECT_REF>:<PASSWORD>@<SUPABASE_POOLER_HOST>:6543/postgres
 ```
 
 `src/lib/db/index.ts` で `prepare: false` が設定されている必要があります（設定済み）:
@@ -320,8 +320,8 @@ npm run db:repair:subscription-cancel-column
 # DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 
 # 本番設定を有効化
-DATABASE_URL=postgresql://postgres.{PROJECT_REF}:{PASSWORD}@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
-DIRECT_URL=postgresql://postgres:{PASSWORD}@db.{PROJECT_REF}.supabase.co:5432/postgres
+DATABASE_URL=postgresql://postgres.<PROJECT_REF>:<PASSWORD>@<SUPABASE_POOLER_HOST>:6543/postgres
+DIRECT_URL=postgresql://postgres:<PASSWORD>@<SUPABASE_DIRECT_HOST>:5432/postgres
 ```
 
 ### 5.2 本番 → ローカル
@@ -330,8 +330,8 @@ DIRECT_URL=postgresql://postgres:{PASSWORD}@db.{PROJECT_REF}.supabase.co:5432/po
 
 ```env
 # 本番設定をコメントアウト
-# DATABASE_URL=postgresql://postgres.{PROJECT_REF}:{PASSWORD}@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
-# DIRECT_URL=postgresql://postgres:{PASSWORD}@db.{PROJECT_REF}.supabase.co:5432/postgres
+# DATABASE_URL=postgresql://postgres.<PROJECT_REF>:<PASSWORD>@<SUPABASE_POOLER_HOST>:6543/postgres
+# DIRECT_URL=postgresql://postgres:<PASSWORD>@<SUPABASE_DIRECT_HOST>:5432/postgres
 
 # ローカル設定を有効化
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres

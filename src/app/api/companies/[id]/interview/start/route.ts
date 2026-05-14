@@ -75,7 +75,7 @@ export async function POST(
     });
   }
 
-  const limitResponse = await guardDailyTokenLimit(identity);
+  const limitResponse = await guardDailyTokenLimit(identity, request);
   if (limitResponse) return limitResponse;
 
   let context;
@@ -303,7 +303,7 @@ export async function POST(
           stageStatus:
             upstreamData.stage_status ??
             getInterviewStageStatus({
-              currentTopicLabel: turnMeta?.interviewSetupNote ?? turnStateToPersist.currentTopic,
+              currentTopicLabel: turnMeta?.topic ?? turnStateToPersist.currentTopic,
               coveredTopics: turnStateToPersist.coveredTopics,
               remainingTopics: turnStateToPersist.remainingTopics,
             }),

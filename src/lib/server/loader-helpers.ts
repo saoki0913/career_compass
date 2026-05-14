@@ -68,7 +68,13 @@ export function serializeDate(value: unknown): string | null {
   return null;
 }
 
-export function serializeCompanyRecord(company: typeof companies.$inferSelect) {
+export function serializeCompanyRecord<
+  T extends Omit<Partial<typeof companies.$inferSelect>, "createdAt" | "updatedAt"> & {
+    createdAt: Date | string;
+    updatedAt: Date | string;
+    hasCredentials?: boolean;
+  },
+>(company: T) {
   return {
     ...stripCompanyCredentials(company),
     status: company.status ?? "inbox",

@@ -128,6 +128,23 @@ def _output_dir() -> Path:
     return Path(raw) if raw else default
 
 
+def _safe_http_exception_note(detail: object) -> str:
+    if not isinstance(detail, dict):
+        return str(detail)[:500]
+    debug = detail.get("debug")
+    summary = {
+        "error": detail.get("error"),
+        "error_type": detail.get("error_type"),
+        "provider": detail.get("provider"),
+        "has_debug": isinstance(debug, dict),
+    }
+    if isinstance(debug, dict):
+        trace = debug.get("rewrite_attempt_trace")
+        summary["attempt_failure_count"] = len(debug.get("attempt_failures") or [])
+        summary["rewrite_attempt_trace_count"] = len(trace) if isinstance(trace, list) else 0
+    return json.dumps(summary, ensure_ascii=False)
+
+
 def _judge_enabled(case_set: str) -> bool:
     default = "0" if case_set == SMOKE_CASE_SET else "1"
     return os.getenv("LIVE_ES_REVIEW_ENABLE_JUDGE", default) == "1"
@@ -282,27 +299,50 @@ def _format_attempt_trace_md(trace: object) -> str:
             lines.append(f"- `{step}`")
             continue
         stage = step.get("stage", "")
-        att = step.get("attempt_index", step.get("fix_pass", ""))
+        att = step.get("attempt_index", "")
         acc = step.get("accepted", "")
         rr = (step.get("retry_reason") or "").replace("\n", " ").strip()
         if len(rr) > 200:
             rr = rr[:197] + "..."
         codes = step.get("failure_codes") or []
-        lft = step.get("length_fix_total")
-        fp = step.get("fix_pass")
-        sfx_parts: list[str] = []
-        if lft is not None:
-            sfx_parts.append(f"length_fix_total={lft}")
-        if fp is not None:
-            sfx_parts.append(f"fix_pass={fp}")
-        sfx = (" " + " ".join(sfx_parts)) if sfx_parts else ""
+        modes = step.get("prompt_modes") or step.get("prompt_mode") or ""
+        llm_failed = step.get("llm_failed_checks") or []
         lines.append(
-            f"- **{stage}** attempt={att} accepted={acc} codes={codes}{sfx}"
+            f"- **{stage}** attempt={att} accepted={acc} codes={codes}"
+            + (f" modes={modes}" if modes else "")
+            + (f" llm_failed={llm_failed}" if llm_failed else "")
             + (f" — {rr}" if rr else "")
         )
+        text = step.get("text")
+        if isinstance(text, str) and text:
+            lines.extend(["", "```", text, "```"])
     if len(trace) > 24:
         lines.insert(0, f"_（直近24件 / 全{len(trace)}件）_")
     return "\n".join(lines)
+
+
+def test_format_attempt_trace_md_includes_retry_mode_reason_codes_and_body() -> None:
+    markdown = _format_attempt_trace_md(
+        [
+            {
+                "stage": "rewrite",
+                "attempt_index": 2,
+                "accepted": False,
+                "failure_codes": ["over_max"],
+                "prompt_modes": ["length_focus_max"],
+                "retry_reason": "文字数制約を満たしていません。",
+                "text": "学生時代に力を入れた本文である。",
+                "llm_failed_checks": ["structure_clarity"],
+            }
+        ]
+    )
+
+    assert "attempt=2" in markdown
+    assert "over_max" in markdown
+    assert "length_focus_max" in markdown
+    assert "structure_clarity" in markdown
+    assert "文字数制約を満たしていません。" in markdown
+    assert "学生時代に力を入れた本文である。" in markdown
 
 
 def _judge_scores_md(scores: object) -> str:
@@ -415,7 +455,7 @@ def _append_markdown_diagnostic_appendix(md_lines: list[str], rows: list[dict[st
                 "|---|---|",
                 f"| template | `{row.get('template_type', '')}` |",
                 f"| 文字数 | **{cc}** / 要求 `[{cmin}, {cmax}]` |",
-                f"| retries / length_fix | `{row.get('rewrite_attempt_count')}` / `{row.get('length_fix_result')}` |",
+                f"| retries | `{row.get('rewrite_attempt_count')}` / `{row.get('rewrite_total_rewrite_attempts')}` |",
                 f"| length_policy / shortfall | `{row.get('length_policy')}` / `{row.get('length_shortfall')}` |",
                 f"| judge_status | `{row.get('judge_status')}` |",
                 "",
@@ -682,15 +722,15 @@ def _write_report(case_set: str, rows: list[dict[str, object]]) -> tuple[Path, P
     md_lines = [
         f"# Live ES Review Report ({case_set})",
         "",
-        "| model | case | band | context | status | failure_kind | preflight | chars | retries | length_fix | ai_smell | judge | duration_ms | note |",
-        "|---|---|---|---|---:|---|---|---:|---:|---|---:|---|---:|---|",
+        "| model | case | band | context | status | failure_kind | preflight | chars | retries | ai_smell | judge | duration_ms | note |",
+        "|---|---|---|---|---:|---|---|---:|---:|---:|---|---:|---|",
     ]
     for row in rows:
         judge = row.get("judge_status", "")
         ai_smell_count = row.get("ai_smell_count", 0)
         ai_smell_cell = str(ai_smell_count) if ai_smell_count else ""
         md_lines.append(
-            f"| {row['model']} | {row['case_id']} | {row.get('char_band','')} | {row.get('company_context','')} | {row['status']} | {row.get('failure_kind','')} | {row.get('preflight_status','')} | {row.get('char_count','')} | {row.get('rewrite_attempt_count','')} | {row.get('length_fix_result','')} | {ai_smell_cell} | {judge} | {row.get('duration_ms', '')} | {row.get('note','')} |"
+            f"| {row['model']} | {row['case_id']} | {row.get('char_band','')} | {row.get('company_context','')} | {row['status']} | {row.get('failure_kind','')} | {row.get('preflight_status','')} | {row.get('char_count','')} | {row.get('rewrite_attempt_count','')} | {ai_smell_cell} | {judge} | {row.get('duration_ms', '')} | {row.get('note','')} |"
         )
     _append_markdown_diagnostic_appendix(md_lines, rows)
     md_path.write_text("\n".join(md_lines) + "\n", encoding="utf-8")
@@ -843,7 +883,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                 combined_failures = list(hard_det) + judge_failures
 
                 duration_ms = int((perf_counter() - started) * 1000)
-                # rewrite_attempt_count: ルーターが採用した改善案の試行番号（rewrite または length_fix を通算した 1-based）
+                # rewrite_attempt_count: ルーターが採用した改善案の rewrite 試行番号（1-based）
                 row: dict[str, object] = {
                     **_case_report_fields(case),
                     "case_set": case_set,
@@ -868,7 +908,6 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                     "final_rewrite": rewrite,
                     "length_policy": getattr(review_meta, "length_policy", None),
                     "length_shortfall": getattr(review_meta, "length_shortfall", None),
-                    "length_fix_result": getattr(review_meta, "length_fix_result", None),
                     "weak_evidence_notice": getattr(review_meta, "weak_evidence_notice", None),
                     "ai_smell_warnings": list(getattr(review_meta, "ai_smell_warnings", []) or []),
                     "ai_smell_count": len(list(getattr(review_meta, "ai_smell_warnings", []) or [])),
@@ -902,7 +941,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
             except HTTPException as exc:
                 detail = exc.detail if isinstance(exc.detail, dict) else {}
                 dbg = detail.get("debug") if isinstance(detail, dict) else None
-                note = str(exc.detail)[:500] if exc.detail is not None else str(exc)
+                note = _safe_http_exception_note(exc.detail)
                 failure_kind = _infer_failure_kind(note)
                 rows.append(
                     {
@@ -925,8 +964,7 @@ async def test_live_es_review_provider_report(monkeypatch: pytest.MonkeyPatch) -
                 )
                 if not _is_canary_case_set(case_set) and blocking_failures_enabled and failure_kind != "infra":
                     blocking_failures.append(
-                        f"{model_id}::{case.case_id} failed: {exc.detail}"
-                        + (f" | debug={dbg}" if dbg else "")
+                        f"{model_id}::{case.case_id} failed: {note}"
                     )
                 _cli_progress(
                     step=progress_step,

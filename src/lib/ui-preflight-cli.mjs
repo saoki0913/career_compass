@@ -10,7 +10,8 @@ export function parseUiPreflightArgs(argv) {
   let surface = "";
   let routePath = "";
 
-  for (const arg of argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
     if (arg.startsWith("--auth=")) {
       authMode = arg.slice("--auth=".length).trim();
       continue;
@@ -18,6 +19,27 @@ export function parseUiPreflightArgs(argv) {
 
     if (arg.startsWith("--surface=")) {
       surface = arg.slice("--surface=".length).trim();
+      continue;
+    }
+
+    if (arg === "--route") {
+      if (routePath) {
+        throw new Error(`UI preflight accepts exactly one route.\n${getUiPreflightUsage()}`);
+      }
+      const nextArg = argv[index + 1] || "";
+      if (!nextArg || nextArg.startsWith("--")) {
+        throw new Error(getUiPreflightUsage());
+      }
+      routePath = normalizeUiRoutePath(nextArg);
+      index += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--route=")) {
+      if (routePath) {
+        throw new Error(`UI preflight accepts exactly one route.\n${getUiPreflightUsage()}`);
+      }
+      routePath = normalizeUiRoutePath(arg.slice("--route=".length).trim());
       continue;
     }
 

@@ -16,11 +16,15 @@ if [ -z "$CMD" ] || ! guard_command_is_release_or_provider "$CMD"; then
   exit 0
 fi
 
+if guard_command_is_release_read_only "$CMD" && ! guard_command_is_release_mutating "$CMD"; then
+  exit 0
+fi
+
 RELEASE_MODE=$(guard_command_release_modes "$CMD" | head -1)
 RELEASE_MODE="${RELEASE_MODE:-provider}"
 
 if [ -z "$SESSION_ID" ]; then
-  echo "release/provider command blocked: session_id is unavailable." >&2
+  echo "リリース操作の確認状態を読み取れないため、実行できませんでした。" >&2
   exit 2
 fi
 
@@ -30,9 +34,11 @@ HEAD_SHA=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "")
 
 if [ ! -f "$FLAG" ]; then
   cat >&2 <<EOF
-release / deploy / provider CLI blocked by Codex hook.
+リリースまたは外部サービス操作はまだ実行できません。
 
-Create an explicit approval checkpoint before running it:
+環境に影響する操作のため、対象と目的を確認してから実行してください。
+
+開発者向けの記録手順:
   node scripts/harness/diff-snapshot.mjs checkpoint --kind release --decision approved --release-mode "$RELEASE_MODE" --project "$PROJECT_DIR" > "$FLAG"
 EOF
   exit 2
@@ -43,12 +49,12 @@ DECISION=$(jq -r '.decision // empty' "$FLAG" 2>/dev/null || echo "")
 KIND=$(jq -r '.kind // empty' "$FLAG" 2>/dev/null || echo "")
 APPROVED_RELEASE_MODE=$(jq -r '.releaseMode // empty' "$FLAG" 2>/dev/null || echo "")
 if [ "$KIND" != "release" ] || [ "$DECISION" != "approved" ] || [ "$APPROVED_HEAD" != "$HEAD_SHA" ] || [ "$APPROVED_RELEASE_MODE" != "$RELEASE_MODE" ]; then
-  echo "release/provider command blocked: approval checkpoint does not match current HEAD." >&2
+  echo "確認後にコミットまたは対象環境が変わったため、リリース前の確認をもう一度行ってください。" >&2
   exit 2
 fi
 
 if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$FLAG" >/dev/null; then
-  echo "release/provider command blocked: working tree changed after approval checkpoint creation." >&2
+  echo "確認後に差分が変わったため、リリース前の確認をもう一度行ってください。" >&2
   exit 2
 fi
 

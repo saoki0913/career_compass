@@ -8,6 +8,7 @@ import {
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST,
 } from "@/lib/credits";
 import {
+  getInterviewStageStatus,
   normalizeInterviewTurnMeta,
   type InterviewPlan,
   type InterviewTurnMeta,
@@ -73,7 +74,7 @@ export async function POST(
     });
   }
 
-  const limitResponse = await guardDailyTokenLimit(identity);
+  const limitResponse = await guardDailyTokenLimit(identity, request);
   if (limitResponse) return limitResponse;
 
   const { id: companyId } = await params;
@@ -250,11 +251,11 @@ export async function POST(
         messages: context.conversation!.messages,
         questionCount: context.conversation!.questionCount,
         stageStatus:
-          upstreamData.stage_status ?? {
+          upstreamData.stage_status ?? getInterviewStageStatus({
             currentTopicLabel: "まとめシート",
             coveredTopics: turnState.coveredTopics,
             remainingTopics: [],
-          },
+          }),
         questionStage: turnState.currentTopic,
         focus: null,
         feedback,

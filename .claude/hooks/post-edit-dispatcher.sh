@@ -109,8 +109,8 @@ case "$FILE_PATH" in
      - 生成物に参考 ES の原文が含まれていないこと（統計プロファイルのみ許可）
      - ai-writing-auditor skill で AI 臭チェック
 
-  3. 品質 eval（存在すれば）:
-     python backend/evals/es_review_smoke.py
+  3. 品質 smoke:
+     cd backend && pytest tests/es_review/test_es_review_final_quality_cases.py -x --tb=short
 
 変更内容次第では prompt-engineer agent への委譲を推奨します。
 EOF

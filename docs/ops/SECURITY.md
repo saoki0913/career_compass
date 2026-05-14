@@ -103,15 +103,15 @@
 - 実装: [`src/lib/llm-cost-limit.ts`](../../src/lib/llm-cost-limit.ts) + [`src/bff/identity/llm-cost-guard.ts`](../../src/bff/identity/llm-cost-guard.ts)
 - Upstash Redis でユーザー/ゲスト単位の日次トークンカウンタを管理。JST 0:00 でリセット。
 - プラン別上限: guest 100K / free 500K / standard 2M / pro 5M tokens/day
-- 上限超過時: HTTP 429 + `Retry-After` ヘッダ + `{ error: "daily_token_limit_exceeded" }`。LLM 呼び出し前に拒否。
+- 上限超過時: HTTP 429 + `Retry-After` ヘッダ + `DAILY_TOKEN_LIMIT_EXCEEDED` の構造化エラー。LLM 呼び出し前に拒否。
 - カウンタ更新: 各 AI ルートの成功パスで `incrementDailyTokenCount()` を fire-and-forget 実行。
-- Fail-open: Upstash 障害時やエラー時は制限なしで通す（rate-limit.ts と同じ方針）。
+- Redis 未設定時: local/dev/test は in-memory fallback、production/staging は HTTP 503 `TOKEN_LIMIT_SERVICE_UNAVAILABLE` で fail-closed。
 - キルスイッチ: `DISABLE_TOKEN_LIMIT=true` 環境変数で全チェック+カウンタ更新を即座に無効化。デプロイ不要。
 - FastAPI 側は `X-LLM-Tokens-Used` レスポンスヘッダ + SSE `internal_telemetry` でトークン数を Next.js へ伝達。
 
 ## 法令・問い合わせ先（現行実装メモ）
 
-就活Pass の本番方針は [`docs/release/INDIVIDUAL_BUSINESS_COMPLIANCE.md`](../release/INDIVIDUAL_BUSINESS_COMPLIANCE.md) を正本とし、`/legal` の公開文面はページ本文に直接記載します。
+就活Pass の本番方針は [`docs/release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md`](../release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md) を正本とし、`/legal` の公開文面はページ本文に直接記載します。
 
 一方、現行コードでは [`getCommerceDisclosure`](../../src/lib/legal/commerce-disclosure.ts) が `process.env` から文言を組み立てる実装も残っています。以下の `LEGAL_*` は、現行実装やフォーク環境で使うためのメモであり、就活Pass 本番公開方針の正本ではありません。
 

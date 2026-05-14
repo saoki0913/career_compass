@@ -13,4 +13,11 @@ describe("SidebarUserMenu", () => {
     expect(source).toContain("TooltipContent");
     expect(source).toContain("displayName");
   });
+
+  it("links profile and settings menu items to registered product routes", async () => {
+    const source = await readFile(new URL("./SidebarUserMenu.tsx", import.meta.url), "utf8");
+    expect(source).toContain("appPaths.product.profile");
+    expect(source).toContain("appPaths.product.settings");
+    expect(source).not.toContain('href="/settings/profile"');
+  });
 });

@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import type { RequestIdentity } from "@/bff/identity/request-identity";
+import type { CompaniesPageData } from "@/lib/dto/dashboard";
 import { db } from "@/lib/db";
 import {
   applications,
@@ -19,13 +20,34 @@ import { parseStringArrayCompat } from "@/lib/db/jsonb-compat";
 import { estimateCompanyLogoProfile } from "./company-domain-estimator";
 import { getDocumentsPageData } from "./document-loaders";
 
-export async function getCompaniesPageData(identity: RequestIdentity) {
+const companyListColumns = {
+  id: companies.id,
+  userId: companies.userId,
+  guestId: companies.guestId,
+  name: companies.name,
+  industry: companies.industry,
+  recruitmentUrl: companies.recruitmentUrl,
+  corporateUrl: companies.corporateUrl,
+  corporateInfoUrls: companies.corporateInfoUrls,
+  mypageUrl: companies.mypageUrl,
+  notes: companies.notes,
+  status: companies.status,
+  sortOrder: companies.sortOrder,
+  isPinned: companies.isPinned,
+  infoFetchedAt: companies.infoFetchedAt,
+  corporateInfoFetchedAt: companies.corporateInfoFetchedAt,
+  createdAt: companies.createdAt,
+  updatedAt: companies.updatedAt,
+  hasCredentials: sql<boolean>`(${companies.mypageLoginId} is not null or ${companies.mypagePassword} is not null)`,
+} as const;
+
+export async function getCompaniesPageData(identity: RequestIdentity): Promise<CompaniesPageData> {
   const plan = await getViewerPlan(identity);
   const limit = COMPANY_LIMITS[plan];
   const whereClause = buildCompanyWhere(identity);
 
   const userCompanies = await db
-    .select()
+    .select(companyListColumns)
     .from(companies)
     .where(whereClause)
     .orderBy(desc(companies.isPinned), companies.sortOrder, desc(companies.createdAt));
@@ -125,6 +147,7 @@ export async function getCompaniesPageData(identity: RequestIdentity) {
 
     return {
       ...serializeCompanyRecord(company),
+      estimatedLogoCandidates: logoProfile?.candidates ?? [],
       estimatedLogoDomains: logoProfile?.logoDomains ?? [],
       estimatedFaviconUrl: company.corporateUrl ? null : logoProfile?.fallbackFaviconUrl ?? null,
       nearestDeadline: nearestDeadline

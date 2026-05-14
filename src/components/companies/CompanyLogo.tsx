@@ -12,21 +12,37 @@ interface CompanyLogoProps {
   imageClassName?: string;
 }
 
+const failedLogoUrls = new Set<string>();
+
+function findNextSourceIndex(sources: string[], startIndex: number): number {
+  const safeStart = Math.max(0, startIndex);
+  for (let index = safeStart; index < sources.length; index += 1) {
+    if (!failedLogoUrls.has(sources[index])) {
+      return index;
+    }
+  }
+  return -1;
+}
+
 export function CompanyLogo({
   company,
   className,
   imageClassName,
 }: CompanyLogoProps) {
-  const [sourceIndex, setSourceIndex] = useState(0);
+  const [sourceState, setSourceState] = useState({ sourcesKey: "", sourceIndex: 0 });
   const avatarColor = getCompanyAvatarColor(company.name);
   const urls = getCompanyLogoSources(
     company.corporateUrl,
     company.estimatedFaviconUrl,
     company.name,
-    company.estimatedLogoDomains
+    company.estimatedLogoDomains,
+    company.estimatedLogoCandidates
   );
   const sources = urls ? [urls.primary, ...urls.fallbacks] : [];
-  const src = sources[sourceIndex];
+  const sourcesKey = sources.join("\n");
+  const sourceIndex = sourceState.sourcesKey === sourcesKey ? sourceState.sourceIndex : 0;
+  const resolvedSourceIndex = findNextSourceIndex(sources, sourceIndex);
+  const src = resolvedSourceIndex >= 0 ? sources[resolvedSourceIndex] : undefined;
 
   if (!src) {
     return (
@@ -47,7 +63,10 @@ export function CompanyLogo({
         className={cn("h-6 w-6 rounded-sm object-contain", imageClassName)}
         loading="lazy"
         referrerPolicy="strict-origin-when-cross-origin"
-        onError={() => setSourceIndex((index) => index + 1)}
+        onError={() => {
+          failedLogoUrls.add(src);
+          setSourceState({ sourcesKey, sourceIndex: resolvedSourceIndex + 1 });
+        }}
       />
     </span>
   );

@@ -720,7 +720,7 @@
 
 ### 16.2 出力（共通）
 - ストリーミングの主表示は **rewrite（改善案）** → **sources（出典）** → **complete** の順（詳細は `docs/features/ES_REVIEW.md`）
-- **`review_meta`**: 設問分類（confidence / secondary / rationale / recommended_grounding 等）、企業接地の段階（`none / light / standard / deep`）、検証・リトライ・length-fix・fallback 診断・テレメトリなど。UI は推奨理由や注意の一部を表示しうる
+- **`review_meta`**: 設問分類（confidence / secondary / rationale / recommended_grounding 等）、企業接地の段階（`none / light / standard / deep`）、検証・リトライ・fallback 診断・テレメトリなど。UI は推奨理由や注意の一部を表示しうる
 - 添削の実行前にクレジット見積の確認モーダルは挟まない（API 側で予約/402）
 - **モデル選択（ログインユーザー）**: UI は Claude / GPT / Gemini / クレジット消費を抑えた経路（内部は `gpt-5.4-mini` 系など）を選択可能。**Free プラン**は表示モデルが固定され、請求はプレミアム帯のクレジット表を用いる（`calculateESReviewCost`）
 - **AIコンテキスト範囲**: 対象範囲のみ

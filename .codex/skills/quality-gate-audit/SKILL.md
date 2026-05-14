@@ -71,7 +71,7 @@ scope: develop..HEAD
 
 ### Step 6: Verdict & Presentation
 
-AskUserQuestion で結果サマリを提示:
+Codex では AskUserQuestion を呼べないため、結果サマリと推奨判断を最終出力に明示する:
 - PASS: 全カテゴリ pass
 - PASS_WITH_WARNINGS: medium 以下の findings のみ
 - BLOCK: critical/high findings が存在

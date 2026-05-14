@@ -8,6 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { getAppUrl } from "@/lib/app-url";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { logError, logInfo, logWarn } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,8 +36,16 @@ export async function GET(request: NextRequest) {
     // Verify Vercel Cron authorization with timing-safe comparison
     const authHeader = request.headers.get("authorization");
     if (!verifyToken(authHeader, process.env.CRON_SECRET || "")) {
-      console.error("Unauthorized cron request");
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      logWarn("daily-notifications-cron-unauthorized", {
+        route: "/api/cron/daily-notifications",
+        status: 401,
+      });
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "CRON_AUTH_REQUIRED",
+        userMessage: "認証に失敗しました。",
+        action: "Cron secret の設定を確認してください。",
+      });
     }
 
     const baseUrl = getAppUrl();
@@ -64,12 +74,19 @@ export async function GET(request: NextRequest) {
         });
         results[type] = await res.json();
       } catch (error) {
-        console.error(`Batch ${type} failed:`, error);
+        logError("daily-notifications-batch-failed", error, {
+          route: "/api/cron/daily-notifications",
+          event: type,
+        });
         results[type] = { error: "Failed to execute batch" };
       }
     }
 
-    console.log("Daily notifications cron completed:", results);
+    logInfo("daily-notifications-cron-completed", {
+      route: "/api/cron/daily-notifications",
+      count: batchJobs.length,
+      event: "daily_notifications",
+    });
 
     return NextResponse.json({
       success: true,
@@ -77,10 +94,13 @@ export async function GET(request: NextRequest) {
       results,
     });
   } catch (error) {
-    console.error("Daily notifications cron error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "DAILY_NOTIFICATIONS_CRON_FAILED",
+      userMessage: "通知処理に失敗しました。",
+      action: "時間をおいて再実行してください。",
+      error,
+      logContext: "daily-notifications-cron-failed",
+    });
   }
 }

@@ -444,6 +444,31 @@ ES 添削の text 生成は、Claude / GPT / Gemini の全モデルで `backend/
 
 SSOT: `backend/app/prompts/es_templates/_prompt_builder.py`
 
+### プロンプト構造（9 トップレベルセクション）
+
+`build_template_rewrite_prompt` が生成する system prompt は以下の9セクションで構成される。ネストされたサブタグにより、LLM のセマンティックハンドルを維持しつつトップレベルのセクション数を抑えている。
+
+| # | セクション | サブタグ | 内容 |
+|---|---|---|---|
+| 1 | `<role_task>` | — | ロール定義 + タスク記述 |
+| 2 | `<output_contract>` | — | 出力形式の制約 |
+| 3 | `<constraints>` | `absolute` / `core` / `target` | 3階層の制約（事実保全・文体 / 結論ファースト・構造 / 文字数・企業接地） |
+| 4 | `<length>` | `length_policy` / `self_count` / short・midrange guidance | 文字数ポリシー + セルフカウント指示 + 字数帯別ガイダンス |
+| 5 | `<style>` | `core_style` / `prose_style` / `anti_ai` | 文体ルール + 散文スタイル + AI臭回避 |
+| 6 | `<template>` | `template_focus` / `evaluation_rubric` / `required_elements` / `guidance` / `anti_patterns` / `playbook` / `gakuchika` | テンプレート固有の評価基準・必須要素・禁止パターン・構成ガイド |
+| 7 | `<company>` | `assistive_grounding` / `deep_grounding_requirements` / `proper_noun_policy` / evidence cards | 企業情報の接地ルール + エビデンスカード |
+| 8 | `<context>` | `reference_quality` / `user_facts` | 参考ES品質プロファイル + ユーザー事実 |
+| 9 | `<retry>` | `focus_mode` / `question_specific` / `negative_reframe` / `retry_hints` | リトライ時のみ付加。フォーカスモード指示 + 設問固有ヒント |
+
+#### 設計判断
+
+- **`RewriteStrategy` enum**: boolean `safe_mode` を `RewriteStrategy`（STANDARD / FALLBACK）に置換。`_StrategyConfig` dataclass が標準/フォールバック間の全差分を一元管理する
+- **ネストサブタグ**: トップレベルセクション数を約25から9に集約。各セクション内のサブタグで LLM が個別の指示ブロックを識別できる構造を維持
+- **フォーカスモードの直接記述**: セクション間の相互参照を避け、各フォーカスモードのガイダンスは直接的な指示テキストとして記述
+- **意図的な指示強調の維持**: 結論ファースト、だ/である調、事実追加禁止、企業固有情報の指示は、異なるスコープ（`<constraints>` / `<style>` / `<template>` 等）で意図的に繰り返すことで LLM の指示追従性を担保
+
+SSOT: `backend/app/prompts/es_templates/_prompt_builder.py`
+
 ### AI安全対策
 
 | 対策 | 検出対象 | 処理 |

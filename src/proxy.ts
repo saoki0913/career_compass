@@ -18,10 +18,12 @@ import {
   createCspNonce,
   isHtmlDocumentRequest,
 } from "@/lib/security/csp";
+import { normalizePostAuthReturnPath } from "@/lib/security/safe-return-path";
 
 // Routes that require authentication
 const PROTECTED_ROUTES = [
   "/calendar",
+  "/profile",
   "/settings",
 ];
 
@@ -411,7 +413,9 @@ export async function proxy(request: NextRequest) {
   // Auth routes - redirect to dashboard if already authenticated
   if (AUTH_ROUTES.some((route) => pathname.startsWith(route))) {
     if (isAuthenticated) {
-      return withCsrfCookie(request, NextResponse.redirect(new URL("/dashboard", request.url)), cspContext);
+      const redirectParam = request.nextUrl.searchParams.get("redirect") || request.nextUrl.searchParams.get("callbackUrl");
+      const target = normalizePostAuthReturnPath(redirectParam, "/dashboard");
+      return withCsrfCookie(request, NextResponse.redirect(new URL(target, request.url)), cspContext);
     }
     return withCsrfCookie(request, createForwardResponse(request, cspContext), cspContext);
   }
@@ -420,7 +424,7 @@ export async function proxy(request: NextRequest) {
   if (PROTECTED_ROUTES.some((route) => pathname.startsWith(route))) {
     if (!isAuthenticated) {
       const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("callbackUrl", pathname);
+      loginUrl.searchParams.set("callbackUrl", normalizePostAuthReturnPath(`${pathname}${request.nextUrl.search}`, "/dashboard"));
       return withCsrfCookie(request, NextResponse.redirect(loginUrl), cspContext);
     }
   }
