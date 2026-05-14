@@ -16,9 +16,9 @@ def test_question_budget_constants_are_in_range() -> None:
     assert soft_min < hard_max, "SOFT_MIN must be less than HARD_MAX"
 
 
-def test_question_soft_min_is_13() -> None:
+def test_question_soft_min_is_12() -> None:
     planning = importlib.import_module("app.routers._interview.planning")
-    assert planning.QUESTION_SOFT_MIN == 13
+    assert planning.QUESTION_SOFT_MIN == 12
 
 
 def test_question_hard_max_is_17() -> None:

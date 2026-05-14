@@ -522,10 +522,12 @@ def _normalize_es_build_payload(
             [gap for gap in causal_gaps if gap not in {"learning_too_generic"}],
         )
     # STAR 進捗と質問の論点を一致させる: 骨格が未充足のときは常に先頭欠落要素へ寄せる
+    star_realigned = False
     if missing_elements and focus_key in CORE_BUILD_ELEMENTS:
         aligned = _detect_es_focus_from_missing(missing_elements, blocked=set(effective_blocked_focuses))
         if focus_key != aligned and aligned not in effective_blocked_focuses:
             focus_key = aligned
+            star_realigned = True
     meta = _build_focus_meta(focus_key, conversation_text)
     question = _clean_string(data.get("question"))
     answer_hint = _clean_string(data.get("answer_hint")) or meta["answer_hint"]
@@ -607,10 +609,16 @@ def _normalize_es_build_payload(
             progress_label = meta["progress_label"]
 
     final_question = question or meta["question"]
-    inferred_focus = _infer_focus_from_question_text(final_question)
-    if inferred_focus and inferred_focus != focus_key and inferred_focus in BUILD_ELEMENTS:
-        focus_key = inferred_focus
-        meta = _build_focus_meta(focus_key, conversation_text)
+    if not star_realigned and not server_ready:
+        inferred_focus = _infer_focus_from_question_text(final_question)
+        if (
+            inferred_focus
+            and inferred_focus != focus_key
+            and inferred_focus in BUILD_ELEMENTS
+            and inferred_focus not in effective_blocked_focuses
+        ):
+            focus_key = inferred_focus
+            meta = _build_focus_meta(focus_key, conversation_text)
 
     asked_focuses, resolved_focuses, deferred_focuses, blocked_focuses, focus_attempt_counts, _ = _derive_focus_tracking(
         fallback_state,

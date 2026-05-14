@@ -157,7 +157,10 @@ def test_fallback_questions_avoid_prohibited_phrases() -> None:
 
 
 def test_normalize_es_build_payload_aligns_focus_to_first_missing_star() -> None:
-    """LLM が後段だけ focus にしても、missing の先頭（STAR 順）に寄せる。"""
+    """LLM が後段だけ focus にしても、missing の先頭（STAR 順）に寄せる。
+
+    _infer_focus_from_question_text が STAR alignment を上書きしないことも検証。
+    """
     _question, state, _source = _normalize_es_build_payload(
         {
             "question": "どのような行動をしましたか。",

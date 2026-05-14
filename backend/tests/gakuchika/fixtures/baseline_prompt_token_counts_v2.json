@@ -28,13 +28,13 @@
       "fixture_id": "学園祭_es_aftercare_2turn"
     },
     "draft_generation": {
-      "system_chars": 2935,
+      "system_chars": 6175,
       "user_chars": 272,
-      "total_chars": 3207,
-      "approx_tokens": 2087,
+      "total_chars": 6447,
+      "approx_tokens": 3223,
       "budget": 200,
       "fixture_id": "学園祭_char400_5expressions",
-      "_updated": "2026-05-07: +217 tokens from TEMPLATE_GUIDANCE completion pattern expansion + STYLE_RULES + validation profile integration"
+      "_updated": "2026-05-14: rebaseline after ES template v3 expansion (draft quality rules, style enforcement, validation profile)"
     }
   }
 }

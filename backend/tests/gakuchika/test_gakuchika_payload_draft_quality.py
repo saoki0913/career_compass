@@ -1,4 +1,8 @@
-"""Tests for draft_quality passthrough and focus inference."""
+"""Tests for draft_quality passthrough and focus inference.
+
+_infer_focus_from_question_text is tested here; STAR-alignment interaction
+is covered by test_gakuchika_next_question.py.
+"""
 from app.normalization.gakuchika_payload import _default_state
 from app.normalization.gakuchika_question_planner import _infer_focus_from_question_text
 

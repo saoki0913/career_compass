@@ -184,7 +184,7 @@ def test_motivation_draft_prompt_includes_phase4_quality_guidance() -> None:
     assert "<prose_style>" in system
     assert "【参考ESから抽出した品質ヒント】" in system
     assert "根拠が限定的な場合は" in system
-    assert "1文目でその企業を志望する理由の核を20〜45字で言い切る" in system
+    assert "1文目でその企業を志望する理由の核を結論として言い切る" in system
 
 
 def test_gakuchika_draft_includes_logic_patterns(

@@ -2,22 +2,24 @@ from pathlib import Path
 
 import pytest
 
+_RAG_DIR = Path(__file__).resolve().parents[2] / "app" / "rag"
+
 
 def test_vector_store_does_not_own_hybrid_retrieval_imports() -> None:
-    source = Path("backend/app/rag/vector_store.py").read_text()
+    source = (_RAG_DIR / "vector_store.py").read_text()
 
     assert "app.rag.hybrid_search import" not in source
 
 
 def test_hybrid_search_does_not_import_vector_store_refresh() -> None:
-    source = Path("backend/app/rag/hybrid_search.py").read_text()
+    source = (_RAG_DIR / "hybrid_search.py").read_text()
 
     assert "from app.rag.vector_store import update_bm25_index" not in source
     assert "from app.rag.bm25_refresh import update_bm25_index" in source
 
 
 def test_hybrid_retrieval_lives_in_retrieval_module() -> None:
-    source = Path("backend/app/rag/retrieval.py").read_text()
+    source = (_RAG_DIR / "retrieval.py").read_text()
 
     assert "from app.rag.hybrid_search import" in source
 

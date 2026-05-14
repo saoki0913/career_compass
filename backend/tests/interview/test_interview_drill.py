@@ -24,18 +24,27 @@ from app.routers.interview import (
     _build_drill_start_prompt,
     _coerce_retry_scores,
 )
+from app.security.career_principal import CareerPrincipal
 from app.security.internal_service import require_internal_service
 
 
 @pytest.fixture(autouse=True)
-def _bypass_internal_auth():
-    """Drill endpoints are mounted behind ``require_internal_service``. Bypass
-    the JWT check in tests so POST requests don't need a valid internal token.
-    """
+def _bypass_internal_auth(monkeypatch):
+    """Bypass internal-service and career-principal JWT checks in tests."""
     app.dependency_overrides[require_internal_service] = lambda: {
         "service": "next-bff",
         "mode": "test",
     }
+    _test_principal = CareerPrincipal(
+        scope="company",
+        actor_kind="user",
+        actor_id="test-user-1",
+        plan="standard",
+        company_id="test-company-1",
+        jti="test-jti",
+    )
+    import app.security.career_principal as _cp
+    monkeypatch.setattr(_cp, "_extract_principal", lambda _req, _scope: _test_principal)
     yield
     app.dependency_overrides.pop(require_internal_service, None)
 
@@ -207,6 +216,7 @@ def test_drill_start_endpoint_returns_4_fields(monkeypatch: pytest.MonkeyPatch) 
             "weakest_axis": "company_fit",
             "original_score": 2,
             "weakest_evidence": ["事業の社会性"],
+            "company_id": "test-company-1",
             "company_name": "テスト株式会社",
             "company_summary": "DX 支援を行う企業。",
             "selected_role": "コンサルタント",
@@ -251,6 +261,7 @@ def test_drill_start_endpoint_uses_fallback_when_llm_fails(
             "weakest_axis": "company_fit",
             "original_score": 1,
             "weakest_evidence": [],
+            "company_id": "test-company-1",
             "company_name": "テスト株式会社",
         },
     )
@@ -301,6 +312,7 @@ def test_drill_score_endpoint_returns_delta(monkeypatch: pytest.MonkeyPatch) -> 
                 "credibility": 3,
             },
             "weakest_axis": "company_fit",
+            "company_id": "test-company-1",
             "company_name": "テスト株式会社",
             "selected_role": "コンサルタント",
         },
@@ -357,6 +369,7 @@ def test_drill_score_endpoint_fallback_rationale_when_llm_returns_empty(
                 "credibility": 3,
             },
             "weakest_axis": "company_fit",
+            "company_id": "test-company-1",
             "company_name": "テスト株式会社",
         },
     )
