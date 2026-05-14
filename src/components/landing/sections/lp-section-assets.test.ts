@@ -24,7 +24,7 @@ const registryConsumerFiles = [
   path.join(repoRoot, "src/components/dashboard/DeadlineCard.tsx"),
   path.join(repoRoot, "src/components/dashboard/TodayTasksCard.tsx"),
   path.join(repoRoot, "src/app/(auth)/login/page.tsx"),
-  path.join(repoRoot, "src/app/(product)/pricing/PricingInteractive.tsx"),
+  path.join(repoRoot, "src/app/(marketing)/pricing/PricingInteractive.tsx"),
 ] as const;
 
 describe("root LP section assets", () => {

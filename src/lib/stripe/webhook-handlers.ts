@@ -7,6 +7,7 @@ import { notifications, subscriptions, userProfiles } from "@/lib/db/schema";
 import { stripe } from "@/lib/stripe";
 import {
   assertCheckoutOwnership,
+  isOlderOrSameTimeAsStoredStripeEvent,
   isOlderThanStoredStripeEvent,
   isSubscriptionEntitled,
   requirePlanFromPriceId,
@@ -418,7 +419,7 @@ export async function applyBillingHoldForDispute(
   await db.transaction(async (tx) => {
     const existingSub = await selectSubscriptionByStripeIdTx(tx, subscriptionId);
 
-    if (isOlderThanStoredStripeEvent(existingSub, event)) {
+    if (isOlderOrSameTimeAsStoredStripeEvent(existingSub, event)) {
       return;
     }
 
