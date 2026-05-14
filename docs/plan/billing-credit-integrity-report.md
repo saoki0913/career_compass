@@ -1,5 +1,8 @@
 # 課金・クレジット整合性 リスク評価レポート
 
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+
+
 > **作成日**: 2026-05-04
 > **ステータス**: ✅ 完了
 > **対象**: career_compass (就活Pass) クレジットシステム全体
@@ -47,13 +50,38 @@
 
 **安全が確認された設計**: Stripe webhook べき等性（`processedStripeEvents`）、`cancelReservation` の CAS パターン（二重返金防止）、SSE ストリームの `onFinally` チェーン（ES Review / Interview）。
 
-### 実装反映メモ（2026-05-06）
+### 実装完了状況（2026-05-14 検証済み）
 
-- `BCI-01`: `reserveCredits` は既に transaction 化済み。残っていた `consumeCredits` の残高更新 + 監査ログ挿入を `db.transaction()` に移し、成功時のみ消費の監査整合性を強化した。
-- `BCI-02`: RAG monthly usage は `FOR UPDATE` + atomic update 済み。今回の修正では credit 層の transaction / billing block を追加し、残る一体性リスクを縮小した。
-- `BCI-03`: `updatePlanAllocation` を絶対値上書きから monthly allocation 差分ベースへ変更し、実際の残高差分を `creditTransactions.amount` に記録する。
-- `BCI-10`: `invoice.payment_failed` webhook に加え、`hasEnoughCredits` / `consumeCredits` / `reserveCredits` が subscription status と billing hold を確認して fail-closed する。
-- `BCI-11`: `charge.refunded`、`charge.dispute.created`、`charge.dispute.closed` を webhook 管理対象に追加した。全額返金は Free 降格、部分返金は通知のみ、dispute 中は AI credit 消費停止とする。
+全 17 件の BCI 項目を修正完了した。以下は最終実装状態の検証結果である。
+
+#### P0（即時対応）
+
+- **BCI-01** [Verified Fixed]: `consumeCredits` / `reserveCredits` は `db.transaction()` 内で UPDATE + INSERT を実行する。`src/lib/credits/reservations.ts:71-129` (consumeCredits), `:155-218` (reserveCredits)。
+- **BCI-02** [Verified Fixed]: RAG monthly usage は `FOR UPDATE` + SQL atomic increment (`col = col + N`) で更新する。credit 層の transaction と billing block check を統合済み。
+- **BCI-03** [Verified Fixed]: `updatePlanAllocationCoreTx` は delta-based 更新 (`balance = balance + (newAllocation - oldAllocation)`) を使用する。`src/lib/credits/monthly-reset.ts:147-222`。
+
+#### P1（1 週間以内）
+
+- **BCI-04** [Verified Fixed]: `grantMonthlyCredits` は `amount = nextBalance - previousBalance` で差分値を記録する。`src/lib/credits/monthly-reset.ts:82-131`。CTE で `previous_balance` を取得し、差分を `creditTransactions.amount` に反映する。
+- **BCI-05** [Fixed]: `cleanupExpiredReservations(cutoffMinutes)` を `src/lib/credits/reservations.ts:315-348` に追加。`src/app/api/cron/billing-maintenance/route.ts` が 30 分 TTL で定期実行する。バッチ上限 100 件/回。
+- **BCI-06** [Fixed]: `src/bff/gakuchika/[id]/generate-es-draft/route.ts` で `confirmReservation` 失敗時に `cancelReservation(reservationId)` を呼ぶ（line 419）。motivation-draft パターンを踏襲。
+- **BCI-07** [Fixed]: `updatePlanAllocationCoreTx` を webhook トランザクション内で呼ぶ。`src/lib/stripe/webhook-handlers.ts` の全ハンドラ（checkout: 299, subscription.updated: 345/374, downgrade: 121, restore: 181）が `db.transaction()` 内から `updatePlanAllocationCoreTx(tx, ...)` を使用。
+
+#### P2（1 ヶ月以内）
+
+- **BCI-08** [Verified Fixed]: `initializeCreditsTx` は `onConflictDoNothing({ target: credits.userId })` を使用。`src/lib/credits/monthly-reset.ts:55`。
+- **BCI-09** [Verified Fixed]: `getOrCreateMonthlyUsage` は `onConflictDoNothing` + re-SELECT パターンを使用。`src/lib/company-info/usage.ts:90-128`。safety comment 追加済み。
+- **BCI-10** [Verified Fixed]: `creditConsumptionAllowedSql` が `reserveCredits` / `consumeCredits` の WHERE 句に組み込まれ、`past_due` / `unpaid` / `paused` / `incomplete` / `incomplete_expired` + dispute billing hold を fail-closed で検査する。`src/lib/credits/shared.ts:83-106`。
+- **BCI-11** [Verified Fixed]: `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed` の 3 イベントに対応する webhook ハンドラ (`handleChargeRefunded`, `handleDisputeCreated`, `handleDisputeClosed`) を実装。全額返金は Free 降格 + 通知、部分返金は通知のみ、dispute 中は `billingHoldStatus = "dispute"` で credit 消費停止。`src/lib/stripe/webhook-handlers.ts:404-674`。
+- **BCI-12** [Fixed]: webhook ハンドラを `src/lib/stripe/webhook-handlers.ts` に抽出し、DB mutations を単一 `db.transaction()` で囲む。旧 monolith route (876 行) は dispatch + idempotency (126 行) のみに縮小。
+- **BCI-13** [Fixed]: BFF routes 8 箇所で `console.error` を `logError` に置換済み。注: `src/app/(product)/settings/page.tsx:160` に 1 箇所 `console.error` が残存（BFF route ではないが改善推奨）。
+
+#### P3（改善推奨）
+
+- **BCI-14** [Fixed]: `grantMonthlyCredits` の CTE で `WHERE to_char(last_reset_at AT TIME ZONE 'Asia/Tokyo', 'YYYY-MM') <> monthKey` を用いた CAS 化済み。`src/lib/credits/monthly-reset.ts:87-106`。`src/lib/credits/balance.ts:13` に TOCTOU safety comment 追加。
+- **BCI-15** [Verified Fixed]: スケジュール取得の無料枠は SQL atomic increment で confirm する。`src/lib/credits/balance.ts:13` の TOCTOU safety comment で optimistic precheck + atomic confirm パターンを明文化。
+- **BCI-16** [Fixed]: `src/app/api/cron/billing-maintenance/route.ts` が `processedStripeEvents` の TTL cleanup を実行する。succeeded: 90 日、failed: 180 日。バッチ上限: succeeded 1000 件、failed 500 件。`ctid IN (SELECT ... LIMIT)` で安全にバッチ削除。
+- **BCI-17** [Fixed]: `confirmReservation` は `{ confirmed: boolean }` を返す (`src/lib/credits/reservations.ts:221-253`)。`cancelReservation` は `{ canceled: boolean, refundedAmount: number }` を返す (`src/lib/credits/reservations.ts:255-311`)。
 
 ---
 

@@ -25,10 +25,12 @@ export {
   getNextResetDate,
   grantMonthlyCredits,
   initializeCredits,
+  initializeCreditsTx,
   shouldGrantMonthlyCredits,
   updatePlanAllocation,
+  updatePlanAllocationCoreTx,
   updatePlanAllocationIfCurrent,
 } from "./monthly-reset";
 export { getCreditsInfo, getRemainingFreeFetches, hasEnoughCredits } from "./balance";
-export { cancelReservation, confirmReservation, consumeCredits, reserveCredits } from "./reservations";
+export { cancelReservation, cleanupExpiredReservations, confirmReservation, consumeCredits, reserveCredits } from "./reservations";
 export { calculateESReviewCost };

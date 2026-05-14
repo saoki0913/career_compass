@@ -50,4 +50,15 @@ describe("credits month reset", () => {
     expect(INTERVIEW_TURN_CREDIT_COST).toBe(1);
     expect(INTERVIEW_CONTINUE_CREDIT_COST).toBe(1);
   });
+
+  it("exposes cleanupExpiredReservations", async () => {
+    const { cleanupExpiredReservations } = await import("@/lib/credits");
+    expect(typeof cleanupExpiredReservations).toBe("function");
+  });
+
+  it("exposes tx-injectable monthly reset helpers for webhook transactions", async () => {
+    const { initializeCreditsTx, updatePlanAllocationCoreTx } = await import("@/lib/credits");
+    expect(typeof initializeCreditsTx).toBe("function");
+    expect(typeof updatePlanAllocationCoreTx).toBe("function");
+  });
 });

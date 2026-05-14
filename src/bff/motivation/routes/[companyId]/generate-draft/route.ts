@@ -68,7 +68,7 @@ export async function POST(
     );
   }
 
-  const limitResponse = await guardDailyTokenLimit(identity);
+  const limitResponse = await guardDailyTokenLimit(identity, request);
   if (limitResponse) return limitResponse;
 
   const rateLimited = await enforceRateLimitLayers(
@@ -338,7 +338,12 @@ export async function POST(
     });
   } catch (error) {
     if (reservationId) await cancelReservation(reservationId);
-    console.error("[Motivation Draft] Error:", error);
+    logError("motivation-draft:consume-credits", error, {
+      requestId,
+      feature: "motivation_draft",
+      companyId,
+      userId: userId ?? undefined,
+    });
     logAiCreditCostSummary({
       feature: "motivation_draft",
       requestId,

@@ -119,7 +119,7 @@ export async function POST(
     return rateLimited;
   }
 
-  const limitResponse = await guardDailyTokenLimit(identity);
+  const limitResponse = await guardDailyTokenLimit(identity, request);
   if (limitResponse) return limitResponse;
 
   // Get company

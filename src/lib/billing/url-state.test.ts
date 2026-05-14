@@ -18,6 +18,12 @@ describe("billing url state", () => {
     ).toEqual({ success: true, plan: "pro" });
   });
 
+  it("extracts checkout return payload without treating the URL as webhook-confirmed fulfillment", () => {
+    expect(
+      getPurchaseSuccessState(new URLSearchParams("checkout=return&session_id=cs_1&plan=standard"))
+    ).toEqual({ success: true, plan: "standard" });
+  });
+
   it("ignores unrelated dashboard query params", () => {
     expect(getPurchaseSuccessState(new URLSearchParams("foo=bar"))).toEqual({
       success: false,

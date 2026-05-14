@@ -60,7 +60,7 @@ describe("confirmReservation", () => {
     vi.resetAllMocks();
 
     dbTransactionMock.mockImplementation(
-      async (fn: (tx: unknown) => Promise<void>) => {
+      async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           select: vi.fn(() => ({
             from: vi.fn(() => ({
@@ -71,18 +71,20 @@ describe("confirmReservation", () => {
           })),
           update: vi.fn(() => ({
             set: vi.fn(() => ({
-              where: txUpdateWhereMock,
+              where: vi.fn(() => ({
+                returning: txUpdateWhereMock,
+              })),
             })),
           })),
         };
-        await fn(tx);
+        return fn(tx);
       }
     );
 
-    txUpdateWhereMock.mockResolvedValue(undefined);
+    txUpdateWhereMock.mockResolvedValue([{ id: "res-1" }]);
   });
 
-  it("runs select+update atomically within db.transaction", async () => {
+  it("runs select+update atomically within db.transaction and returns confirmed: true", async () => {
     txSelectLimitMock
       .mockResolvedValueOnce([
         {
@@ -96,8 +98,9 @@ describe("confirmReservation", () => {
       .mockResolvedValueOnce([{ userId: "user-1", balance: 70 }]);
 
     const { confirmReservation } = await import("@/lib/credits/reservations");
-    await confirmReservation("res-1");
+    const result = await confirmReservation("res-1");
 
+    expect(result).toEqual({ confirmed: true });
     expect(dbTransactionMock).toHaveBeenCalledTimes(1);
     expect(txSelectLimitMock).toHaveBeenCalledTimes(2);
     expect(txUpdateWhereMock).toHaveBeenCalledTimes(1);
@@ -118,7 +121,7 @@ describe("confirmReservation", () => {
 
     let capturedSet: Record<string, unknown> | null = null;
     dbTransactionMock.mockImplementationOnce(
-      async (fn: (tx: unknown) => Promise<void>) => {
+      async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           select: vi.fn(() => ({
             from: vi.fn(() => ({
@@ -131,12 +134,14 @@ describe("confirmReservation", () => {
             set: vi.fn((values: Record<string, unknown>) => {
               capturedSet = values;
               return {
-                where: txUpdateWhereMock,
+                where: vi.fn(() => ({
+                  returning: txUpdateWhereMock,
+                })),
               };
             }),
           })),
         };
-        await fn(tx);
+        return fn(tx);
       }
     );
 
@@ -165,7 +170,7 @@ describe("confirmReservation", () => {
 
     let capturedSet: Record<string, unknown> | null = null;
     dbTransactionMock.mockImplementationOnce(
-      async (fn: (tx: unknown) => Promise<void>) => {
+      async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
           select: vi.fn(() => ({
             from: vi.fn(() => ({
@@ -177,11 +182,15 @@ describe("confirmReservation", () => {
           update: vi.fn(() => ({
             set: vi.fn((values: Record<string, unknown>) => {
               capturedSet = values;
-              return { where: txUpdateWhereMock };
+              return {
+                where: vi.fn(() => ({
+                  returning: txUpdateWhereMock,
+                })),
+              };
             }),
           })),
         };
-        await fn(tx);
+        return fn(tx);
       }
     );
 
@@ -194,13 +203,60 @@ describe("confirmReservation", () => {
     });
   });
 
-  it("skips update when reservation row is not found", async () => {
+  it("returns confirmed: false when reservation row is not found", async () => {
     txSelectLimitMock.mockResolvedValueOnce([]);
 
     const { confirmReservation } = await import("@/lib/credits/reservations");
-    await confirmReservation("missing");
+    const result = await confirmReservation("missing");
 
+    expect(result).toEqual({ confirmed: false });
     expect(txUpdateWhereMock).not.toHaveBeenCalled();
+  });
+
+  it("returns confirmed: false when reservation was already processed", async () => {
+    txSelectLimitMock
+      .mockResolvedValueOnce([
+        {
+          id: "res-1",
+          userId: "user-1",
+          amount: -30,
+          description: "[Confirmed] ES review",
+          balanceAfter: 70,
+          status: "confirmed",
+        },
+      ])
+      .mockResolvedValueOnce([{ userId: "user-1", balance: 70 }]);
+
+    txUpdateWhereMock.mockImplementationOnce(async () => ({
+      returning: vi.fn(async () => []),
+    }));
+
+    dbTransactionMock.mockImplementationOnce(
+      async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          select: vi.fn(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: txSelectLimitMock,
+              })),
+            })),
+          })),
+          update: vi.fn(() => ({
+            set: vi.fn(() => ({
+              where: vi.fn(() => ({
+                returning: vi.fn(async () => []),
+              })),
+            })),
+          })),
+        };
+        return fn(tx);
+      }
+    );
+
+    const { confirmReservation } = await import("@/lib/credits/reservations");
+    const result = await confirmReservation("res-1");
+
+    expect(result).toEqual({ confirmed: false });
   });
 });
 
@@ -384,7 +440,7 @@ describe("cancelReservation", () => {
     vi.resetAllMocks();
   });
 
-  it("claims the reserved transaction before refunding credits", async () => {
+  it("claims the reserved transaction before refunding credits and returns canceled: true", async () => {
     const returningMocks = [
       vi.fn(async () => [
         {
@@ -405,18 +461,19 @@ describe("cancelReservation", () => {
       })),
     }));
 
-    dbTransactionMock.mockImplementationOnce(async (fn: (tx: unknown) => Promise<void>) => {
-      await fn({ update: updateMock });
+    dbTransactionMock.mockImplementationOnce(async (fn: (tx: unknown) => Promise<unknown>) => {
+      return fn({ update: updateMock });
     });
 
     const { cancelReservation } = await import("@/lib/credits/reservations");
-    await cancelReservation("res-1");
+    const result = await cancelReservation("res-1");
 
+    expect(result).toEqual({ canceled: true, refundedAmount: 30 });
     expect(dbTransactionMock).toHaveBeenCalledTimes(1);
     expect(updateMock).toHaveBeenCalledTimes(3);
   });
 
-  it("does not refund credits when the reservation cannot be claimed", async () => {
+  it("returns canceled: false when the reservation cannot be claimed", async () => {
     const returningMock = vi.fn(async () => []);
     const updateMock = vi.fn(() => ({
       set: vi.fn(() => ({
@@ -426,13 +483,14 @@ describe("cancelReservation", () => {
       })),
     }));
 
-    dbTransactionMock.mockImplementationOnce(async (fn: (tx: unknown) => Promise<void>) => {
-      await fn({ update: updateMock });
+    dbTransactionMock.mockImplementationOnce(async (fn: (tx: unknown) => Promise<unknown>) => {
+      return fn({ update: updateMock });
     });
 
     const { cancelReservation } = await import("@/lib/credits/reservations");
-    await cancelReservation("res-1");
+    const result = await cancelReservation("res-1");
 
+    expect(result).toEqual({ canceled: false, refundedAmount: 0 });
     expect(updateMock).toHaveBeenCalledTimes(1);
     expect(returningMock).toHaveBeenCalledTimes(1);
   });
@@ -466,5 +524,61 @@ describe("cancelReservation", () => {
     await expect(cancelReservation("res-1")).rejects.toThrow("Cannot cancel credit reservation");
 
     expect(updateMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("cleanupExpiredReservations", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("cancels expired reservations and returns cleanup summary", async () => {
+    dbSelectFromMock.mockReturnValueOnce({
+      where: vi.fn(() => ({
+        limit: vi.fn(async () => [
+          { id: "expired-1" },
+          { id: "expired-2" },
+        ]),
+      })),
+    });
+
+    const returningResults = [
+      [{ userId: "u1", amount: -10, description: "[Cancelling]", balanceAfter: 40 }],
+      [{ balance: 50 }],
+      [{ userId: "u2", amount: -20, description: "[Cancelling]", balanceAfter: 30 }],
+      [{ balance: 50 }],
+    ];
+    let callIdx = 0;
+    dbTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const updateMock = vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({
+            returning: vi.fn(async () => returningResults[callIdx++]),
+          })),
+        })),
+      }));
+      return fn({ update: updateMock });
+    });
+
+    const { cleanupExpiredReservations } = await import("@/lib/credits/reservations");
+    const result = await cleanupExpiredReservations(30);
+
+    expect(result.canceledCount).toBe(2);
+    expect(result.totalRefunded).toBe(30);
+    expect(dbTransactionMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns zero counts when no expired reservations exist", async () => {
+    dbSelectFromMock.mockReturnValueOnce({
+      where: vi.fn(() => ({
+        limit: vi.fn(async () => []),
+      })),
+    });
+
+    const { cleanupExpiredReservations } = await import("@/lib/credits/reservations");
+    const result = await cleanupExpiredReservations(30);
+
+    expect(result.canceledCount).toBe(0);
+    expect(result.totalRefunded).toBe(0);
   });
 });

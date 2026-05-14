@@ -1,6 +1,8 @@
 import { eq, sql } from "drizzle-orm";
 
-import { creditTransactions, credits, db, getCreditRow, PLAN_CREDITS, type PlanType } from "./shared";
+import { creditTransactions, credits, db, PLAN_CREDITS, type PlanType } from "./shared";
+
+type CreditsTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export function getJSTDateString(): string {
   const jst = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -31,74 +33,105 @@ export function shouldGrantMonthlyCredits(lastResetAt: Date): boolean {
   return getJSTMonthKey(lastResetAt) !== getJSTMonthKey(new Date());
 }
 
-export async function initializeCredits(userId: string, plan: PlanType = "free"): Promise<boolean> {
+export async function initializeCreditsTx(
+  tx: CreditsTransaction,
+  userId: string,
+  plan: PlanType = "free",
+): Promise<boolean> {
   const allocation = PLAN_CREDITS[plan];
   const now = new Date();
 
-  return db.transaction(async (tx) => {
-    const inserted = await tx
-      .insert(credits)
-      .values({
-        id: crypto.randomUUID(),
-        userId,
-        balance: allocation,
-        monthlyAllocation: allocation,
-        lastResetAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({ target: credits.userId })
-      .returning({ balance: credits.balance });
+  const inserted = await tx
+    .insert(credits)
+    .values({
+      id: crypto.randomUUID(),
+      userId,
+      balance: allocation,
+      monthlyAllocation: allocation,
+      lastResetAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing({ target: credits.userId })
+    .returning({ balance: credits.balance });
 
-    if (inserted.length === 0) {
-      return false;
+  if (inserted.length === 0) {
+    return false;
+  }
+
+  await tx.insert(creditTransactions).values({
+    id: crypto.randomUUID(),
+    userId,
+    amount: allocation,
+    type: "monthly_grant",
+    description: "Initial credit allocation",
+    status: "applied",
+    idempotencyKey: `initial_grant:${userId}`,
+    operationId: "initial_grant",
+    balanceAfter: allocation,
+    createdAt: now,
+  });
+
+  return true;
+}
+
+export async function initializeCredits(userId: string, plan: PlanType = "free"): Promise<boolean> {
+  return db.transaction((tx) => initializeCreditsTx(tx, userId, plan));
+}
+
+export async function grantMonthlyCredits(userId: string) {
+  const now = new Date();
+  const monthKey = getJSTMonthKey(now);
+
+  await db.transaction(async (tx) => {
+    const updatedRows = await tx.execute(sql`
+      with locked as (
+        select balance, monthly_allocation, last_reset_at
+        from credits
+        where user_id = ${userId}
+          and to_char(last_reset_at at time zone 'Asia/Tokyo', 'YYYY-MM') <> ${monthKey}
+        for update
+      ),
+      updated as (
+        update credits
+        set
+          balance = locked.monthly_allocation,
+          last_reset_at = ${now},
+          updated_at = ${now}
+        from locked
+        where credits.user_id = ${userId}
+        returning locked.balance as previous_balance, credits.balance as balance
+      )
+      select previous_balance, balance from updated
+    `);
+
+    const [updatedCredits] = Array.from(updatedRows as Iterable<Record<string, unknown>>);
+    if (!updatedCredits) {
+      return;
+    }
+    const previousBalance = Number(updatedCredits.previous_balance);
+    const nextBalance = Number(updatedCredits.balance);
+    if (!Number.isFinite(previousBalance) || !Number.isFinite(nextBalance)) {
+      throw new Error(`Invalid monthly grant result: ${userId}`);
     }
 
     await tx.insert(creditTransactions).values({
       id: crypto.randomUUID(),
       userId,
-      amount: allocation,
-      type: "monthly_grant",
-      description: "Initial credit allocation",
-      balanceAfter: allocation,
-      createdAt: now,
-    });
-
-    return true;
-  });
-}
-
-export async function grantMonthlyCredits(userId: string) {
-  const userCredits = await getCreditRow(userId);
-  if (!userCredits) return;
-
-  const now = new Date();
-  const newBalance = userCredits.monthlyAllocation;
-
-  await db.transaction(async (tx) => {
-    await tx
-      .update(credits)
-      .set({
-        balance: newBalance,
-        lastResetAt: now,
-        updatedAt: now,
-      })
-      .where(eq(credits.userId, userId));
-
-    await tx.insert(creditTransactions).values({
-      id: crypto.randomUUID(),
-      userId,
-      amount: newBalance - userCredits.balance,
+      amount: nextBalance - previousBalance,
       type: "monthly_grant",
       description: "Monthly credit reset",
-      balanceAfter: newBalance,
+      status: "applied",
+      idempotencyKey: `monthly_grant:${userId}:${monthKey}`,
+      operationId: monthKey,
+      balanceAfter: nextBalance,
       createdAt: now,
     });
   });
 }
 
 export async function updatePlanAllocation(userId: string, newPlan: PlanType) {
-  return updatePlanAllocationIfCurrent(userId, newPlan, null);
+  return db.transaction((tx) => updatePlanAllocationCoreTx(tx, userId, newPlan));
 }
 
 export async function updatePlanAllocationIfCurrent(
@@ -106,12 +139,27 @@ export async function updatePlanAllocationIfCurrent(
   newPlan: PlanType,
   expectedCurrentAllocation: number | null,
 ) {
+  return db.transaction((tx) => (
+    updatePlanAllocationCoreTx(tx, userId, newPlan, expectedCurrentAllocation)
+  ));
+}
+
+export async function updatePlanAllocationCoreTx(
+  tx: CreditsTransaction,
+  userId: string,
+  newPlan: PlanType,
+  expectedCurrentAllocation: number | null = null,
+) {
   const allocation = PLAN_CREDITS[newPlan];
   const now = new Date();
-  const userCredits = await getCreditRow(userId);
+  const [userCredits] = await tx
+    .select()
+    .from(credits)
+    .where(eq(credits.userId, userId))
+    .limit(1);
 
   if (!userCredits) {
-    const initialized = await initializeCredits(userId, newPlan);
+    const initialized = await initializeCreditsTx(tx, userId, newPlan);
     if (initialized) {
       return;
     }
@@ -122,53 +170,53 @@ export async function updatePlanAllocationIfCurrent(
     return;
   }
 
-  await db.transaction(async (tx) => {
-    const updatedRows = await tx.execute(sql`
-      with locked as (
-        select balance, monthly_allocation
-        from credits
-        where user_id = ${userId}
-        for update
-      ),
-      updated as (
-        update credits
-        set
-          balance = greatest(credits.balance + (${allocation} - locked.monthly_allocation), 0),
-          monthly_allocation = ${allocation},
-          last_reset_at = ${now},
-          updated_at = ${now}
-        from locked
-        where credits.user_id = ${userId}
-          and (
-            ${expectedCurrentAllocation}::integer is null
-            or locked.monthly_allocation = ${expectedCurrentAllocation}
-          )
-        returning locked.balance as previous_balance, credits.balance as balance
-      )
-      select previous_balance, balance from updated
-    `);
+  const updatedRows = await tx.execute(sql`
+    with locked as (
+      select balance, monthly_allocation
+      from credits
+      where user_id = ${userId}
+      for update
+    ),
+    updated as (
+      update credits
+      set
+        balance = greatest(credits.balance + (${allocation} - locked.monthly_allocation), 0),
+        monthly_allocation = ${allocation},
+        last_reset_at = ${now},
+        updated_at = ${now}
+      from locked
+      where credits.user_id = ${userId}
+        and (
+          ${expectedCurrentAllocation}::integer is null
+          or locked.monthly_allocation = ${expectedCurrentAllocation}
+        )
+      returning locked.balance as previous_balance, credits.balance as balance
+    )
+    select previous_balance, balance from updated
+  `);
 
-    const [updatedCredits] = Array.from(updatedRows as Iterable<Record<string, unknown>>);
-    if (!updatedCredits) {
-      if (expectedCurrentAllocation !== null) {
-        return;
-      }
-      throw new Error(`Cannot update plan allocation without credits row: ${userId}`);
+  const [updatedCredits] = Array.from(updatedRows as Iterable<Record<string, unknown>>);
+  if (!updatedCredits) {
+    if (expectedCurrentAllocation !== null) {
+      return;
     }
-    const previousBalance = Number(updatedCredits.previous_balance);
-    const nextBalance = Number(updatedCredits.balance);
-    if (!Number.isFinite(previousBalance) || !Number.isFinite(nextBalance)) {
-      throw new Error(`Invalid plan allocation result: ${userId}`);
-    }
+    throw new Error(`Cannot update plan allocation without credits row: ${userId}`);
+  }
+  const previousBalance = Number(updatedCredits.previous_balance);
+  const nextBalance = Number(updatedCredits.balance);
+  if (!Number.isFinite(previousBalance) || !Number.isFinite(nextBalance)) {
+    throw new Error(`Invalid plan allocation result: ${userId}`);
+  }
 
-    await tx.insert(creditTransactions).values({
-      id: crypto.randomUUID(),
-      userId,
-      amount: nextBalance - previousBalance,
-      type: "plan_change",
-      description: `Plan changed to ${newPlan}`,
-      balanceAfter: nextBalance,
-      createdAt: now,
-    });
+  await tx.insert(creditTransactions).values({
+    id: crypto.randomUUID(),
+    userId,
+    amount: nextBalance - previousBalance,
+    type: "plan_change",
+    description: `Plan changed to ${newPlan}`,
+    status: "applied",
+    operationId: `plan_change:${newPlan}`,
+    balanceAfter: nextBalance,
+    createdAt: now,
   });
 }

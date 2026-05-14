@@ -3,24 +3,37 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   constructEventMock,
   subscriptionsRetrieveMock,
+  customersRetrieveMock,
   invoicesRetrieveMock,
   chargesRetrieveMock,
   dbInsertValuesMock,
+  dbInsertOnConflictDoNothingMock,
   dbDeleteWhereMock,
   dbSelectLimitMock,
+  dbUpdateSetMock,
   dbUpdateWhereMock,
-  updatePlanAllocationMock,
-} = vi.hoisted(() => ({
-  constructEventMock: vi.fn(),
-  subscriptionsRetrieveMock: vi.fn(),
-  invoicesRetrieveMock: vi.fn(),
-  chargesRetrieveMock: vi.fn(),
-  dbInsertValuesMock: vi.fn(),
-  dbDeleteWhereMock: vi.fn(),
-  dbSelectLimitMock: vi.fn(),
-  dbUpdateWhereMock: vi.fn(),
-  updatePlanAllocationMock: vi.fn(),
-}));
+  dbTransactionMock,
+  dbTransactionTxs,
+  updatePlanAllocationCoreTxMock,
+} = vi.hoisted(() => {
+  const dbTransactionTxs: Array<unknown> = [];
+  return {
+    constructEventMock: vi.fn(),
+    subscriptionsRetrieveMock: vi.fn(),
+    customersRetrieveMock: vi.fn(),
+    invoicesRetrieveMock: vi.fn(),
+    chargesRetrieveMock: vi.fn(),
+    dbInsertValuesMock: vi.fn(),
+    dbInsertOnConflictDoNothingMock: vi.fn(),
+    dbDeleteWhereMock: vi.fn(),
+    dbSelectLimitMock: vi.fn(),
+    dbUpdateSetMock: vi.fn(),
+    dbUpdateWhereMock: vi.fn(),
+    dbTransactionMock: vi.fn(),
+    dbTransactionTxs,
+    updatePlanAllocationCoreTxMock: vi.fn(),
+  };
+});
 
 const futurePeriodEnd = () => Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
 
@@ -39,6 +52,9 @@ vi.mock("@/lib/stripe", () => ({
     },
     subscriptions: {
       retrieve: subscriptionsRetrieveMock,
+    },
+    customers: {
+      retrieve: customersRetrieveMock,
     },
     invoices: {
       retrieve: invoicesRetrieveMock,
@@ -65,23 +81,43 @@ vi.mock("@/lib/db", () => ({
       })),
     })),
     update: vi.fn(() => ({
-      set: vi.fn(() => ({
+      set: dbUpdateSetMock.mockImplementation(() => ({
         where: dbUpdateWhereMock,
       })),
     })),
-    transaction: vi.fn(async (fn: (tx: unknown) => Promise<void>) => {
-      const tx = {
-        insert: vi.fn(() => ({ values: vi.fn() })),
-        update: vi.fn(() => ({ set: vi.fn(() => ({ where: vi.fn() })) })),
-      };
-      await fn(tx);
-    }),
+    transaction: dbTransactionMock,
   },
 }));
 
 vi.mock("@/lib/credits", () => ({
-  updatePlanAllocation: updatePlanAllocationMock,
+  updatePlanAllocationCoreTx: updatePlanAllocationCoreTxMock,
 }));
+
+function createWebhookTx() {
+  return {
+    insert: vi.fn(() => ({ values: dbInsertValuesMock })),
+    update: vi.fn(() => ({
+      set: dbUpdateSetMock.mockImplementation(() => ({
+        where: dbUpdateWhereMock,
+      })),
+    })),
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: dbSelectLimitMock,
+        })),
+      })),
+    })),
+  };
+}
+
+function mockDbTransaction() {
+  dbTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+    const tx = createWebhookTx();
+    dbTransactionTxs.push(tx);
+    return fn(tx);
+  });
+}
 
 describe("api/webhooks/stripe subscription.updated", () => {
   beforeEach(() => {
@@ -92,15 +128,24 @@ describe("api/webhooks/stripe subscription.updated", () => {
     vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
     constructEventMock.mockReset();
     subscriptionsRetrieveMock.mockReset();
+    customersRetrieveMock.mockReset();
     invoicesRetrieveMock.mockReset();
     chargesRetrieveMock.mockReset();
     dbInsertValuesMock.mockReset();
+    dbInsertOnConflictDoNothingMock.mockReset();
     dbDeleteWhereMock.mockReset();
     dbSelectLimitMock.mockReset();
+    dbUpdateSetMock.mockReset();
     dbUpdateWhereMock.mockReset();
-    updatePlanAllocationMock.mockReset();
+    updatePlanAllocationCoreTxMock.mockReset();
+    dbTransactionMock.mockReset();
+    dbTransactionTxs.length = 0;
+    mockDbTransaction();
 
-    dbInsertValuesMock.mockResolvedValue(undefined);
+    dbInsertValuesMock.mockReturnValue({
+      onConflictDoNothing: dbInsertOnConflictDoNothingMock,
+    });
+    dbInsertOnConflictDoNothingMock.mockResolvedValue(undefined);
     dbDeleteWhereMock.mockResolvedValue(undefined);
     dbSelectLimitMock.mockResolvedValue([
       {
@@ -140,7 +185,8 @@ describe("api/webhooks/stripe subscription.updated", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "standard");
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "standard");
+    expect(dbTransactionTxs).toContain(updatePlanAllocationCoreTxMock.mock.calls[0]?.[0]);
   });
 
   it("treats unique idempotency claim failure as a duplicate event", async () => {
@@ -174,7 +220,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
     expect(response.status).toBe(200);
     expect(dbDeleteWhereMock).not.toHaveBeenCalled();
     expect(dbUpdateWhereMock).not.toHaveBeenCalled();
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
   });
 
   it("fails closed when idempotency claim fails for a non-unique database error", async () => {
@@ -208,7 +254,7 @@ describe("api/webhooks/stripe subscription.updated", () => {
     expect(response.status).toBe(500);
     expect(dbDeleteWhereMock).not.toHaveBeenCalled();
     expect(dbUpdateWhereMock).not.toHaveBeenCalled();
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
   });
 
   it("fails closed before updating subscription state when the price id is unknown", async () => {
@@ -240,9 +286,9 @@ describe("api/webhooks/stripe subscription.updated", () => {
 
     expect(response.status).toBe(500);
     expect(dbDeleteWhereMock).not.toHaveBeenCalled();
-    expect(dbSelectLimitMock).toHaveBeenCalledTimes(1);
+    expect(dbSelectLimitMock).not.toHaveBeenCalled();
     expect(dbUpdateWhereMock).toHaveBeenCalledTimes(1);
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
   });
 
   it("updates subscription price before ensuring credit allocation", async () => {
@@ -274,10 +320,51 @@ describe("api/webhooks/stripe subscription.updated", () => {
 
     expect(response.status).toBe(200);
     expect(dbUpdateWhereMock).toHaveBeenCalledTimes(3);
-    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "pro");
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "pro");
     expect(dbUpdateWhereMock.mock.invocationCallOrder[0]).toBeLessThan(
-      updatePlanAllocationMock.mock.invocationCallOrder[0],
+      updatePlanAllocationCoreTxMock.mock.invocationCallOrder[0],
     );
+  });
+
+  it("ignores an older subscription.updated event without rolling back the plan", async () => {
+    const olderCreated = Math.floor(Date.now() / 1000) - 3600;
+    constructEventMock.mockReturnValue({
+      id: "evt_old_subscription_update",
+      type: "customer.subscription.updated",
+      created: olderCreated,
+      data: {
+        object: {
+          id: "sub_retryable",
+          status: "active",
+          cancel_at_period_end: false,
+          items: {
+            data: [
+              {
+                current_period_end: futurePeriodEnd(),
+                price: { id: "price_std_month" },
+              },
+            ],
+          },
+        },
+      },
+    });
+    dbSelectLimitMock.mockResolvedValueOnce([
+      {
+        userId: "user-1",
+        stripePriceId: "price_pro_month",
+        billingHoldStripeDisputeId: "dp_1",
+        lastStripeEventCreatedAt: new Date((olderCreated + 7200) * 1000),
+      },
+    ]);
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
   });
 });
 
@@ -290,17 +377,30 @@ describe("api/webhooks/stripe checkout.session.completed", () => {
     vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
     constructEventMock.mockReset();
     subscriptionsRetrieveMock.mockReset();
+    customersRetrieveMock.mockReset();
     invoicesRetrieveMock.mockReset();
     chargesRetrieveMock.mockReset();
     dbInsertValuesMock.mockReset();
+    dbInsertOnConflictDoNothingMock.mockReset();
     dbDeleteWhereMock.mockReset();
     dbSelectLimitMock.mockReset();
+    dbUpdateSetMock.mockReset();
     dbUpdateWhereMock.mockReset();
-    updatePlanAllocationMock.mockReset();
+    updatePlanAllocationCoreTxMock.mockReset();
+    dbTransactionMock.mockReset();
+    dbTransactionTxs.length = 0;
+    mockDbTransaction();
 
-    dbInsertValuesMock.mockResolvedValue(undefined);
+    dbInsertValuesMock.mockReturnValue({
+      onConflictDoNothing: dbInsertOnConflictDoNothingMock,
+    });
+    dbInsertOnConflictDoNothingMock.mockResolvedValue(undefined);
     dbDeleteWhereMock.mockResolvedValue(undefined);
     dbUpdateWhereMock.mockResolvedValue(undefined);
+    customersRetrieveMock.mockResolvedValue({
+      id: "cus_1",
+      metadata: { userId: "user-1" },
+    });
   });
 
   it("resolves plan from priceId, ignoring metadata.plan", async () => {
@@ -318,6 +418,7 @@ describe("api/webhooks/stripe checkout.session.completed", () => {
 
     subscriptionsRetrieveMock.mockResolvedValue({
       id: "sub_checkout_1",
+      customer: "cus_1",
       status: "active",
       cancel_at_period_end: false,
       items: {
@@ -343,7 +444,50 @@ describe("api/webhooks/stripe checkout.session.completed", () => {
 
     expect(response.status).toBe(200);
     // metadata.plan was "pro" but priceId maps to "standard" — metadata must be ignored
-    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "standard");
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "standard");
+    expect(dbTransactionTxs).toContain(updatePlanAllocationCoreTxMock.mock.calls[0]?.[0]);
+  });
+
+  it("fails closed when checkout customer metadata does not belong to the user", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_checkout_owner_mismatch",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          metadata: { userId: "user-1", plan: "standard" },
+          subscription: "sub_checkout_owner_mismatch",
+          customer: "cus_1",
+        },
+      },
+    });
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_checkout_owner_mismatch",
+      customer: "cus_1",
+      status: "active",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: futurePeriodEnd(),
+            price: { id: "price_std_month" },
+          },
+        ],
+      },
+    });
+    customersRetrieveMock.mockResolvedValueOnce({
+      id: "cus_1",
+      metadata: { userId: "user-2" },
+    });
+    dbSelectLimitMock.mockResolvedValue([]);
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(500);
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
   });
 
   it("fails closed and releases the claimed event when checkout price id is unknown", async () => {
@@ -361,6 +505,7 @@ describe("api/webhooks/stripe checkout.session.completed", () => {
 
     subscriptionsRetrieveMock.mockResolvedValue({
       id: "sub_checkout_unknown",
+      customer: "cus_1",
       status: "active",
       cancel_at_period_end: false,
       items: {
@@ -383,8 +528,57 @@ describe("api/webhooks/stripe checkout.session.completed", () => {
 
     expect(response.status).toBe(500);
     expect(dbDeleteWhereMock).not.toHaveBeenCalled();
-    expect(dbSelectLimitMock).not.toHaveBeenCalled();
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(dbSelectLimitMock).toHaveBeenCalledTimes(1);
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
+  });
+
+  it("records checkout state but does not grant paid entitlement for incomplete subscriptions", async () => {
+    constructEventMock.mockReturnValue({
+      id: "evt_checkout_incomplete",
+      type: "checkout.session.completed",
+      created: Math.floor(Date.now() / 1000),
+      data: {
+        object: {
+          id: "cs_incomplete",
+          metadata: { userId: "user-1", plan: "standard" },
+          subscription: "sub_checkout_incomplete",
+          customer: "cus_1",
+        },
+      },
+    });
+
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_checkout_incomplete",
+      customer: "cus_1",
+      status: "incomplete",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: futurePeriodEnd(),
+            price: { id: "price_std_month" },
+          },
+        ],
+      },
+    });
+    dbSelectLimitMock.mockResolvedValue([{
+      userId: "user-1",
+      stripeCustomerId: "cus_1",
+    }]);
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(dbUpdateSetMock).toHaveBeenCalledWith(expect.objectContaining({
+      stripeSubscriptionId: "sub_checkout_incomplete",
+      status: "incomplete",
+      stripePriceId: "price_std_month",
+    }));
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
   });
 });
 
@@ -397,15 +591,24 @@ describe("api/webhooks/stripe entitlement downgrade and restore", () => {
     vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
     constructEventMock.mockReset();
     subscriptionsRetrieveMock.mockReset();
+    customersRetrieveMock.mockReset();
     invoicesRetrieveMock.mockReset();
     chargesRetrieveMock.mockReset();
     dbInsertValuesMock.mockReset();
+    dbInsertOnConflictDoNothingMock.mockReset();
     dbDeleteWhereMock.mockReset();
     dbSelectLimitMock.mockReset();
+    dbUpdateSetMock.mockReset();
     dbUpdateWhereMock.mockReset();
-    updatePlanAllocationMock.mockReset();
+    updatePlanAllocationCoreTxMock.mockReset();
+    dbTransactionMock.mockReset();
+    dbTransactionTxs.length = 0;
+    mockDbTransaction();
 
-    dbInsertValuesMock.mockResolvedValue(undefined);
+    dbInsertValuesMock.mockReturnValue({
+      onConflictDoNothing: dbInsertOnConflictDoNothingMock,
+    });
+    dbInsertOnConflictDoNothingMock.mockResolvedValue(undefined);
     dbDeleteWhereMock.mockResolvedValue(undefined);
     dbUpdateWhereMock.mockResolvedValue(undefined);
     dbSelectLimitMock.mockResolvedValue([
@@ -417,7 +620,7 @@ describe("api/webhooks/stripe entitlement downgrade and restore", () => {
     ]);
   });
 
-  it("downgrades to free when invoice.payment_failed is received", async () => {
+  it("downgrades to free from the current Stripe subscription state when invoice.payment_failed is received", async () => {
     constructEventMock.mockReturnValue({
       id: "evt_payment_failed",
       type: "invoice.payment_failed",
@@ -432,6 +635,19 @@ describe("api/webhooks/stripe entitlement downgrade and restore", () => {
         },
       },
     });
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_failed",
+      status: "past_due",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: futurePeriodEnd(),
+            price: { id: "price_std_month" },
+          },
+        ],
+      },
+    });
 
     const { POST } = await import("@/app/api/webhooks/stripe/route");
     const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
@@ -440,7 +656,153 @@ describe("api/webhooks/stripe entitlement downgrade and restore", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "free");
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "free");
+  });
+
+  it("ignores an older invoice.payment_failed after a newer entitlement event", async () => {
+    const olderCreated = Math.floor(Date.now() / 1000) - 3600;
+    constructEventMock.mockReturnValue({
+      id: "evt_payment_failed_old",
+      type: "invoice.payment_failed",
+      created: olderCreated,
+      data: {
+        object: {
+          parent: {
+            subscription_details: {
+              subscription: "sub_failed_old",
+            },
+          },
+        },
+      },
+    });
+    dbSelectLimitMock.mockResolvedValueOnce([
+      {
+        userId: "user-1",
+        stripePriceId: "price_pro_month",
+        billingHoldStripeDisputeId: "dp_1",
+        lastStripeEventCreatedAt: new Date((olderCreated + 7200) * 1000),
+      },
+    ]);
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_failed_old",
+      status: "past_due",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: futurePeriodEnd(),
+            price: { id: "price_std_month" },
+          },
+        ],
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
+  });
+
+  it("does not restore paid entitlement from an older payment_succeeded after a refund downgrade", async () => {
+    const olderCreated = Math.floor(Date.now() / 1000) - 3600;
+    constructEventMock.mockReturnValue({
+      id: "evt_payment_succeeded_after_refund_old",
+      type: "invoice.payment_succeeded",
+      created: olderCreated,
+      data: {
+        object: {
+          parent: {
+            subscription_details: {
+              subscription: "sub_refunded",
+            },
+          },
+        },
+      },
+    });
+    dbSelectLimitMock.mockResolvedValueOnce([
+      {
+        userId: "user-1",
+        status: "refunded",
+        stripePriceId: "price_std_month",
+        billingHoldStripeDisputeId: "dp_1",
+        lastStripeEventCreatedAt: new Date((olderCreated + 7200) * 1000),
+      },
+    ]);
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_refunded",
+      status: "active",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: futurePeriodEnd(),
+            price: { id: "price_std_month" },
+          },
+        ],
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
+  });
+
+  it("does not restore paid entitlement from an older payment_succeeded after a lost dispute downgrade", async () => {
+    const olderCreated = Math.floor(Date.now() / 1000) - 3600;
+    constructEventMock.mockReturnValue({
+      id: "evt_payment_succeeded_after_dispute_old",
+      type: "invoice.payment_succeeded",
+      created: olderCreated,
+      data: {
+        object: {
+          parent: {
+            subscription_details: {
+              subscription: "sub_dispute_lost",
+            },
+          },
+        },
+      },
+    });
+    dbSelectLimitMock.mockResolvedValueOnce([
+      {
+        userId: "user-1",
+        status: "dispute_lost",
+        stripePriceId: "price_std_month",
+        billingHoldStripeDisputeId: "dp_1",
+        lastStripeEventCreatedAt: new Date((olderCreated + 7200) * 1000),
+      },
+    ]);
+    subscriptionsRetrieveMock.mockResolvedValue({
+      id: "sub_dispute_lost",
+      status: "active",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          {
+            current_period_end: futurePeriodEnd(),
+            price: { id: "price_std_month" },
+          },
+        ],
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
   });
 
   it("downgrades to free when customer.subscription.deleted is received", async () => {
@@ -462,7 +824,7 @@ describe("api/webhooks/stripe entitlement downgrade and restore", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "free");
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "free");
   });
 
   it("restores paid entitlement after invoice.payment_succeeded only for active known-price subscription", async () => {
@@ -501,7 +863,7 @@ describe("api/webhooks/stripe entitlement downgrade and restore", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "standard");
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "standard");
   });
 
   it("keeps free entitlement after invoice.payment_succeeded for expired active subscription", async () => {
@@ -540,7 +902,7 @@ describe("api/webhooks/stripe entitlement downgrade and restore", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "free");
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "free");
   });
 });
 
@@ -553,15 +915,24 @@ describe("api/webhooks/stripe refund and dispute events", () => {
     vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
     constructEventMock.mockReset();
     subscriptionsRetrieveMock.mockReset();
+    customersRetrieveMock.mockReset();
     invoicesRetrieveMock.mockReset();
     chargesRetrieveMock.mockReset();
     dbInsertValuesMock.mockReset();
+    dbInsertOnConflictDoNothingMock.mockReset();
     dbDeleteWhereMock.mockReset();
     dbSelectLimitMock.mockReset();
+    dbUpdateSetMock.mockReset();
     dbUpdateWhereMock.mockReset();
-    updatePlanAllocationMock.mockReset();
+    updatePlanAllocationCoreTxMock.mockReset();
+    dbTransactionMock.mockReset();
+    dbTransactionTxs.length = 0;
+    mockDbTransaction();
 
-    dbInsertValuesMock.mockResolvedValue(undefined);
+    dbInsertValuesMock.mockReturnValue({
+      onConflictDoNothing: dbInsertOnConflictDoNothingMock,
+    });
+    dbInsertOnConflictDoNothingMock.mockResolvedValue(undefined);
     dbDeleteWhereMock.mockResolvedValue(undefined);
     dbUpdateWhereMock.mockResolvedValue(undefined);
     dbSelectLimitMock.mockResolvedValue([
@@ -615,7 +986,12 @@ describe("api/webhooks/stripe refund and dispute events", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "free");
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "free");
+    expect(dbUpdateSetMock).toHaveBeenCalledWith(expect.objectContaining({
+      status: "refunded",
+      lastStripeEventId: "evt_full_refund",
+      lastStripeEventCreatedAt: expect.any(Date),
+    }));
     expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "billing_status",
       userId: "user-1",
@@ -647,7 +1023,7 @@ describe("api/webhooks/stripe refund and dispute events", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
     expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "billing_status",
       data: { kind: "partial_refund" },
@@ -681,7 +1057,7 @@ describe("api/webhooks/stripe refund and dispute events", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
     expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "billing_status",
       data: { kind: "full_refund_no_plan_change" },
@@ -710,7 +1086,7 @@ describe("api/webhooks/stripe refund and dispute events", () => {
 
     expect(response.status).toBe(200);
     expect(chargesRetrieveMock).toHaveBeenCalledWith("ch_1");
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
     expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "billing_status",
       data: { kind: "dispute_created" },
@@ -738,7 +1114,7 @@ describe("api/webhooks/stripe refund and dispute events", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
     expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "billing_status",
       data: { kind: "dispute_won" },
@@ -773,10 +1149,123 @@ describe("api/webhooks/stripe refund and dispute events", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
     expect(dbInsertValuesMock).not.toHaveBeenCalledWith(expect.objectContaining({
       type: "billing_status",
       data: { kind: "dispute_won" },
+    }));
+  });
+
+  it("ignores an older dispute created event after a newer dispute resolution", async () => {
+    const olderCreated = Math.floor(Date.now() / 1000) - 3600;
+    dbSelectLimitMock.mockResolvedValueOnce([{
+      userId: "user-1",
+      stripePriceId: "price_std_month",
+      billingHoldStripeDisputeId: "dp_old",
+      lastStripeEventCreatedAt: new Date((olderCreated + 7200) * 1000),
+    }]);
+    constructEventMock.mockReturnValue({
+      id: "evt_dispute_created_old",
+      type: "charge.dispute.created",
+      created: olderCreated,
+      data: {
+        object: {
+          id: "dp_old",
+          charge: "ch_1",
+          status: "needs_response",
+        },
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
+    expect(dbUpdateSetMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      billingHoldStatus: "dispute",
+    }));
+    expect(dbInsertValuesMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: "billing_status",
+      data: { kind: "dispute_created" },
+    }));
+  });
+
+  it("records a dispute closed event before the created event so older created cannot reopen a hold", async () => {
+    const closedCreated = Math.floor(Date.now() / 1000);
+    constructEventMock.mockReturnValue({
+      id: "evt_dispute_closed_first",
+      type: "charge.dispute.closed",
+      created: closedCreated,
+      data: {
+        object: {
+          id: "dp_closed_first",
+          charge: "ch_1",
+          status: "won",
+        },
+      },
+    });
+    dbSelectLimitMock.mockResolvedValueOnce([{
+      userId: "user-1",
+      stripePriceId: "price_std_month",
+      billingHoldStripeDisputeId: "dp_other",
+    }]);
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(dbUpdateSetMock).toHaveBeenCalledWith(expect.objectContaining({
+      lastStripeEventId: "evt_dispute_closed_first",
+      lastStripeEventCreatedAt: expect.any(Date),
+    }));
+    expect(dbInsertValuesMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: "billing_status",
+      data: { kind: "dispute_won" },
+    }));
+  });
+
+  it("does not reopen a hold when dispute created has the same second as a processed closed event", async () => {
+    const eventCreated = Math.floor(Date.now() / 1000);
+    dbSelectLimitMock.mockResolvedValueOnce([{
+      userId: "user-1",
+      stripePriceId: "price_std_month",
+      billingHoldStripeDisputeId: "dp_same_second",
+      lastStripeEventCreatedAt: new Date(eventCreated * 1000),
+    }]);
+    constructEventMock.mockReturnValue({
+      id: "evt_dispute_created_same_second",
+      type: "charge.dispute.created",
+      created: eventCreated,
+      data: {
+        object: {
+          id: "dp_same_second",
+          charge: "ch_1",
+          status: "needs_response",
+        },
+      },
+    });
+
+    const { POST } = await import("@/app/api/webhooks/stripe/route");
+    const response = await POST(new Request("http://localhost:3000/api/webhooks/stripe", {
+      method: "POST",
+      body: "{}",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
+    expect(dbUpdateSetMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      billingHoldStatus: "dispute",
+    }));
+    expect(dbInsertValuesMock).not.toHaveBeenCalledWith(expect.objectContaining({
+      type: "billing_status",
+      data: { kind: "dispute_created" },
     }));
   });
 
@@ -801,7 +1290,12 @@ describe("api/webhooks/stripe refund and dispute events", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).toHaveBeenCalledWith("user-1", "free");
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "free");
+    expect(dbUpdateSetMock).toHaveBeenCalledWith(expect.objectContaining({
+      status: "dispute_lost",
+      lastStripeEventId: "evt_dispute_lost",
+      lastStripeEventCreatedAt: expect.any(Date),
+    }));
     expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "billing_status",
       data: { kind: "dispute_lost" },
@@ -829,14 +1323,14 @@ describe("api/webhooks/stripe refund and dispute events", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
+    expect(updatePlanAllocationCoreTxMock).not.toHaveBeenCalled();
     expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "billing_status",
       data: { kind: "dispute_closed_no_plan_change", status: "prevented" },
     }));
   });
 
-  it("does not downgrade when a lost dispute does not match the active billing hold", async () => {
+  it("downgrades when a lost dispute is closed before its hold was created", async () => {
     dbSelectLimitMock.mockResolvedValueOnce([
       {
         userId: "user-1",
@@ -864,8 +1358,13 @@ describe("api/webhooks/stripe refund and dispute events", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(updatePlanAllocationMock).not.toHaveBeenCalled();
-    expect(dbInsertValuesMock).not.toHaveBeenCalledWith(expect.objectContaining({
+    expect(updatePlanAllocationCoreTxMock).toHaveBeenCalledWith(expect.any(Object), "user-1", "free");
+    expect(dbUpdateSetMock).toHaveBeenCalledWith(expect.objectContaining({
+      status: "dispute_lost",
+      lastStripeEventId: "evt_dispute_lost_mismatch",
+      lastStripeEventCreatedAt: expect.any(Date),
+    }));
+    expect(dbInsertValuesMock).toHaveBeenCalledWith(expect.objectContaining({
       type: "billing_status",
       data: { kind: "dispute_lost" },
     }));

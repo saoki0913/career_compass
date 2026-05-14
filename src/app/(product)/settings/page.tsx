@@ -18,12 +18,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { notifySuccess, notifyPortalReturn } from "@/lib/notifications";
+import { notifySuccess, notifyPortalReturnDetailed } from "@/lib/notifications";
 import { SettingsPageSkeleton } from "@/components/skeletons/SettingsPageSkeleton";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 import { parseApiErrorResponse } from "@/lib/api-errors";
-import { isActiveSubscriptionStatus } from "@/lib/billing/subscription-status";
+import { BillingSection } from "@/components/billing/BillingSection";
 
 const LoadingSpinner = () => (
   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -33,12 +33,6 @@ const LoadingSpinner = () => (
       fill="currentColor"
       d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
     />
-  </svg>
-);
-
-const CheckIcon = () => (
-  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
   </svg>
 );
 
@@ -55,6 +49,7 @@ interface Profile {
   currentPeriodEnd?: string | null;
   creditsBalance?: number;
   subscriptionStatus?: string | null;
+  cancelAtPeriodEnd?: boolean;
 }
 
 interface NotificationSettings {
@@ -88,9 +83,15 @@ export default function SettingsPage() {
     if (!profile) return;
     portalReturnHandled.current = true;
 
+    const previousPlan = userPlan?.plan ?? profile.plan;
+    const previousHasActive = userPlan?.hasActiveSubscription ?? false;
     refreshPlan().then((updatedPlan) => {
-      const plan = updatedPlan?.plan ?? profile.plan;
-      notifyPortalReturn(plan);
+      notifyPortalReturnDetailed({
+        previousPlan,
+        currentPlan: updatedPlan?.plan ?? previousPlan,
+        previousHasActiveSubscription: previousHasActive,
+        currentHasActiveSubscription: updatedPlan?.hasActiveSubscription ?? previousHasActive,
+      });
     });
 
     router.replace("/settings", { scroll: false });
@@ -271,18 +272,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handlePlanChange = (newPlan: string) => {
-    if (!profile) return;
-    if (newPlan === profile.plan) return;
-
-    if (profile.plan !== "free" && isActiveSubscriptionStatus(profile.subscriptionStatus)) {
-      handleOpenBillingPortal();
-      return;
-    }
-
-    router.push("/pricing");
-  };
-
   const handleOpenBillingPortal = async () => {
     setIsOpeningPortal(true);
     setError(null);
@@ -367,6 +356,16 @@ export default function SettingsPage() {
       </div>
     );
   }
+
+  const billingProfile = profile
+    ? {
+        plan: profile.plan,
+        creditsBalance: profile.creditsBalance ?? 0,
+        subscriptionStatus: profile.subscriptionStatus ?? null,
+        cancelAtPeriodEnd: profile.cancelAtPeriodEnd ?? false,
+        currentPeriodEnd: profile.currentPeriodEnd ?? null,
+      }
+    : null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -537,164 +536,11 @@ export default function SettingsPage() {
         </div>
 
         {/* Plan Management */}
-        <Card className="mt-12">
-          <CardHeader>
-            <CardTitle>プラン管理</CardTitle>
-            <CardDescription>現在のプランと利用状況</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Current plan info */}
-            <div className="p-4 rounded-lg bg-muted/50">
-              <div className="flex items-center justify-between mb-3">
-                <div>
-                  <p className="text-sm text-muted-foreground">現在のプラン</p>
-                  <p className="text-xl font-bold">
-                    {profile?.plan === "pro"
-                      ? "Pro プラン"
-                      : profile?.plan === "standard"
-                      ? "Standard プラン"
-                      : "Free プラン"}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm text-muted-foreground">クレジット残高</p>
-                  <p className="text-xl font-bold">{profile?.creditsBalance || 0}</p>
-                </div>
-              </div>
-              {profile?.currentPeriodEnd && (
-                <p className="text-sm text-muted-foreground">
-                  次回更新日: {new Date(profile.currentPeriodEnd).toLocaleDateString("ja-JP")}
-                </p>
-              )}
-            </div>
-
-            {/* Billing Portal Button for paid users with active subscription */}
-            {profile?.plan && profile.plan !== "free" && isActiveSubscriptionStatus(profile.subscriptionStatus) && (
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  onClick={handleOpenBillingPortal}
-                  disabled={isOpeningPortal}
-                >
-                  {isOpeningPortal ? (
-                    <>
-                      <LoadingSpinner />
-                      <span className="ml-2">読み込み中...</span>
-                    </>
-                  ) : (
-                    "請求管理"
-                  )}
-                </Button>
-              </div>
-            )}
-
-            {/* Plan options */}
-            <div className="grid gap-4 md:grid-cols-3">
-              {/* Free Plan */}
-              <div className={cn(
-                "p-4 rounded-lg border-2 transition-all",
-                profile?.plan === "free" ? "border-primary bg-primary/5" : "border-border"
-              )}>
-                <h3 className="font-bold mb-1">Free</h3>
-                <p className="text-2xl font-bold mb-2">¥0</p>
-                <ul className="space-y-2 text-sm mb-4">
-                  <li className="flex items-center gap-2">
-                    <CheckIcon />
-                    企業登録 5社
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckIcon />
-                    AI添削 月3回
-                  </li>
-                </ul>
-                {profile?.plan !== "free" && (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => handlePlanChange("free")}
-                    disabled={isOpeningPortal}
-                  >
-                    ダウングレード
-                  </Button>
-                )}
-              </div>
-
-              {/* Standard Plan */}
-              <div className={cn(
-                "p-4 rounded-lg border-2 transition-all",
-                profile?.plan === "standard" ? "border-primary bg-primary/5" : "border-border"
-              )}>
-                <h3 className="font-bold mb-1">Standard</h3>
-                <p className="text-2xl font-bold mb-2">¥1,490<span className="text-sm font-normal">/月</span></p>
-                <ul className="space-y-2 text-sm mb-4">
-                  <li className="flex items-center gap-2">
-                    <CheckIcon />
-                    企業登録 無制限
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckIcon />
-                    AI添削 月10回
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckIcon />
-                    カレンダー連携
-                  </li>
-                </ul>
-                {profile?.plan === "free" && (
-                  <Button
-                    className="w-full"
-                    onClick={() => handlePlanChange("standard")}
-                    disabled={isOpeningPortal}
-                  >
-                    アップグレード
-                  </Button>
-                )}
-                {profile?.plan === "pro" && (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => handlePlanChange("standard")}
-                    disabled={isOpeningPortal}
-                  >
-                    変更
-                  </Button>
-                )}
-              </div>
-
-              {/* Pro Plan */}
-              <div className={cn(
-                "p-4 rounded-lg border-2 transition-all",
-                profile?.plan === "pro" ? "border-primary bg-primary/5" : "border-border"
-              )}>
-                <h3 className="font-bold mb-1">Pro</h3>
-                <p className="text-2xl font-bold mb-2">¥2,980<span className="text-sm font-normal">/月</span></p>
-                <ul className="space-y-2 text-sm mb-4">
-                  <li className="flex items-center gap-2">
-                    <CheckIcon />
-                    企業登録 無制限
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckIcon />
-                    AI添削 無制限
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckIcon />
-                    すべての機能
-                  </li>
-                </ul>
-                {profile?.plan !== "pro" && (
-                  <Button
-                    className="w-full"
-                    onClick={() => handlePlanChange("pro")}
-                    disabled={isOpeningPortal}
-                  >
-                    アップグレード
-                  </Button>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <BillingSection
+          profile={billingProfile}
+          isOpeningPortal={isOpeningPortal}
+          onOpenBillingPortal={handleOpenBillingPortal}
+        />
 
         <Card className="mt-12 mb-6">
           <CardHeader>

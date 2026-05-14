@@ -200,20 +200,42 @@ export function notifyDocumentStatusChanged(isPublished: boolean) {
   });
 }
 
-export function notifyPortalReturn(_plan: string) {
-  return notifySuccess({
-    title: "プラン設定が更新されました",
-    description: "変更内容はまもなく反映されます。",
-    duration: 5000,
-  });
-}
+export function notifyPortalReturnDetailed(opts: {
+  previousPlan: string | null;
+  currentPlan: string | null;
+  previousHasActiveSubscription: boolean;
+  currentHasActiveSubscription: boolean;
+}) {
+  const { previousPlan, currentPlan, previousHasActiveSubscription, currentHasActiveSubscription } = opts;
+  const planLabel = (p: string | null) =>
+    p === "pro" ? "Pro" : p === "standard" ? "Standard" : p === "free" ? "Free" : p;
 
-export function notifyPlanDowngrade(planLabel: string, currentPeriodEnd: string) {
-  const endDate = new Date(currentPeriodEnd).toLocaleDateString("ja-JP");
+  if (previousPlan !== currentPlan && currentPlan) {
+    return notifySuccess({
+      title: `${planLabel(currentPlan)}プランに変更されました`,
+      duration: 5000,
+    });
+  }
+
+  if (previousHasActiveSubscription && !currentHasActiveSubscription) {
+    return notifyInfo({
+      title: "解約が予約されました",
+      description: "現在の請求期間が終了するまでご利用いただけます。",
+      duration: 6000,
+    });
+  }
+
+  if (!previousHasActiveSubscription && currentHasActiveSubscription) {
+    return notifySuccess({
+      title: "お支払い情報が更新されました",
+      duration: 5000,
+    });
+  }
+
   return notifyInfo({
-    title: "プランの変更を受け付けました",
-    description: `${endDate}までは${planLabel}プランをご利用いただけます。`,
-    duration: 8000,
+    title: "請求管理ページから戻りました",
+    description: "変更は反映まで数分かかることがあります。",
+    duration: 5000,
   });
 }
 
@@ -221,14 +243,14 @@ export function notifyPurchaseSuccess(plan: string, isPlanConfirmed: boolean) {
   const label = plan === "pro" ? "Pro" : plan === "standard" ? "Standard" : plan;
   if (!isPlanConfirmed) {
     return notifyInfo({
-      title: `${label}プランの登録を処理中です`,
-      description: "まもなく反映されます。",
+      title: "決済画面から戻りました",
+      description: `${label}プランへの変更は Stripe の処理完了後に反映されます。`,
       duration: 5000,
     });
   }
-  return notifySuccess({
-    title: `${label}プランへの登録が完了しました`,
-    description: "クレジットが付与されました。さっそく機能を使ってみましょう。",
+  return notifyInfo({
+    title: "プラン情報を更新しました",
+    description: `${label}プランの反映状況を確認しました。`,
     duration: 6000,
   });
 }

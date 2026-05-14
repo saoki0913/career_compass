@@ -10,6 +10,9 @@ import {
 } from "./monthly-reset";
 import { getCreditRow } from "./shared";
 
+// TOCTOU note: shouldGrantMonthlyCredits() is a fast-path optimistic check.
+// grantMonthlyCredits() uses FOR UPDATE + WHERE lastResetAt month mismatch internally,
+// so concurrent calls are safe — the inner CAS ensures idempotent balance updates.
 export async function getCreditsInfo(userId: string) {
   const userCredits = await getCreditRow(userId);
 

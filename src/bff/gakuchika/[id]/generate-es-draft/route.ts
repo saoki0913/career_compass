@@ -18,6 +18,7 @@ import {
   cancelReservation,
 } from "@/lib/credits";
 import { randomUUID } from "crypto";
+import { logError } from "@/lib/logger";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import {
   getRequestId,
@@ -38,6 +39,7 @@ import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { normalizeEsDraftSingleParagraph } from "@/lib/server/es-draft-normalize";
 import { messageFromFastApiDetail } from "@/lib/server/fastapi-detail-message";
 import { buildGakuchikaEsSectionTitle } from "@/lib/es-review/es-document-section-titles";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 
 interface FastAPIDraftResponse {
   draft: string;
@@ -136,7 +138,7 @@ export async function POST(
     );
   }
 
-  const limitResponse = await guardDailyTokenLimit(identity);
+  const limitResponse = await guardDailyTokenLimit(identity, request);
   if (limitResponse) return limitResponse;
 
   const rateLimited = await enforceRateLimitLayers(
@@ -408,9 +410,22 @@ export async function POST(
       try {
         await confirmReservation(reservationId);
         creditsUsed = 6;
-        reservationId = null;
-      } catch {
+      } catch (error) {
+        logError("gakuchika-draft:confirm-reservation", error, {
+          requestId,
+          reservationId,
+        });
+        try {
+          await cancelReservation(reservationId);
+        } catch (cancelError) {
+          logError("gakuchika-draft:cancel-after-confirm-failure", cancelError, {
+            requestId,
+            reservationId,
+          });
+        }
         creditsUsed = 0;
+      } finally {
+        reservationId = null;
       }
     }
     logAiCreditCostSummary({
@@ -432,7 +447,6 @@ export async function POST(
     });
   } catch (error) {
     if (reservationId) await cancelReservation(reservationId);
-    console.error("[Gakuchika Draft] Error:", error);
     logAiCreditCostSummary({
       feature: "gakuchika_draft",
       requestId,
@@ -440,9 +454,15 @@ export async function POST(
       creditsUsed: 0,
       telemetry: null,
     });
-    return NextResponse.json(
-      { error: "ES生成中にエラーが発生しました" },
-      { status: 503 }
-    );
+    return createApiErrorResponse(request, {
+      status: 503,
+      code: "GAKUCHIKA_DRAFT_GENERATION_FAILED",
+      userMessage: "ES生成中にエラーが発生しました。",
+      action: "時間をおいて、もう一度お試しください。",
+      retryable: true,
+      developerMessage: "Failed to generate gakuchika ES draft",
+      error,
+      logContext: "gakuchika-draft-generate",
+    });
   }
 }

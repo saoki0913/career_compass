@@ -48,6 +48,7 @@ import {
   type MotivationEvidenceCard as EvidenceCard,
 } from "@/lib/motivation/motivation-input-resolver";
 import { buildMotivationConversationPayload } from "@/lib/motivation/conversation-payload";
+import { logError } from "@/lib/logger";
 
 function resolveSafeMotivationStartError(raw: string | null | undefined): {
   userMessage: string;
@@ -249,7 +250,10 @@ async function getQuestionFromFastAPI(
       telemetry,
     };
   } catch (error) {
-    console.error("[MotivationStart] FastAPI error:", error);
+    logError("motivation-conversation:fastapi-error", error, {
+      requestId,
+      feature: "motivation_start",
+    });
     return {
       question: null,
       error: error instanceof Error && error.name === "AbortError"
@@ -298,7 +302,7 @@ export async function POST(
       );
     }
 
-    const limitResponse = await guardDailyTokenLimit(identity);
+    const limitResponse = await guardDailyTokenLimit(identity, request);
     if (limitResponse) return limitResponse;
 
     const rateLimited = await enforceRateLimitLayers(
@@ -502,7 +506,9 @@ export async function POST(
       ...payload,
     });
   } catch (error) {
-    console.error("[MotivationStart] Failed to start conversation:", error);
+    logError("motivation-conversation:consume-credits", error, {
+      feature: "motivation_start",
+    });
     return NextResponse.json({ error: "会話開始中にエラーが発生しました" }, { status: 500 });
   }
 }

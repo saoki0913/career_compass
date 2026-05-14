@@ -19,10 +19,11 @@
 | 企業 RAG 月次無料ページ・PDF tier 課金 | `src/lib/company-info/pricing.ts`, `src/lib/company-info/usage.ts` |
 | PDF 取込 / OCR ページ上限         | `src/lib/company-info/pdf-ingest-limits.ts`                        |
 | プラン料金・Stripe price ID      | `src/lib/stripe/config.ts`                                         |
-| Stripe 反映                  | `src/app/api/webhooks/stripe/route.ts`                             |
+| Stripe 反映                  | `src/app/api/webhooks/stripe/route.ts` (dispatch), `src/lib/stripe/webhook-handlers.ts` (handlers), `src/lib/stripe/webhook-utils.ts` (utils) |
 | DB 台帳                      | `src/lib/db/schema.ts`                                             |
 | クレジット API                  | `src/app/api/credits/route.ts`                                     |
 | クレジット表示 hook               | `src/hooks/useCredits.ts`                                          |
+| 課金メンテナンス cron             | `src/app/api/cron/billing-maintenance/route.ts`                    |
 | 日次 LLM トークン上限            | `src/lib/llm-cost-limit.ts`                                        |
 
 
@@ -72,6 +73,18 @@
 - 長時間処理は `reserveCredits()` で仮押さえし、成功時に `confirmReservation()`、失敗時に `cancelReservation()`。
 - 会話系や軽量 API は成功時に `consumeCredits()`。
 
+**Reserve-Confirm-Cancel 戻り値**:
+
+- `reserveCredits()` → `{ success, reservationId, newBalance, error?, errorCode? }`
+- `confirmReservation(reservationId)` → `{ confirmed: boolean }` — `false` は予約が見つからないか既に confirm/cancel 済み
+- `cancelReservation(reservationId)` → `{ canceled: boolean, refundedAmount: number }` — CAS パターンで二重返金を防止。`canceled = false` は予約が見つからないか既に cancel 済み
+
+**孤立予約の自動回収**:
+
+- `cleanupExpiredReservations(cutoffMinutes)` が `reserved` 状態のまま `cutoffMinutes` 分以上経過した予約を一括キャンセルする
+- `billing-maintenance` cron (`src/app/api/cron/billing-maintenance/route.ts`) が 30 分 TTL で定期実行
+- バッチ上限: 100 件/回。各予約を `cancelReservation()` で個別処理し、失敗はスキップして errors 配列に記録
+
 #### 3.2 月次リセット
 
 月次リセットは JST 基準。
@@ -86,8 +99,20 @@
 Stripe webhook でプランが確定すると `updatePlanAllocation()` が走る。
 
 - upgrade / downgrade / 解約のいずれでも `monthlyAllocation` は新プラン値に更新
-- `balance` も新プラン値に即時リセット
+- `balance` は新旧 `monthlyAllocation` の差分だけ増減する。例: Standard から Pro へ変更した場合は `750 - 350 = +400` credits を加算する
 - `credit_transactions.type = "plan_change"` を記録
+- Checkout は既存 Stripe subscription が `active / trialing / past_due / unpaid / paused / incomplete` のいずれかなら新規作成を拒否し、Customer Portal 側の支払い復旧・変更へ誘導する
+- Webhook は subscription 単位で `lastStripeEventCreatedAt` を見て古い Stripe event を no-op にする。invoice 系は payload だけで状態を決めず、Stripe の現在の subscription を取得して reconcile する
+- 予約系 transaction は `credit_transactions.status` (`reserved / confirmed / canceling / canceled`) を正とし、description の `[Reserved]` 文字列には依存しない
+
+**tx-injectable 関数**:
+
+Webhook ハンドラ等で外側の `db.transaction()` に参加させるため、以下の関数は transaction object (`tx`) を受け取るバリアントを持つ。
+
+- `initializeCreditsTx(tx, userId, plan)` — credit 行の初期化。`onConflictDoNothing` で二重作成を防止
+- `updatePlanAllocationCoreTx(tx, userId, newPlan, expectedCurrentAllocation?)` — delta-based のプラン配分更新。`expectedCurrentAllocation` を渡すと CAS ガードが有効になる
+
+非 tx バリアント (`initializeCredits`, `updatePlanAllocation`, `updatePlanAllocationIfCurrent`) は内部で `db.transaction()` を開いて tx バリアントを呼ぶ wrapper。
 
 #### 3.4 日次 LLM トークン上限
 
@@ -99,7 +124,7 @@ Stripe webhook でプランが確定すると `updatePlanAllocation()` が走る
 - standard: 2,000,000 tokens/日
 - pro: 5,000,000 tokens/日
 
-JST 日付境界（Asia/Tokyo midnight）でリセット。Upstash Redis で管理し、Redis 不可時は fail-open（制限なし）。
+JST 日付境界（Asia/Tokyo midnight）でリセット。Upstash Redis で管理し、local/dev/test の Redis 未設定時は in-memory fallback、production/staging では fail-closed。
 `DISABLE_TOKEN_LIMIT=true` でバイパス可能。
 
 #### 3.5 予約取消と `refund`
@@ -291,6 +316,26 @@ hook では `selectionScheduleRemaining` / `selectionScheduleLimit` を返し、
 - `company_fetch` は選考スケジュール取得と企業 RAG 取込で共通。
 - 監査上の区別は `description` や route 文脈で読む必要がある。
 
+#### 7.3 `processed_stripe_events` TTL ポリシー
+
+`billing-maintenance` cron (`src/app/api/cron/billing-maintenance/route.ts`) が定期的にクリーンアップする。
+
+| status | 保持期間 | バッチ上限 |
+|---|---|---|
+| `succeeded` | 90 日 | 1000 件/回 |
+| `failed` | 180 日 | 500 件/回 |
+
+`processing` 状態のまま 10 分以上経過したレコードは stale 扱い。次の同一 event の webhook 受信時に `claimStripeEvent` が re-claim する。
+
+#### 7.4 `billing-maintenance` cron
+
+`src/app/api/cron/billing-maintenance/route.ts` は以下の 2 タスクを実行する:
+
+1. **孤立予約回収**: `cleanupExpiredReservations(30)` — 30 分以上 `reserved` のまま放置された credit transaction を cancel + refund
+2. **Stripe event テーブル清掃**: succeeded 90 日 / failed 180 日超のレコードを削除
+
+認証は `CRON_SECRET` の Bearer token を `timingSafeEqual` で検証する。
+
 ## 技術メモ
 
 ### 機能別デフォルトモデル
@@ -365,7 +410,7 @@ ES 添削はユーザーがモデルを選択可能（`claude-sonnet` / `gpt` / 
 
 - 円換算: 1 USD = 160 円
 - 価格カタログ正本: `backend/app/utils/llm_usage_cost.py:19-50`
-- ES 添削: 最大 4 回 LLM 呼び出し（`REWRITE_MAX_ATTEMPTS=3` + length-fix 1 回）
+- ES 添削: 最大 3 回 LLM rewrite 呼び出し（`REWRITE_MAX_ATTEMPTS=3`）
 - OpenAI ES 添削の `_OPENAI_ES_REVIEW_OUTPUT_TOKEN_FLOOR=4096` は `max_output_tokens` の下限設定。ES rewrite は `reasoning_effort="none"` のため reasoning tokens = 0 であり、実際の出力課金は生成トークン（~500-700 tok/call）のみ
 - 会話系（ガクチカ・志望動機・面接）は conversation_history を累積送信するため、後半ほど入力トークンが増大する:
   - ガクチカ 5 回答: 初回 ~1,500 tok → 5 回目 ~4,000 tok（累計入力 ~13,000 tok）

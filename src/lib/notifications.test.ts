@@ -139,9 +139,9 @@ describe("notifications", () => {
     notifyPurchaseSuccess("pro", true);
 
     expect(enqueueSnackbar).toHaveBeenCalledWith({
-      tone: "success",
-      title: "Proプランへの登録が完了しました",
-      description: "クレジットが付与されました。さっそく機能を使ってみましょう。",
+      tone: "info",
+      title: "プラン情報を更新しました",
+      description: "Proプランの反映状況を確認しました。",
       duration: 6000,
     });
   });
@@ -153,36 +153,64 @@ describe("notifications", () => {
 
     expect(enqueueSnackbar).toHaveBeenCalledWith({
       tone: "info",
-      title: "Standardプランの登録を処理中です",
-      description: "まもなく反映されます。",
+      title: "決済画面から戻りました",
+      description: "Standardプランへの変更は Stripe の処理完了後に反映されます。",
       duration: 5000,
     });
   });
 
-  it("shows portal return notification for plan confirmation", async () => {
-    const { notifyPortalReturn } = await import("./notifications");
+  it("shows specific plan change notification when plan differs after portal return", async () => {
+    const { notifyPortalReturnDetailed } = await import("./notifications");
 
-    notifyPortalReturn("pro");
-
-    expect(enqueueSnackbar).toHaveBeenCalledWith({
-      tone: "success",
-      title: "プラン設定が更新されました",
-      description: "変更内容はまもなく反映されます。",
-      duration: 5000,
+    notifyPortalReturnDetailed({
+      previousPlan: "standard",
+      currentPlan: "pro",
+      previousHasActiveSubscription: true,
+      currentHasActiveSubscription: true,
     });
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: "success",
+        title: "Proプランに変更されました",
+      }),
+    );
   });
 
-  it("shows downgrade notification with renewal date info", async () => {
-    const { notifyPlanDowngrade } = await import("./notifications");
+  it("shows cancellation notification when subscription becomes inactive", async () => {
+    const { notifyPortalReturnDetailed } = await import("./notifications");
 
-    notifyPlanDowngrade("Pro", "2026-06-15T00:00:00Z");
-
-    expect(enqueueSnackbar).toHaveBeenCalledWith({
-      tone: "info",
-      title: "プランの変更を受け付けました",
-      description: "2026/6/15まではProプランをご利用いただけます。",
-      duration: 8000,
+    notifyPortalReturnDetailed({
+      previousPlan: "pro",
+      currentPlan: "pro",
+      previousHasActiveSubscription: true,
+      currentHasActiveSubscription: false,
     });
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: "info",
+        title: "解約が予約されました",
+      }),
+    );
+  });
+
+  it("shows generic message when no change detected after portal return", async () => {
+    const { notifyPortalReturnDetailed } = await import("./notifications");
+
+    notifyPortalReturnDetailed({
+      previousPlan: "pro",
+      currentPlan: "pro",
+      previousHasActiveSubscription: true,
+      currentHasActiveSubscription: true,
+    });
+
+    expect(enqueueSnackbar).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tone: "info",
+        title: "請求管理ページから戻りました",
+      }),
+    );
   });
 
   it("shows document and calendar notification helpers with short success copy", async () => {

@@ -17,6 +17,7 @@ import {
   verifyGakuchikaAccess,
   type Message,
 } from "@/bff/gakuchika";
+import { logError } from "@/lib/logger";
 
 export async function GET(
   request: NextRequest,
@@ -149,7 +150,9 @@ export async function GET(
       sessions,
     });
   } catch (error) {
-    console.error("Error fetching conversation:", error);
+    logError("gakuchika-conversation:consume-credits", error, {
+      feature: "gakuchika_conversation",
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

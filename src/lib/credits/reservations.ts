@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 
 import {
   creditTransactions,
@@ -120,6 +120,7 @@ export async function consumeCredits(
       type,
       referenceId: referenceId || null,
       description: description || null,
+      status: "applied",
       balanceAfter: newBalance,
       createdAt: now,
     });
@@ -207,6 +208,8 @@ export async function reserveCredits(
       type,
       referenceId: referenceId || null,
       description: description ? `[Reserved] ${description}` : "[Reserved]",
+      status: "reserved",
+      operationId: referenceId || null,
       balanceAfter: newBalance,
       createdAt: now,
     });
@@ -215,14 +218,16 @@ export async function reserveCredits(
   });
 }
 
-export async function confirmReservation(reservationId: string): Promise<void> {
-  await db.transaction(async (tx) => {
+export async function confirmReservation(
+  reservationId: string,
+): Promise<{ confirmed: boolean }> {
+  return db.transaction(async (tx) => {
     const [reservation] = await tx
       .select()
       .from(creditTransactions)
       .where(eq(creditTransactions.id, reservationId))
       .limit(1);
-    if (!reservation) return;
+    if (!reservation) return { confirmed: false };
 
     const [userCredits] = await tx
       .select()
@@ -230,28 +235,38 @@ export async function confirmReservation(reservationId: string): Promise<void> {
       .where(eq(credits.userId, reservation.userId))
       .limit(1);
 
-    await tx
+    const updated = await tx
       .update(creditTransactions)
       .set({
         description: reservation.description?.replace("[Reserved]", "[Confirmed]") || "[Confirmed]",
+        status: "confirmed",
         balanceAfter: userCredits?.balance ?? reservation.balanceAfter,
       })
-      .where(eq(creditTransactions.id, reservationId));
+      .where(and(
+        eq(creditTransactions.id, reservationId),
+        eq(creditTransactions.status, "reserved"),
+      ))
+      .returning({ id: creditTransactions.id });
+
+    return { confirmed: updated.length > 0 };
   });
 }
 
-export async function cancelReservation(reservationId: string): Promise<void> {
-  await db.transaction(async (tx) => {
+export async function cancelReservation(
+  reservationId: string,
+): Promise<{ canceled: boolean; refundedAmount: number }> {
+  return db.transaction(async (tx) => {
     const now = new Date();
     const [claimedReservation] = await tx
       .update(creditTransactions)
       .set({
         description: sql`replace(${creditTransactions.description}, '[Reserved]', '[Cancelling]')`,
+        status: "canceling",
       })
       .where(
         and(
           eq(creditTransactions.id, reservationId),
-          sql`${creditTransactions.description} like '%[Reserved]%'`,
+          eq(creditTransactions.status, "reserved"),
         ),
       )
       .returning({
@@ -262,7 +277,7 @@ export async function cancelReservation(reservationId: string): Promise<void> {
       });
 
     if (!claimedReservation) {
-      return;
+      return { canceled: false, refundedAmount: 0 };
     }
 
     const refundAmount = Math.abs(claimedReservation.amount);
@@ -286,8 +301,48 @@ export async function cancelReservation(reservationId: string): Promise<void> {
           "[Cancelling]",
           "[Cancelled/Refunded]",
         ),
+        status: "canceled",
         balanceAfter: updatedCredits.balance,
       })
       .where(eq(creditTransactions.id, reservationId));
+
+    return { canceled: true, refundedAmount: refundAmount };
   });
+}
+
+const CLEANUP_BATCH_LIMIT = 100;
+
+export async function cleanupExpiredReservations(
+  cutoffMinutes: number,
+): Promise<{ canceledCount: number; totalRefunded: number; errors: string[] }> {
+  const cutoff = new Date(Date.now() - cutoffMinutes * 60 * 1000);
+
+  const expired = await db
+    .select({ id: creditTransactions.id })
+    .from(creditTransactions)
+    .where(
+      and(
+        eq(creditTransactions.status, "reserved"),
+        lt(creditTransactions.createdAt, cutoff),
+      ),
+    )
+    .limit(CLEANUP_BATCH_LIMIT);
+
+  let canceledCount = 0;
+  let totalRefunded = 0;
+  const errors: string[] = [];
+
+  for (const row of expired) {
+    try {
+      const result = await cancelReservation(row.id);
+      if (result.canceled) {
+        canceledCount++;
+        totalRefunded += result.refundedAmount;
+      }
+    } catch (error) {
+      errors.push(`${row.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return { canceledCount, totalRefunded, errors };
 }

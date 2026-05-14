@@ -87,6 +87,7 @@ export function isMissingMonthlyUsageSchemaError(error: unknown): boolean {
   );
 }
 
+// race-safe: INSERT … onConflictDoNothing + re-SELECT handles concurrent creation.
 async function getOrCreateMonthlyUsage(userId: string, monthKey: string) {
   const [existing] = await db
     .select()

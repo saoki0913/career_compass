@@ -20,6 +20,7 @@ import {
   getRequestId,
   logAiCreditCostSummary,
 } from "@/lib/ai/cost-summary-log";
+import { logError } from "@/lib/logger";
 import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 
@@ -43,7 +44,7 @@ export async function POST(
       );
     }
 
-    const limitResponse = await guardDailyTokenLimit(identity);
+    const limitResponse = await guardDailyTokenLimit(identity, request);
     if (limitResponse) return limitResponse;
 
     const hasAccess = await verifyGakuchikaAccess(gakuchikaId, identity.userId, identity.guestId);
@@ -320,7 +321,9 @@ export async function POST(
       sessions,
     });
   } catch (error) {
-    console.error("Error resuming conversation:", error);
+    logError("gakuchika-resume:consume-credits", error, {
+      feature: "gakuchika_resume",
+    });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

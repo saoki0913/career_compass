@@ -9,6 +9,7 @@ import {
 } from "@/lib/gakuchika/summary";
 import { type Message } from "@/bff/gakuchika";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
+import { logError } from "@/lib/logger";
 import type { CreateCareerPrincipalInput } from "@/lib/fastapi/career-principal";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -142,7 +143,9 @@ export async function generateGakuchikaSummaryWithTelemetry(
       return result;
     }
   } catch (error) {
-    console.error("[Gakuchika Summary] Structured summary generation failed:", error);
+    logError("gakuchika-summary:consume-credits", error, {
+      feature: "gakuchika_summary",
+    });
   }
 
   return { summary: buildFallbackSummary(messages), telemetry: null };

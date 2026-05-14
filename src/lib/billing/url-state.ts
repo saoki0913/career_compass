@@ -12,7 +12,7 @@ export function getPurchaseSuccessState(searchParams: SearchParamsLike): {
   success: boolean;
   plan: PlanType | null;
 } {
-  const success = searchParams.get("success") === "true";
+  const success = searchParams.get("success") === "true" || searchParams.get("checkout") === "return";
   const plan = searchParams.get("plan");
 
   if (!success) {

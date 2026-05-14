@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { gakuchikaContents } from "@/lib/db/schema";
 import { eq, desc, isNull, sql } from "drizzle-orm";
 import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
+import { logError } from "@/lib/logger";
 import { isInterviewReady, safeParseConversationState } from "@/bff/gakuchika";
 
 async function loadLatestConversationState(contentIds: string[]) {
@@ -98,7 +99,9 @@ export async function GET(request: NextRequest) {
       summaries: completedSummaries,
     });
   } catch (error) {
-    console.error("Error fetching gakuchika summaries:", error);
+    logError("gakuchika-summaries:consume-credits", error, {
+      feature: "gakuchika_summaries",
+    });
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

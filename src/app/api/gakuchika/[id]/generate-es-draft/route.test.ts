@@ -15,7 +15,7 @@ const {
   safeParseConversationStateMock,
   safeParseMessagesMock,
   serializeConversationStateMock,
-  fetchFastApiInternalMock,
+  fetchFastApiWithPrincipalMock,
   normalizeEsDraftSingleParagraphMock,
 } = vi.hoisted(() => ({
   dbSelectMock: vi.fn(),
@@ -31,7 +31,7 @@ const {
   safeParseConversationStateMock: vi.fn(),
   safeParseMessagesMock: vi.fn(),
   serializeConversationStateMock: vi.fn(),
-  fetchFastApiInternalMock: vi.fn(),
+  fetchFastApiWithPrincipalMock: vi.fn(),
   normalizeEsDraftSingleParagraphMock: vi.fn(),
 }));
 
@@ -64,7 +64,7 @@ vi.mock("@/bff/gakuchika", () => ({
 }));
 
 vi.mock("@/lib/fastapi/client", () => ({
-  fetchFastApiInternal: fetchFastApiInternalMock,
+  fetchFastApiWithPrincipal: fetchFastApiWithPrincipalMock,
 }));
 
 vi.mock("@/lib/server/es-draft-normalize", () => ({
@@ -103,7 +103,7 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
     safeParseConversationStateMock.mockReset();
     safeParseMessagesMock.mockReset();
     serializeConversationStateMock.mockReset();
-    fetchFastApiInternalMock.mockReset();
+    fetchFastApiWithPrincipalMock.mockReset();
     normalizeEsDraftSingleParagraphMock.mockReset();
 
     const companyQuery = {
@@ -214,7 +214,7 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
     ]);
     serializeConversationStateMock.mockReturnValue("{\"stage\":\"draft_ready\"}");
     normalizeEsDraftSingleParagraphMock.mockImplementation((value: string) => value);
-    fetchFastApiInternalMock.mockResolvedValue(
+    fetchFastApiWithPrincipalMock.mockResolvedValue(
       new Response(
         JSON.stringify({
           draft: "私は学園祭実行委員として模擬店エリアの導線改善に取り組みました。",
@@ -243,8 +243,8 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
     const response = await POST(request, { params: Promise.resolve({ id: "g-1" }) });
 
     expect(response.status).toBe(200);
-    expect(fetchFastApiInternalMock).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(fetchFastApiInternalMock.mock.calls[0][1].body as string);
+    expect(fetchFastApiWithPrincipalMock).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(fetchFastApiWithPrincipalMock.mock.calls[0][1].body as string);
     expect(payload.known_facts).toContain("大学3年の学園祭実行委員");
     expect(payload.draft_material).toEqual(
       expect.objectContaining({
@@ -271,7 +271,7 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
 
   it("does not persist or confirm credits when normalized draft is empty", async () => {
     normalizeEsDraftSingleParagraphMock.mockReturnValueOnce("");
-    fetchFastApiInternalMock.mockResolvedValueOnce(
+    fetchFastApiWithPrincipalMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
           draft: "   ",
@@ -312,6 +312,6 @@ describe("api/gakuchika/[id]/generate-es-draft", () => {
     expect(response.status).toBe(200);
     expect(body.documentId).toEqual(expect.any(String));
     expect(dbTransactionMock).toHaveBeenCalled();
-    expect(cancelReservationMock).not.toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 });

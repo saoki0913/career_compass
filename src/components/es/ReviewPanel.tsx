@@ -51,6 +51,7 @@ import {
   notifyReviewError,
   notifyReviewSuccess,
 } from "@/lib/notifications";
+import { CreditWarningBanner } from "@/components/billing/CreditWarningBanner";
 import { ReflectModal } from "./ReflectModal";
 import type { ReviewValidationField } from "./review-panel-validation";
 import {
@@ -455,6 +456,7 @@ export function ReviewPanel({
     isRoleSetupComplete,
     validationIssues,
     creditCost,
+    insufficientCredits,
     canStartReview,
     footerHelperLines,
     footerLoginHref,
@@ -1280,6 +1282,16 @@ export function ReviewPanel({
           {supplementalContent}
         </div>
       </div>
+
+      {showFooter && sectionReviewRequest && insufficientCredits ? (
+        <div className="px-4 pt-3">
+          <CreditWarningBanner
+            balance={balance}
+            requiredCredits={creditCost}
+            featureLabel="ES添削"
+          />
+        </div>
+      ) : null}
 
       {showFooter && sectionReviewRequest ? (
         <ReviewActionFooter

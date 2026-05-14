@@ -152,6 +152,85 @@ describe("api/gakuchika/[id]/conversation/resume", () => {
     );
   });
 
+  it("preserves resolvedFocuses/askedFocuses/deferredFocuses via union merge on FastAPI response", async () => {
+    dbSelectMock.mockReset();
+    const gakuchikaQuery = {
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn().mockResolvedValue([
+            { id: "g-1", title: "学園祭", content: "導線改善", charLimitType: "400" },
+          ]),
+        })),
+      })),
+    };
+    const conversationQuery = {
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn().mockResolvedValue([
+            {
+              id: "c-1",
+              gakuchikaId: "g-1",
+              status: "in_progress",
+              questionCount: 3,
+              messages: JSON.stringify([
+                { id: "m-1", role: "assistant", content: "Q" },
+                { id: "m-2", role: "user", content: "A" },
+              ]),
+              starScores: JSON.stringify({
+                stage: "draft_ready",
+                readyForDraft: true,
+                draftText: null,
+                pausedQuestion: null,
+                resolvedFocuses: ["situation", "task"],
+                askedFocuses: ["situation", "task", "action"],
+                deferredFocuses: ["result"],
+              }),
+            },
+          ]),
+        })),
+      })),
+    };
+    const sessionsQuery = {
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          orderBy: vi.fn().mockResolvedValue([]),
+        })),
+      })),
+    };
+    dbSelectMock
+      .mockReturnValueOnce(gakuchikaQuery)
+      .mockReturnValueOnce(conversationQuery)
+      .mockReturnValueOnce(sessionsQuery);
+    getQuestionFromFastAPIMock.mockResolvedValue({
+      question: "次の質問です。",
+      error: null,
+      conversationState: {
+        stage: "es_building",
+        resolvedFocuses: ["action"],
+        askedFocuses: ["action"],
+        deferredFocuses: [],
+      },
+      nextAction: "ask",
+      telemetry: null,
+    });
+
+    const { POST } = await import("@/bff/gakuchika/[id]/conversation/resume/route");
+    const request = new NextRequest("http://localhost:3000/api/gakuchika/g-1/conversation/resume", {
+      method: "POST",
+      body: JSON.stringify({ sessionId: "c-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "g-1" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    const state = body.conversationState;
+    expect(state.resolvedFocuses).toEqual(expect.arrayContaining(["situation", "task", "action"]));
+    expect(state.askedFocuses).toEqual(expect.arrayContaining(["situation", "task", "action"]));
+    expect(state.deferredFocuses).toEqual(expect.arrayContaining(["result"]));
+  });
+
   it("ignores stale pausedQuestion when draft_ready has no draft text and asks FastAPI in es_building mode", async () => {
     dbSelectMock.mockReset();
     const gakuchikaQuery = {
@@ -187,6 +266,9 @@ describe("api/gakuchika/[id]/conversation/resume", () => {
                 draftText: null,
                 pausedQuestion: "古い深掘り質問です。",
                 extendedDeepDiveRound: 0,
+                resolvedFocuses: [],
+                askedFocuses: [],
+                deferredFocuses: [],
               }),
             },
           ]),
