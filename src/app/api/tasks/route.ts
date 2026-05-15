@@ -45,6 +45,16 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status"); // open, done, all
     const companyId = searchParams.get("companyId");
     const applicationId = searchParams.get("applicationId");
+    if (status && !["open", "done", "all"].includes(status)) {
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "TASK_STATUS_INVALID",
+        userMessage: "タスク状態の指定を確認してください。",
+        action: "一覧を更新して、もう一度お試しください。",
+        developerMessage: "Invalid task status filter",
+        logContext: "tasks-validation",
+      });
+    }
 
     const data = await getTasksPageData(identity, {
       status: (status as "open" | "done" | "all" | null) ?? undefined,

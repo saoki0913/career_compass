@@ -14,6 +14,7 @@ const SYNC_TIMEOUT_MS = 5000;
 
 export type ImmediateSyncResult =
   | { status: "synced" }
+  | { status: "queued"; reason: string }
   | { status: "skipped"; reason: string }
   | { status: "failed"; error: string };
 
@@ -121,6 +122,7 @@ export async function syncDeadlineDeleteImmediately(
     await executeDelete(userId, deadline.googleCalendarId, deadline.googleEventId, createTimeoutSignal());
     return { status: "synced" };
   } catch (error) {
+    const message = getErrorMessage(error);
     try {
       const deadline = await getDeadlineForSync(deadlineId);
       if (deadline?.googleEventId && deadline.googleCalendarId) {
@@ -132,12 +134,13 @@ export async function syncDeadlineDeleteImmediately(
           targetCalendarId: deadline.googleCalendarId,
           googleEventId: deadline.googleEventId,
         });
+        return { status: "queued", reason: message };
       }
-    } catch {
-      // no-op: preserve no-throw contract
+    } catch (enqueueError) {
+      return { status: "failed", error: getErrorMessage(enqueueError) };
     }
 
-    return { status: "failed", error: getErrorMessage(error) };
+    return { status: "failed", error: message };
   }
 }
 
@@ -178,6 +181,7 @@ export async function syncWorkBlockDeleteImmediately(params: {
     await executeDelete(params.userId, params.googleCalendarId, params.googleEventId, createTimeoutSignal());
     return { status: "synced" };
   } catch (error) {
+    const message = getErrorMessage(error);
     try {
       if (params.googleCalendarId && params.googleEventId) {
         await enqueueCalendarSyncJob({
@@ -188,10 +192,11 @@ export async function syncWorkBlockDeleteImmediately(params: {
           targetCalendarId: params.googleCalendarId,
           googleEventId: params.googleEventId,
         });
+        return { status: "queued", reason: message };
       }
-    } catch {
-      // no-op: preserve no-throw contract
+    } catch (enqueueError) {
+      return { status: "failed", error: getErrorMessage(enqueueError) };
     }
-    return { status: "failed", error: getErrorMessage(error) };
+    return { status: "failed", error: message };
   }
 }

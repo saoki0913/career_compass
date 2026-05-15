@@ -197,6 +197,49 @@ describe("calendar/sync-immediate", () => {
     await expect(syncDeadlineDeleteImmediately("user-1", "deadline-1")).resolves.toEqual({ status: "synced" });
   });
 
+  it("returns queued when deadline delete falls back to a retry job", async () => {
+    const { syncDeadlineDeleteImmediately } = await import("@/lib/calendar/sync-immediate");
+
+    getDeadlineForSyncMock.mockResolvedValue({
+      id: "deadline-1",
+      googleCalendarId: "calendar-1",
+      googleEventId: "event-1",
+    });
+    executeDeleteMock.mockRejectedValueOnce(new Error("google timeout"));
+
+    await expect(syncDeadlineDeleteImmediately("user-1", "deadline-1")).resolves.toEqual({
+      status: "queued",
+      reason: "google timeout",
+    });
+    expect(enqueueCalendarSyncJobMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-1",
+        entityType: "deadline",
+        entityId: "deadline-1",
+        action: "delete",
+        targetCalendarId: "calendar-1",
+        googleEventId: "event-1",
+      }),
+    );
+  });
+
+  it("returns failed when deadline delete retry cannot be queued", async () => {
+    const { syncDeadlineDeleteImmediately } = await import("@/lib/calendar/sync-immediate");
+
+    getDeadlineForSyncMock.mockResolvedValue({
+      id: "deadline-1",
+      googleCalendarId: "calendar-1",
+      googleEventId: "event-1",
+    });
+    executeDeleteMock.mockRejectedValueOnce(new Error("google timeout"));
+    enqueueCalendarSyncJobMock.mockRejectedValueOnce(new Error("queue down"));
+
+    await expect(syncDeadlineDeleteImmediately("user-1", "deadline-1")).resolves.toEqual({
+      status: "failed",
+      error: "queue down",
+    });
+  });
+
   it("returns skipped when syncWorkBlockDeleteImmediately has no google ids", async () => {
     const { syncWorkBlockDeleteImmediately } = await import("@/lib/calendar/sync-immediate");
 

@@ -235,7 +235,7 @@ export async function deleteCalendarEvent(
   signal?: AbortSignal,
 ) {
   const response = await fetch(
-    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
     {
       method: "DELETE",
       headers: { Authorization: `Bearer ${accessToken}` },

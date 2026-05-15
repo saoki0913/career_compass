@@ -6,24 +6,36 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { calendarEvents, deadlines, companies } from "@/lib/db/schema";
 import { eq, and, gte, lte } from "drizzle-orm";
-import { headers } from "next/headers";
 import { syncWorkBlockImmediately, type ImmediateSyncResult } from "@/lib/calendar/sync";
 import { createApiErrorResponse } from "@/bff/api/error-response";
-import { hasOwnedDeadline } from "@/bff/identity/owner-access";
+import { buildOwnerCondition, hasOwnedDeadline } from "@/bff/identity/owner-access";
 import { createCalendarCsrfErrorResponse } from "@/app/api/calendar/_shared/csrf";
 import { getCsrfFailureReason } from "@/lib/csrf";
+import { getRequestIdentity } from "@/bff/identity/request-identity";
+
+function parseOptionalDateParam(request: NextRequest, value: string | null, name: string): Date | null | Response {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isNaN(date.getTime())) return date;
+  return createApiErrorResponse(request, {
+    status: 400,
+    code: "CALENDAR_EVENTS_INVALID_DATE",
+    userMessage: "カレンダーの表示期間を確認してください。",
+    action: "ページを再読み込みして、もう一度お試しください。",
+    developerMessage: `Invalid ${name} query parameter`,
+    logContext: "calendar-events-validation",
+  });
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session?.user?.id) {
+    const identity = await getRequestIdentity(request);
+    if (!identity?.userId && !identity?.guestId) {
       return createApiErrorResponse(request, {
         status: 401,
         code: "CALENDAR_EVENTS_AUTH_REQUIRED",
@@ -35,27 +47,38 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const userId = session.user.id;
-
     const searchParams = request.nextUrl.searchParams;
-    const startDate = searchParams.get("start");
-    const endDate = searchParams.get("end");
+    const startDate = parseOptionalDateParam(request, searchParams.get("start"), "start");
+    if (startDate instanceof Response) return startDate;
+    const endDate = parseOptionalDateParam(request, searchParams.get("end"), "end");
+    if (endDate instanceof Response) return endDate;
 
-    // Build conditions
-    const conditions = [eq(calendarEvents.userId, userId)];
-    if (startDate) {
-      conditions.push(gte(calendarEvents.startAt, new Date(startDate)));
-    }
-    if (endDate) {
-      conditions.push(lte(calendarEvents.endAt, new Date(endDate)));
-    }
+    const events = identity.userId
+      ? await db
+          .select()
+          .from(calendarEvents)
+          .where(
+            and(
+              eq(calendarEvents.userId, identity.userId),
+              startDate ? gte(calendarEvents.startAt, startDate) : undefined,
+              endDate ? lte(calendarEvents.endAt, endDate) : undefined,
+            ),
+          )
+          .orderBy(calendarEvents.startAt)
+      : [];
 
-    // Get user's calendar events
-    const events = await db
-      .select()
-      .from(calendarEvents)
-      .where(and(...conditions))
-      .orderBy(calendarEvents.startAt);
+    const ownerCondition = buildOwnerCondition(companies, identity);
+    if (!ownerCondition) {
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "CALENDAR_EVENTS_AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "時間を置いて再読み込みしてください。",
+        retryable: true,
+        developerMessage: "Valid owner identity required",
+        logContext: "calendar-events-auth",
+      });
+    }
 
     // Also get deadlines to display on calendar
     const deadlineEvents = await db
@@ -72,12 +95,13 @@ export async function GET(request: NextRequest) {
         googleSyncError: deadlines.googleSyncError,
       })
       .from(deadlines)
-      .leftJoin(companies, eq(deadlines.companyId, companies.id))
+      .innerJoin(companies, eq(deadlines.companyId, companies.id))
       .where(
         and(
-          eq(companies.userId, userId),
-          startDate ? gte(deadlines.dueDate, new Date(startDate)) : undefined,
-          endDate ? lte(deadlines.dueDate, new Date(endDate)) : undefined
+          ownerCondition,
+          eq(deadlines.isConfirmed, true),
+          startDate ? gte(deadlines.dueDate, startDate) : undefined,
+          endDate ? lte(deadlines.dueDate, endDate) : undefined,
         )
       )
       .orderBy(deadlines.dueDate);

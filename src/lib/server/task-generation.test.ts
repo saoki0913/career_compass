@@ -132,6 +132,26 @@ describe("generateTasksForDeadline", () => {
     expect(txInsertMock).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves template-relative due-date ordering for past deadlines", async () => {
+    txSelectMock
+      .mockReturnValueOnce(makeTemplateQuery(templates))
+      .mockReturnValueOnce(makeExistingTasksQuery([]));
+
+    const { generateTasksForDeadline } = await import("./task-generation");
+    await generateTasksForDeadline({
+      ...baseParams,
+      deadlineDueDate: new Date("2020-06-30T00:00:00.000Z"),
+    });
+
+    const insertQuery = txInsertMock.mock.results[0]?.value as ReturnType<typeof makeInsertQuery>;
+    const insertedRows = insertQuery.values.mock.calls[0]?.[0] as Array<{ dueDate: Date }>;
+
+    expect(insertedRows.map((row) => row.dueDate.toISOString())).toEqual([
+      "2020-06-23T00:00:00.000Z",
+      "2020-06-30T00:00:00.000Z",
+    ]);
+  });
+
   it("returns an empty list for deadline types with no template category", async () => {
     const { generateTasksForDeadline } = await import("./task-generation");
     const result = await generateTasksForDeadline({

@@ -75,7 +75,7 @@ export interface WorkBlockSuggestion {
 export interface CalendarMutationResult<T> {
   event?: T;
   calendarSync?: {
-    status: "synced" | "skipped" | "failed";
+    status: "synced" | "queued" | "skipped" | "failed";
     reason?: string;
     error?: string;
   };

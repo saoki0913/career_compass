@@ -62,13 +62,14 @@ export async function DELETE(
     const userId = session.user.id;
 
     const [event] = await db
-      .delete(calendarEvents)
-      .where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.userId, userId)))
-      .returning({
+      .select({
         id: calendarEvents.id,
         googleCalendarId: calendarEvents.googleCalendarId,
         googleEventId: calendarEvents.googleEventId,
-      });
+      })
+      .from(calendarEvents)
+      .where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.userId, userId)))
+      .limit(1);
 
     if (!event) {
       return createApiErrorResponse(request, {
@@ -87,6 +88,33 @@ export async function DELETE(
       googleCalendarId: event.googleCalendarId,
       googleEventId: event.googleEventId,
     });
+    if (calendarSync.status === "failed") {
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "CALENDAR_EVENT_DELETE_RETRY_UNAVAILABLE",
+        userMessage: "Googleカレンダー同期の再試行を登録できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        developerMessage: calendarSync.error,
+        logContext: "calendar-event-delete-sync",
+      });
+    }
+
+    const [deleted] = await db
+      .delete(calendarEvents)
+      .where(and(eq(calendarEvents.id, eventId), eq(calendarEvents.userId, userId)))
+      .returning({ id: calendarEvents.id });
+
+    if (!deleted) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "CALENDAR_EVENT_NOT_FOUND",
+        userMessage: "対象のイベントが見つかりませんでした。",
+        action: "一覧を更新して、もう一度お試しください。",
+        developerMessage: "Event not found during delete",
+        logContext: "calendar-event-delete-not-found",
+      });
+    }
 
     return NextResponse.json({ success: true, calendarSync });
   } catch (error) {

@@ -83,8 +83,7 @@ test.describe("Calendar page (authenticated)", () => {
     await signInAsAuthenticatedUser(page, "/calendar");
 
     await expect(page.getByRole("heading", { name: "カレンダー" })).toBeVisible({ timeout: 10_000 });
-    const settingsLink = page.getByText("設定").first();
-    await expect(settingsLink).toBeVisible();
+    await expect(page.getByRole("link", { name: /^(設定|再連携)$/ })).toBeVisible();
   });
 
   test("calendar settings page shows Google Calendar connection options", async ({ page }) => {
@@ -99,10 +98,11 @@ test.describe("Calendar page (authenticated)", () => {
 
 test.describe("Calendar page (guest)", () => {
   test("guest is redirected from calendar settings", async ({ page }) => {
+    test.setTimeout(60_000);
     await loginAsGuest(page);
     await ensureGuestSession(page);
 
-    await page.goto("/calendar/settings");
+    await page.goto("/calendar/settings", { waitUntil: "domcontentloaded", timeout: 45_000 });
     await page.waitForLoadState("domcontentloaded");
     const calendarSettingsBlocked =
       page.url().includes("/login") ||

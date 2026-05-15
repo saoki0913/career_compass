@@ -53,6 +53,24 @@ describe("api/notifications/batch POST", () => {
     vi.stubEnv("CRON_SECRET", "cron-secret");
   });
 
+  it("fails closed before DB work when CRON_SECRET is missing", async () => {
+    vi.stubEnv("CRON_SECRET", "");
+
+    const { POST } = await import("@/app/api/notifications/batch/route");
+    const request = new NextRequest("http://localhost:3000/api/notifications/batch", {
+      method: "POST",
+      headers: { authorization: "Bearer cron-secret", "content-type": "application/json" },
+      body: JSON.stringify({ type: "daily_summary" }),
+    });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(401);
+    expect(dbSelectMock).not.toHaveBeenCalled();
+    expect(dbInsertMock).not.toHaveBeenCalled();
+    expect(dbDeleteMock).not.toHaveBeenCalled();
+  });
+
   it("uses preloaded settings for daily summary without per-user query loops", async () => {
     const profiles = [
       {

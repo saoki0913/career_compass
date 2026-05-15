@@ -95,4 +95,16 @@ describe("api/tasks", () => {
     expect(response.status).toBe(404);
     expect(data.error.code).toBe("TASK_DEADLINE_NOT_FOUND");
   });
+
+  it("rejects invalid task status filters", async () => {
+    const { GET } = await import("@/app/api/tasks/route");
+    const request = new NextRequest("http://localhost:3000/api/tasks?status=blocked");
+
+    const response = await GET(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("TASK_STATUS_INVALID");
+    expect(dbSelectMock).not.toHaveBeenCalled();
+  });
 });

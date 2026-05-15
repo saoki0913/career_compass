@@ -152,4 +152,26 @@ describe("api/companies/[id]/deadlines POST", () => {
       }),
     );
   });
+
+  it("returns structured validation errors and resolves identity once", async () => {
+    const { POST } = await import("@/app/api/companies/[id]/deadlines/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/deadlines", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "invalid_type",
+        title: "ES提出",
+        dueDate: "2026-06-01T00:00:00.000Z",
+      }),
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error.code).toBe("DEADLINE_INVALID_TYPE");
+    expect(data.error.userMessage).toBeTruthy();
+    expect(data.requestId).toBeTruthy();
+    expect(getRequestIdentityMock).toHaveBeenCalledTimes(1);
+  });
 });

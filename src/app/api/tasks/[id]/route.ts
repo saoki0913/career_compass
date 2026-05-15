@@ -120,12 +120,12 @@ export async function PUT(
     const body = await request.json();
     const { title, description, type, status, dueDate, completedAt } = body;
 
-    const updateData: Record<string, unknown> = {
+    const baseUpdateData: Record<string, unknown> = {
       updatedAt: new Date(),
     };
 
-    if (title !== undefined) updateData.title = title.trim();
-    if (description !== undefined) updateData.description = description?.trim() || null;
+    if (title !== undefined) baseUpdateData.title = title.trim();
+    if (description !== undefined) baseUpdateData.description = description?.trim() || null;
     if (type !== undefined) {
       const validTypes = ["es", "web_test", "self_analysis", "gakuchika", "video", "other"];
       if (!validTypes.includes(type)) {
@@ -138,7 +138,7 @@ export async function PUT(
           logContext: "task-update-validation",
         });
       }
-      updateData.type = type;
+      baseUpdateData.type = type;
     }
     if (status !== undefined) {
       if (!["open", "done"].includes(status)) {
@@ -151,24 +151,15 @@ export async function PUT(
           logContext: "task-update-validation",
         });
       }
-      updateData.status = status;
-      // Auto-set completedAt
-      if (status === "done" && !access.task?.completedAt) {
-        updateData.completedAt = new Date();
-      } else if (status === "open") {
-        updateData.completedAt = null;
-      }
+      baseUpdateData.status = status;
     }
     if (dueDate !== undefined) {
-      updateData.dueDate = dueDate ? new Date(dueDate) : null;
-    }
-    if (completedAt !== undefined) {
-      updateData.completedAt = completedAt ? new Date(completedAt) : null;
+      baseUpdateData.dueDate = dueDate ? new Date(dueDate) : null;
     }
 
-    const wasCompleted = access.task?.status === "done";
+    const ownerCondition = buildOwnerCondition(tasks, identity);
     const updateCondition = buildOwnedRowCondition(eq(tasks.id, taskId), tasks, identity);
-    if (!updateCondition) {
+    if (!ownerCondition || !updateCondition) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "TASK_UPDATE_NOT_FOUND",
@@ -179,13 +170,46 @@ export async function PUT(
       });
     }
 
-    const updated = await db
-      .update(tasks)
-      .set(updateData)
-      .where(updateCondition)
-      .returning();
+    const updatedTask = await db.transaction(async (tx) => {
+      const [currentTask] = await tx
+        .select()
+        .from(tasks)
+        .where(updateCondition)
+        .limit(1)
+        .for("update");
 
-    if (!updated[0]) {
+      if (!currentTask) return null;
+
+      const updateData: Record<string, unknown> = { ...baseUpdateData };
+      if (status === "done" && !currentTask.completedAt) {
+        updateData.completedAt = new Date();
+      } else if (status === "open") {
+        updateData.completedAt = null;
+      }
+      if (completedAt !== undefined) {
+        updateData.completedAt = completedAt ? new Date(completedAt) : null;
+      }
+
+      const updated = await tx
+        .update(tasks)
+        .set(updateData)
+        .where(updateCondition)
+        .returning();
+
+      const updatedRow = updated[0];
+      if (!updatedRow) return null;
+
+      // Handle dependency chain updates inside the same transaction as the task update.
+      if (status === "done" && currentTask.status !== "done") {
+        await unblockSuccessor(taskId, tx, ownerCondition);
+      } else if (status === "open" && currentTask.status === "done") {
+        await reblockSuccessors(taskId, tx, ownerCondition);
+      }
+
+      return updatedRow;
+    });
+
+    if (!updatedTask) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "TASK_UPDATE_NOT_FOUND",
@@ -196,14 +220,7 @@ export async function PUT(
       });
     }
 
-    // Handle dependency chain updates
-    if (status === "done" && !wasCompleted) {
-      await unblockSuccessor(taskId);
-    } else if (status === "open" && wasCompleted) {
-      await reblockSuccessors(taskId);
-    }
-
-    return NextResponse.json({ task: updated[0] });
+    return NextResponse.json({ task: updatedTask });
   } catch (error) {
     return createApiErrorResponse(request, {
       status: 500,

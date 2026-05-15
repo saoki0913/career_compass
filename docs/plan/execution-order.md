@@ -143,6 +143,11 @@
 
 **理由**: #5 pre-release は #3 Auth 完了が前提（owner boundary）。#2 は #1+#3+#4+#7 全完了が前提。#9 は #8 P0 完了が前提。
 
+**#9 Task/Calendar release-final 実装メモ (2026-05-14)**:
+- 本番リリース前の安定化として、締切・タスク・カレンダー同期の Critical/High 改善を実装した。Google Calendar eventId の URL encode、即時削除同期の retry queue 失敗時 fail-closed、未確認締切の calendar feed 除外、task/deadline status 更新の transaction 化、依存タスク解除の複数 successor 対応、通知 batch の `CRON_SECRET` fail-closed、company deadline API の structured error / identity 一回解決を反映済み。
+- 新機能・DB migration・RLS 変更は実施していない。nudges / timeline / M-12 の deadline 完了時 task 自動完了など挙動変更が大きい項目は、ユーザー承認が必要な後続タスクとして残す。
+- 集中検証: #9 関連 Vitest 13 files / 50 tests pass、`npx tsc --noEmit` pass、`npm run lint` pass (warnings only)、`npm run test:security:static` pass。
+
 **Gate**: Owner integrity constraints deployed、index optimization confirmed (pg_stat)、PII inventory 完了 + 削除 workflow 動作、#8 extraction accuracy 改善確認。
 
 ---

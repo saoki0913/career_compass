@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { readFile } from "node:fs/promises";
 
 const getSessionMock = vi.fn();
 const dbSelectMock = vi.fn();
@@ -48,7 +49,7 @@ describe("GET /api/calendar/events", () => {
         where: vi.fn(() => ({
           orderBy: vi.fn(() => Promise.resolve([])),
         })),
-        leftJoin: vi.fn(() => ({
+        innerJoin: vi.fn(() => ({
           where: vi.fn(() => ({
             orderBy: vi.fn(() => Promise.resolve([])),
           })),
@@ -64,6 +65,13 @@ describe("GET /api/calendar/events", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ events: [], deadlines: [] });
+  });
+
+  it("filters calendar deadlines to confirmed owned rows", async () => {
+    const source = await readFile(new URL("./route.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("eq(deadlines.isConfirmed, true)");
+    expect(source).toContain(".innerJoin(companies");
   });
 
   it("rejects creating an event with a deadline the caller does not own", async () => {

@@ -9,9 +9,9 @@ import { createApiErrorResponse } from "@/bff/api/error-response";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { createServerTimingRecorder } from "@/bff/api/server-timing";
 import { db } from "@/lib/db";
-import { deadlines, companies, tasks } from "@/lib/db/schema";
+import { deadlines, tasks } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
-import { buildOwnerCondition } from "@/bff/identity/owner-access";
+import { buildOwnedDeadlineCondition, buildOwnerCondition } from "@/bff/identity/owner-access";
 import {
   completeDeadlineStatusTransition,
   planDeadlineStatusTransition,
@@ -52,33 +52,8 @@ export async function PUT(
       });
     }
 
-    // Verify ownership
-    const [deadline] = await db
-      .select()
-      .from(deadlines)
-      .where(eq(deadlines.id, deadlineId))
-      .limit(1);
-
-    if (!deadline) {
-      return createApiErrorResponse(request, {
-        status: 404,
-        code: "DEADLINE_NOT_FOUND",
-        userMessage: "締切が見つかりませんでした。",
-        logContext: "deadline-status-not-found",
-      });
-    }
-
-    const ownerCondition = identity.userId
-      ? eq(companies.userId, identity.userId)
-      : eq(companies.guestId, identity.guestId!);
-
-    const [company] = await db
-      .select({ id: companies.id })
-      .from(companies)
-      .where(and(eq(companies.id, deadline.companyId), ownerCondition))
-      .limit(1);
-
-    if (!company) {
+    const deadlineCondition = buildOwnedDeadlineCondition(deadlineId, identity);
+    if (!deadlineCondition) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "DEADLINE_NOT_FOUND",
@@ -88,57 +63,75 @@ export async function PUT(
     }
 
     const now = new Date();
-    const statusTransition = planDeadlineStatusTransition({
-      current: {
-        completedAt: deadline.completedAt,
-        statusOverride: deadline.statusOverride,
-        autoCompletedTaskIds: deadline.autoCompletedTaskIds,
-      },
-      transitionedAt: now,
-      requestedStatusOverride: status as DeadlinePersistedStatus | null,
-    });
-
-    let autoCompletedTaskIds: string[] = [];
     const taskOwnerCondition = buildOwnerCondition(tasks, identity);
 
-    if (statusTransition.taskAction.type === "complete-open-tasks" && taskOwnerCondition) {
-      const openTasks = await db
+    const updatedDeadline = await db.transaction(async (tx) => {
+      const [deadline] = await tx
         .select()
-        .from(tasks)
-        .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "open"), taskOwnerCondition));
+        .from(deadlines)
+        .where(deadlineCondition)
+        .limit(1)
+        .for("update");
 
-      if (openTasks.length > 0) {
-        autoCompletedTaskIds = openTasks.map((task) => task.id);
-        await db
+      if (!deadline) return null;
+
+      const statusTransition = planDeadlineStatusTransition({
+        current: {
+          completedAt: deadline.completedAt,
+          statusOverride: deadline.statusOverride,
+          autoCompletedTaskIds: deadline.autoCompletedTaskIds,
+        },
+        transitionedAt: now,
+        requestedStatusOverride: status as DeadlinePersistedStatus | null,
+      });
+
+      let autoCompletedTaskIds: string[] = [];
+      if (statusTransition.taskAction.type === "complete-open-tasks" && taskOwnerCondition) {
+        const completedTasks = await tx
           .update(tasks)
           .set({ status: "done", completedAt: now, updatedAt: now })
-          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "open"), taskOwnerCondition));
+          .where(and(eq(tasks.deadlineId, deadlineId), eq(tasks.status, "open"), taskOwnerCondition))
+          .returning({ id: tasks.id });
+
+        autoCompletedTaskIds = completedTasks.map((task) => task.id);
       }
+
+      if (statusTransition.taskAction.type === "reopen-auto-completed-tasks" && taskOwnerCondition) {
+        await tx
+          .update(tasks)
+          .set({ status: "open", completedAt: null, updatedAt: now })
+          .where(
+            and(
+              eq(tasks.deadlineId, deadlineId),
+              inArray(tasks.id, statusTransition.taskAction.taskIds),
+              eq(tasks.status, "done"),
+              taskOwnerCondition,
+            ),
+          );
+      }
+
+      const updateData: Record<string, unknown> = {
+        updatedAt: now,
+        ...completeDeadlineStatusTransition(statusTransition, { autoCompletedTaskIds }),
+      };
+
+      const [updated] = await tx
+        .update(deadlines)
+        .set(updateData)
+        .where(deadlineCondition)
+        .returning({ id: deadlines.id });
+
+      return updated ?? null;
+    });
+
+    if (!updatedDeadline) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DEADLINE_NOT_FOUND",
+        userMessage: "締切が見つかりませんでした。",
+        logContext: "deadline-status-not-found-owner",
+      });
     }
-
-    if (statusTransition.taskAction.type === "reopen-auto-completed-tasks" && taskOwnerCondition) {
-      await db
-        .update(tasks)
-        .set({ status: "open", completedAt: null, updatedAt: now })
-        .where(
-          and(
-            eq(tasks.deadlineId, deadlineId),
-            inArray(tasks.id, statusTransition.taskAction.taskIds),
-            eq(tasks.status, "done"),
-            taskOwnerCondition,
-          ),
-        );
-    }
-
-    const updateData: Record<string, unknown> = {
-      updatedAt: now,
-      ...completeDeadlineStatusTransition(statusTransition, { autoCompletedTaskIds }),
-    };
-
-    await db
-      .update(deadlines)
-      .set(updateData)
-      .where(eq(deadlines.id, deadlineId));
 
     return timing.apply(NextResponse.json({ success: true, status }));
   } catch (error) {

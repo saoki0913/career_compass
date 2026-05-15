@@ -3,10 +3,12 @@ import { NextRequest } from "next/server";
 
 const {
   getSessionMock,
+  dbSelectMock,
   dbDeleteMock,
   syncWorkBlockDeleteImmediatelyMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
+  dbSelectMock: vi.fn(),
   dbDeleteMock: vi.fn(),
   syncWorkBlockDeleteImmediatelyMock: vi.fn(),
 }));
@@ -25,6 +27,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/db", () => ({
   db: {
+    select: dbSelectMock,
     delete: dbDeleteMock,
   },
 }));
@@ -41,6 +44,7 @@ const csrfHeaders = {
 describe("api/calendar/events/[id]", () => {
   beforeEach(() => {
     getSessionMock.mockReset();
+    dbSelectMock.mockReset();
     dbDeleteMock.mockReset();
     syncWorkBlockDeleteImmediatelyMock.mockReset();
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -48,9 +52,11 @@ describe("api/calendar/events/[id]", () => {
   });
 
   it("returns 404 for missing or foreign-owned events without syncing Google", async () => {
-    dbDeleteMock.mockReturnValue({
-      where: vi.fn(() => ({
-        returning: vi.fn().mockResolvedValue([]),
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn().mockResolvedValue([]),
+        })),
       })),
     });
 
@@ -70,15 +76,30 @@ describe("api/calendar/events/[id]", () => {
   });
 
   it("deletes by owner before syncing Google", async () => {
+    const order: string[] = [];
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn().mockResolvedValue([
+            {
+              id: "event-1",
+              googleCalendarId: "calendar-1",
+              googleEventId: "google-event-1",
+            },
+          ]),
+        })),
+      })),
+    });
+    syncWorkBlockDeleteImmediatelyMock.mockImplementation(async () => {
+      order.push("sync");
+      return { status: "synced" };
+    });
     dbDeleteMock.mockReturnValue({
       where: vi.fn(() => ({
-        returning: vi.fn().mockResolvedValue([
-          {
-            id: "event-1",
-            googleCalendarId: "calendar-1",
-            googleEventId: "google-event-1",
-          },
-        ]),
+        returning: vi.fn().mockImplementation(async () => {
+          order.push("delete");
+          return [{ id: "event-1" }];
+        }),
       })),
     });
 
@@ -98,6 +119,7 @@ describe("api/calendar/events/[id]", () => {
       googleCalendarId: "calendar-1",
       googleEventId: "google-event-1",
     });
+    expect(order).toEqual(["sync", "delete"]);
   });
 
   it("returns 503 when session lookup fails", async () => {
@@ -115,6 +137,38 @@ describe("api/calendar/events/[id]", () => {
 
     expect(response.status).toBe(503);
     expect(body.error.code).toBe("AUTH_SESSION_UNAVAILABLE");
+    expect(dbSelectMock).not.toHaveBeenCalled();
+    expect(dbDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the local event when Google delete retry cannot be queued", async () => {
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn().mockResolvedValue([
+            {
+              id: "event-1",
+              googleCalendarId: "calendar-1",
+              googleEventId: "google-event-1",
+            },
+          ]),
+        })),
+      })),
+    });
+    syncWorkBlockDeleteImmediatelyMock.mockResolvedValueOnce({ status: "failed", error: "queue down" });
+
+    const { DELETE } = await import("./route");
+    const response = await DELETE(
+      new NextRequest("http://localhost/api/calendar/events/event-1", {
+        method: "DELETE",
+        headers: csrfHeaders,
+      }),
+      { params: Promise.resolve({ id: "event-1" }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe("CALENDAR_EVENT_DELETE_RETRY_UNAVAILABLE");
     expect(dbDeleteMock).not.toHaveBeenCalled();
   });
 });

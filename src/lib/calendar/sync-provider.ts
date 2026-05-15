@@ -176,7 +176,13 @@ export async function executeDelete(
   signal?: AbortSignal,
 ): Promise<void> {
   const { accessToken, status } = await getValidGoogleCalendarAccessToken(userId);
-  if (!accessToken || !status.connected) return;
+  if (!accessToken || !status.connected) {
+    throw new Error(
+      status.needsReconnect
+        ? "Googleカレンダーの再連携が必要です。"
+        : "Googleカレンダーとの接続を確認できませんでした。",
+    );
+  }
   await deleteCalendarEvent(accessToken, googleCalendarId, googleEventId, signal);
 }
 

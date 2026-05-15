@@ -39,7 +39,8 @@ export async function POST(request: NextRequest) {
   try {
     // Verify authorization - only allow calls with valid CRON_SECRET
     const authHeader = request.headers.get("authorization");
-    if (!verifyToken(authHeader, process.env.CRON_SECRET || "")) {
+    const cronSecret = process.env.CRON_SECRET?.trim();
+    if (!cronSecret || !verifyToken(authHeader, cronSecret)) {
       console.error("Unauthorized batch notification request");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

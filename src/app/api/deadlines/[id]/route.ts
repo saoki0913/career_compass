@@ -231,68 +231,84 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     const now = new Date();
-    const statusTransition = planDeadlineStatusTransition({
-      current: {
-        completedAt: currentDeadline.completedAt,
-        statusOverride: currentDeadline.statusOverride,
-        autoCompletedTaskIds: currentDeadline.autoCompletedTaskIds,
-      },
-      transitionedAt: now,
-      requestedCompletedAt: completedAt,
-    });
-
-    let autoCompletedTaskIds: string[] = [];
+    const deadlineCondition = buildOwnedDeadlineCondition(deadlineId, identity);
     const taskOwnerCondition = buildOwnerCondition(tasks, identity);
-    let openTaskIdsForCompletion: string[] = [];
-
-    if (
-      statusTransition.taskAction.type === "complete-open-tasks" &&
-      taskOwnerCondition
-    ) {
-      const openTasks = await db
-        .select()
-        .from(tasks)
-        .where(
-          and(
-            eq(tasks.deadlineId, deadlineId),
-            eq(tasks.status, "open"),
-            taskOwnerCondition,
-          ),
-        );
-
-      if (openTasks.length > 0) {
-        openTaskIdsForCompletion = openTasks.map((t) => t.id);
-        autoCompletedTaskIds = openTaskIdsForCompletion;
-      }
+    if (!deadlineCondition) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DEADLINE_NOT_FOUND",
+        userMessage: "締切が見つかりませんでした。",
+        logContext: "deadline-put-not-found",
+      });
     }
 
     // Build update object
-    const updateData: Record<string, unknown> = { updatedAt: now };
+    const baseUpdateData: Record<string, unknown> = { updatedAt: now };
 
-    if (body.type) updateData.type = body.type;
-    if (body.title !== undefined) updateData.title = body.title.trim();
-    if (body.description !== undefined) updateData.description = body.description?.trim() || null;
-    if (body.memo !== undefined) updateData.memo = body.memo?.trim() || null;
-    if (dueDate) updateData.dueDate = dueDate;
-    if (body.sourceUrl !== undefined) updateData.sourceUrl = body.sourceUrl?.trim() || null;
-    if (body.isConfirmed !== undefined) updateData.isConfirmed = body.isConfirmed;
-
-    Object.assign(
-      updateData,
-      completeDeadlineStatusTransition(statusTransition, { autoCompletedTaskIds }),
-    );
+    if (body.type) baseUpdateData.type = body.type;
+    if (body.title !== undefined) baseUpdateData.title = body.title.trim();
+    if (body.description !== undefined) baseUpdateData.description = body.description?.trim() || null;
+    if (body.memo !== undefined) baseUpdateData.memo = body.memo?.trim() || null;
+    if (dueDate) baseUpdateData.dueDate = dueDate;
+    if (body.sourceUrl !== undefined) baseUpdateData.sourceUrl = body.sourceUrl?.trim() || null;
+    if (body.isConfirmed !== undefined) baseUpdateData.isConfirmed = body.isConfirmed;
 
     const d = await db.transaction(async (tx) => {
+      const [deadlineForUpdate] = await tx
+        .select()
+        .from(deadlines)
+        .where(deadlineCondition)
+        .limit(1)
+        .for("update");
+
+      if (!deadlineForUpdate) return null;
+
+      const statusTransition = planDeadlineStatusTransition({
+        current: {
+          completedAt: deadlineForUpdate.completedAt,
+          statusOverride: deadlineForUpdate.statusOverride,
+          autoCompletedTaskIds: deadlineForUpdate.autoCompletedTaskIds,
+        },
+        transitionedAt: now,
+        requestedCompletedAt: completedAt,
+      });
+
+      let autoCompletedTaskIds: string[] = [];
+      if (
+        statusTransition.taskAction.type === "complete-open-tasks" &&
+        taskOwnerCondition
+      ) {
+        const completedTasks = await tx
+          .update(tasks)
+          .set({ status: "done", completedAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(tasks.deadlineId, deadlineId),
+              eq(tasks.status, "open"),
+              taskOwnerCondition,
+            ),
+          )
+          .returning({ id: tasks.id });
+        autoCompletedTaskIds = completedTasks.map((t) => t.id);
+      }
+
+      const updateData: Record<string, unknown> = {
+        ...baseUpdateData,
+        ...completeDeadlineStatusTransition(statusTransition, {
+          autoCompletedTaskIds,
+        }),
+      };
+
       const updated = await tx
         .update(deadlines)
         .set(updateData)
-        .where(buildOwnedDeadlineCondition(deadlineId, identity)!)
+        .where(deadlineCondition)
         .returning();
 
       const updatedDeadline = updated[0];
       if (!updatedDeadline) return null;
 
-      if (body.isConfirmed === true && !currentDeadline.isConfirmed) {
+      if (body.isConfirmed === true && !deadlineForUpdate.isConfirmed) {
         await generateTasksForDeadlineWithExecutor(tx, {
           deadlineId,
           deadlineType: updatedDeadline.type,
@@ -305,22 +321,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       }
 
       if (
-        statusTransition.taskAction.type === "complete-open-tasks" &&
-        taskOwnerCondition &&
-        openTaskIdsForCompletion.length > 0
-      ) {
-        await tx
-          .update(tasks)
-          .set({ status: "done", completedAt: now, updatedAt: now })
-          .where(
-            and(
-              eq(tasks.deadlineId, deadlineId),
-              inArray(tasks.id, openTaskIdsForCompletion),
-              eq(tasks.status, "open"),
-              taskOwnerCondition,
-            ),
-          );
-      } else if (
         statusTransition.taskAction.type === "reopen-auto-completed-tasks" &&
         taskOwnerCondition
       ) {
@@ -434,6 +434,17 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     let calendarSync: ImmediateSyncResult | undefined;
     if (identity.userId) {
       calendarSync = await syncDeadlineDeleteImmediately(identity.userId, deadlineId);
+      if (calendarSync.status === "failed") {
+        return createApiErrorResponse(request, {
+          status: 503,
+          code: "DEADLINE_CALENDAR_DELETE_RETRY_UNAVAILABLE",
+          userMessage: "Googleカレンダー同期の再試行を登録できませんでした。",
+          action: "時間を置いて、もう一度お試しください。",
+          retryable: true,
+          developerMessage: calendarSync.error,
+          logContext: "deadline-delete-calendar-sync",
+        });
+      }
     }
 
     const deleted = await db

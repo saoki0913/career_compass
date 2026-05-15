@@ -13,6 +13,8 @@ import { syncDeadlineImmediately, type ImmediateSyncResult } from "@/lib/calenda
 import { generateTasksForDeadline } from "@/lib/server/task-generation";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { logError } from "@/lib/logger";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { buildOwnerCondition } from "@/bff/identity/owner-access";
 
 type DeadlineType =
   | "es_submission"
@@ -53,39 +55,29 @@ interface CreateDeadlineBody {
 async function verifyCompanyAccess(
   companyId: string,
   request: NextRequest
-): Promise<{ valid: boolean; error?: string }> {
+): Promise<{
+  valid: boolean;
+  error?: string;
+  identity?: NonNullable<Awaited<ReturnType<typeof getRequestIdentity>>>;
+}> {
   const identity = await getRequestIdentity(request);
   if (!identity) {
     return { valid: false, error: "Authentication required" };
   }
 
-  if (identity.userId) {
-    const [company] = await db
-      .select()
-      .from(companies)
-      .where(and(eq(companies.id, companyId), eq(companies.userId, identity.userId)))
-      .limit(1);
+  const ownerCondition = buildOwnerCondition(companies, identity);
+  if (!ownerCondition) return { valid: false, error: "Authentication required" };
 
-    if (!company) {
-      return { valid: false, error: "Company not found" };
-    }
-    return { valid: true };
+  const [company] = await db
+    .select({ id: companies.id })
+    .from(companies)
+    .where(and(eq(companies.id, companyId), ownerCondition))
+    .limit(1);
+
+  if (!company) {
+    return { valid: false, error: "Company not found", identity };
   }
-
-  if (identity.guestId) {
-    const [company] = await db
-      .select()
-      .from(companies)
-      .where(and(eq(companies.id, companyId), eq(companies.guestId, identity.guestId)))
-      .limit(1);
-
-    if (!company) {
-      return { valid: false, error: "Company not found" };
-    }
-    return { valid: true };
-  }
-
-  return { valid: false, error: "Authentication required" };
+  return { valid: true, identity };
 }
 
 export async function GET(
@@ -97,10 +89,15 @@ export async function GET(
 
     const access = await verifyCompanyAccess(companyId, request);
     if (!access.valid) {
-      return NextResponse.json(
-        { error: access.error },
-        { status: access.error === "Authentication required" ? 401 : 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: access.error === "Authentication required" ? 401 : 404,
+        code: access.error === "Authentication required" ? "COMPANY_DEADLINES_AUTH_REQUIRED" : "COMPANY_NOT_FOUND",
+        userMessage: access.error === "Authentication required"
+          ? "ログイン状態を確認して、もう一度お試しください。"
+          : "企業が見つかりませんでした。",
+        action: "ページを再読み込みして、もう一度お試しください。",
+        logContext: "company-deadlines-access",
+      });
     }
 
     // Get all deadlines for the company
@@ -128,11 +125,15 @@ export async function GET(
       })),
     });
   } catch (error) {
-    console.error("Error getting deadlines:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANY_DEADLINES_FETCH_FAILED",
+      userMessage: "締切一覧を読み込めませんでした。",
+      action: "ページを再読み込みして、もう一度お試しください。",
+      retryable: true,
+      error,
+      logContext: "company-deadlines-fetch",
+    });
   }
 }
 
@@ -145,14 +146,19 @@ export async function POST(
 
     const access = await verifyCompanyAccess(companyId, request);
     if (!access.valid) {
-      return NextResponse.json(
-        { error: access.error },
-        { status: access.error === "Authentication required" ? 401 : 404 }
-      );
+      return createApiErrorResponse(request, {
+        status: access.error === "Authentication required" ? 401 : 404,
+        code: access.error === "Authentication required" ? "COMPANY_DEADLINE_CREATE_AUTH_REQUIRED" : "COMPANY_NOT_FOUND",
+        userMessage: access.error === "Authentication required"
+          ? "ログイン状態を確認して、もう一度お試しください。"
+          : "企業が見つかりませんでした。",
+        action: "ページを再読み込みして、もう一度お試しください。",
+        logContext: "company-deadline-create-access",
+      });
     }
 
     // Get user identity for task creation
-    const identity = await getRequestIdentity(request);
+    const identity = access.identity;
     const userId: string | null = identity?.userId ?? null;
     const guestId: string | null = identity?.guestId ?? null;
 
@@ -160,32 +166,44 @@ export async function POST(
 
     // Validate required fields
     if (!body.type || !VALID_TYPES.includes(body.type)) {
-      return NextResponse.json(
-        { error: "Invalid deadline type" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DEADLINE_INVALID_TYPE",
+        userMessage: "締切タイプを確認してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        logContext: "company-deadline-create-validation",
+      });
     }
 
     if (!body.title?.trim()) {
-      return NextResponse.json(
-        { error: "Title is required" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DEADLINE_TITLE_REQUIRED",
+        userMessage: "タイトルを入力してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        logContext: "company-deadline-create-validation",
+      });
     }
 
     if (!body.dueDate) {
-      return NextResponse.json(
-        { error: "Due date is required" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DEADLINE_DUE_DATE_REQUIRED",
+        userMessage: "締切日を入力してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        logContext: "company-deadline-create-validation",
+      });
     }
 
     const dueDate = new Date(body.dueDate);
     if (isNaN(dueDate.getTime())) {
-      return NextResponse.json(
-        { error: "Invalid due date format" },
-        { status: 400 }
-      );
+      return createApiErrorResponse(request, {
+        status: 400,
+        code: "DEADLINE_INVALID_DUE_DATE",
+        userMessage: "締切日の形式を確認してください。",
+        action: "入力内容を確認して、もう一度お試しください。",
+        logContext: "company-deadline-create-validation",
+      });
     }
 
     // All-day deadline rule: if time is 00:00:00, set to 12:00 JST (03:00 UTC)
@@ -269,10 +287,14 @@ export async function POST(
       },
     });
   } catch (error) {
-    console.error("Error creating deadline:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "COMPANY_DEADLINE_CREATE_FAILED",
+      userMessage: "締切を作成できませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      logContext: "company-deadline-create",
+    });
   }
 }

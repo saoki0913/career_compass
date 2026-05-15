@@ -79,6 +79,10 @@ export async function generateTasksForDeadlineWithExecutor(
   if (existing.length > 0) return [];
 
   const now = new Date();
+  const maxDaysBeforeDeadline = Math.max(...templates.map((template) => template.daysBeforeDeadline));
+  const earliestRelativeDueDate = new Date(
+    params.deadlineDueDate.getTime() - maxDaysBeforeDeadline * 24 * 60 * 60 * 1000,
+  );
 
   // Pre-generate UUIDs so we can resolve dependency references
   const taskIds = templates.map(() => crypto.randomUUID());
@@ -90,14 +94,14 @@ export async function generateTasksForDeadlineWithExecutor(
   });
 
   const taskValues = templates.map((template, i) => {
-    // Calculate due date: deadline.dueDate - daysBeforeDeadline, clamped to [now, deadline.dueDate]
+    // Keep template-relative ordering even when the whole schedule is already in the past.
     const rawDueDate = new Date(
       params.deadlineDueDate.getTime() - template.daysBeforeDeadline * 24 * 60 * 60 * 1000,
     );
     const clampedDueDate = new Date(
       Math.min(
         params.deadlineDueDate.getTime(),
-        Math.max(now.getTime(), rawDueDate.getTime()),
+        Math.max(earliestRelativeDueDate.getTime(), rawDueDate.getTime()),
       ),
     );
 
