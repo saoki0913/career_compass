@@ -5,31 +5,24 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users, subscriptions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
 import { stripe } from "@/lib/stripe";
 import { logError } from "@/lib/logger";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { revokeAndClearGoogleCalendarConnection } from "@/lib/calendar/connection";
+import { revokeGoogleAccountTokens } from "@/lib/auth/google-account-tokens";
+import { requireUserMutationRequest } from "@/bff/api/mutation-guard";
 
 export async function DELETE(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({
-      headers: await headers(),
-    });
-
-    if (!session?.user?.id) {
-      return createApiErrorResponse(request, {
-        status: 401,
-        code: "AUTH_REQUIRED",
-        userMessage: "ログイン状態を確認して、もう一度お試しください。",
-        developerMessage: "Authentication required",
-      });
+    const mutationGuard = await requireUserMutationRequest(request);
+    if (!mutationGuard.ok) {
+      return mutationGuard.response;
     }
 
-    const userId = session.user.id;
+    const userId = mutationGuard.session.user.id;
 
     // Audit log: account deletion initiated
     console.info(JSON.stringify({
@@ -62,6 +55,19 @@ export async function DELETE(request: NextRequest) {
           action: "retry",
         });
       }
+    }
+
+    try {
+      await revokeGoogleAccountTokens(userId);
+      await revokeAndClearGoogleCalendarConnection(userId);
+    } catch (e) {
+      logError("revoke-google-calendar-connection", e as Error, { userId });
+      return createApiErrorResponse(request, {
+        status: 502,
+        code: "GOOGLE_CALENDAR_REVOKE_FAILED",
+        userMessage: "Google カレンダー連携の解除に失敗しました。再度お試しいただくか、サポートにお問い合わせください。",
+        action: "retry",
+      });
     }
 
     // Delete user - CASCADE will handle all related data automatically
