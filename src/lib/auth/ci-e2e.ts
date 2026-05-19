@@ -1,3 +1,4 @@
+import { resolveAppEnvironment } from "@/env/deployment";
 import { getAppUrl } from "@/lib/app-url";
 
 const PRODUCTION_HOSTS = new Set(["www.shupass.jp", "shupass.jp"]);
@@ -24,7 +25,8 @@ export function isProductionAppUrl(appUrl = getAppUrl()) {
 }
 
 export function isProductionLikeCiE2EEnvironment(env: NodeJS.ProcessEnv = process.env) {
-  if (env.VERCEL_ENV === "production") {
+  const appEnv = resolveAppEnvironment(env);
+  if (appEnv === "production") {
     return true;
   }
   if (env.NODE_ENV === "production" && env.CI_E2E_AUTH_ENABLED !== "1") {
@@ -33,7 +35,7 @@ export function isProductionLikeCiE2EEnvironment(env: NodeJS.ProcessEnv = proces
   if ((env.STRIPE_SECRET_KEY || "").startsWith("sk_live_")) {
     return true;
   }
-  return pointsToProductionDatabase(env.DATABASE_URL);
+  return appEnv !== "staging" && pointsToProductionDatabase(env.DATABASE_URL);
 }
 
 function getAllowedTestAuthHosts() {

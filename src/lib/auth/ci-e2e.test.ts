@@ -65,11 +65,13 @@ describe("ci e2e auth helpers", () => {
     process.env.CI_E2E_AUTH_ENABLED = "1";
     process.env.CI_E2E_AUTH_SECRET = "top-secret-at-least-16";
 
-    process.env.VERCEL_ENV = "production";
+    process.env.APP_ENV = "production";
+    process.env.NEXT_PUBLIC_APP_ENV = "production";
     expect(isProductionLikeCiE2EEnvironment()).toBe(true);
     expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
 
-    delete process.env.VERCEL_ENV;
+    delete process.env.APP_ENV;
+    delete process.env.NEXT_PUBLIC_APP_ENV;
     process.env.STRIPE_SECRET_KEY = "sk_live_placeholder";
     expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
 
@@ -78,8 +80,15 @@ describe("ci e2e auth helpers", () => {
     process.env.DATABASE_URL = `postgresql://user:pass@${productionDbHost}:6543/postgres`;
     expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(false);
 
+    process.env.APP_ENV = "staging";
+    process.env.NEXT_PUBLIC_APP_ENV = "staging";
+    expect(isProductionLikeCiE2EEnvironment()).toBe(false);
+    expect(isCiE2EAuthEnabled("https://stg.shupass.jp")).toBe(true);
+
     delete process.env.CI_E2E_AUTH_ENABLED;
     delete process.env.CI_E2E_AUTH_SECRET;
     delete process.env.DATABASE_URL;
+    delete process.env.APP_ENV;
+    delete process.env.NEXT_PUBLIC_APP_ENV;
   });
 });

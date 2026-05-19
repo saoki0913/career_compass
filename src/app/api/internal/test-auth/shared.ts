@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from "crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { serverEnv } from "@/env/server";
 import {
   calendarEvents,
   calendarSettings,
@@ -85,9 +86,9 @@ function scopeName(baseName: string, scope: string) {
 }
 
 function resolveTestUserConfig(scopeInput?: string | null): Omit<CiE2ETestUser, "userId"> {
-  const baseEmail = process.env.CI_E2E_TEST_EMAIL?.trim() || DEFAULT_TEST_EMAIL;
-  const baseName = process.env.CI_E2E_TEST_NAME?.trim() || DEFAULT_TEST_NAME;
-  const requestedPlan = process.env.CI_E2E_TEST_PLAN?.trim();
+  const baseEmail = serverEnv.CI_E2E_TEST_EMAIL?.trim() || DEFAULT_TEST_EMAIL;
+  const baseName = serverEnv.CI_E2E_TEST_NAME?.trim() || DEFAULT_TEST_NAME;
+  const requestedPlan = serverEnv.CI_E2E_TEST_PLAN?.trim();
   const scope = normalizeScope(scopeInput);
   const plan: PlanType =
     requestedPlan === "free" || requestedPlan === "standard" || requestedPlan === "pro"

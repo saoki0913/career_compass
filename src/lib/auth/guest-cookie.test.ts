@@ -1,8 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { NextResponse } from "next/server";
 import {
   readGuestDeviceToken,
   readGuestDeviceTokenFromCookieHeader,
+  setGuestDeviceTokenCookie,
 } from "./guest-cookie";
+
+function setCookieHeaderForGuestToken() {
+  const response = NextResponse.json({ ok: true });
+  setGuestDeviceTokenCookie(response, "550e8400-e29b-41d4-a716-446655440000");
+  return response.headers.get("set-cookie") ?? "";
+}
 
 describe("readGuestDeviceToken", () => {
   const makeCookies = (value: string | undefined) => ({
@@ -64,5 +72,27 @@ describe("readGuestDeviceTokenFromCookieHeader", () => {
 
   it("returns null for empty header", () => {
     expect(readGuestDeviceTokenFromCookieHeader("")).toBeNull();
+  });
+});
+
+describe("setGuestDeviceTokenCookie", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("sets the guest device token as an HttpOnly SameSite=Lax root cookie", () => {
+    const setCookie = setCookieHeaderForGuestToken();
+
+    expect(setCookie).toContain("guest_device_token=550e8400-e29b-41d4-a716-446655440000");
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toMatch(/SameSite=Lax/iu);
+    expect(setCookie).toContain("Path=/");
+    expect(setCookie).toContain("Max-Age=604800");
+  });
+
+  it("adds Secure to the guest device token cookie in production", () => {
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(setCookieHeaderForGuestToken()).toContain("Secure");
   });
 });
