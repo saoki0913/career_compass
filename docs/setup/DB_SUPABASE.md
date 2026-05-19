@@ -14,8 +14,8 @@
 
 1. Supabase Dashboard で **New project** を作成し、Region は可能なら **Tokyo**（なければ Singapore）を選ぶ。
 2. **Settings → Database → Connection string** から Pooler（Transaction mode / 6543）と Direct（5432）の接続文字列を取得する。
-3. `.env.local` に `DATABASE_URL`（アプリ用・Pooler 推奨）と `DIRECT_URL`（マイグレーション用・Direct）を設定する。パスワードに `@` などが含まれる場合は URL エンコードする。
-4. `npm install` のあと `npm run db:migrate` または `npm run db:push` でスキーマを反映する。
+3. ローカル開発では `.env.local` に `DATABASE_URL`（アプリ用・Pooler 推奨）を設定する。production migration は `.env.local` ではなく release runner を使う。
+4. ローカルのスキーマ反映は `npm run db:migrate` を基本にする。production は [../release/ops/DB_MIGRATION.md](../release/ops/DB_MIGRATION.md) を参照する。
 
 補足: パスワードの URL エンコード例は `node -e "console.log(encodeURIComponent(process.argv[1]))" "your-password"`。接続文字列のクエリ（`?sslmode=require` 等）は削らないこと。
 
@@ -254,15 +254,11 @@ npm run db:migrate
 
 ### 4.3 本番へのマイグレーション適用
 
+本番は raw `npm run db:migrate` / `db:push` ではなく release runner を使う。
+
 ```bash
-# 1. .env.local に本番の DIRECT_URL を設定
-# DIRECT_URL=postgresql://postgres:{PASSWORD}@db.{PROJECT_REF}.supabase.co:5432/postgres
-
-# 2. マイグレーション適用
-npm run db:migrate
-
-# 3. 確認（Supabase Dashboard で）
-# https://supabase.com/dashboard/project/{PROJECT_REF}
+make db-migrate-check
+make deploy-migrate
 ```
 
 ### 4.4 DIRECT_URL 接続エラー時の対処
@@ -567,4 +563,4 @@ supabase start
 
 - [DATABASE.md](../architecture/DATABASE.md) — スキーマ設計・テーブル定義
 - [DEVELOPMENT_AND_ENV.md](./DEVELOPMENT_AND_ENV.md) — 開発ガイドと環境変数
-- [ENV_REFERENCE.md](../release/ENV_REFERENCE.md) — 本番環境変数クイックリファレンス
+- [ENVIRONMENT_VARIABLES.md](../ops/ENVIRONMENT_VARIABLES.md) — 本番環境変数チェックリスト

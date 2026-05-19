@@ -59,7 +59,7 @@ make ops-secrets-sync
 make db-migrate-check
 ```
 
-> **WHY**: staging と production は同一 Supabase project を共有している。未適用のマイグレーションがある場合、デプロイ前に対処が必要。
+> **WHY**: staging と production は別 Supabase project（staging=`career-compass-staging` / production=`career-compass-db`）。マイグレーション状態は環境ごとに確認する（production=`make db-migrate-check` / staging=`make db-migrate-check-staging`）。未適用のマイグレーションがある場合、デプロイ前に対処が必要。詳細は [DB_MIGRATION.md](./DB_MIGRATION.md)。
 
 ---
 
@@ -77,6 +77,37 @@ make db-migrate-check
 | `make deploy-migrate` | DB マイグレーション実行 | [DB_MIGRATION.md](./DB_MIGRATION.md) |
 | `make db-drift-check` | DB スキーマドリフト検出 | [DB_MIGRATION.md](./DB_MIGRATION.md) |
 | `make ops-release-check` | リリース前提条件の一括確認 | 上記「共通前提条件」の自動版 |
+
+---
+
+## クイックコマンド（フェーズ別）
+
+通常リリース前:
+
+```bash
+make ops-auth-check
+make ops-secrets-sync
+make ops-release-check
+make db-migrate-check
+make stripe-preflight
+```
+
+デプロイ:
+
+```bash
+make deploy-staging
+make deploy-production
+```
+
+障害時:
+
+```bash
+make doctor-check
+make doctor
+make rollback-prod TARGET=<deployment-or-sha>
+```
+
+Stripe 本番運用の詳細は [../setup/STRIPE.md](../setup/STRIPE.md)、環境変数は [../../ops/ENVIRONMENT_VARIABLES.md](../../ops/ENVIRONMENT_VARIABLES.md)、DB は [DB_MIGRATION.md](./DB_MIGRATION.md)、シークレットは [SECRETS_MANAGEMENT.md](./SECRETS_MANAGEMENT.md) を参照。
 
 ---
 

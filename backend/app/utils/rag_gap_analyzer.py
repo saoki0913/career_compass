@@ -64,10 +64,9 @@ GROUNDING_THRESHOLDS: dict[str, float] = {
 
 
 def _get_grounding_level(template_type: str) -> str:
-    from app.prompts.es_templates import TEMPLATE_DEFS
+    from app.prompts.es_templates import get_template_default_grounding_level
 
-    tdef = TEMPLATE_DEFS.get(template_type, {})
-    return tdef.get("grounding_level", "light")
+    return get_template_default_grounding_level(template_type)
 
 
 # ---------------------------------------------------------------------------

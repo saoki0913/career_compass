@@ -28,13 +28,14 @@
 - `sendDefaultPii` は false。
 - `beforeSend` で event 全体を recursive scrub する。
 - DSN 未設定時は no-op とし、local/test を壊さない。
+- Phase 0 では trace sampling は `0` に固定し、error event のみ送信する。trace 再開時は transaction/span の PII scrub テストを追加してから有効化する。
 
 ### Vercel env
 
 | 変数 | 用途 |
 |---|---|
 | `NEXT_PUBLIC_SENTRY_DSN` | browser SDK |
-| `SENTRY_DSN` | server / edge SDK |
+| `SENTRY_NEXTJS_DSN` | server / edge SDK。未設定時のみ legacy `SENTRY_DSN` を fallback |
 | `SENTRY_ORG` | source map upload |
 | `SENTRY_PROJECT` | source map upload |
 | `SENTRY_AUTH_TOKEN` | source map upload |
@@ -45,10 +46,12 @@
 
 | 変数 | 用途 |
 |---|---|
-| `SENTRY_DSN` | FastAPI SDK |
+| `SENTRY_FASTAPI_DSN` | FastAPI SDK。frontend project の DSN と混ぜない |
+| `BACKEND_SENTRY_DSN` | FastAPI SDK の互換 alias |
+| `SENTRY_DSN` | legacy fallback。新規設定では使わない |
 | `SENTRY_ENVIRONMENT` | `production` / `staging` |
 | `SENTRY_RELEASE` | release id。未設定時は Railway commit SHA |
-| `SENTRY_TRACES_SAMPLE_RATE` | 既定 `0.05` |
+| `SENTRY_TRACES_SAMPLE_RATE` | Phase 0 では無視され、runtime 側で `0` 固定 |
 
 ## Sentry-first 外部監視
 

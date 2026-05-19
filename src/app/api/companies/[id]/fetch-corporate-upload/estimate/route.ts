@@ -1,10 +1,9 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireUserMutationRequest } from "@/bff/api/mutation-guard";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
-import { headers } from "next/headers";
 import { CORPORATE_MUTATE_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
@@ -15,8 +14,14 @@ import {
   summarizeUpstreamError,
 } from "@/bff/api/upstream-error-sanitizer";
 import { logError } from "@/lib/logger";
+import {
+  createCompanyRagIngestQuote,
+  hashCompanyRagQuoteFile,
+  hashCompanyRagQuoteInput,
+} from "@/lib/company-info/rag-quotes";
 
 export const runtime = "nodejs";
+const MAX_PDF_AGGREGATE_BYTES = 50 * 1024 * 1024;
 
 interface PdfEstimateResult {
   success: boolean;
@@ -35,23 +40,18 @@ interface PdfEstimateResult {
   errors?: string[];
 }
 
-async function getAuthenticatedUser(): Promise<{
+async function getAuthenticatedUser(userId: string): Promise<{
   userId: string;
   plan: "free" | "standard" | "pro";
-} | null> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user?.id) {
-    return null;
-  }
-
+}> {
   const [profile] = await db
     .select()
     .from(userProfiles)
-    .where(eq(userProfiles.userId, session.user.id))
+    .where(eq(userProfiles.userId, userId))
     .limit(1);
 
   return {
-    userId: session.user.id,
+    userId,
     plan: (profile?.plan || "free") as "free" | "standard" | "pro",
   };
 }
@@ -75,18 +75,11 @@ export async function POST(
 ) {
   try {
     const { id: companyId } = await params;
-    const formData = await request.formData();
-    const file = formData.get("file");
-    const contentType = formData.get("contentType");
-
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "PDFファイルを指定してください" }, { status: 400 });
+    const mutationGuard = await requireUserMutationRequest(request);
+    if (!mutationGuard.ok) {
+      return mutationGuard.response;
     }
-
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) {
-      return NextResponse.json({ error: "この機能を利用するにはログインが必要です" }, { status: 401 });
-    }
+    const authUser = await getAuthenticatedUser(mutationGuard.session.user.id);
 
     const rateLimited = await enforceRateLimitLayers(
       request,
@@ -99,9 +92,34 @@ export async function POST(
       return rateLimited;
     }
 
+    const contentLengthHeader = request.headers.get("content-length");
+    if (contentLengthHeader) {
+      const contentLength = Number.parseInt(contentLengthHeader, 10);
+      if (Number.isFinite(contentLength) && contentLength > MAX_PDF_AGGREGATE_BYTES) {
+        return NextResponse.json(
+          { error: "アップロード合計サイズが大きすぎます。50MB以下にしてください。" },
+          { status: 413 },
+        );
+      }
+    }
+
     const access = await verifyCompanyAccess(companyId, authUser.userId);
     if (!access.valid) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
+    }
+
+    const formData = await request.formData();
+    const file = formData.get("file");
+    const contentType = formData.get("contentType");
+
+    if (!(file instanceof File)) {
+      return NextResponse.json({ error: "PDFファイルを指定してください" }, { status: 400 });
+    }
+    if (file.size > MAX_PDF_AGGREGATE_BYTES) {
+      return NextResponse.json(
+        { error: "アップロード合計サイズが大きすぎます。50MB以下にしてください。" },
+        { status: 413 },
+      );
     }
 
     const remainingFreePdfPages = await getRemainingCompanyRagPdfFreeUnits(authUser.userId, authUser.plan);
@@ -141,7 +159,34 @@ export async function POST(
       );
     }
 
-    return NextResponse.json(data);
+    const fileSha256 = await hashCompanyRagQuoteFile(file);
+    const inputHash = hashCompanyRagQuoteInput({
+      files: [{ name: file.name, size: file.size, type: file.type, sha256: fileSha256 }],
+      contentType: typeof contentType === "string" ? contentType : null,
+    });
+    const quote = await createCompanyRagIngestQuote({
+      userId: authUser.userId,
+      companyId,
+      kind: "pdf",
+      inputHash,
+      plan: authUser.plan,
+      estimatedHtmlUnits: 0,
+      estimatedPdfUnits: Math.max(1, Number(data.page_count ?? data.page_routing_summary?.ingest_pages ?? 1)),
+      estimatedCredits: Math.max(0, Number(data.estimated_credits ?? 0)),
+      sourceResults: [{
+        url: sourceUrl,
+        success: true,
+        kind: "pdf",
+        billable_units: Math.max(1, Number(data.page_count ?? data.page_routing_summary?.ingest_pages ?? 1)),
+        page_routing_summary: data.page_routing_summary ?? null,
+      }],
+    });
+
+    return NextResponse.json({
+      ...data,
+      quoteId: quote.quoteId,
+      quoteExpiresAt: quote.expiresAt.toISOString(),
+    });
   } catch (error) {
     if (isSecretMissingError(error)) {
       return NextResponse.json(

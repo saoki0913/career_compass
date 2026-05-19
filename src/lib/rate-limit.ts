@@ -10,7 +10,7 @@
 
 import { Ratelimit } from "@upstash/ratelimit";
 import { createHash } from "crypto";
-import { getRedis, getRedisNamespace, isRedisConfigured } from "@/lib/redis";
+import { getRedis, isRedisConfigured, redisKey } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,7 +68,7 @@ function getUpstashLimiter(operation: string, config: RateLimitConfig): Ratelimi
       "1000 ms",
       config.maxTokens     // maxTokens (burst)
     ),
-    prefix: `cc:${getRedisNamespace()}:rl:${operation}`,
+    prefix: redisKey("rl", operation),
     analytics: false,
   });
 

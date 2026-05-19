@@ -4,7 +4,7 @@
 
 ---
 
-> いまの標準運用では、Supabase の release 前確認は `scripts/bootstrap/career-compass/bootstrap-career-compass-supabase.sh` を正本にし、shared production project 前提を維持します。
+> 標準運用では staging / production を別 Supabase project に分離します。staging は `career-compass-staging`（ref `vbjykhkyhmxickxcgvdh`）、production は `career-compass-db` を使います。release 前確認は `scripts/release/run-migrations.mjs --env <staging|production>` と `scripts/release/sync-career-compass-secrets.sh` を正本にします。
 
 ## 1-0. Supabase プロジェクト作成
 
@@ -15,9 +15,9 @@
 
 | 項目 | 値 | 備考 |
 |---|---|---|
-| Project name | `career-compass` | 任意の識別名 |
+| Project name | `career-compass-staging` / `career-compass-db` | staging / production で別 project |
 | Database Password | 安全なパスワード | **必ず控えること**（接続文字列で使用） |
-| Region | **Northeast Asia (Tokyo)** | なければ **Southeast Asia (Singapore)** |
+| Region | **ap-south-1** | production と staging は同じ region に揃える |
 | Pricing Plan | Free で開始可能 | 後から Pro にアップグレード可 |
 
 5. **「Create new project」** ボタンをクリック
@@ -72,11 +72,16 @@ npm install
 # 2) マイグレーション生成（既に drizzle_pg/ にある場合はスキップ可）
 npm run db:generate
 
-# 3) マイグレーション適用
-npm run db:migrate
+# 3) staging マイグレーションの確認 / 適用
+make db-migrate-check-staging
+node scripts/release/run-migrations.mjs --env staging --json
+
+# 4) 本番マイグレーションの確認 / 適用
+make db-migrate-check
+make deploy-migrate
 ```
 
-> `npm run db:migrate` は `.env.local` の `DIRECT_URL` を使用してマイグレーションを実行します（`drizzle.config.ts` で `DIRECT_URL` 優先に設定済み）。
+> 本番では `.env.local` に本番 `DIRECT_URL` を置いて raw `npm run db:migrate` / `db:push` しないでください。release runner が advisory lock と migration safety check を行います。
 
 ## 1-4. DB 状態の確認
 

@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import { classifySql, stripSqlForScanning } from "../ci/check-migration-safety.mjs";
 import { extractPgTableNames } from "../ci/check-schema-drift.mjs";
+import { migrationRequiresNonTransactionalApply, splitPostgresStatements } from "./run-migrations.mjs";
 
 test("migration classifier ignores comments and string literals", () => {
   const result = classifySql(`
@@ -90,4 +92,62 @@ test("migration runner rejects transaction pooler URLs before DB access", () => 
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /Transaction Pooler/);
+});
+
+test("migration runner detects CREATE INDEX CONCURRENTLY for non-transactional apply", () => {
+  assert.equal(
+    migrationRequiresNonTransactionalApply([
+      'CREATE INDEX CONCURRENTLY IF NOT EXISTS "documents_user_idx" ON "documents" ("user_id")',
+    ]),
+    true,
+  );
+  assert.equal(
+    migrationRequiresNonTransactionalApply([
+      'CREATE UNIQUE INDEX IF NOT EXISTS "notifications_source_idx" ON "notifications" ("source_event_id")',
+    ]),
+    false,
+  );
+});
+
+test("migration runner splits PostgreSQL statements without breaking dollar quoted blocks", () => {
+  const statements = splitPostgresStatements([
+    `
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1) THEN
+          RAISE NOTICE 'still one statement';
+        END IF;
+      END $$;
+
+      CREATE INDEX CONCURRENTLY IF NOT EXISTS "documents_user_idx"
+        ON "documents" ("user_id");
+    `,
+  ]);
+
+  assert.equal(statements.length, 2);
+  assert.match(statements[0], /^DO \$\$/);
+  assert.match(statements[1], /^CREATE INDEX CONCURRENTLY/);
+  assert.equal(migrationRequiresNonTransactionalApply(statements), true);
+});
+
+test("migration runner splits real concurrent-index Drizzle files before apply", () => {
+  const migrationFiles = readMigrationFiles({ migrationsFolder: "drizzle_pg" });
+  const concurrentMigrations = migrationFiles.filter((migration) =>
+    migration.sql.some((statement) => /CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY/i.test(statement)),
+  );
+
+  assert.ok(concurrentMigrations.length >= 2);
+  for (const migration of concurrentMigrations) {
+    const statements = splitPostgresStatements(migration.sql);
+    const concurrentStatements = statements.filter((statement) =>
+      /CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY/i.test(statement),
+    );
+    assert.ok(concurrentStatements.length > 0, `expected ${migration.folderMillis} to have concurrent index statements`);
+    assert.ok(
+      concurrentStatements.every((statement) =>
+        (statement.match(/\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b/gi) ?? []).length === 1,
+      ),
+      `expected ${migration.folderMillis} concurrent index statements to be separated`,
+    );
+  }
 });

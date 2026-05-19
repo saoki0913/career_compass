@@ -74,7 +74,7 @@
 ### SSE 同時接続リース（D-10）
 
 - 実装: [`backend/app/security/sse_concurrency.py`](../../backend/app/security/sse_concurrency.py) の `SseLease`。
-- 方式: `SET concurrent_sse:{actor_id}:{lease_id} "1" EX 30` でリースを作成
+- 方式: `SET cc:{env}:sse:concurrent:{actor_id}:{lease_id} "1" EX 30` でリースを作成
   し、`SCAN MATCH` で現在数を数え、プラン別上限を超えたら 429 + `Retry-After`
   を返します。ストリーム中は 10 秒ごとに TTL を `EXPIRE` で延長し、`finally`
   で `DEL` します。クライアント切断やクラッシュでも TTL が掃除します。

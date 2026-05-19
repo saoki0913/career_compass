@@ -9,13 +9,10 @@ import pytest
 
 from app.utils.rag_gap_analyzer import (
     ALL_FACETS,
-    FACET_CONTENT_TYPE_MAP,
-    GROUNDING_THRESHOLDS,
     TEMPLATE_REQUIRED_FACETS,
     GapAnalysisResult,
     _classify_search_hits,
     _compute_duplicate_ratio,
-    _compute_facet_coverage,
     _detect_stale_sources,
     _facet_chunk_score,
     _facet_search_score,
@@ -164,9 +161,10 @@ class TestTemplateRequirements:
             k for k, v in TEMPLATE_REQUIRED_FACETS.items()
             if len(v) >= 3
         ]
+        from app.prompts.es_templates import get_template_default_grounding_level
+
         for dt in deep_types:
-            from app.prompts.es_templates import TEMPLATE_DEFS
-            level = TEMPLATE_DEFS.get(dt, {}).get("grounding_level", "light")
+            level = get_template_default_grounding_level(dt)
             assert level in ("deep", "standard"), f"{dt} has many facets but grounding={level}"
 
 

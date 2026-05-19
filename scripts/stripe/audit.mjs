@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 
-import { buildAuditResult, collectManagedState, createStripeClient, loadManagedConfig, parseCliArgs, printResult } from "./shared.mjs";
+import { buildAuditResult, collectManagedState, createStripeClient, loadResolvedManagedConfig, parseCliArgs, printResult } from "./shared.mjs";
 
 async function main() {
   const args = parseCliArgs(process.argv.slice(2));
-  const config = await loadManagedConfig();
+  const config = await loadResolvedManagedConfig(args);
   const stripe = await createStripeClient({ environment: args.environment, config });
   const state = await collectManagedState({ stripe });
 
   printResult(
     {
       environment: args.environment,
+      target: args.target,
       ...buildAuditResult({ config, state }),
     },
     { json: args.json },

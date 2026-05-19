@@ -62,7 +62,6 @@ from app.prompts.es_templates import (
     get_template_evaluation_checks,
     get_template_default_grounding_level,
     get_template_company_grounding_policy,
-    get_template_retry_guidance,
     grounding_level_to_policy,
     get_template_rag_profile,
     get_template_content_type_boosts,
@@ -1128,13 +1127,13 @@ async def _generate_review_progress(
         if explanation_text:
             result_payload["improvement_explanation"] = explanation_text
 
+        result_payload["billing_outcome"] = {
+            "success": bool(result.rewrites),
+            "billable": bool(result.rewrites),
+            "schema_version": 1,
+        }
         yield _sse_event("complete", {
             "result": result_payload,
-            "billing_outcome": {
-                "success": bool(result.rewrites),
-                "billable": bool(result.rewrites),
-                "schema_version": 1,
-            },
             "internal_telemetry": consume_request_llm_cost_summary("es_review"),
         })
         last_stream_activity = time.monotonic()
@@ -1177,7 +1176,7 @@ async def review_es_stream(
 
     Events:
     - progress: {"type": "progress", "step": "...", "progress": 0-100, "label": "..."}
-    - complete: {"type": "complete", "result": {...}}
+    - complete: {"type": "complete", "result": {..., "billing_outcome": {...}}, "internal_telemetry": {...}}
     - error: {"type": "error", "message": "..."}
     """
     request = payload

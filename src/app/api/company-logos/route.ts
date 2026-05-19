@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
+import { serverEnv } from "@/env/server";
 import {
   checkRateLimit,
   createAnonymousRateLimitKey,
@@ -532,19 +533,19 @@ function parseBrandfetchSearchResult(value: unknown): BrandfetchSearchResult | n
 }
 
 function getLogoDevToken(): string | null {
-  const value = process.env.LOGO_DEV_TOKEN?.trim() || process.env.NEXT_PUBLIC_LOGO_DEV_TOKEN?.trim();
+  const value = serverEnv.LOGO_DEV_TOKEN?.trim();
   return value && value.length > 0 ? value : null;
 }
 
 function getLogoDevSearchSecret(): string | null {
-  const explicitSecret = process.env.LOGO_DEV_SECRET_KEY?.trim();
+  const explicitSecret = serverEnv.LOGO_DEV_SECRET_KEY?.trim();
   if (explicitSecret) return explicitSecret;
 
-  const token = process.env.LOGO_DEV_TOKEN?.trim();
+  const token = serverEnv.LOGO_DEV_TOKEN?.trim();
   return token?.startsWith("sk_") ? token : null;
 }
 
 function getBrandfetchClientId(): string | null {
-  const value = process.env.BRANDFETCH_CLIENT_ID?.trim() || process.env.NEXT_PUBLIC_BRANDFETCH_CLIENT_ID?.trim();
+  const value = serverEnv.BRANDFETCH_CLIENT_ID?.trim();
   return value && value.length > 0 ? value : null;
 }

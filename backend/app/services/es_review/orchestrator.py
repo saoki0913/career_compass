@@ -16,8 +16,6 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
-from app.config import settings
-from app.rag.reference_es import retrieve_reference_es_semantic
 from app.utils.secure_logger import get_logger
 from app.utils.telemetry import record_parse_failure
 from app.utils.llm_providers import LLMResultLike
@@ -134,7 +132,6 @@ from app.prompts.es_templates import (
 )
 from app.prompts.es_templates._focus_modes import FocusModeContext
 from app.prompts.reference_es import (
-    load_reference_examples,
     build_reference_quality_profile,
     build_reference_quality_block,
 )
@@ -551,38 +548,22 @@ async def prepare_review_context(
     )
     prompt_company_evidence_cards = company_evidence_cards
 
-    # -- Reference examples --
-    reference_examples = load_reference_examples(
-        template_type,
-        char_max=char_max,
-        company_name=template_request.company_name,
-        max_items=3,
-    )
-    reference_es_mode = "quality_profile_only"
-    if settings.reference_es_rag_enabled:
-        semantic_reference_examples = await retrieve_reference_es_semantic(
-            template_type,
-            industry=template_request.industry,
-            char_max=char_max,
-            query_text=template_request.answer,
-            top_k=3,
-        )
-        if semantic_reference_examples:
-            reference_examples = semantic_reference_examples
-            reference_es_mode = "semantic_enabled"
-        else:
-            reference_es_mode = "semantic_shadow"
+    # -- Reference guidance --
+    reference_examples: list[dict] = []
+    reference_es_mode = "static_guidance_only"
     reference_quality_profile = build_reference_quality_profile(
         template_type,
         char_max=char_max,
         company_name=template_request.company_name,
         current_answer=template_request.answer,
+        component_types=effective_template_ctx.component_types,
     )
     reference_quality_block = build_reference_quality_block(
         template_type,
         char_max=char_max,
         company_name=template_request.company_name,
         current_answer=template_request.answer,
+        component_types=effective_template_ctx.component_types,
     )
     reference_outline_used = "\u3010\u53c2\u8003ES\u304b\u3089\u62bd\u51fa\u3057\u305f\u9aa8\u5b50\u3011" in reference_quality_block
     logic_patterns_used = "論理アプローチ" in reference_quality_block
@@ -758,13 +739,6 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
     }
 
     total_attempts = profile.max_retry
-    effective_template_checks = dict(
-        (getattr(ctx.effective_template_ctx, "merged_spec", {}) or {}).get(
-            "evaluation_checks"
-        )
-        or {}
-    )
-
     for attempt in range(total_attempts):
         ctx.cancellation_token.check()
         result.executed_rewrite_attempts = attempt + 1
@@ -1032,7 +1006,6 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
             review_variant=ctx.review_variant,
             soft_validation_mode="strict",
             user_answer=template_request.answer,
-            effective_template_checks=effective_template_checks,
             json_caller=ctx.json_caller,
             is_final_attempt=attempt == total_attempts - 1,
             profile=profile,
@@ -1171,6 +1144,12 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
         result.accepted_llm_failed_checks = llm_failed_checks_for_trace
         result.accepted_llm_warned_checks = llm_warned_checks_for_trace
         result.accepted_llm_lenient_pass = bool(retry_meta.get("llm_lenient_pass"))
+        if result.accepted_llm_lenient_pass:
+            result.rewrite_validation_status = "soft_ok"
+            result.rewrite_validation_codes = ["llm_quality"]
+            result.rewrite_validation_user_hint = (
+                "一部の品質チェックを緩和して表示しています。提出前に、冒頭の結論、構成、文体、企業接続を確認してください。"
+            )
         result.rewrite_generation_mode = _serialize_focus_modes(focus_modes)
         if use_safe_rewrite:
             result.rewrite_generation_mode = "safe_rewrite"
@@ -1510,15 +1489,11 @@ async def assemble_review_response(
             composite_retry_modes=composite_retry_modes,
             final_acceptance_source=final_acceptance_source,
             rewrite_attempt_count=accepted_attempt,
-            reference_es_count=len(ctx.reference_examples),
+            reference_es_count=int((ctx.reference_quality_profile or {}).get("reference_count") or 0),
             reference_es_mode=ctx.reference_es_mode,
             reference_quality_profile_used=bool(ctx.reference_quality_block),
             reference_outline_used=ctx.reference_outline_used,
-            reference_hint_count=len((ctx.reference_quality_profile or {}).get("quality_hints") or [])
-            + len((ctx.reference_quality_profile or {}).get("conditional_hints") or []),
-            reference_conditional_hints_applied=bool(
-                (ctx.reference_quality_profile or {}).get("conditional_hints_applied")
-            ),
+            reference_hint_count=len((ctx.reference_quality_profile or {}).get("quality_hints") or []),
             reference_profile_variance=(ctx.reference_quality_profile or {}).get("variance_band"),
             logic_patterns_used=ctx.logic_patterns_used,
             logic_patterns_confidence=ctx.logic_patterns_confidence,

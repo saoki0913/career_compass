@@ -10,12 +10,18 @@ const migrateUrl =
     ? process.env.DATABASE_URL
     : process.env.DIRECT_URL || process.env.DATABASE_URL;
 
+if (!migrateUrl) {
+  throw new Error(
+    "Drizzle migration URL is missing. Set DIRECT_URL for migrations, or set DATABASE_URL and DRIZZLE_MIGRATE_USE_DATABASE_URL=1 for app-DB migrations.",
+  );
+}
+
 export default {
   schema: "./src/lib/db/schema.ts",
   // Use a new out dir to avoid mixing old Turso/SQLite migrations with Postgres.
   out: "./drizzle_pg",
   dialect: "postgresql",
   dbCredentials: {
-    url: migrateUrl!,
+    url: migrateUrl,
   },
 } satisfies Config;

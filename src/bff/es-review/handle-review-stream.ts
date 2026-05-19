@@ -6,6 +6,7 @@
 
 import { NextRequest } from "next/server";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { requireOwnerMutationRequest } from "@/bff/api/mutation-guard";
 import { esReviewStreamPolicy } from "@/bff/billing/es-review-stream-policy";
 import { STREAM_FEATURE_CONFIGS } from "@/lib/fastapi/stream-config";
 import {
@@ -32,15 +33,6 @@ function getCompleteResult(event: Record<string, unknown>): Record<string, unkno
   if (direct && typeof direct === "object" && !Array.isArray(direct)) {
     return direct as Record<string, unknown>;
   }
-
-  const data = event.data;
-  if (data && typeof data === "object" && !Array.isArray(data)) {
-    const nested = (data as Record<string, unknown>).result;
-    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-      return nested as Record<string, unknown>;
-    }
-  }
-
   return null;
 }
 
@@ -55,7 +47,7 @@ function isValidReviewCompleteEvent(event: Record<string, unknown>): boolean {
 
 function getBillingOutcome(event: Record<string, unknown>): Record<string, unknown> | null {
   const result = getCompleteResult(event);
-  const outcome = result?.billing_outcome ?? event.billing_outcome;
+  const outcome = result?.billing_outcome;
   if (outcome && typeof outcome === "object" && !Array.isArray(outcome)) {
     return outcome as Record<string, unknown>;
   }
@@ -64,10 +56,9 @@ function getBillingOutcome(event: Record<string, unknown>): Record<string, unkno
 
 function isBillableReviewCompleteEvent(event: Record<string, unknown>): boolean {
   const outcome = getBillingOutcome(event);
-  if (outcome) {
-    return outcome.success === true && outcome.billable !== false && isValidReviewCompleteEvent(event);
-  }
-  return isValidReviewCompleteEvent(event);
+  return outcome?.success === true
+    && outcome.billable === true
+    && isValidReviewCompleteEvent(event);
 }
 
 function extractUpstreamErrorType(payload: unknown): string | undefined {
@@ -99,6 +90,9 @@ export async function handleReviewStream(
 ) {
   const requestId = getRequestId(request);
   try {
+    const mutationGuard = requireOwnerMutationRequest(request);
+    if (!mutationGuard.ok) return mutationGuard.response;
+
     const { id: documentId } = await params;
     const prepared = await prepareReviewStreamContext(request, documentId);
     if (!prepared.ok) return prepared.response;

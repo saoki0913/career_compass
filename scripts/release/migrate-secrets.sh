@@ -196,6 +196,16 @@ is_shared_key() {
   return 1
 }
 
+is_valid_env_key() {
+  local key="$1"
+  [[ "$key" =~ '^[A-Za-z_][A-Za-z0-9_]*$' ]]
+}
+
+is_valid_shell_var_name() {
+  local name="$1"
+  [[ "$name" =~ '^[A-Za-z_][A-Za-z0-9_]*$' ]]
+}
+
 # ---------------------------------------------------------------------------
 # parse_env_file <file> <out_keys_var> <out_vals_var> <prefix>
 #
@@ -212,6 +222,10 @@ parse_env_file() {
   local prefix="$4"
 
   [[ -f "$file" ]] || { release_warn "Source file not found, skipping: ${file}"; return 0; }
+  is_valid_shell_var_name "$keys_var" || release_die "Internal error: invalid keys variable name"
+  is_valid_shell_var_name "$vals_var" || release_die "Internal error: invalid values variable name"
+  typeset -n out_keys="$keys_var"
+  typeset -n out_vals="$vals_var"
 
   local line key val
   while IFS= read -r line || [[ -n "$line" ]]; do
@@ -220,11 +234,12 @@ parse_env_file() {
     key="${line%%=*}"
     key="${key## }"; key="${key%% }"
     [[ -z "$key" ]] && continue
+    if ! is_valid_env_key "$key"; then
+      release_die "Invalid env key in ${file}: ${key}"
+    fi
     val="${line#*=}"
-    # Append key name to the named array
-    eval "${keys_var}+=(\"\$key\")"
-    # Store value in named assoc (never echoed)
-    eval "${vals_var}[\"${prefix}:${key}\"]=\"\${val}\""
+    out_keys+=("$key")
+    out_vals["${prefix}:${key}"]="$val"
   done < "$file"
 }
 

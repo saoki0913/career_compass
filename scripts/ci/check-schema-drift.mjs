@@ -48,8 +48,11 @@ async function main(argv = process.argv.slice(2)) {
   const json = argv.includes("--json");
   const envArg = argv[argv.indexOf("--env") + 1];
   const envName = argv.includes("--env") ? envArg : "production";
+  if (!["local", "staging", "production"].includes(envName)) {
+    throw new Error("--env must be local, staging, or production.");
+  }
   if (!process.env.DIRECT_URL && !process.env.DATABASE_URL) {
-    loadEnvFile(envName === "local" ? ".env.local" : ".env.production");
+    loadEnvFile(envName === "local" ? ".env.local" : envName === "staging" ? ".env.staging" : ".env.production");
   }
   const url = process.env.DIRECT_URL?.trim() || process.env.DATABASE_URL?.trim();
   if (!url) throw new Error("DIRECT_URL or DATABASE_URL is required.");
@@ -74,6 +77,7 @@ async function main(argv = process.argv.slice(2)) {
     const missingTables = expectedTables.filter((name) => !actualSet.has(name));
     const extraTables = actualTables.filter((name) => !expectedSet.has(name));
     const payload = {
+      env: envName,
       expectedMigrations,
       appliedMigrations: applied.length,
       metaSchema,

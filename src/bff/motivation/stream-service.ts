@@ -93,6 +93,7 @@ export async function completeMotivationStreamTurn(args: {
   resolvedInputs: MotivationResolvedInputs;
   shouldConsumeCredit: boolean;
   billingContext: Parameters<typeof motivationStreamPolicy.confirm>[0];
+  reservationId: string | null;
 }): Promise<{
   result: {
     replaceEvent: Record<string, unknown>;
@@ -186,7 +187,7 @@ export async function completeMotivationStreamTurn(args: {
         creditsConsumed: creditsApplied,
         freeQuotaUsed: false,
       },
-      null,
+      args.reservationId,
     );
   } catch {
     billingStatus = "failed";

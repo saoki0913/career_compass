@@ -122,9 +122,21 @@ Codex では `Bash` の `PostToolUse` を常時配線しない。成功した sh
 
 Codex では最終メッセージの自然文を `Stop` でブロックしない。Default mode では `AskUserQuestion` 相当のツールが常に使えるとは限らず、closeout の通常文確認を hook で止めると安全停止そのものが deadlock するため。commit / push / release / provider / secrets / destructive delete の実行制御は `PreToolUse` と `PermissionRequest` に集約する。
 
-Codex 単体では `AskUserQuestion` を呼べない。ユーザー確認が必要な gate は、呼び出し元またはユーザーから明示判断を得たうえで `$HOME/.codex/sessions/career_compass/` に checkpoint を作成し、同じコマンドを再実行する方式に統一する。
+Codex 単体では `AskUserQuestion` を呼べない。Codex 側は対話確認で止めず、`$HOME/.codex/sessions/career_compass/` の Codex autonomy intent と manifest を検証して進む。`UserPromptSubmit` が release / deploy / push intent を記録し、manifest は `scripts/harness/diff-snapshot.mjs` が生成して `HEAD`、staged diff、必要に応じて exact command、release mode、TTL に bind する。Claude harness はこの自律化の対象外。
 
-Test category gate は重要カテゴリだけを対象にする。`lint` / `tsc` / unit は Codex の反復速度を優先して自由に実行できる。E2E functional、Quality、Security、commit 前 review は `$HOME/.codex/sessions/career_compass/` の checkpoint を必要とする。
+Test category gate は「実行」を止めない。Codex は static / security / E2E functional / Quality の実行 checkpoint を自動生成して確認を進める。skip や soft fail / judge fail の受容は自動化せず、失敗内容を解消してから再実行する。
+
+Push / release / production promotion は、UserPromptSubmit で production / release intent が記録された session かつ matching `codex-autonomy` manifest がある場合にだけ自動通過する。通常 push は `git push origin develop` に限定し、release は repo script / Make target に限定する。本番反映は staging checkpoint が current `HEAD` に一致する場合のみ許可する。direct provider mutation は manifest があっても許可しない。
+
+Hard deny は残す。force push、secret/env/key の直接読み取り、production/all secret apply、unsafe recursive delete、rollback、contract/destructive migration、direct provider mutating CLI は Codex autonomy manifest で上書きできない。
+
+Prompt / LLM edit は Codex では次の edit を止めない。`post-edit-dispatcher.sh` が prompt quality debt を JSON で記録し、commit 前に `prompt-quality-verification-$SESSION_ID` を要求する。これにより修正ループは止めず、参考 ES 漏洩、AI-smell、日本語品質、token/cost の確認は commit gate に集約する。
+
+### Local env と外部サービス read-only 操作
+
+`process.env` は実行中プロセスに渡された環境変数で、`.env.local` は自動では入らない。Codex の通常 Bash に `.env.local` を全体注入すると、任意コマンドが `printenv` 等で秘密値を表示できるため禁止する。
+
+外部サービスの read-only 調査で Sentry / Stripe / GitHub / Vercel / Railway / Supabase / Google Cloud のローカル認証情報が必要な場合は、`scripts/harness/run-with-local-service-env.mjs` を使う。profile ごとの allowlist key だけを子プロセスへ渡し、stdout/stderr は loaded value と既存 secret pattern で redaction する。raw `dotenv -e .env.local -- ...` は classifier が unwrap し、secret read または provider gate の対象にする。
 
 Codex では file edit が `apply_patch` として届くため、`.codex/hooks/lib/codex-hook-utils.sh` で `tool_input.command` から変更ファイルと追加行を抽出する。dispatcher と各 hook 本体は旧 `file_path` 形式にも対応し、手動 dry-run と実 runtime の両方で同じ判定を使う。
 
@@ -164,6 +176,9 @@ Codex 単体 checkpoint:
 - `$HOME/.codex/sessions/career_compass/codex-commit-delegation-$SESSION_ID`
 - `$HOME/.codex/sessions/career_compass/push-approved-$SESSION_ID`
 - `$HOME/.codex/sessions/career_compass/release-approved-$SESSION_ID`
+- `$HOME/.codex/sessions/career_compass/autonomy-intent-$SESSION_ID.json`
+- `$HOME/.codex/sessions/career_compass/autonomy-manifest-$SESSION_ID.json`
+- `$HOME/.codex/sessions/career_compass/staging-verified-$HEAD_SHA`
 
 ## 5.1 Codex 単体運用
 

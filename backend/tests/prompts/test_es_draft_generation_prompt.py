@@ -1,45 +1,39 @@
 """Smoke tests: ES draft generation prompts align with TEMPLATE_DEFS (same source as ES review)."""
 
-from pathlib import Path
-
 import pytest
 
+from app.prompts import es_reference_guidance, logic_patterns
 from app.prompts.es_templates import (
     DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA,
     build_template_draft_generation_prompt,
     draft_synthetic_question_company_motivation,
     get_company_honorific,
 )
-from app.prompts import logic_patterns
 from app.prompts.reference_es import build_reference_quality_block
-from app.prompts import reference_es
 
 
-def _write_logic_patterns(root: Path, question_type: str) -> None:
-    target = root / question_type
-    target.mkdir(parents=True, exist_ok=True)
-    (target / "patterns.json").write_text(
-        reference_es.json.dumps(
-            {
-                "question_type": question_type,
-                "source_count": 11,
-                "human_reviewed": True,
-                "patterns": [
-                    {
-                        "approach_label": "課題起点型",
-                        "approach_description": "結論で核を示し、背景と行動を因果でつなぐ",
-                        "frequency_count": 8,
-                        "persuasion_key": "事実の順序を崩さない",
-                    }
-                ],
-                "section_balance": "冒頭短め・中盤厚め・締め短め",
-                "opening_pattern": {"structure": "核を一文で置く"},
-                "closing_pattern": {"structure": "成果から接続する"},
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
+def _set_logic_patterns(monkeypatch: pytest.MonkeyPatch, question_type: str) -> None:
+    guidance = {key: dict(value) for key, value in es_reference_guidance.QUESTION_TYPE_GUIDANCE.items()}
+    # Preserve the real curated entry (quality_hints/skeleton) so the reference
+    # quality block renders, and override only logic_patterns (single schema).
+    guidance[question_type] = {
+        **es_reference_guidance.QUESTION_TYPE_GUIDANCE[question_type],
+        "logic_patterns": {
+            "question_type": question_type,
+            "human_reviewed": True,
+            "patterns": [
+                {
+                    "approach_label": "課題起点型",
+                    "approach_description": "結論で核を示し、背景と行動を因果でつなぐ",
+                    "persuasion_key": "事実の順序を崩さない",
+                }
+            ],
+            "section_balance": "冒頭短め・中盤厚め・締め短め",
+            "opening_pattern": {"structure": "核を一文で置く"},
+            "closing_pattern": {"structure": "成果から接続する"},
+        },
+    }
+    monkeypatch.setattr(es_reference_guidance, "QUESTION_TYPE_GUIDANCE", guidance)
     logic_patterns.get_logic_patterns.cache_clear()
 
 
@@ -182,17 +176,13 @@ def test_motivation_draft_prompt_includes_phase4_quality_guidance() -> None:
         student_expressions=["3人のチームをまとめた", "顧客課題を整理した"],
     )
     assert "<prose_style>" in system
-    assert "【参考ESから抽出した品質ヒント】" in system
+    assert "【この設問で意識する品質】" in system
     assert "根拠が限定的な場合は" in system
-    assert "1文目でその企業を志望する理由の核を結論として言い切る" in system
+    assert "（志望理由の核）を言い切る" in system
 
 
-def test_gakuchika_draft_includes_logic_patterns(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(logic_patterns, "LOGIC_PATTERNS_DIR", tmp_path)
-    _write_logic_patterns(tmp_path, "gakuchika")
+def test_gakuchika_draft_includes_logic_patterns(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_logic_patterns(monkeypatch, "gakuchika")
 
     system, _ = build_template_draft_generation_prompt(
         "gakuchika",
@@ -210,12 +200,8 @@ def test_gakuchika_draft_includes_logic_patterns(
     assert "主な論理アプローチ" in system
 
 
-def test_motivation_draft_includes_logic_patterns(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(logic_patterns, "LOGIC_PATTERNS_DIR", tmp_path)
-    _write_logic_patterns(tmp_path, "company_motivation")
+def test_motivation_draft_includes_logic_patterns(monkeypatch: pytest.MonkeyPatch) -> None:
+    _set_logic_patterns(monkeypatch, "company_motivation")
     honorific = get_company_honorific("IT")
 
     system, _ = build_template_draft_generation_prompt(

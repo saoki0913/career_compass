@@ -10,6 +10,20 @@ export const PUBLIC_SSE_EVENT_TYPES = [
 
 export type PublicSSEEventType = (typeof PUBLIC_SSE_EVENT_TYPES)[number];
 
+export const ES_REVIEW_TEMPLATE_TYPES = [
+  "basic",
+  "company_motivation",
+  "intern_reason",
+  "intern_goals",
+  "gakuchika",
+  "self_pr",
+  "post_join_goals",
+  "role_course_reason",
+  "work_values",
+] as const;
+
+export type ESReviewTemplateType = (typeof ES_REVIEW_TEMPLATE_TYPES)[number];
+
 export const VALIDATION_FAILURE_CODES = [
   "ok",
   "soft_ok",

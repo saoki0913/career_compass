@@ -98,11 +98,66 @@ class InterviewCompleteEvent(BaseModel):
     data: InterviewCompleteData
 
 
+class EsReviewBillingOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    success: bool
+    billable: bool
+    schema_version: int = Field(ge=1)
+
+
+class EsReviewTemplateReview(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    template_type: Literal[
+        "basic",
+        "company_motivation",
+        "intern_reason",
+        "intern_goals",
+        "gakuchika",
+        "self_pr",
+        "post_join_goals",
+        "role_course_reason",
+        "work_values",
+    ]
+    keyword_sources: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class EsReviewResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rewrites: list[str] = Field(min_length=1)
+    template_review: EsReviewTemplateReview | None = None
+    improvement_explanation: str | None = None
+    review_meta: dict[str, Any] | None = None
+    billing_outcome: EsReviewBillingOutcome
+
+
 class EsReviewCompleteEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["complete"]
-    result: dict[str, Any]
+    result: EsReviewResult
+    internal_telemetry: dict[str, Any] | None = None
+
+
+class EsReviewStreamRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=6, max_length=1500)
+    section_id: str | None = None
+    document_id: str | None = None
+    company_id: str | None = None
+    section_title: str = Field(min_length=1, max_length=300)
+    section_char_limit: int | None = Field(default=None, ge=1, le=1500)
+    template_request: dict[str, Any] | None = None
+    role_context: dict[str, Any] | None = None
+    retrieval_query: str | None = None
+    profile_context: dict[str, Any] | None = None
+    gakuchika_context: list[dict[str, Any]] = Field(default_factory=list)
+    document_context: dict[str, Any] | None = None
+    llm_model: str | None = None
+    user_provided_corporate_urls: list[str] = Field(default_factory=list)
 
 
 FastApiStreamEvent = TypeAdapter(

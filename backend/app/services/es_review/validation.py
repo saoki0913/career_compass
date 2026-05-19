@@ -589,7 +589,6 @@ def _validate_rewrite_candidate(
     soft_validation_mode: str = "strict",
     allow_soft_min: bool | None = None,
     user_answer: str = "",
-    effective_template_checks: dict[str, Any] | None = None,
     profile: ValidationProfile | None = None,
 ) -> tuple[str | None, str, str, dict[str, Any]]:
     _ = review_variant
@@ -789,7 +788,6 @@ async def _validate_rewrite_combined(
     soft_validation_mode: str = "strict",
     allow_soft_min: bool | None = None,
     user_answer: str = "",
-    effective_template_checks: dict[str, Any] | None = None,
     json_caller: Callable[..., Any] | None = None,
     is_final_attempt: bool = False,
     profile: ValidationProfile | None = None,
@@ -815,7 +813,6 @@ async def _validate_rewrite_combined(
         soft_validation_mode=soft_validation_mode,
         allow_soft_min=allow_soft_min,
         user_answer=user_answer,
-        effective_template_checks=effective_template_checks,
         profile=_profile,
     )
     accepted, code, reason, meta = result

@@ -20,7 +20,7 @@
 - secrets、API key、OAuth client secret、Stripe webhook secret、Supabase service role key
 - `.env` 実値、DB URL、session token、CSRF token、cookie、`guest_device_token`、`x-device-token`
 - 実ユーザーの ES、プロフィール、会話ログ、メール、電話番号、住所、学生番号などの PII
-- `backend/app/reference/es_review/**` の参考 ES 本文、特徴的な言い回し、細かな構成順
+- `docs/reference/es-review/**` の参考 ES 本文、特徴的な言い回し、細かな構成順
 - `backend/tests/output/**` や live test output の実例文
 - 著作権保護された ES 例文、企業資料、書籍、ブログ、競合サービスの出力全文
 

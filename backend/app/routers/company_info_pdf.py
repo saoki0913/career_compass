@@ -220,6 +220,48 @@ def _build_pdf_processing_notice_ja(
     return " ".join(parts).strip() or None
 
 
+def _plan_pdf_page_routing_metadata_only(
+    *,
+    pdf_bytes: bytes,
+    billing_plan: str,
+    content_type: str | None,
+) -> dict[str, object]:
+    """Plan PDF page routing for estimates without invoking OCR providers."""
+    get_pdf_page_count = _get_company_info_override("_get_pdf_page_count", _get_pdf_page_count)
+    extract_text_pages_from_pdf_locally = _get_company_info_override(
+        "_extract_text_pages_from_pdf_locally",
+        _extract_text_pages_from_pdf_locally,
+    )
+
+    source_total_pages = get_pdf_page_count(pdf_bytes)
+    max_ingest = _rag_pdf_max_ingest_pages(billing_plan)
+    processed_pages = min(source_total_pages or max_ingest, max_ingest)
+    local_page_texts = extract_text_pages_from_pdf_locally(pdf_bytes)[:processed_pages]
+    if len(local_page_texts) < processed_pages:
+        local_page_texts.extend([""] * (processed_pages - len(local_page_texts)))
+    planned_route = _plan_pdf_page_routes(
+        page_texts=local_page_texts,
+        billing_plan=billing_plan,
+        content_type=content_type,
+    )
+    page_routing_summary = _build_page_routing_summary(
+        source_total_pages=source_total_pages,
+        processed_pages=processed_pages,
+        planned_route=planned_route,
+        actual_route=["estimate"] * processed_pages,
+    )
+    return {
+        "source_total_pages": source_total_pages,
+        "processed_pages": processed_pages,
+        "page_routing_summary": page_routing_summary,
+        "processing_notice_ja": _build_pdf_processing_notice_ja(
+            source_total_pages=source_total_pages,
+            processed_pages=processed_pages,
+            page_routing_summary=page_routing_summary,
+        ),
+    }
+
+
 def _plan_pdf_page_routes(
     *,
     page_texts: list[str],

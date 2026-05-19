@@ -1,5 +1,3 @@
-import { NextRequest } from "next/server";
-
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { createConversationStreamHandler } from "@/bff/api/stream-handler";
 import { fetchGakuchikaContext, fetchProfileContext } from "@/lib/ai/user-context";
@@ -42,6 +40,7 @@ interface MotivationStreamContext {
   resolvedInputs: ReturnType<typeof resolveMotivationInputs>;
   shouldConsumeCredit: boolean;
   billingContext: { userId: string; newQuestionCount: number; companyId: string };
+  reservationId: string | null;
   principal: CreateCareerPrincipalInput;
   upstreamPayload: Record<string, unknown>;
   billingOutcomeStatus: MotivationStreamBillingStatus | null;
@@ -123,6 +122,11 @@ export const POST = createConversationStreamHandler<MotivationStreamContext>({
     const billingContext = { userId: userId!, newQuestionCount, companyId };
     const precheckResult = await motivationStreamPolicy.precheck(billingContext);
     if (!precheckResult.ok) return precheckResult.errorResponse!;
+    const reserveResult = await motivationStreamPolicy.reserve?.(
+      billingContext,
+      1,
+    );
+    if (reserveResult?.errorResponse) return reserveResult.errorResponse;
 
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -131,21 +135,32 @@ export const POST = createConversationStreamHandler<MotivationStreamContext>({
     };
     messages.push(userMessage);
 
-    const scores = safeParseScores(conversation.motivationScores);
-    const gakuchikaContext = userId ? await fetchGakuchikaContext(userId) : [];
-
-    const principalPlan = await getViewerPlan(identity);
-    const upstreamPayload = buildMotivationStreamPayload({
-      company,
-      resolvedInputs,
-      messages,
-      newQuestionCount,
-      scores,
-      generatedDraft: conversation.generatedDraft ?? null,
-      gakuchikaContext,
-      profileContext,
-      applicationJobCandidates,
-    });
+    let scores: ReturnType<typeof safeParseScores>;
+    let principalPlan: Awaited<ReturnType<typeof getViewerPlan>>;
+    let upstreamPayload: ReturnType<typeof buildMotivationStreamPayload>;
+    try {
+      scores = safeParseScores(conversation.motivationScores);
+      const gakuchikaContext = userId ? await fetchGakuchikaContext(userId) : [];
+      principalPlan = await getViewerPlan(identity);
+      upstreamPayload = buildMotivationStreamPayload({
+        company,
+        resolvedInputs,
+        messages,
+        newQuestionCount,
+        scores,
+        generatedDraft: conversation.generatedDraft ?? null,
+        gakuchikaContext,
+        profileContext,
+        applicationJobCandidates,
+      });
+    } catch (error) {
+      await motivationStreamPolicy.cancel(
+        billingContext,
+        reserveResult?.reservationId ?? null,
+        "prepare_failed",
+      );
+      throw error;
+    }
 
     return {
       companyId,
@@ -158,6 +173,7 @@ export const POST = createConversationStreamHandler<MotivationStreamContext>({
       resolvedInputs,
       shouldConsumeCredit,
       billingContext,
+      reservationId: reserveResult?.reservationId ?? null,
       principal: {
         scope: "ai-stream" as const,
         actor: userId
@@ -189,6 +205,7 @@ export const POST = createConversationStreamHandler<MotivationStreamContext>({
       resolvedInputs: ctx.resolvedInputs,
       shouldConsumeCredit: ctx.shouldConsumeCredit,
       billingContext: ctx.billingContext,
+      reservationId: ctx.reservationId,
     });
     ctx.billingOutcomeStatus = completeResult.billingStatus;
     ctx.creditsAppliedForSummary = completeResult.creditsApplied;
@@ -197,6 +214,7 @@ export const POST = createConversationStreamHandler<MotivationStreamContext>({
 
   async onStreamError(ctx) {
     ctx.billingOutcomeStatus = "failed";
+    await motivationStreamPolicy.cancel(ctx.billingContext, ctx.reservationId, "stream_error");
   },
 
   async onFinally(ctx, { telemetry, identity }) {
@@ -210,6 +228,7 @@ export const POST = createConversationStreamHandler<MotivationStreamContext>({
       });
       void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
     } else if (ctx.billingOutcomeStatus === "failed") {
+      await motivationStreamPolicy.cancel(ctx.billingContext, ctx.reservationId, "failed");
       logAiCreditCostSummary({
         feature: "motivation",
         requestId: "",
@@ -218,6 +237,7 @@ export const POST = createConversationStreamHandler<MotivationStreamContext>({
         telemetry,
       });
     } else {
+      await motivationStreamPolicy.cancel(ctx.billingContext, ctx.reservationId, "cancelled_or_incomplete");
       logAiCreditCostSummary({
         feature: "motivation",
         requestId: "",

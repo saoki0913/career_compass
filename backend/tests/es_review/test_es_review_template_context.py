@@ -1,6 +1,7 @@
 import pytest
 
 from app.prompts.es_templates import get_template_spec
+from app.prompts.es_templates._types import rewrite_policy
 from app.services.es_review.models import ReviewRequest, TemplateRequest
 from app.services.es_review.orchestrator import prepare_review_context
 from app.services.es_review.template_context import (
@@ -127,8 +128,9 @@ def test_effective_context_merges_secondary_spec_and_max_grounding() -> None:
     assert context.requires_company_rag is True
     assert context.effective_grounding_level == "standard"
     assert context.rag_profile_type == "post_join_goals"
-    assert "強みの核" in context.merged_spec["required_elements"]
-    assert "やりたいことの核" in context.merged_spec["required_elements"]
+    merged_rewrite = rewrite_policy(context.merged_spec)
+    assert "強みの核" in merged_rewrite["required_elements"]
+    assert "やりたいことの核" in merged_rewrite["required_elements"]
     assert len(context.effective_evaluation_axes) <= 7
 
 
@@ -150,7 +152,7 @@ def test_effective_context_honors_payload_compound_overrides() -> None:
     assert context.is_compound is True
     assert context.requires_company_rag is True
     assert context.rag_profile_type == "post_join_goals"
-    assert "やりたいことの核" in context.merged_spec["required_elements"]
+    assert "やりたいことの核" in rewrite_policy(context.merged_spec)["required_elements"]
 
 
 @pytest.mark.asyncio
@@ -186,9 +188,10 @@ def test_strength_weakness_variant_adds_required_elements_and_structure() -> Non
     assert context.primary_type == "self_pr"
     assert context.secondary_type == "self_pr"
     assert context.requires_company_rag is False
-    assert "弱みの認識と克服姿勢" in context.merged_spec["required_elements"]
-    assert "弱みを自己否定で終わらせる" in context.merged_spec["anti_patterns"]
-    assert "弱み" in str(context.merged_spec["recommended_structure"])
+    merged_rewrite = rewrite_policy(context.merged_spec)
+    assert "弱みの認識と克服姿勢" in merged_rewrite["required_elements"]
+    assert "弱みを自己否定で終わらせる" in merged_rewrite["anti_patterns"]
+    assert "弱み" in str(merged_rewrite["structure_short"])
     assert any(axis["name"] == "弱みの制御と成長" for axis in context.effective_evaluation_axes)
 
 
@@ -204,16 +207,17 @@ def test_triple_compound_merges_three_specs_with_company_rag_profile() -> None:
     assert context.requires_company_rag is True
     assert context.effective_grounding_level == "standard"
     assert context.rag_profile_type == "post_join_goals"
-    assert "取り組みの核" in context.merged_spec["required_elements"]
-    assert "強みの核" in context.merged_spec["required_elements"]
-    assert "やりたいことの核" in context.merged_spec["required_elements"]
+    merged_rewrite = rewrite_policy(context.merged_spec)
+    assert "取り組みの核" in merged_rewrite["required_elements"]
+    assert "強みの核" in merged_rewrite["required_elements"]
+    assert "やりたいことの核" in merged_rewrite["required_elements"]
     assert len(context.effective_evaluation_axes) <= 7
 
 
 def test_merge_template_specs_does_not_mutate_base_template_defs() -> None:
-    before = list(get_template_spec("self_pr")["required_elements"])
+    before = list(rewrite_policy(get_template_spec("self_pr"))["required_elements"])
 
     merged = merge_template_specs("self_pr", "post_join_goals", "strength_weakness")
 
-    assert "弱みの認識と克服姿勢" in merged["required_elements"]
-    assert get_template_spec("self_pr")["required_elements"] == before
+    assert "弱みの認識と克服姿勢" in rewrite_policy(merged)["required_elements"]
+    assert rewrite_policy(get_template_spec("self_pr"))["required_elements"] == before

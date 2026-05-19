@@ -24,6 +24,10 @@ import {
 } from "@/lib/es-review/template-requirements";
 import { resolveIndustryForReview } from "@/lib/constants/es-review-role-catalog";
 import { parseCorporateInfoSources } from "@/lib/company-info/sources";
+import {
+  esReviewStreamRequestSchema,
+  type EsReviewStreamRequest,
+} from "@/shared/contracts/fastapi/es-review";
 import { guardDailyTokenLimit } from "@/bff/identity/llm-cost-guard";
 import { getRequestIdentity, type RequestIdentity } from "@/bff/identity/request-identity";
 import { getOwnedDocument } from "@/bff/identity/owner-access";
@@ -192,7 +196,7 @@ export type ReviewStreamPreparedContext =
         companyId: string | null;
         plan: Awaited<ReturnType<typeof getViewerPlan>>;
       };
-      payload: Record<string, unknown>;
+      payload: EsReviewStreamRequest;
     };
 
 export async function prepareReviewStreamContext(
@@ -341,6 +345,40 @@ export async function prepareReviewStreamContext(
   const userProvidedCorporateUrls = collectUserProvidedCorporateUrls(companyInfo.corporateInfoUrls);
   const principalPlan = await getViewerPlan(identity);
 
+  const payload = esReviewStreamRequestSchema.parse({
+    content: normalizedContent,
+    section_id: sectionId,
+    company_id: companyId || null,
+    section_title: normalizedSectionTitle,
+    section_char_limit: normalizedSectionCharLimit,
+    template_request: effectiveTemplateType
+      ? {
+          template_type: effectiveTemplateType,
+          company_name: companyInfo.name,
+          industry: resolvedIndustry,
+          question: normalizedSectionTitle,
+          answer: normalizedContent,
+          char_min: deriveCharMin(normalizedSectionCharLimit),
+          char_max: normalizedSectionCharLimit,
+          intern_name: internName || null,
+          role_name: resolvedRoleContext.primary_role || null,
+          inferred_template_type: inferredTemplateDetails.templateType,
+          inferred_confidence: inferredTemplateDetails.confidence,
+          secondary_template_types: inferredTemplateDetails.secondaryCandidates,
+          classification_rationale: inferredTemplateDetails.rationale,
+          recommended_grounding_level: inferredTemplateDetails.recommendedGroundingLevel,
+        }
+      : null,
+    role_context: resolvedRoleContext,
+    retrieval_query: retrievalQuery,
+    profile_context: profileContext,
+    gakuchika_context: gakuchikaContext,
+    document_context: otherSections.length > 0 ? { other_sections: otherSections } : null,
+    llm_model: resolvedLLMModel,
+    document_id: documentId,
+    user_provided_corporate_urls: userProvidedCorporateUrls,
+  });
+
   return {
     ok: true,
     identity,
@@ -354,40 +392,6 @@ export async function prepareReviewStreamContext(
       companyId: companyId || null,
       plan: principalPlan,
     },
-    payload: {
-      content: normalizedContent,
-      section_id: sectionId,
-      company_id: companyId || null,
-      section_title: normalizedSectionTitle,
-      section_char_limit: normalizedSectionCharLimit,
-      template_request: effectiveTemplateType
-        ? {
-            template_type: effectiveTemplateType,
-            company_name: companyInfo.name,
-            industry: resolvedIndustry,
-            question: normalizedSectionTitle,
-            answer: normalizedContent,
-            char_min: deriveCharMin(normalizedSectionCharLimit),
-            char_max: normalizedSectionCharLimit,
-            intern_name: internName || null,
-            role_name: resolvedRoleContext.primary_role || null,
-            inferred_template_type: inferredTemplateDetails.templateType,
-            inferred_confidence: inferredTemplateDetails.confidence,
-            secondary_template_types: inferredTemplateDetails.secondaryCandidates,
-            classification_rationale: inferredTemplateDetails.rationale,
-            recommended_grounding_level: inferredTemplateDetails.recommendedGroundingLevel,
-          }
-        : null,
-      role_context: resolvedRoleContext,
-      retrieval_query: retrievalQuery,
-      profile_context: profileContext,
-      gakuchika_context: gakuchikaContext,
-      document_context: otherSections.length > 0 ? { other_sections: otherSections } : null,
-      llm_model: resolvedLLMModel,
-      document_id: documentId,
-      user_id: userId,
-      credit_cost: creditCost,
-      user_provided_corporate_urls: userProvidedCorporateUrls,
-    },
+    payload,
   };
 }

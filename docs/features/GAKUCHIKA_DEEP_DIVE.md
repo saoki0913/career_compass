@@ -296,7 +296,7 @@ _generate_next_question_progress (SSE generator)
 | Stage | Temperature | 戦略 | LLM 呼び出し |
 |---|---|---|---|
 | 1 | 0.35 | 初回結果をそのまま評価 | 初回ストリーミング結果を流用 |
-| 2 | 0.45 | 品質違反を retry_guidance として注入 | あり |
+| 2 | 0.45 | 品質違反を retry policy guidance として注入 | あり |
 | 3 | 0.25 | 未質問の focus_key を強制指定 | あり |
 | Fallback | - | canonical fallback テンプレートを使用 | なし |
 

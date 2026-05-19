@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { buildAuditResult, collectManagedState, createStripeClient, loadManagedConfig, printResult } from "./shared.mjs";
+import { buildAuditResult, collectManagedState, createStripeClient, loadResolvedManagedConfig, parseCliArgs, printResult } from "./shared.mjs";
 
 async function main() {
-  const config = await loadManagedConfig();
-  const stripe = await createStripeClient({ environment: "live", config });
+  const args = parseCliArgs(["--target", "production", ...process.argv.slice(2)]);
+  const config = await loadResolvedManagedConfig(args);
+  const stripe = await createStripeClient({ environment: args.environment, config });
   const state = await collectManagedState({ stripe });
   const audit = buildAuditResult({ config, state });
   const readiness =
@@ -16,13 +17,18 @@ async function main() {
 
   printResult(
     {
-      ok: readiness === "ready",
-      environment: "live",
-      readiness,
       ...audit,
+      ok: readiness === "ready",
+      environment: args.environment,
+      target: args.target,
+      readiness,
     },
-    { json: process.argv.includes("--json") },
+    { json: args.json },
   );
+
+  if (readiness === "not_ready") {
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error) => {

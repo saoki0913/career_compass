@@ -7,6 +7,8 @@ const BASE_CONNECT_SRC = [
   "https://www.google-analytics.com",
   "https://region1.google-analytics.com",
   "https://www.googletagmanager.com",
+  "https://*.ingest.sentry.io",
+  "https://*.ingest.us.sentry.io",
 ];
 
 function getSentryConnectSources(): string[] {

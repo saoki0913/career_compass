@@ -8,11 +8,12 @@
  *   - DISABLE_TOKEN_LIMIT env var bypass
  */
 
+import { isDeployedAppEnvironment } from "@/env/deployment";
 import { serverEnv } from "@/env/server";
 import type { RequestIdentity } from "@/bff/identity/request-identity";
 import type { InternalCostTelemetry } from "@/lib/ai/cost-summary-log";
 import { getJstDateKey, startOfJstDayAsUtc } from "@/lib/datetime/jst";
-import { getRedis, getRedisNamespace } from "@/lib/redis";
+import { getRedis, redisKey } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -24,8 +25,6 @@ const DAILY_TOKEN_LIMITS: Record<string, number> = {
   standard: 2_000_000,
   pro: 5_000_000,
 };
-
-const REDIS_KEY_PREFIX = "daily_llm_tokens";
 
 /** 25 hours -- generous TTL so key survives JST day boundary even with clock skew */
 const TTL_SECONDS = 90_000;
@@ -43,7 +42,7 @@ function getJstDateString(): string {
 
 /** Build the Redis key for a given identity's daily token bucket */
 function buildDailyTokenKey(identityId: string): string {
-  return `${REDIS_KEY_PREFIX}:${getRedisNamespace()}:${identityId}:${getJstDateString()}`;
+  return redisKey("llm", "daily-tokens", identityId, getJstDateString());
 }
 
 /** Seconds until next JST midnight (00:00 Asia/Tokyo) */
@@ -65,8 +64,7 @@ function getNextJstMidnightUtc(): Date {
 
 function isStrictTokenLimitEnvironment(): boolean {
   return (
-    process.env.VERCEL_ENV === "production" ||
-    process.env.VERCEL_ENV === "preview" ||
+    isDeployedAppEnvironment() ||
     process.env.NODE_ENV === "production"
   );
 }

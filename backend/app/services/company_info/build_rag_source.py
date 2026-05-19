@@ -44,6 +44,7 @@ UploadCorporatePdfResponse: Any = None
 _rag_runtime: RagRuntimeDependencies | None = None
 _build_pdf_estimate_response: Any = None
 _extract_text_from_pdf_with_page_routing: Any = None
+_plan_pdf_page_routing_metadata_only: Any = None
 _is_garbled_text: Any = None
 _normalize_rag_pdf_billing_plan: Any = None
 _pdf_ingest_telemetry_line: Any = None
@@ -69,7 +70,7 @@ def configure_dependencies(
     global RagContextRequest, RagContextResponse, RagStatusResponse
     global CrawlCorporateEstimateResponse, CrawlCorporateRequest, CrawlCorporateResponse
     global EstimateCorporatePdfResponse, UploadCorporatePdfResponse, _rag_runtime
-    global _build_pdf_estimate_response, _extract_text_from_pdf_with_page_routing
+    global _build_pdf_estimate_response, _extract_text_from_pdf_with_page_routing, _plan_pdf_page_routing_metadata_only
     global _is_garbled_text, _normalize_rag_pdf_billing_plan, _pdf_ingest_telemetry_line
 
     BuildRagRequest = models.BuildRagRequest
@@ -90,6 +91,7 @@ def configure_dependencies(
     _rag_runtime = runtime
     _build_pdf_estimate_response = pdf._build_pdf_estimate_response
     _extract_text_from_pdf_with_page_routing = pdf._extract_text_from_pdf_with_page_routing
+    _plan_pdf_page_routing_metadata_only = pdf._plan_pdf_page_routing_metadata_only
     _is_garbled_text = pdf._is_garbled_text
     _normalize_rag_pdf_billing_plan = pdf._normalize_rag_pdf_billing_plan
     _pdf_ingest_telemetry_line = pdf._pdf_ingest_telemetry_line
@@ -513,13 +515,10 @@ async def estimate_corporate_pdf_upload_impl(
     filename: str,
 ) -> EstimateCorporatePdfResponse:
     plan = _normalize_rag_pdf_billing_plan(billing_plan)
-    routing = await _extract_text_from_pdf_with_page_routing(
+    routing = _plan_pdf_page_routing_metadata_only(
         pdf_bytes=pdf_bytes,
-        filename=filename,
         billing_plan=plan,
         content_type=content_type,
-        source_kind="upload",
-        feature="company_info",
     )
 
     return _build_pdf_estimate_response(
@@ -882,6 +881,76 @@ async def _process_crawl_source(
     }
 
 
+async def _estimate_crawl_source_metadata_only(
+    *,
+    url: str,
+    content_type: str | None,
+    billing_plan: str,
+) -> dict[str, object]:
+    runtime = _require_rag_runtime()
+    payload = await runtime.fetch_page_content(url)
+
+    if _looks_like_pdf_payload(url, payload):
+        routing = _plan_pdf_page_routing_metadata_only(
+            pdf_bytes=payload,
+            billing_plan=billing_plan,
+            content_type=content_type,
+        )
+        page_routing_summary = dict(routing["page_routing_summary"])
+        processed_pages = int(routing.get("processed_pages") or 1)
+        return {
+            "success": True,
+            "status": "estimated",
+            "kind": "pdf",
+            "pages_crawled": 1,
+            "chunks_stored": 0,
+            "billable_units": processed_pages,
+            "source_total_pages": routing.get("source_total_pages"),
+            "page_count": processed_pages,
+            "page_routing_summary": page_routing_summary,
+            "estimate_mode": "metadata_only",
+            "estimate_confidence": "bounded_upper" if routing.get("source_total_pages") is None else "exact",
+        }
+
+    if not _looks_like_html_payload(payload):
+        return {
+            "success": False,
+            "status": "failed",
+            "kind": "unsupported",
+            "error": "HTML/PDF 以外のバイナリを検出したためスキップしました",
+            "pages_crawled": 0,
+            "chunks_stored": 0,
+            "billable_units": 0,
+            "estimate_mode": "metadata_only",
+            "estimate_confidence": "unknown",
+        }
+
+    text = extract_text_from_html(payload)
+    if not text or len(text) < 100 or _is_garbled_text(text):
+        return {
+            "success": False,
+            "status": "failed",
+            "kind": "html",
+            "error": "ページ本文が不足しているか文字化けしているためスキップしました",
+            "pages_crawled": 0,
+            "chunks_stored": 0,
+            "billable_units": 0,
+            "estimate_mode": "metadata_only",
+            "estimate_confidence": "unknown",
+        }
+
+    return {
+        "success": True,
+        "status": "estimated",
+        "kind": "html",
+        "pages_crawled": 1,
+        "chunks_stored": 0,
+        "billable_units": 1,
+        "estimate_mode": "metadata_only",
+        "estimate_confidence": "exact",
+    }
+
+
 async def estimate_crawl_corporate_pages_impl(
     payload: CrawlCorporateRequest,
     *,
@@ -896,34 +965,41 @@ async def estimate_crawl_corporate_pages_impl(
     estimated_mistral_ocr_pages = 0
     will_truncate = False
     page_routing_summaries: dict[str, dict[str, object]] = {}
+    source_results: list[dict[str, object]] = []
 
     for url in request.urls:
         try:
-            source_result = await _process_crawl_source(
-                company_id=request.company_id,
-                company_name=request.company_name,
+            source_result = await _estimate_crawl_source_metadata_only(
                 url=url,
                 content_type=request.content_type,
-                content_channel=request.content_channel or "corporate_general",
-                backend=None,
                 billing_plan=billing_plan,
-                store_result=False,
-                tenant_key=tenant_key,
             )
             if not source_result["success"]:
                 errors.append(f"{url}: {source_result['error']}")
+                source_results.append({"url": url, **source_result})
                 continue
             if source_result["kind"] == "html":
                 estimated_html_pages += 1
             elif source_result["kind"] == "pdf":
-                estimated_pdf_pages += 1
+                estimated_pdf_pages += int(source_result.get("billable_units") or 1)
                 summary = dict(source_result.get("page_routing_summary") or {})
                 page_routing_summaries[url] = summary
                 estimated_google_ocr_pages += int(summary.get("planned_route", []).count("google"))
                 estimated_mistral_ocr_pages += int(summary.get("planned_route", []).count("mistral"))
                 will_truncate = will_truncate or bool(summary.get("truncated_pages"))
+            source_results.append({"url": url, **source_result})
         except Exception as exc:
             errors.append(f"{url}: {str(exc)[:100]}")
+            source_results.append({
+                "url": url,
+                "success": False,
+                "status": "failed",
+                "kind": "unknown",
+                "error": str(exc)[:100],
+                "pages_crawled": 0,
+                "chunks_stored": 0,
+                "billable_units": 0,
+            })
 
     return CrawlCorporateEstimateResponse(
         success=(estimated_html_pages + estimated_pdf_pages) > 0,
@@ -940,6 +1016,7 @@ async def estimate_crawl_corporate_pages_impl(
         requires_confirmation=estimated_mistral_ocr_pages > 0 or will_truncate,
         errors=errors,
         page_routing_summaries=page_routing_summaries,
+        source_results=source_results,
     )
 
 
@@ -966,6 +1043,7 @@ async def crawl_corporate_pages_impl(
     errors = []
     url_content_types: dict[str, str] = {}
     page_routing_summaries: dict[str, dict[str, object]] = {}
+    source_results: list[dict[str, object]] = []
 
     backend = resolve_embedding_backend()
     if backend is None:
@@ -977,6 +1055,7 @@ async def crawl_corporate_pages_impl(
             errors=[
                 "No embedding backend available. Set OPENAI_API_KEY or install sentence-transformers."
             ],
+            source_results=[],
         )
 
     for url in request.urls:
@@ -995,6 +1074,7 @@ async def crawl_corporate_pages_impl(
 
             if not source_result["success"]:
                 errors.append(f"{url}: {source_result['error']}")
+                source_results.append({"url": url, "status": "failed", "stored": False, **source_result})
                 continue
 
             pages_crawled += int(source_result.get("pages_crawled") or 0)
@@ -1003,13 +1083,46 @@ async def crawl_corporate_pages_impl(
                 url_content_types[url] = str(source_result["dominant_content_type"])
             if source_result.get("page_routing_summary"):
                 page_routing_summaries[url] = dict(source_result["page_routing_summary"])
+            source_results.append({
+                "url": url,
+                "status": "completed",
+                "billable_units": int(
+                    dict(source_result.get("page_routing_summary") or {}).get("ingest_pages")
+                    or source_result.get("pages_crawled")
+                    or 1
+                ),
+                "stored": True,
+                **source_result,
+            })
 
             await asyncio.sleep(1)
 
         except HTTPException as e:
             errors.append(f"{url}: {e.detail}")
+            source_results.append({
+                "url": url,
+                "success": False,
+                "status": "failed",
+                "kind": "unknown",
+                "error": str(e.detail)[:100],
+                "pages_crawled": 0,
+                "chunks_stored": 0,
+                "billable_units": 0,
+                "stored": False,
+            })
         except Exception as e:
             errors.append(f"{url}: {str(e)[:100]}")
+            source_results.append({
+                "url": url,
+                "success": False,
+                "status": "failed",
+                "kind": "unknown",
+                "error": str(e)[:100],
+                "pages_crawled": 0,
+                "chunks_stored": 0,
+                "billable_units": 0,
+                "stored": False,
+            })
 
     return CrawlCorporateResponse(
         success=pages_crawled > 0,
@@ -1019,4 +1132,5 @@ async def crawl_corporate_pages_impl(
         errors=errors,
         url_content_types=url_content_types,
         page_routing_summaries=page_routing_summaries,
+        source_results=source_results,
     )

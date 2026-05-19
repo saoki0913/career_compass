@@ -33,6 +33,7 @@ import os
 import re
 from typing import TYPE_CHECKING, Any
 
+from app.config import settings
 from app.evaluators.deepdive_completion import _evaluate_deepdive_completion
 from app.evaluators.draft_quality import _build_causal_gaps, _build_draft_quality_checks
 from app.evaluators.question_quality import _evaluate_question_quality
@@ -76,7 +77,7 @@ MIN_USER_ANSWERS_FOR_INTERVIEW_READY = 8
 
 
 def _min_user_answers_for_es_draft_ready() -> int:
-    raw = os.getenv("GAKUCHIKA_MIN_USER_ANSWERS_FOR_ES_DRAFT_READY", "").strip()
+    raw = str(settings.gakuchika_min_user_answers_for_es_draft_ready).strip()
     if raw.isdigit():
         return max(1, min(10, int(raw)))
     return MIN_USER_ANSWERS_FOR_ES_DRAFT_READY
@@ -95,7 +96,7 @@ def _force_draft_ready_after() -> int:
     Opt-in via ``GAKUCHIKA_FORCE_DRAFT_READY_AFTER=N`` for CI / E2E tests
     that need deterministic convergence.  Not set in production.
     """
-    raw = os.getenv("GAKUCHIKA_FORCE_DRAFT_READY_AFTER", "").strip()
+    raw = str(settings.gakuchika_force_draft_ready_after).strip()
     if raw.isdigit() and int(raw) > 0:
         return int(raw)
     return 0

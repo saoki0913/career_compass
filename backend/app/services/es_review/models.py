@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.es_review.enums import (
     ClassificationConfidence,
@@ -190,11 +190,10 @@ class ReviewMeta(BaseModel):
     enrichment_completed: bool = False
     enrichment_sources_added: int = 0
     reference_es_count: int = 0
-    reference_es_mode: str = "quality_profile_only"
+    reference_es_mode: str = "static_guidance_only"
     reference_quality_profile_used: bool = False
     reference_outline_used: bool = False
     reference_hint_count: int = 0
-    reference_conditional_hints_applied: bool = False
     reference_profile_variance: Optional[str] = None
     logic_patterns_used: bool = False
     logic_patterns_confidence: Optional[str] = None
@@ -281,6 +280,8 @@ class TemplateReview(BaseModel):
 
 
 class ReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     content: str = Field(min_length=6, max_length=1500)
     section_id: Optional[str] = None
     document_id: Optional[str] = None
@@ -390,7 +391,7 @@ class ReviewContext:
     reference_quality_profile: dict | None = None
     reference_quality_block: str = ""
     reference_outline_used: bool = False
-    reference_es_mode: str = "quality_profile_only"
+    reference_es_mode: str = "static_guidance_only"
     logic_patterns_used: bool = False
     logic_patterns_confidence: str | None = None
 

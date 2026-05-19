@@ -146,7 +146,7 @@ def test_reference_es_where_filter_uses_chroma_and_shape():
 
 
 @pytest.mark.asyncio
-async def test_reference_es_eval_uses_separate_recall_and_ndcg_k(monkeypatch, tmp_path):
+async def test_reference_es_eval_is_retired(tmp_path):
     import evals.rag.evaluate_reference_es as module
 
     path = tmp_path / "reference_es.jsonl"
@@ -158,25 +158,11 @@ async def test_reference_es_eval_uses_separate_recall_and_ndcg_k(monkeypatch, tm
         encoding="utf-8",
     )
 
-    async def fake_retrieve_reference_es_semantic(*args, **kwargs):
-        assert kwargs["top_k"] == 10
-        return [{"metadata": {"es_id": f"other-{i}"}} for i in range(5)] + [
-            {"metadata": {"es_id": "ref-1"}}
-        ]
-
-    monkeypatch.setattr(
-        module,
-        "retrieve_reference_es_semantic",
-        fake_retrieve_reference_es_semantic,
-    )
-
-    result = await module.evaluate_reference_es(
-        path,
-        recall_k=10,
-        ndcg_k=5,
-        ingest_first=False,
-        ingest_session_id="test-session",
-    )
-
-    assert result["recall_at_k"] == 1.0
-    assert result["ndcg_at_k"] == 0.0
+    with pytest.raises(RuntimeError, match="removed from runtime"):
+        await module.evaluate_reference_es(
+            path,
+            recall_k=10,
+            ndcg_k=5,
+            ingest_first=False,
+            ingest_session_id="test-session",
+        )

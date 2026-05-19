@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
 
-CONTENT_TYPE_GROUPS = {
+
+ContentFamily = tuple[str, ...]
+RagProfile = dict[str, Any]
+
+
+CONTENT_TYPE_GROUPS: dict[str, set[str]] = {
     "hiring_role": {
         "new_grad_recruitment",
         "midcareer_recruitment",
@@ -31,7 +37,7 @@ ASSISTIVE_COMPANY_SIGNAL_TEMPLATES = frozenset(
     {"self_pr", "gakuchika", "work_values", "basic"}
 )
 
-TEMPLATE_CONTENT_GROUP_ORDER = {
+TEMPLATE_CONTENT_GROUP_ORDER: dict[str, ContentFamily] = {
     "company_motivation": ("business_future", "people_values", "hiring_role"),
     "role_course_reason": ("hiring_role", "people_values", "business_future"),
     "intern_reason": ("hiring_role", "people_values", "business_future"),
@@ -39,7 +45,7 @@ TEMPLATE_CONTENT_GROUP_ORDER = {
     "post_join_goals": ("business_future", "people_values", "hiring_role"),
 }
 
-TEMPLATE_RAG_PROFILES = {
+TEMPLATE_RAG_PROFILES: dict[str, RagProfile] = {
     "basic": {
         "profile_name": "es_light",
         "expand_queries": False,
@@ -200,6 +206,7 @@ def get_template_content_type_boosts(
     *,
     assistive_company_signal: bool = False,
 ) -> dict[str, float]:
+    families: tuple[str, ...]
     if template_type in ASSISTIVE_COMPANY_SIGNAL_TEMPLATES:
         if not assistive_company_signal:
             return {}
@@ -235,7 +242,7 @@ def get_template_rag_profile(
     template_type: str,
     *,
     assistive_company_signal: bool = False,
-) -> dict:
+) -> RagProfile:
     base_profile = TEMPLATE_RAG_PROFILES.get(template_type, TEMPLATE_RAG_PROFILES["basic"])
     profile = {
         key: value.copy() if isinstance(value, dict) else value

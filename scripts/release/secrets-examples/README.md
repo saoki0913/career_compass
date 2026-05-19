@@ -40,7 +40,7 @@ SYNC_MODE=--apply TARGET=all make ops-secrets-sync
 │   ├── shared.env        ← 3 cross-service 変数（BFF↔FastAPI 共有）
 │   ├── nextjs.env        ← Vercel production
 │   ├── fastapi.env       ← Railway production
-│   └── supabase.env      ← Supabase bootstrap
+│   └── supabase.env      ← production Supabase bootstrap
 ├── staging/
 │   ├── shared.env
 │   ├── nextjs.env
@@ -80,9 +80,11 @@ Vercel の環境変数として同期されます。
 - `CRON_SECRET` — Cron 認証トークン
 - `FASTAPI_URL` — FastAPI バックエンドURL
 - `NEXT_PUBLIC_APP_URL` — アプリ公開URL
+- `APP_ENV` / `NEXT_PUBLIC_APP_ENV` — 論理環境。`APP_ENV` が全スタック（Vercel / Railway 両方）の正本です。
 
 **staging と production の違い:**
 - URL: `stg.shupass.jp` vs `www.shupass.jp`
+- Logical env: `staging` vs `production`
 - Stripe: `sk_test_...` vs `sk_live_...`
 - `BETTER_AUTH_TRUSTED_ORIGINS`: staging は 1 origin、production は 2 origin
 
@@ -92,13 +94,17 @@ Railway の環境変数として同期されます。
 
 **必ず設定が必要なもの:**
 - `RAILWAY_PROJECT_ID` / `RAILWAY_SERVICE_NAME` / `RAILWAY_ENVIRONMENT_NAME` — sync メタキー
-- `ENVIRONMENT` — `staging` or `production`（**fail-fast バリデーションのトリガー**。これを設定すると、必須変数が欠けた場合にアプリの起動自体が失敗します）
+- `APP_ENV` — `staging` or `production`。FastAPI も `APP_ENV` を設定します。`ENVIRONMENT` / `RAILWAY_ENVIRONMENT_NAME` は後方互換 fallback と sync メタキーとして当面併記し、リリースBで撤去予定です。
 - `CORS_ORIGINS` — CORS 許可オリジン
 - `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` — LLM API キー
 
 ### 4. supabase.env
 
-`SUPABASE_PRODUCTION_PROJECT_REF` が必須です。Supabase Dashboard → Settings → General からコピーしてください。
+`production/supabase.env` には `SUPABASE_PRODUCTION_PROJECT_REF`、`staging/supabase.env` には `SUPABASE_STAGING_PROJECT_REF` が必須です。Supabase Dashboard → Settings → General から各 project の ref をコピーしてください。
+
+現行 project:
+- staging: `career-compass-staging` / `vbjykhkyhmxickxcgvdh`
+- production: `career-compass-db`
 
 ### 5. github-actions.env
 
@@ -129,9 +135,7 @@ UPSTASH_REDIS_REST_TOKEN=Axxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 **fastapi.env** に追加:
 ```
-REDIS_URL=https://xxxxxxx.upstash.io
-UPSTASH_REDIS_URL=https://xxxxxxx.upstash.io
-UPSTASH_REDIS_TOKEN=Axxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+REDIS_URL=rediss://default:xxxx@xxxx.upstash.io:6379
 ```
 
 staging と production で別データベースを使ってください。
@@ -160,12 +164,12 @@ npm run dev
 
 1. **shared.env の変数は service env に重複定義しない** — `merge_env_files()` が shared → service の順でマージ
 2. **shared.env の変数が nextjs.env と fastapi.env の両方に存在する場合、値が一致していないと sync がエラーで中断**
-3. **`ENVIRONMENT=production` (or `staging`) を設定した時点で fail-fast バリデーションが有効** — 必須変数が欠けているとアプリの起動自体が失敗する
+3. **`APP_ENV` が全スタック（Vercel / Railway 両方）の環境判定の正本** — FastAPI も `APP_ENV` を設定する。`ENVIRONMENT` / `RAILWAY_ENVIRONMENT_NAME` は後方互換 fallback と sync メタキーとして当面併記し、リリースBで撤去予定。
 4. **Placeholder 値（`changeme`, `dummy`, `test` 等）は拒否される** — 実際の値を設定すること
 
 ## 参考
 
-- 変数の完全なリスト: `docs/release/ENV_REFERENCE.md`
+- 変数の完全なリスト: `docs/ops/ENVIRONMENT_VARIABLES.md`
 - sync スクリプト: `scripts/release/sync-career-compass-secrets.sh`
 - Backend の型安全設定: `backend/app/config.py`
 - Frontend の型安全設定: `src/env/server.ts`, `src/env/client.ts`

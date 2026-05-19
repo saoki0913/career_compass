@@ -1,29 +1,37 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 
-vi.mock("next/headers", () => ({
-  headers: vi.fn(async () => new Headers()),
+const { resolvePageIdentityMock } = vi.hoisted(() => ({
+  resolvePageIdentityMock: vi.fn(),
 }));
 
-vi.mock("@/lib/auth", () => ({
-  auth: {
-    api: {
-      getSession: vi.fn(async () => null),
-    },
-  },
+vi.mock("@/lib/server/page-identity", () => ({
+  resolvePageIdentity: resolvePageIdentityMock,
 }));
 
-vi.mock("@/lib/server/request-identity-cache", () => ({
-  getCurrentRequestIdentity: vi.fn(async () => null),
+const {
+  getCompaniesPageDataMock,
+  getTodayTaskDataMock,
+  getUpcomingDeadlinesDataMock,
+  getTasksPageDataMock,
+  DashboardShellMock,
+  streamableLoadMock,
+} = vi.hoisted(() => ({
+  getCompaniesPageDataMock: vi.fn(),
+  getTodayTaskDataMock: vi.fn(),
+  getUpcomingDeadlinesDataMock: vi.fn(),
+  getTasksPageDataMock: vi.fn(),
+  DashboardShellMock: vi.fn(() => null),
+  streamableLoadMock: vi.fn((_name, fn) => fn()),
 }));
 
 vi.mock("@/lib/server/app-loaders", () => ({
-  getCompaniesPageData: vi.fn(),
-  getTodayTaskData: vi.fn(),
-  getUpcomingDeadlinesData: vi.fn(),
+  getCompaniesPageData: getCompaniesPageDataMock,
+  getTodayTaskData: getTodayTaskDataMock,
+  getUpcomingDeadlinesData: getUpcomingDeadlinesDataMock,
 }));
 
 vi.mock("@/lib/server/task-loaders", () => ({
-  getTasksPageData: vi.fn(),
+  getTasksPageData: getTasksPageDataMock,
 }));
 
 vi.mock("@/components/error/StreamingErrorBoundary", () => ({
@@ -35,7 +43,7 @@ vi.mock("@/components/ui/AnimatedSuspenseContent", () => ({
 }));
 
 vi.mock("@/components/dashboard/DashboardShell", () => ({
-  DashboardShell: vi.fn(() => null),
+  DashboardShell: DashboardShellMock,
 }));
 
 vi.mock("@/components/dashboard/DashboardHeader", () => ({
@@ -66,13 +74,77 @@ vi.mock("@/components/skeletons/DashboardSkeleton", () => ({
 }));
 
 vi.mock("@/lib/server/streaming-helpers", () => ({
-  streamableLoad: vi.fn((_name, fn) => fn()),
+  streamableLoad: streamableLoadMock,
 }));
 
 describe("DashboardPage", () => {
+  beforeEach(() => {
+    resolvePageIdentityMock.mockReset();
+    getCompaniesPageDataMock.mockReset();
+    getTodayTaskDataMock.mockReset();
+    getUpcomingDeadlinesDataMock.mockReset();
+    getTasksPageDataMock.mockReset();
+    DashboardShellMock.mockClear();
+    streamableLoadMock.mockClear();
+
+    getCompaniesPageDataMock.mockResolvedValue({ companies: [], total: 0 });
+    getTodayTaskDataMock.mockResolvedValue({ task: null });
+    getUpcomingDeadlinesDataMock.mockResolvedValue({ deadlines: [], count: 0, periodDays: 7 });
+    getTasksPageDataMock.mockResolvedValue({ tasks: [], count: 0 });
+  });
+
   it("exports a default component", async () => {
     const mod = await import("./page");
     expect(mod.default).toBeDefined();
     expect(typeof mod.default).toBe("function");
+  });
+
+  it("renders fallback shell without private loaders when identity is missing", async () => {
+    resolvePageIdentityMock.mockResolvedValue({
+      status: "ready",
+      identity: null,
+      session: null,
+    });
+
+    const { default: DashboardPage } = await import("./page");
+    const rendered = (await DashboardPage()) as { props: unknown };
+
+    expect(getCompaniesPageDataMock).not.toHaveBeenCalled();
+    expect(getTodayTaskDataMock).not.toHaveBeenCalled();
+    expect(getUpcomingDeadlinesDataMock).not.toHaveBeenCalled();
+    expect(getTasksPageDataMock).not.toHaveBeenCalled();
+    expect(rendered.props).toEqual(
+      expect.objectContaining({
+        viewer: expect.objectContaining({
+          displayName: "ゲスト",
+          isGuest: true,
+        }),
+      }),
+    );
+  });
+
+  it("starts dashboard loaders only after identity is resolved", async () => {
+    const identity = {
+      kind: "user",
+      type: "user",
+      userId: "user-1",
+      guestId: null,
+      role: "user",
+      banned: false,
+    };
+    resolvePageIdentityMock.mockResolvedValue({
+      status: "ready",
+      identity,
+      session: { user: { id: "user-1", name: "山田" } },
+    });
+
+    const { default: DashboardPage } = await import("./page");
+    await DashboardPage();
+
+    expect(streamableLoadMock).toHaveBeenCalledTimes(4);
+    expect(getUpcomingDeadlinesDataMock).toHaveBeenCalledWith(identity, 7);
+    expect(getCompaniesPageDataMock).toHaveBeenCalledWith(identity);
+    expect(getTodayTaskDataMock).toHaveBeenCalledWith(identity);
+    expect(getTasksPageDataMock).toHaveBeenCalledWith(identity, { status: "open" });
   });
 });

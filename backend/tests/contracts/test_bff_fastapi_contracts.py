@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from app.schemas.contracts import (
     CareerPrincipalPayload,
+    EsReviewStreamRequest,
     FastApiStreamEvent,
     GakuchikaFieldCompleteEvent,
     StreamBillingPolicy,
@@ -52,6 +53,31 @@ def test_es_review_complete_uses_result_key_not_data() -> None:
     assert event.type == "complete"
     assert hasattr(event, "result")
     assert not hasattr(event, "data")
+    assert event.result.rewrites == [
+        "私はチームの課題を整理し、改善施策を実行しました。"
+    ]
+    assert event.result.billing_outcome.success is True
+    assert event.internal_telemetry is not None
+    assert event.internal_telemetry["total_tokens"] == 15
+
+
+def test_es_review_stream_request_fixture_matches_fastapi_contract() -> None:
+    request = EsReviewStreamRequest.model_validate(_fixtures()["esReviewStreamRequest"])
+
+    assert request.section_title == "志望動機"
+    assert request.template_request is not None
+    assert request.template_request["template_type"] == "company_motivation"
+
+
+def test_es_review_stream_request_rejects_bff_only_fields() -> None:
+    payload = {
+        **_fixtures()["esReviewStreamRequest"],
+        "user_id": "user-1",
+        "credit_cost": 6,
+    }
+
+    with pytest.raises(ValidationError):
+        EsReviewStreamRequest.model_validate(payload)
 
 
 def test_gakuchika_remaining_questions_estimate_is_non_negative_integer() -> None:

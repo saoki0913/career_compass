@@ -1,9 +1,12 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
+const enableDevFilesystemCache = process.env.NEXT_DEV_FS_CACHE === "1";
+
 const nextConfig: NextConfig = {
   experimental: {
     viewTransition: true,
+    turbopackFileSystemCacheForDev: enableDevFilesystemCache,
   },
   images: {
     remotePatterns: [

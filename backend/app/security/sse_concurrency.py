@@ -7,8 +7,8 @@ credentials — cannot open an unbounded number of streams against expensive
 LLM backends. A naive ``INCR``/``DECR`` counter corrupts on crashes or abrupt
 client disconnects, so we use a TTL-based lease pattern instead:
 
-1. On stream start, ``SET concurrent_sse:{actor_id}:{lease_id} "1" EX 30``.
-2. Count active leases with ``SCAN MATCH concurrent_sse:{actor_id}:*`` and
+1. On stream start, ``SET cc:{env}:sse:concurrent:{actor_id}:{lease_id} "1" EX 30``.
+2. Count active leases with ``SCAN MATCH cc:{env}:sse:concurrent:{actor_id}:*`` and
    reject with 429 when the plan limit is exceeded.
 3. While streaming, refresh the lease TTL every 10 seconds (heartbeat).
 4. On stream end (success, error, or cancellation), ``DEL`` the lease
@@ -36,6 +36,7 @@ except Exception:  # pragma: no cover - redis lib missing in minimal envs
 
 from app.config import settings
 from app.utils.cancellation import CancellationToken
+from app.utils.redis_keys import redis_key, redis_pattern
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
@@ -50,18 +51,17 @@ CONCURRENCY_LIMITS: dict[str, int] = {
     "pro": 5,
 }
 
-_LEASE_PREFIX = "concurrent_sse"
 _LEASE_TTL_SECONDS = 30
 _HEARTBEAT_INTERVAL_SECONDS = 10
 _SCAN_COUNT_HINT = 32
 
 
 def _lease_pattern(actor_id: str) -> str:
-    return f"{_LEASE_PREFIX}:{actor_id}:*"
+    return redis_pattern("sse", "concurrent", actor_id, "*")
 
 
 def _lease_key(actor_id: str, lease_id: str) -> str:
-    return f"{_LEASE_PREFIX}:{actor_id}:{lease_id}"
+    return redis_key("sse", "concurrent", actor_id, lease_id)
 
 
 def resolve_concurrency_limit(plan: str) -> int:

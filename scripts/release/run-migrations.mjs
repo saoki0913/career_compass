@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import { setDefaultResultOrder } from "node:dns";
 import path from "node:path";
 import process from "node:process";
 import postgres from "postgres";
-import { drizzle } from "drizzle-orm/postgres-js";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 import {
   DRIZZLE_MIGRATION_DIR,
   SUPABASE_MIGRATION_DIR,
@@ -46,14 +46,15 @@ function parseArgs(argv) {
       throw new Error(`Unknown argument: ${arg}`);
     }
   }
-  if (!["local", "production"].includes(args.env)) {
-    throw new Error("--env must be local or production");
+  if (!["local", "staging", "production"].includes(args.env)) {
+    throw new Error("--env must be local, staging, or production");
   }
   return args;
 }
 
 function loadEnvFile(envName) {
-  const fileName = envName === "production" ? ".env.production" : ".env.local";
+  const fileName =
+    envName === "production" ? ".env.production" : envName === "staging" ? ".env.staging" : ".env.local";
   const filePath = repoPath(fileName);
   if (!fs.existsSync(filePath)) return;
   const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
@@ -130,6 +131,190 @@ function classifyPending(entries) {
   });
 }
 
+export function migrationRequiresNonTransactionalApply(sqlStatements) {
+  return sqlStatements.some((statement) => /\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\b/i.test(statement));
+}
+
+export function splitPostgresStatements(sqlStatements) {
+  const statements = [];
+  for (const sqlText of sqlStatements) {
+    let current = "";
+    let singleQuoted = false;
+    let doubleQuoted = false;
+    let lineComment = false;
+    let blockComment = false;
+    let dollarQuoteTag = null;
+
+    for (let idx = 0; idx < sqlText.length; idx += 1) {
+      const char = sqlText[idx];
+      const next = sqlText[idx + 1];
+
+      if (lineComment) {
+        current += char;
+        if (char === "\n") lineComment = false;
+        continue;
+      }
+
+      if (blockComment) {
+        current += char;
+        if (char === "*" && next === "/") {
+          current += next;
+          idx += 1;
+          blockComment = false;
+        }
+        continue;
+      }
+
+      if (dollarQuoteTag) {
+        if (sqlText.startsWith(dollarQuoteTag, idx)) {
+          current += dollarQuoteTag;
+          idx += dollarQuoteTag.length - 1;
+          dollarQuoteTag = null;
+        } else {
+          current += char;
+        }
+        continue;
+      }
+
+      if (singleQuoted) {
+        current += char;
+        if (char === "'" && next === "'") {
+          current += next;
+          idx += 1;
+        } else if (char === "'") {
+          singleQuoted = false;
+        }
+        continue;
+      }
+
+      if (doubleQuoted) {
+        current += char;
+        if (char === '"' && next === '"') {
+          current += next;
+          idx += 1;
+        } else if (char === '"') {
+          doubleQuoted = false;
+        }
+        continue;
+      }
+
+      if (char === "-" && next === "-") {
+        current += char + next;
+        idx += 1;
+        lineComment = true;
+        continue;
+      }
+
+      if (char === "/" && next === "*") {
+        current += char + next;
+        idx += 1;
+        blockComment = true;
+        continue;
+      }
+
+      if (char === "'") {
+        current += char;
+        singleQuoted = true;
+        continue;
+      }
+
+      if (char === '"') {
+        current += char;
+        doubleQuoted = true;
+        continue;
+      }
+
+      if (char === "$") {
+        const match = sqlText.slice(idx).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/);
+        if (match) {
+          dollarQuoteTag = match[0];
+          current += dollarQuoteTag;
+          idx += dollarQuoteTag.length - 1;
+          continue;
+        }
+      }
+
+      if (char === ";") {
+        const statement = current.trim();
+        if (statement) statements.push(statement);
+        current = "";
+        continue;
+      }
+
+      current += char;
+    }
+
+    const statement = current.trim();
+    if (statement) statements.push(statement);
+  }
+  return statements;
+}
+
+function quotePgIdentifier(identifier) {
+  return `"${String(identifier).replaceAll('"', '""')}"`;
+}
+
+async function ensureDrizzleMigrationTable(sql, detectedMetaSchema) {
+  const schema = detectedMetaSchema ?? "drizzle";
+  await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${quotePgIdentifier(schema)}`);
+  await sql.unsafe(`
+    CREATE TABLE IF NOT EXISTS ${quotePgIdentifier(schema)}.${quotePgIdentifier("__drizzle_migrations")} (
+      id SERIAL PRIMARY KEY,
+      hash text NOT NULL,
+      created_at bigint
+    )
+  `);
+  return schema;
+}
+
+async function recordDrizzleMigration(sql, schema, migration) {
+  await sql.unsafe(
+    `INSERT INTO ${quotePgIdentifier(schema)}.${quotePgIdentifier("__drizzle_migrations")} ("hash", "created_at") VALUES ($1, $2)`,
+    [migration.hash, migration.folderMillis],
+  );
+}
+
+async function applyDrizzleMigration(sql, schema, migration, entry) {
+  const statements = splitPostgresStatements(migration.sql);
+
+  if (migrationRequiresNonTransactionalApply(statements)) {
+    for (const statement of statements) {
+      if (statement.trim()) {
+        await sql.unsafe(statement);
+      }
+    }
+    await recordDrizzleMigration(sql, schema, migration);
+    return { tag: entry.tag, mode: "non_transactional" };
+  }
+
+  await sql.begin(async (tx) => {
+    for (const statement of statements) {
+      if (statement.trim()) {
+        await tx.unsafe(statement);
+      }
+    }
+    await recordDrizzleMigration(tx, schema, migration);
+  });
+  return { tag: entry.tag, mode: "transactional" };
+}
+
+async function applyPendingDrizzleMigrations(sql, history, detectedMetaSchema) {
+  const schema = await ensureDrizzleMigrationTable(sql, detectedMetaSchema);
+  const migrationFiles = readMigrationFiles({ migrationsFolder: repoPath(DRIZZLE_MIGRATION_DIR) });
+  const migrationsByCreatedAt = new Map(migrationFiles.map((migration) => [Number(migration.folderMillis), migration]));
+  const applied = [];
+
+  for (const entry of history.pending) {
+    const migration = migrationsByCreatedAt.get(Number(entry.when));
+    if (!migration) {
+      throw new Error(`Migration file metadata not found for ${entry.tag}.`);
+    }
+    applied.push(await applyDrizzleMigration(sql, schema, migration, entry));
+  }
+
+  return applied;
+}
+
 function blockerFromClassifications(classifications, args) {
   const blockers = [];
   for (const item of classifications) {
@@ -173,7 +358,7 @@ async function readSupabasePending(sql) {
 function manualSupabaseInstructions(pending) {
   const versions = pending.pending.map((entry) => `${entry.version} (${path.relative(repoRoot, entry.filePath)})`);
   return [
-    "Supabase CLI migration に未適用があります。shared production DB への自動適用は行いません。",
+    "Supabase CLI migration に未適用があります。release runner での自動適用は行いません。",
     "行うべき作業:",
     "1. docs/release/ops/DB_MIGRATION.md Phase 3 の Supabase CLI マイグレーション手順を確認する。",
     "2. 対象 SQL をレビューし、manual-risky / manual-contract の影響を確認する。",
@@ -184,14 +369,14 @@ function manualSupabaseInstructions(pending) {
 }
 
 async function main(argv = process.argv.slice(2)) {
+  setDefaultResultOrder("ipv4first");
   const args = parseArgs(argv);
   if (args.help) {
-    process.stdout.write("Usage: run-migrations.mjs [--env local|production] [--dry-run] [--allow-risky] [--allow-contract] [--json]\n");
+    process.stdout.write("Usage: run-migrations.mjs [--env local|staging|production] [--dry-run] [--allow-risky] [--allow-contract] [--json]\n");
     return 0;
   }
 
   if (!process.env.DIRECT_URL) loadEnvFile(args.env);
-  process.env.NODE_OPTIONS = [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"].filter(Boolean).join(" ");
   const directUrl = getDirectUrl();
   const sql = postgres(directUrl, { max: 1, ssl: "require" });
   const payload = {
@@ -203,6 +388,7 @@ async function main(argv = process.argv.slice(2)) {
     supabasePending: 0,
     blockers: [],
     applied: false,
+    appliedMigrations: [],
   };
 
   try {
@@ -260,8 +446,7 @@ async function main(argv = process.argv.slice(2)) {
     }
 
     if (history.pending.length > 0 && !args.dryRun) {
-      const db = drizzle(sql);
-      await migrate(db, { migrationsFolder: repoPath(DRIZZLE_MIGRATION_DIR) });
+      payload.appliedMigrations = await applyPendingDrizzleMigrations(sql, history, metaSchema);
       const nextSchema = await detectDrizzleMetaSchema(sql);
       const nextApplied = await readAppliedDrizzleMigrations(sql, nextSchema);
       const nextHistory = compareDrizzleHistory(nextApplied, localEntries);

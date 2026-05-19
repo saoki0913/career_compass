@@ -20,11 +20,11 @@ from ._length_control import (
     resolve_length_control_profile,
     resolve_length_target_plan,
 )
+from app.prompts.es_quality_rules import _build_contextual_rules
 from ._prompt_builder import (
     DRAFT_SYNTHETIC_QUESTION_GAKUCHIKA,
     TEMPLATE_DEFS,
     TEMPLATE_ROLES,
-    _build_contextual_rules,
     _draft_generation_output_contract_json,
     _format_company_guidance,
     _format_gakuchika_allocation_guide,
@@ -49,7 +49,7 @@ from ._prompt_builder import (
     get_template_evaluation_axes,
     get_template_evaluation_checks,
     get_template_fact_priority,
-    get_template_retry_guidance,
+    get_template_retry_policy_guidance,
     get_template_spec,
     grounding_level_to_policy,
     RewriteStrategy,

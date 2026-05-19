@@ -6,9 +6,8 @@ from ._types import TemplateDef
 
 
 TEMPLATE_DEF: TemplateDef = {
-        "label": "ガクチカ",
-        "requires_company_rag": False,
-        "grounding_level": "none",
+    "label": "ガクチカ",
+    "rewrite_policy": {
         "description": "学生時代に力を入れたことを述べる設問。STAR形式で具体的に。",
         "purpose": "学生時代に力を入れた取り組みを、課題・行動・成果・学びが伝わる形で示す。",
         "required_elements": ["取り組みの核", "課題や目的", "工夫した行動", "成果や学び"],
@@ -28,21 +27,8 @@ TEMPLATE_DEF: TemplateDef = {
             "結びを『今後の仕事でも〜発揮していく』『活かしていく』と未来志向にする。ガクチカの結びは経験から得たもので締める",
             "①②で施策を列挙する際に導入文なしでいきなり番号を始める。「そこでN点の施策を実施した。」等の導入を置く",
         ],
-        "recommended_structure": {
-            "short": "1文目で最も力を入れた行動、2文目で工夫や成果、必要なら3文目で仕事との接点を置く",
-            "three_sentence_close_on_short_band": True,
-        },
-        "evaluation_checks": {
-            "repeated_opening_pattern": r"(学生時代に力を入れたこと|学生時代に頑張ったこと)は",
-            "head_sentence_window": 3,
-            "head_focus_pattern": r"力を入れ|頑張っ|取り組ん|経験|課題|行動|成果|学び|リーダー|役割|担当|主担当|工夫|改善|達成|PDCA|チーム|サークル|ゼミ|研究|活動|最も",
-            "answer_focus_message": "冒頭で学生時代に力を入れた取り組みの核を短く示してください。",
-        },
-        "retry_guidance": {
-            "under_min": "{target_hint} を狙い、課題・行動・成果・学びのつながりを補う",
-            "answer_focus": "1文目で最も力を入れた取り組みの核を短く示す",
-            "structure": "複数の施策は①②を文中にインラインで置き、各項目を独立した文にする。「①…実現させた。②…合意を得た。」のように句点で区切る",
-        },
+        "structure_short": "1文目で最も力を入れた行動、2文目で工夫や成果、必要なら3文目で仕事との接点を置く",
+        "three_sentence_close_on_short_band": True,
         "rewrite_closing_guidance": (
             "結びの1文は元回答の行動・成果から得た能力を「培った」「身につけた」で締める。"
             "元回答にない数値や経験は足さず、行動の抽象化のみ行う"
@@ -59,10 +45,30 @@ TEMPLATE_DEF: TemplateDef = {
             "example_good_2": "30人規模の運営で情報共有の遅れを立て直し、来場者対応の流れを整えた。",
             "example_bad": "学生時代に力を入れたことは、いろいろ工夫して頑張ったことである。",
         },
-        "evaluation_axes": [{'name': '課題の明確さ', 'pass_condition': '課題や目的が因果接続で行動につながっている', 'rewrite_instruction': '課題、分析、必要性、行動の順に飛躍なくつなぐ'},
-         {'name': '行動の具体性', 'pass_condition': '提案、導入、設計、改善等の具体動詞がある', 'rewrite_instruction': '頑張った、工夫したを具体的な行動に置き換える'},
-         {'name': '役割の明確さ', 'pass_condition': '集団活動では自分の役割が明示されている', 'rewrite_instruction': '主担当、リーダー、担当範囲など元回答内の役割を残す'},
-         {'name': '成果の追跡可能性', 'pass_condition': '行動と成果が数字または変化表現でつながる', 'rewrite_instruction': 'その結果、ことにより等でA→Rの因果を明示する'},
-         {'name': '思考プロセスの可視化', 'pass_condition': '施策を選んだ理由や判断が見える', 'rewrite_instruction': 'なぜその方法を選んだかを1句で補う'},
-         {'name': '人柄の透過性', 'pass_condition': '行動描写から価値観や性格が自然に伝わる', 'rewrite_instruction': '直接的な自己評価ではなく、行動のHOWで示す'}],
-    }
+    },
+    "validation_policy": {
+        "requires_company_rag": False,
+        "grounding_level": "none",
+        "evaluation_checks": {
+            "repeated_opening_pattern": r"(学生時代に力を入れたこと|学生時代に頑張ったこと)は",
+            "head_sentence_window": 3,
+            "head_focus_pattern": r"力を入れ|頑張っ|取り組ん|経験|課題|行動|成果|学び|リーダー|役割|担当|主担当|工夫|改善|達成|PDCA|チーム|サークル|ゼミ|研究|活動|最も",
+            "answer_focus_message": "冒頭で学生時代に力を入れた取り組みの核を短く示してください。",
+        },
+        "evaluation_axes": [
+            {"name": "課題の明確さ", "pass_condition": "課題や目的が因果接続で行動につながっている", "rewrite_instruction": "課題、分析、必要性、行動の順に飛躍なくつなぐ"},
+            {"name": "行動の具体性", "pass_condition": "提案、導入、設計、改善等の具体動詞がある", "rewrite_instruction": "頑張った、工夫したを具体的な行動に置き換える"},
+            {"name": "役割の明確さ", "pass_condition": "集団活動では自分の役割が明示されている", "rewrite_instruction": "主担当、リーダー、担当範囲など元回答内の役割を残す"},
+            {"name": "成果の追跡可能性", "pass_condition": "行動と成果が数字または変化表現でつながる", "rewrite_instruction": "その結果、ことにより等でA→Rの因果を明示する"},
+            {"name": "思考プロセスの可視化", "pass_condition": "施策を選んだ理由や判断が見える", "rewrite_instruction": "なぜその方法を選んだかを1句で補う"},
+            {"name": "人柄の透過性", "pass_condition": "行動描写から価値観や性格が自然に伝わる", "rewrite_instruction": "直接的な自己評価ではなく、行動のHOWで示す"},
+        ],
+    },
+    "retry_policy": {
+        "guidance_by_failure": {
+            "under_min": "{target_hint} を狙い、課題・行動・成果・学びのつながりを補う",
+            "answer_focus": "1文目で最も力を入れた取り組みの核を短く示す",
+            "structure": "複数の施策は①②を文中にインラインで置き、各項目を独立した文にする。「①…実現させた。②…合意を得た。」のように句点で区切る",
+        },
+    },
+}

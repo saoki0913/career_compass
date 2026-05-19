@@ -215,6 +215,7 @@ class CrawlCorporateResponse(BaseModel):
     errors: list[str]
     url_content_types: dict[str, str] = {}
     page_routing_summaries: dict[str, dict[str, object]] = {}
+    source_results: list[dict[str, object]] = []
 
 
 class UploadCorporatePdfResponse(BaseModel):
@@ -267,6 +268,7 @@ class CrawlCorporateEstimateResponse(BaseModel):
     requires_confirmation: bool = False
     errors: list[str] = []
     page_routing_summaries: dict[str, dict[str, object]] = {}
+    source_results: list[dict[str, object]] = []
 
 
 class SearchCorporatePagesRequest(BaseModel):

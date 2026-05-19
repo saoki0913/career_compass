@@ -120,6 +120,8 @@ export interface PdfEstimateResult {
     actual_route: string[];
   };
   errors?: string[];
+  quoteId?: string;
+  quoteExpiresAt?: string;
 }
 
 export type PageRoutingSummary = {
@@ -144,6 +146,8 @@ export interface CrawlEstimateResult {
   error?: string;
   errors?: string[];
   page_routing_summaries?: Record<string, PageRoutingSummary & Record<string, unknown>>;
+  quoteId?: string;
+  quoteExpiresAt?: string;
 }
 
 export const CONTENT_TYPE_TO_CHANNEL: Record<ContentType, "corporate_ir" | "corporate_general"> = {
@@ -214,6 +218,8 @@ export type CorporateFetchPlan = {
   contentType: ContentType;
   contentChannel: "corporate_ir" | "corporate_general";
   confirmedWarningUrls: string[];
+  quoteId?: string;
+  pdfQuoteIds?: Record<string, string>;
 };
 
 export type FetchConfirmation =

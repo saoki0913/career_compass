@@ -306,7 +306,7 @@ def test_live_case_char_min_matches_production_formula(case: LiveESReviewCase) -
     """All live gate cases must use the same char_min as the production app.
 
     Production derives char_min = max(0, char_max - 10) in
-    src/app/api/documents/_services/review-stream-context.ts::deriveCharMin.
+    src/bff/es-review/review-stream-context.ts::deriveCharMin.
     """
     expected = max(0, case.char_max - 10)
     assert case.char_min == expected, (

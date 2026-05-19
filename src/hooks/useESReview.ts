@@ -5,6 +5,7 @@ import { trackEvent } from "@/lib/analytics/client";
 import type { StandardESReviewModel } from "@/lib/ai/es-review-models";
 import { calculateESReviewCost } from "@/lib/credits/cost";
 import { AppUiError, parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
+import { postJson } from "@/lib/shared/client-api";
 import type {
   CurrentSectionInfo,
   ReviewMode,
@@ -203,26 +204,19 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
         });
 
         const streamPath = `/api/documents/${encodeURIComponent(trimmedDocId)}/review/stream`;
-        const response = await fetch(streamPath, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          signal: controller.signal,
-          body: JSON.stringify({
-            content: params.sectionContent,
-            sectionId: params.sectionId,
-            companyId: params.companyId,
-            sectionTitle: params.sectionTitle,
-            sectionCharLimit: params.sectionCharLimit,
-            templateType: params.templateType,
-            internName: params.internName,
-            roleName: params.roleName,
-            industryOverride: params.industryOverride,
-            roleSelectionSource: params.roleSelectionSource,
-            llmModel: params.llmModel,
-          }),
-        });
+        const response = await postJson(streamPath, {
+          content: params.sectionContent,
+          sectionId: params.sectionId,
+          companyId: params.companyId,
+          sectionTitle: params.sectionTitle,
+          sectionCharLimit: params.sectionCharLimit,
+          templateType: params.templateType,
+          internName: params.internName,
+          roleName: params.roleName,
+          industryOverride: params.industryOverride,
+          roleSelectionSource: params.roleSelectionSource,
+          llmModel: params.llmModel,
+        }, controller.signal);
 
         if (!isActiveRequest()) {
           return false;
@@ -363,13 +357,14 @@ export function useESReview({ documentId, esReviewBillingPlan }: UseESReviewOpti
           const finalRewrite = streamResult.result.rewrites[0] ?? prev.rewriteText;
           const finalSources = streamResult.result.template_review?.keyword_sources ?? [];
           return {
-            keywordSources: mergeStreamedItems(prev.keywordSources, finalSources),
+            keywordSources: finalSources.length > 0
+              ? finalSources
+              : mergeStreamedItems(prev.keywordSources, finalSources),
             explanationText:
               streamResult.result.improvement_explanation ?? prev.explanationText,
             explanationComplete:
               prev.explanationComplete || Boolean(streamResult.result.improvement_explanation),
-            rewriteText:
-              finalRewrite.length > prev.rewriteText.length ? finalRewrite : prev.rewriteText,
+            rewriteText: finalRewrite,
           };
         });
         trackEvent("ai_review_complete", {

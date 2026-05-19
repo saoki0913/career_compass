@@ -12,6 +12,18 @@ from app.prompts.es_templates import (
     build_template_rewrite_prompt,
 )
 from app.prompts.es_templates._prompt_builder import _format_fact_preservation_rules
+from app.prompts.es_templates._types import (
+    InstructionId,
+    Priority,
+    PromptInstruction,
+    PromptPhase,
+    PromptPlan,
+    PromptRenderer,
+    PromptSection,
+    retry_policy,
+    validation_policy,
+    rewrite_policy,
+)
 from app.prompts.es_quality_rules import STYLE_RULES
 from app.prompts.es_templates._focus_modes import FocusModeContext
 from app.services.es_review.retry import _select_rewrite_prompt_context
@@ -21,37 +33,162 @@ from app.services.es_review.retry import _select_rewrite_prompt_context
 def test_template_defs_expose_common_spec_fields(template_type: str) -> None:
     template_def = TEMPLATE_DEFS[template_type]
 
+    assert "rewrite_policy" in template_def
+    assert "validation_policy" in template_def
+    assert "retry_policy" in template_def
+
+    rewrite = rewrite_policy(template_def)
+    validation = validation_policy(template_def)
+    retry = retry_policy(template_def)
+
     for key in (
         "purpose",
         "required_elements",
         "anti_patterns",
-        "recommended_structure",
-        "evaluation_checks",
-        "evaluation_axes",
-        "retry_guidance",
         "company_usage",
         "fact_priority",
     ):
-        assert key in template_def
+        assert key in rewrite
+    for key in ("evaluation_checks", "evaluation_axes"):
+        assert key in validation
+    assert "guidance_by_failure" in retry
 
-    assert template_def["required_elements"]
-    assert template_def["anti_patterns"]
-    assert template_def["recommended_structure"]
-    assert template_def["evaluation_checks"]
-    assert template_def["evaluation_axes"]
+    assert rewrite["required_elements"]
+    assert rewrite["anti_patterns"]
+    assert rewrite.get("structure_short") or rewrite.get("playbook")
+    assert validation["evaluation_checks"]
+    assert validation["evaluation_axes"]
+
+
+def test_prompt_plan_dedupes_instruction_id_by_priority() -> None:
+    plan = PromptPlan(phase=PromptPhase.REWRITE, user_prompt="user")
+    plan.add(
+        PromptInstruction(
+            id=InstructionId.CONCLUSION_FIRST,
+            priority=Priority.ADVISORY,
+            section=PromptSection.CORE,
+            text="弱い結論ファースト指示",
+            source="test.low",
+        )
+    )
+    plan.add(
+        PromptInstruction(
+            id=InstructionId.CONCLUSION_FIRST,
+            priority=Priority.CORE,
+            section=PromptSection.CORE,
+            text="1文目で設問への答えの核を言い切る",
+            source="test.core",
+        )
+    )
+
+    rendered = PromptRenderer().render(plan)
+
+    assert rendered.system_prompt.count("結論") == 0
+    assert "弱い結論ファースト指示" not in rendered.system_prompt
+    assert rendered.system_prompt.count("1文目で設問への答えの核を言い切る") == 1
+
+
+def test_initial_rewrite_prompt_uses_compact_anti_ai_instruction_only() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="self_pr",
+        company_name=None,
+        industry=None,
+        question="自己PRを教えてください。",
+        answer="研究で課題を整理し改善した。",
+        char_min=180,
+        char_max=260,
+        company_evidence_cards=[],
+        has_rag=True,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で課題を整理し改善した。"}],
+        grounding_mode="none",
+    )
+
+    assert "<anti_ai_phrase>" not in system_prompt
+    assert "<anti_ai_compact>" in system_prompt
+    assert "多角的" in system_prompt
+
+
+def test_normal_rewrite_prompt_omits_retry_section_until_failure_context_exists() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="学園祭運営の改善に取り組んだ。",
+        char_min=180,
+        char_max=260,
+        company_evidence_cards=[],
+        has_rag=True,
+        allowed_user_facts=[{"source": "current_answer", "text": "学園祭運営の改善に取り組んだ。"}],
+        grounding_mode="none",
+        focus_mode="normal",
+    )
+
+    assert "<retry>" not in system_prompt
+
+
+def test_retry_rewrite_prompt_renders_diff_without_initial_advisory_blocks() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="company_motivation",
+        company_name="テスト株式会社",
+        industry=None,
+        question="テスト株式会社を志望する理由を教えてください。",
+        answer="研究で課題を整理した経験を事業理解につなげたい。",
+        char_min=180,
+        char_max=260,
+        company_evidence_cards=[
+            {
+                "theme": "事業理解",
+                "claim": "顧客課題を起点に事業をつくる",
+                "source_url": "https://example.com/recruit",
+            }
+        ],
+        has_rag=True,
+        allowed_user_facts=[{"source": "current_answer", "text": "研究で課題を整理した。"}],
+        grounding_mode="company_general",
+        retry_hints=["前回は冒頭が設問への答えになっていない。1文目で答えの核を言い切る。"],
+        focus_mode="answer_focus",
+        latest_failed_length=150,
+    )
+
+    assert "<output_contract>" in system_prompt
+    assert '<constraints priority="absolute">' in system_prompt
+    assert "<length>" in system_prompt
+    assert "strict受理帯" in system_prompt
+    assert "<retry>" in system_prompt
+    assert "前回は冒頭が設問への答えになっていない" in system_prompt
+    assert '<constraints priority="core">' not in system_prompt
+    assert '<constraints priority="target">' not in system_prompt
+    assert "<style>" not in system_prompt
+    assert "<template>" in system_prompt
+    assert "<company>" in system_prompt
+    assert "<context>" in system_prompt
+    assert "【requiredテンプレの型】" in system_prompt
+    assert "【企業根拠カード】" in system_prompt
+    assert "【使えるユーザー事実】" in system_prompt
 
 
 def test_rewrite_prompt_renders_required_elements_and_anti_patterns_from_template_spec(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     company_spec = dict(TEMPLATE_DEFS["company_motivation"])
+    company_rewrite = dict(rewrite_policy(TEMPLATE_DEFS["company_motivation"]))
     monkeypatch.setitem(
         TEMPLATE_DEFS,
         "company_motivation",
         {
             **company_spec,
-            "required_elements": ["検証用必須要素", *list(company_spec.get("required_elements", []))],
-            "anti_patterns": ["検証用禁止表現", *list(company_spec.get("anti_patterns", []))],
+            "rewrite_policy": {
+                **company_rewrite,
+                "required_elements": [
+                    "検証用必須要素",
+                    *list(company_rewrite.get("required_elements", [])),
+                ],
+                "anti_patterns": [
+                    "検証用禁止表現",
+                    *list(company_rewrite.get("anti_patterns", [])),
+                ],
+            },
         },
     )
 
@@ -1036,10 +1173,10 @@ def test_gakuchika_prompt_includes_structure_rule_and_playbook() -> None:
     assert "【requiredテンプレの型】" in system_prompt
 
 
-def test_retry_guidance_has_quantify_and_structure_entries() -> None:
-    assert "quantify" in TEMPLATE_DEFS["self_pr"]["retry_guidance"]
-    assert "quantify" in TEMPLATE_DEFS["work_values"]["retry_guidance"]
-    assert "structure" in TEMPLATE_DEFS["gakuchika"]["retry_guidance"]
+def test_retry_policy_has_quantify_and_structure_entries() -> None:
+    assert "quantify" in retry_policy(TEMPLATE_DEFS["self_pr"])["guidance_by_failure"]
+    assert "quantify" in retry_policy(TEMPLATE_DEFS["work_values"])["guidance_by_failure"]
+    assert "structure" in retry_policy(TEMPLATE_DEFS["gakuchika"])["guidance_by_failure"]
 
 
 # ---------------------------------------------------------------------------

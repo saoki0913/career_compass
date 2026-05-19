@@ -11,7 +11,6 @@ logger = get_logger(__name__)
 SERVICE_NAME = "career-compass-backend"
 BUILD_SHA = os.getenv("RAILWAY_GIT_COMMIT_SHA")
 BUILD_TIME = os.getenv("BUILD_TIME")
-APP_ENV = os.getenv("APP_ENV") or os.getenv("ENVIRONMENT")
 
 
 @router.get("/health")
@@ -21,11 +20,19 @@ async def health_check():
 
 @router.get("/health/version")
 async def version_check():
+    try:
+        from app.config import settings  # noqa: PLC0415
+
+        environment = settings.logical_app_environment
+    except Exception:
+        logger.warning("Version check: settings unavailable", exc_info=True)
+        environment = None
+
     return {
         "service": SERVICE_NAME,
         "sha": BUILD_SHA[:8] if BUILD_SHA else None,
         "build_time": BUILD_TIME or None,
-        "environment": APP_ENV or None,
+        "environment": environment,
     }
 
 

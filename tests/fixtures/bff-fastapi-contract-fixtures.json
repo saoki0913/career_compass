@@ -55,15 +55,22 @@
       "type": "complete",
       "result": {
         "rewrites": [
-          {
-            "id": "rewrite-1",
-            "text": "私はチームの課題を整理し、改善施策を実行しました。"
-          }
+          "私はチームの課題を整理し、改善施策を実行しました。"
         ],
         "review_meta": {
           "template": "self_pr",
-          "grounding_mode": "assistive"
+          "grounding_mode": "company_general"
+        },
+        "billing_outcome": {
+          "success": true,
+          "billable": true,
+          "schema_version": 1
         }
+      },
+      "internal_telemetry": {
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "total_tokens": 15
       }
     },
     "interviewComplete": {
@@ -88,6 +95,39 @@
       "type": "error",
       "message": "AIサービスに接続できませんでした。"
     }
+  },
+  "esReviewStreamRequest": {
+    "content": "全国規模のネットワークと現場力で高品質な物流を支えている点に惹かれました。",
+    "section_id": "section-1",
+    "document_id": "doc-1",
+    "company_id": "company-1",
+    "section_title": "志望動機",
+    "section_char_limit": 400,
+    "template_request": {
+      "template_type": "company_motivation",
+      "company_name": "佐川急便",
+      "industry": "物流",
+      "question": "志望動機",
+      "answer": "全国規模のネットワークと現場力で高品質な物流を支えている点に惹かれました。",
+      "char_min": 390,
+      "char_max": 400,
+      "role_name": "総合職",
+      "inferred_template_type": "company_motivation",
+      "inferred_confidence": "high",
+      "secondary_template_types": [],
+      "recommended_grounding_level": "standard"
+    },
+    "role_context": {
+      "primary_role": "総合職",
+      "role_candidates": ["総合職"],
+      "source": "user_input"
+    },
+    "retrieval_query": "設問タイプ:company_motivation / 佐川急便 / 志望動機",
+    "profile_context": null,
+    "gakuchika_context": [],
+    "document_context": null,
+    "llm_model": "low-cost",
+    "user_provided_corporate_urls": ["https://www.sagawa-exp.co.jp/"]
   },
   "principals": {
     "companyUser": {

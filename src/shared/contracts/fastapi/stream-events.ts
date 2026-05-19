@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+  ES_REVIEW_TEMPLATE_TYPES,
+  EVIDENCE_COVERAGE_LEVELS,
+  FINAL_ACCEPTANCE_SOURCES,
+  GROUNDING_MODES,
+  VALIDATION_STATUSES,
+} from "@/shared/contracts/es-review-sse";
 
 const eventBaseSchema = z.object({
   type: z.string().min(1),
@@ -82,9 +89,45 @@ export const interviewCompleteEventSchema = eventBaseSchema.extend({
   data: interviewCompleteDataSchema,
 });
 
+const esReviewBillingOutcomeSchema = z.object({
+  success: z.boolean(),
+  billable: z.boolean(),
+  schema_version: z.number().int().positive(),
+}).strict();
+
+const esReviewSourceSchema = z.object({
+  source_url: z.string().min(1),
+  content_type: z.string().min(1),
+  content_type_label: z.string().min(1).optional(),
+  title: z.string().min(1).optional(),
+  domain: z.string().min(1).optional(),
+  excerpt: z.string().min(1).optional(),
+}).strict();
+
+const esReviewTemplateReviewSchema = z.object({
+  template_type: z.enum(ES_REVIEW_TEMPLATE_TYPES),
+  keyword_sources: z.array(esReviewSourceSchema).default([]),
+}).passthrough();
+
+const esReviewMetaSchema = z.object({
+  grounding_mode: z.enum(GROUNDING_MODES).optional(),
+  evidence_coverage_level: z.enum(EVIDENCE_COVERAGE_LEVELS).optional(),
+  rewrite_validation_status: z.enum(VALIDATION_STATUSES).optional(),
+  final_acceptance_source: z.enum(FINAL_ACCEPTANCE_SOURCES).optional(),
+}).passthrough();
+
+export const esReviewResultSchema = z.object({
+  rewrites: z.array(z.string().min(1)).min(1),
+  template_review: esReviewTemplateReviewSchema.optional(),
+  improvement_explanation: z.string().optional(),
+  review_meta: esReviewMetaSchema.optional(),
+  billing_outcome: esReviewBillingOutcomeSchema,
+}).strict();
+
 export const esReviewCompleteEventSchema = eventBaseSchema.extend({
   type: z.literal("complete"),
-  result: genericRecordSchema,
+  result: esReviewResultSchema,
+  internal_telemetry: genericRecordSchema.nullable().optional(),
 });
 
 export const fastApiStreamEventSchema = z.union([

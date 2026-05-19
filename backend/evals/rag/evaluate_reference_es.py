@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate anonymized reference ES retrieval quality."""
+"""Retired reference ES retrieval quality evaluator."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 
-from app.rag.reference_es import ingest_reference_es, retrieve_reference_es_semantic
 from scripts.ingest_reference_es import load_records
 
 
@@ -39,51 +38,12 @@ async def evaluate_reference_es(
     ingest_first: bool,
     ingest_session_id: str,
 ) -> dict[str, Any]:
-    records = load_records(
+    load_records(
         input_path,
         default_source_version="v1",
         ingest_session_id=ingest_session_id,
     )
-    if ingest_first:
-        await ingest_reference_es(records)
-
-    per_item: list[dict[str, Any]] = []
-    for record in records:
-        results = await retrieve_reference_es_semantic(
-            record.question_type,
-            industry=record.industry,
-            char_max=record.char_max,
-            query_text=record.text,
-            top_k=max(recall_k, ndcg_k),
-        )
-        retrieved_ids = [
-            str((item.get("metadata") or {}).get("es_id") or "")
-            for item in results
-            if isinstance(item, dict)
-        ]
-        per_item.append(
-            {
-                "es_id": record.es_id,
-                "question_type": record.question_type,
-                "retrieved_ids": retrieved_ids,
-                "recall_at_k": _recall_at_k(retrieved_ids[:recall_k], record.es_id),
-                "ndcg_at_k": _ndcg_at_k(retrieved_ids[:ndcg_k], record.es_id),
-            }
-        )
-
-    n_items = len(per_item)
-    recall = sum(item["recall_at_k"] for item in per_item) / n_items if n_items else 0.0
-    ndcg = sum(item["ndcg_at_k"] for item in per_item) / n_items if n_items else 0.0
-    return {
-        "n_items": n_items,
-        "recall_k": recall_k,
-        "ndcg_k": ndcg_k,
-        "ingestSessionId": ingest_session_id,
-        "recall_at_k": recall,
-        "ndcg_at_k": ndcg,
-        "thresholds": {"recall_at_10_min": 0.85, "ndcg_at_5_min": 0.75},
-        "per_item": per_item,
-    }
+    raise RuntimeError("reference ES semantic evaluation has been removed from runtime")
 
 
 def parse_args() -> argparse.Namespace:

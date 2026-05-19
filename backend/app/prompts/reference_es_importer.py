@@ -10,9 +10,13 @@ import html
 import json
 import re
 
-from app.prompts.reference_es import REFERENCE_ES_PATH
-
-DEFAULT_OUTPUT_PATH = REFERENCE_ES_PATH
+DEFAULT_OUTPUT_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "docs"
+    / "reference"
+    / "es-review"
+    / "notion_reference_es_import.json"
+)
 DEFAULT_RAW_OUTPUT_PATH = DEFAULT_OUTPUT_PATH.with_name("raw_notion_dump.json")
 
 PROPERTY_ALIASES: dict[str, tuple[str, ...]] = {

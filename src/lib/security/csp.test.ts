@@ -72,7 +72,7 @@ describe("security/csp", () => {
     expect(csp).toContain("'unsafe-eval'");
   });
 
-  it("adds only the configured Sentry DSN origin to connect-src", async () => {
+  it("adds the configured Sentry DSN origin to connect-src without leaking DSN credentials", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv(
       "NEXT_PUBLIC_SENTRY_DSN",
@@ -87,17 +87,23 @@ describe("security/csp", () => {
     expect(getDirective(buildNonceCsp("nonce-123"), "img-src")).not.toContain("ingest.us.sentry.io");
   });
 
-  it("ignores absent, invalid, and non-HTTPS Sentry DSNs", async () => {
+  it("keeps baseline Sentry ingest hosts while ignoring invalid and non-HTTPS DSN origins", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const { buildNonceCsp: buildWithoutDsn } = await importCspModule();
-    expect(getDirective(buildWithoutDsn("nonce-123"), "connect-src")).not.toContain("sentry.io");
+    expect(getDirective(buildWithoutDsn("nonce-123"), "connect-src")).toContain("https://*.ingest.sentry.io");
+    expect(getDirective(buildWithoutDsn("nonce-123"), "connect-src")).toContain("https://*.ingest.us.sentry.io");
 
     vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", "not-a-url");
     const { buildNonceCsp: buildWithInvalidDsn } = await importCspModule();
-    expect(getDirective(buildWithInvalidDsn("nonce-123"), "connect-src")).not.toContain("sentry.io");
+    const invalidDsnConnectSrc = getDirective(buildWithInvalidDsn("nonce-123"), "connect-src");
+    expect(invalidDsnConnectSrc).toContain("https://*.ingest.sentry.io");
+    expect(invalidDsnConnectSrc).toContain("https://*.ingest.us.sentry.io");
+    expect(invalidDsnConnectSrc).not.toContain("not-a-url");
 
     vi.stubEnv("NEXT_PUBLIC_SENTRY_DSN", "http://public-key@o1.ingest.sentry.io/1");
     const { buildNonceCsp: buildWithHttpDsn } = await importCspModule();
-    expect(getDirective(buildWithHttpDsn("nonce-123"), "connect-src")).not.toContain("ingest.sentry.io");
+    const httpDsnConnectSrc = getDirective(buildWithHttpDsn("nonce-123"), "connect-src");
+    expect(httpDsnConnectSrc).toContain("https://*.ingest.sentry.io");
+    expect(httpDsnConnectSrc).not.toContain("http://o1.ingest.sentry.io");
   });
 });

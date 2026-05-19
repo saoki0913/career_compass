@@ -8,10 +8,12 @@ import pytest
 import app.routers.es_review as es_review_module
 import app.services.es_review.orchestrator as es_review_orchestrator_module
 import app.routers.es_review_explanation as es_review_explanation_module
+from app.config import settings
 from app.prompts.es_templates import (
     TEMPLATE_DEFS,
     build_template_fallback_rewrite_prompt,
 )
+from app.prompts.es_templates._types import retry_policy
 from app.routers.es_review import (
     _coerce_degraded_rewrite_dearu_style,
     DocumentContext,
@@ -57,7 +59,6 @@ from app.services.es_review.retry import (
 )
 from app.services.es_review.tracing import _append_rewrite_attempt_trace
 from app.prompts.es_templates import resolve_length_control_profile
-from app.utils.llm_providers import LLMError
 from app.utils.llm_prompt_safety import detect_es_injection_risk
 from tests.es_review.conftest import FakeJsonResult, FakeTextResult
 
@@ -315,6 +316,7 @@ def test_append_rewrite_attempt_trace_disabled_without_debug_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("LIVE_ES_REVIEW_CAPTURE_DEBUG", raising=False)
+    monkeypatch.setattr(settings, "live_es_review_capture_debug", False)
     trace: list[dict] = []
 
     row = _append_rewrite_attempt_trace(
@@ -504,15 +506,19 @@ def test_retry_hints_use_template_spec_under_min_guidance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     self_pr_spec = dict(TEMPLATE_DEFS["self_pr"])
-    retry_guidance = dict(self_pr_spec.get("retry_guidance", {}))
+    self_pr_retry = dict(retry_policy(TEMPLATE_DEFS["self_pr"]))
+    retry_failure_guidance = dict(self_pr_retry.get("guidance_by_failure", {}))
     monkeypatch.setitem(
         TEMPLATE_DEFS,
         "self_pr",
         {
             **self_pr_spec,
-            "retry_guidance": {
-                **retry_guidance,
-                "under_min": "検証用の橋渡しを入れて不足字数を埋める",
+            "retry_policy": {
+                **self_pr_retry,
+                "guidance_by_failure": {
+                    **retry_failure_guidance,
+                    "under_min": "検証用の橋渡しを入れて不足字数を埋める",
+                },
             },
         },
     )
@@ -1437,7 +1443,7 @@ async def test_generate_review_progress_continues_when_improvement_explanation_f
     assert len(complete_events) == 1
     assert "improvement_explanation" not in complete_events[0]
     complete_payload = _parse_sse_event(complete_events[0])
-    assert complete_payload["billing_outcome"] == {
+    assert complete_payload["result"]["billing_outcome"] == {
         "success": True,
         "billable": True,
         "schema_version": 1,
@@ -1692,7 +1698,7 @@ async def test_review_section_with_template_uses_length_focus_retry_for_non_clau
         rewrite_calls += 1
         system_prompt = kwargs.get("system_prompt", "") or (args[0] if args else "")
         seen_prompts.append(system_prompt)
-        if "【今回の不足を埋める方針】" in system_prompt:
+        if "【今回の修正フォーカス: 文字数不足の解消】" in system_prompt:
             return FakeTextResult(_make_role_course_pad(394))
         return FakeTextResult(_make_role_course_pad(350))
 
@@ -1723,7 +1729,7 @@ async def test_review_section_with_template_uses_length_focus_retry_for_non_clau
 
     assert rewrite_calls == 2
     assert any("【300〜500字設問の組み方】" in prompt for prompt in seen_prompts[:2])
-    assert any("【今回の不足を埋める方針】" in prompt for prompt in seen_prompts)
+    assert any("【今回の修正フォーカス: 文字数不足の解消】" in prompt for prompt in seen_prompts)
     assert result.review_meta is not None
     assert result.review_meta.rewrite_generation_mode == "length_focus_min"
     assert 390 <= len(result.rewrites[0]) <= 400
@@ -2057,6 +2063,8 @@ async def test_review_section_with_template_propagates_enrichment_meta(
 async def test_review_section_with_template_logs_rewrite_and_sources(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(settings, "live_es_review_capture_debug", False)
+
     async def fake_call_llm_with_error(*args, **kwargs):
         return FakeJsonResult(
             {

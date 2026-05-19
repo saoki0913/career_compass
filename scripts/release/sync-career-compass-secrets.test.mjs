@@ -222,7 +222,7 @@ exit 1
 
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     const keys = readFileSync(keysLog, "utf8").trim().split("\n").sort();
-    assert.equal(keys.length, 4);
+    assert.equal(keys.length, 2);
     assert.deepEqual([...new Set(keys)], ["FIRST_SETTING", "SECOND_SETTING"]);
   } finally {
     rmSync(secretDir, { recursive: true, force: true });
@@ -285,10 +285,8 @@ exit 0
   }
 });
 
-test("can apply only Vercel preview env", () => {
+test("rejects Vercel preview env scope", () => {
   const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
-  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
-  const argsLog = path.join(secretDir, "vercel-args.log");
 
   try {
     writeFileSync(
@@ -301,42 +299,19 @@ test("can apply only Vercel preview env", () => {
       "utf8",
     );
 
-    const fakeVercelPath = path.join(binDir, "vercel");
-    writeFileSync(
-      fakeVercelPath,
-      `#!/bin/zsh
-set -euo pipefail
-print -r -- "$*" >> "$VERCEL_ARGS_LOG"
-if [[ "$1" == "env" && "$2" == "add" ]]; then
-  cat >/dev/null || true
-fi
-exit 0
-`,
-      "utf8",
-    );
-    chmodSync(fakeVercelPath, 0o755);
-
     const result = spawnSync(
       "zsh",
       [scriptPath, "--apply", "--target", "vercel-production", "--vercel-env", "preview", "--secret-dir", secretDir],
       {
         cwd: repoRoot,
         encoding: "utf8",
-        env: {
-          ...process.env,
-          PATH: `${binDir}:${process.env.PATH}`,
-          VERCEL_ARGS_LOG: argsLog,
-        },
       },
     );
 
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-    const args = readFileSync(argsLog, "utf8");
-    assert.match(args, /env add STRIPE_WEBHOOK_SECRET preview develop/);
-    assert.doesNotMatch(args, /STRIPE_WEBHOOK_SECRET production/);
+    assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    assert.match(`${result.stdout}\n${result.stderr}`, /Invalid --vercel-env: preview\. Expected production/);
   } finally {
     rmSync(secretDir, { recursive: true, force: true });
-    rmSync(binDir, { recursive: true, force: true });
   }
 });
 
@@ -351,7 +326,7 @@ test("rejects invalid Vercel env scope", () => {
   );
 
   assert.notEqual(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(`${result.stdout}\n${result.stderr}`, /Invalid --vercel-env: staging/);
+  assert.match(`${result.stdout}\n${result.stderr}`, /Invalid --vercel-env: staging\. Expected production/);
 });
 
 test("checks Vercel production without preview branch argument", () => {
@@ -402,6 +377,109 @@ exit 1
 
     assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(`${result.stdout}\n${result.stderr}`, /Checked Vercel production provider key drift/);
+  } finally {
+    rmSync(secretDir, { recursive: true, force: true });
+    rmSync(binDir, { recursive: true, force: true });
+  }
+});
+
+test("json check supports target all", () => {
+  const secretDir = mkdtempSync(path.join(tmpdir(), "career-compass-secrets-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "career-compass-bin-"));
+
+  try {
+    for (const [fileName, lines] of [
+      ["vercel-staging.env", ["VERCEL_PROJECT_ID=prj_stg", "VERCEL_TEAM_ID=team_test", "PUBLIC_SETTING=value"]],
+      ["vercel-production.env", ["VERCEL_PROJECT_ID=prj_prod", "VERCEL_TEAM_ID=team_test", "PUBLIC_SETTING=value"]],
+      ["railway-staging.env", ["RAILWAY_PROJECT_ID=rail_proj", "RAILWAY_SERVICE_NAME=svc_stg", "RAILWAY_ENVIRONMENT_NAME=production", "PUBLIC_SETTING=value"]],
+      ["railway-production.env", ["RAILWAY_PROJECT_ID=rail_proj", "RAILWAY_SERVICE_NAME=svc_prod", "RAILWAY_ENVIRONMENT_NAME=production", "PUBLIC_SETTING=value"]],
+      ["github-actions.env", ["PUBLIC_SETTING=value"]],
+      ["supabase-staging.env", ["SUPABASE_STAGING_PROJECT_REF=supabase_stg_ref", "PUBLIC_SETTING=value"]],
+      ["supabase.env", ["SUPABASE_PRODUCTION_PROJECT_REF=supabase_ref", "PUBLIC_SETTING=value"]],
+    ]) {
+      writeFileSync(path.join(secretDir, fileName), `${lines.join("\n")}\n`, "utf8");
+    }
+
+    writeFileSync(
+      path.join(binDir, "vercel"),
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "env" && "$2" == "pull" ]]; then
+  cat > "$3" <<'EOF'
+PUBLIC_SETTING=value
+EOF
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    writeFileSync(
+      path.join(binDir, "railway"),
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "link" ]]; then exit 0; fi
+if [[ "$1" == "variables" ]]; then
+  print -r -- '{"PUBLIC_SETTING":"value"}'
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    writeFileSync(
+      path.join(binDir, "gh"),
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "secret" && "$2" == "list" ]]; then
+  print -r -- 'PUBLIC_SETTING'
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    writeFileSync(
+      path.join(binDir, "supabase"),
+      `#!/bin/zsh
+set -euo pipefail
+if [[ "$1" == "secrets" && "$2" == "list" ]]; then
+  print -r -- 'PUBLIC_SETTING value'
+  exit 0
+fi
+exit 1
+`,
+      "utf8",
+    );
+    for (const name of ["vercel", "railway", "gh", "supabase"]) {
+      chmodSync(path.join(binDir, name), 0o755);
+    }
+
+    const result = spawnSync(
+      "zsh",
+      [scriptPath, "--check", "--json", "--target", "all", "--secret-dir", secretDir],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+        },
+      },
+    );
+
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.length, 7);
+    assert.deepEqual(payload.map((item) => item.target), [
+      "vercel-staging",
+      "vercel-production",
+      "railway-staging",
+      "railway-production",
+      "github",
+      "supabase-staging",
+      "supabase-production",
+    ]);
   } finally {
     rmSync(secretDir, { recursive: true, force: true });
     rmSync(binDir, { recursive: true, force: true });

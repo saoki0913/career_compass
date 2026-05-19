@@ -10,6 +10,8 @@ import os
 import hashlib
 from typing import Optional
 
+from app.config import settings
+
 logger = logging.getLogger(__name__)
 
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -220,14 +222,14 @@ def _stable_bucket(value: str) -> float:
 
 def resolve_reranker_variant(routing_key: str | None = None) -> str:
     """Resolve reranker variant based on environment and optional routing key."""
-    requested = os.getenv("RERANKER_VARIANT", "base").strip().lower()
+    requested = settings.reranker_variant.strip().lower()
     if requested not in RERANKER_VARIANTS:
         requested = "base"
 
     if requested != "ab":
         return requested
 
-    ratio_raw = os.getenv("RERANKER_AB_TUNED_RATIO", "0.5").strip()
+    ratio_raw = str(settings.reranker_ab_tuned_ratio).strip()
     try:
         tuned_ratio = float(ratio_raw)
     except ValueError:
@@ -240,8 +242,8 @@ def resolve_reranker_variant(routing_key: str | None = None) -> str:
 
 def resolve_reranker_model_name(variant: str) -> str:
     """Resolve model name/path from variant."""
-    base_model = os.getenv("RERANKER_BASE_MODEL", DEFAULT_CROSS_ENCODER_MODEL).strip()
-    tuned_model = os.getenv("RERANKER_TUNED_MODEL_PATH", "").strip()
+    base_model = settings.reranker_base_model.strip() or DEFAULT_CROSS_ENCODER_MODEL
+    tuned_model = settings.reranker_tuned_model_path.strip()
 
     if variant == "tuned":
         return tuned_model or base_model

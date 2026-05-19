@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextvars
 import json
-import os
 from functools import lru_cache
 from typing import Any, Literal
 
@@ -112,7 +111,7 @@ def _canonical_price_model(model_id: str | None) -> str:
 
 @lru_cache(maxsize=1)
 def _load_price_overrides() -> dict[str, dict[str, float]]:
-    raw = os.getenv("LLM_PRICE_OVERRIDES_JSON", "").strip()
+    raw = settings.llm_price_overrides_json.strip()
     if not raw:
         return {}
     try:
@@ -396,7 +395,7 @@ def _format_llm_cost_kv_line(
 
 @lru_cache(maxsize=1)
 def _load_budget_overrides() -> dict[str, int]:
-    raw = os.getenv("LLM_CALL_BUDGET_OVERRIDES_JSON", "").strip()
+    raw = settings.llm_call_budget_overrides_json.strip()
     if not raw:
         return {}
     try:

@@ -1,3 +1,4 @@
+import { isDeployedAppEnvironment, resolveAppEnvironment } from "@/env/deployment";
 import { getAppOrigin } from "@/lib/app-url";
 
 const LOCAL_DEV_ORIGINS = [
@@ -11,15 +12,15 @@ const PRODUCTION_ORIGINS = [
 ];
 
 function isStrictOriginValidationEnabled() {
-  return (
-    process.env.NODE_ENV === "production" ||
-    process.env.VERCEL_ENV === "production" ||
-    process.env.VERCEL_ENV === "preview"
-  );
+  return isDeployedAppEnvironment();
 }
 
 function isProductionDeployment() {
-  return process.env.VERCEL_ENV === "production";
+  return resolveAppEnvironment() === "production";
+}
+
+function isStagingDeployment() {
+  return resolveAppEnvironment() === "staging";
 }
 
 export function normalizeOrigin(value?: string | null): string | null {
@@ -102,6 +103,8 @@ function assertTrustedOriginsAreSafe(origins: Set<string>) {
         throw new Error(`BETTER_AUTH_TRUSTED_ORIGINS must include ${origin} in production.`);
       }
     }
+  } else if (isStagingDeployment() && !origins.has("https://stg.shupass.jp")) {
+    throw new Error("BETTER_AUTH_TRUSTED_ORIGINS must include https://stg.shupass.jp in staging.");
   }
 }
 

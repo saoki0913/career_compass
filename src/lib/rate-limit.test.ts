@@ -38,6 +38,8 @@ vi.mock("@/lib/redis", async () => {
       });
     },
     getRedisNamespace: () => process.env.UPSTASH_REDIS_NAMESPACE || "local",
+    redisKey: (domain: string, ...parts: Array<string | number>) =>
+      ["cc", process.env.UPSTASH_REDIS_NAMESPACE || "local", domain, ...parts].join(":"),
   };
 });
 
@@ -60,7 +62,7 @@ describe("rate-limit", () => {
     ratelimitConfigs.length = 0;
     process.env.UPSTASH_REDIS_REST_URL = "https://example.upstash.io";
     process.env.UPSTASH_REDIS_REST_TOKEN = "token";
-    process.env.UPSTASH_REDIS_NAMESPACE = "unit";
+    process.env.UPSTASH_REDIS_NAMESPACE = "staging";
   });
 
   afterEach(() => {
@@ -83,7 +85,7 @@ describe("rate-limit", () => {
       "conversation",
     );
 
-    expect(ratelimitConfigs[0]?.prefix).toBe("cc:unit:rl:conversation");
+    expect(ratelimitConfigs[0]?.prefix).toBe("cc:staging:rl:conversation");
   });
 
   it("falls back to in-memory limiting when Upstash errors", async () => {

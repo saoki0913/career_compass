@@ -2,7 +2,7 @@
 #
 # secret-plan.sh — Compute structured JSON diff of bundle keys vs provider keys.
 #
-# Usage: secret-plan.sh --target <target> [--secret-dir PATH] [--vercel-env production|preview|both]
+# Usage: secret-plan.sh --target <target> [--secret-dir PATH] [--vercel-env production]
 #
 # Outputs JSON to stdout:
 #   {"target":"vercel-production","added":["KEY_A"],"modified":[],"removed":["KEY_C"],"unchanged":12}
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
     --secret-dir)   cli_secret_dir="${2:-}"; shift ;;
     --vercel-env)   vercel_env_scope="${2:-}"; shift ;;
     -h|--help)
-      print -r -- "Usage: secret-plan.sh --target <target> [--secret-dir PATH] [--vercel-env production|preview|both]" >&2
+      print -r -- "Usage: secret-plan.sh --target <target> [--secret-dir PATH] [--vercel-env production]" >&2
       exit 0
       ;;
     *) release_die "Unknown argument: $1" ;;
@@ -36,6 +36,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$plan_target" ]] || release_die "--target is required"
+[[ "$vercel_env_scope" == "production" ]] || release_die "Invalid --vercel-env: ${vercel_env_scope}. Expected production."
 
 # Secret dir resolution (mirrors sync-career-compass-secrets.sh)
 if [[ -n "$cli_secret_dir" ]]; then
@@ -97,7 +98,8 @@ resolve_bundle_file() {
       railway-staging)    print -r -- "${secret_dir}/railway-staging.env" ;;
       railway-production) print -r -- "${secret_dir}/railway-production.env" ;;
       github)             print -r -- "${secret_dir}/github-actions.env" ;;
-      supabase)           print -r -- "${secret_dir}/supabase.env" ;;
+      supabase-staging)   print -r -- "${secret_dir}/supabase-staging.env" ;;
+      supabase-production|supabase) print -r -- "${secret_dir}/supabase.env" ;;
       google-oauth)       print -r -- "${google_oauth_file}" ;;
       *) release_die "Unknown target: $tgt" ;;
     esac
@@ -130,7 +132,12 @@ resolve_bundle_file() {
     github)
       merge_env_files "$tmp" "${secret_dir}/ci/github-actions.env"
       ;;
-    supabase)
+    supabase-staging)
+      merge_env_files "$tmp" \
+        "${secret_dir}/staging/shared.env" \
+        "${secret_dir}/staging/supabase.env"
+      ;;
+    supabase-production|supabase)
       merge_env_files "$tmp" \
         "${secret_dir}/production/shared.env" \
         "${secret_dir}/production/supabase.env"
@@ -150,7 +157,7 @@ iter_env_keys() {
 
 is_meta_key() {
   [[ "$1" == VERCEL_* || "$1" == RAILWAY_* || "$1" == GITHUB_* || "$1" == TARGET_* \
-    || "$1" == SUPABASE_PRODUCTION_PROJECT_REF || "$1" == SUPABASE_ACCESS_TOKEN \
+    || "$1" == SUPABASE_STAGING_PROJECT_REF || "$1" == SUPABASE_PRODUCTION_PROJECT_REF || "$1" == SUPABASE_ACCESS_TOKEN \
     || "$1" == SUPABASE_ORG_ID ]]
 }
 
@@ -177,22 +184,15 @@ require_env_value() {
 
 # Provider key fetchers (key names only — no secret values)
 vercel_provider_keys_plan() {
-  local env_target="$1" project_id="$2" team_id="$3" preview_git_branch="${4:-}"
+  local env_target="$1" project_id="$2" team_id="$3"
   local tmp pull_status=0
 
   tmp="$(mktemp "/tmp/secret-plan-vercel-${env_target}.XXXXXX")"
   TEMP_PLAN_FILES+=("$tmp")
 
-  if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
-    VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-      vercel env pull "$tmp" --yes --environment preview \
-        --git-branch "$preview_git_branch" --cwd "${secret_dir}" \
-        --scope "$team_id" >/dev/null 2>&1 || pull_status=$?
-  else
-    VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-      vercel env pull "$tmp" --yes --environment "$env_target" \
-        --cwd "${secret_dir}" --scope "$team_id" >/dev/null 2>&1 || pull_status=$?
-  fi
+  VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+    vercel env pull "$tmp" --yes --environment "$env_target" \
+      --cwd "${secret_dir}" --scope "$team_id" >/dev/null 2>&1 || pull_status=$?
 
   [[ "$pull_status" -eq 0 ]] || release_die "Could not pull Vercel ${env_target} env keys"
   iter_env_keys "$tmp" | sort -u
@@ -284,6 +284,18 @@ compute_plan() {
 }
 
 # Main dispatch
+if [[ "$plan_target" == "all" ]]; then
+  targets=(vercel-staging vercel-production railway-staging railway-production github supabase-staging supabase-production)
+  first=1
+  printf '['
+  for child_target in "${targets[@]}"; do
+    if (( first )); then first=0; else printf ','; fi
+    zsh "$0" --target "$child_target" --secret-dir "$secret_dir" --vercel-env "$vercel_env_scope"
+  done
+  printf ']\n'
+  exit 0
+fi
+
 bundle_file="$(resolve_bundle_file "$plan_target")"
 [[ -f "$bundle_file" ]] || release_die "Bundle file not found for target: ${plan_target}"
 bundle_keys="$(bundle_keys_sorted "$bundle_file")"
@@ -292,9 +304,7 @@ case "$plan_target" in
   vercel-staging|vercel-production)
     project_id="$(require_env_value "$bundle_file" "VERCEL_PROJECT_ID")"
     team_id="$(require_env_value "$bundle_file" "VERCEL_TEAM_ID")"
-    env_scope="$vercel_env_scope"
-    [[ "$env_scope" == "both" ]] && env_scope="production"
-    provider_keys="$(vercel_provider_keys_plan "$env_scope" "$project_id" "$team_id")"
+    provider_keys="$(vercel_provider_keys_plan "$vercel_env_scope" "$project_id" "$team_id")"
     compute_plan "$bundle_keys" "$provider_keys" "$plan_target"
     ;;
   railway-staging|railway-production)
@@ -308,7 +318,12 @@ case "$plan_target" in
     provider_keys="$(github_provider_keys_plan)"
     compute_plan "$bundle_keys" "$provider_keys" "$plan_target"
     ;;
-  supabase)
+  supabase-staging)
+    project_ref="$(require_env_value "$bundle_file" "SUPABASE_STAGING_PROJECT_REF")"
+    provider_keys="$(supabase_provider_keys_plan "$project_ref")"
+    compute_plan "$bundle_keys" "$provider_keys" "$plan_target"
+    ;;
+  supabase-production|supabase)
     project_ref="$(require_env_value "$bundle_file" "SUPABASE_PRODUCTION_PROJECT_REF")"
     provider_keys="$(supabase_provider_keys_plan "$project_ref")"
     compute_plan "$bundle_keys" "$provider_keys" "$plan_target"

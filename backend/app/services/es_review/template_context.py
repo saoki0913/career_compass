@@ -5,7 +5,13 @@ from dataclasses import dataclass, asdict
 from typing import Any, cast
 
 from app.prompts.es_templates import get_template_spec
-from app.prompts.es_templates._types import EvaluationAxis, TemplateDef
+from app.prompts.es_templates._types import (
+    EvaluationAxis,
+    TemplateDef,
+    retry_policy,
+    validation_policy,
+    rewrite_policy,
+)
 from app.utils.es_template_classifier import ESQuestionClassification
 
 
@@ -85,24 +91,21 @@ def _dedupe_axes(axes: list[EvaluationAxis], *, cap: int) -> list[EvaluationAxis
 
 
 def _max_grounding_level(component_specs: list[TemplateDef]) -> str:
-    levels = [str(spec.get("grounding_level") or "light") for spec in component_specs]
+    levels = [str(validation_policy(spec).get("grounding_level") or "light") for spec in component_specs]
     return max(levels or ["light"], key=lambda level: GROUNDING_LEVEL_ORDER.get(level, 0))
 
 
-def _append_to_structure(structure: dict[str, Any], addition: str) -> dict[str, Any]:
-    updated = dict(structure)
-    for key, value in list(updated.items()):
-        if isinstance(value, str) and value.strip():
-            updated[key] = f"{value}。後半では{addition}"
-    if not updated:
-        updated["short"] = addition
-    return updated
+def _append_to_structure_short(structure_short: str, addition: str) -> str:
+    base = structure_short.strip()
+    if not base:
+        return addition
+    return f"{base}。後半では{addition}"
 
 
-def _merge_retry_guidance(primary: TemplateDef, secondary_specs: list[TemplateDef]) -> dict[str, str]:
-    merged = dict(primary.get("retry_guidance") or {})
+def _merge_retry_policy_guidance(primary: TemplateDef, secondary_specs: list[TemplateDef]) -> dict[str, str]:
+    merged = dict(retry_policy(primary).get("guidance_by_failure") or {})
     for index, spec in enumerate(secondary_specs, start=2):
-        for key, value in dict(spec.get("retry_guidance") or {}).items():
+        for key, value in dict(retry_policy(spec).get("guidance_by_failure") or {}).items():
             if key not in merged:
                 merged[key] = str(value)
             else:
@@ -152,63 +155,69 @@ def merge_template_specs(
     secondary_specs = component_specs[1:]
 
     merged = cast(TemplateDef, deepcopy(primary_spec))
-    merged["required_elements"] = _dedupe_strings(
+    merged_rewrite = dict(rewrite_policy(merged))
+    merged_validation = dict(validation_policy(merged))
+    merged_retry = dict(retry_policy(merged))
+
+    merged_rewrite["required_elements"] = _dedupe_strings(
         [
             str(item)
             for spec in component_specs
-            for item in list(spec.get("required_elements") or [])
+            for item in list(rewrite_policy(spec).get("required_elements") or [])
         ]
     )
-    merged["anti_patterns"] = _dedupe_strings(
+    merged_rewrite["anti_patterns"] = _dedupe_strings(
         [
             str(item)
             for spec in component_specs
-            for item in list(spec.get("anti_patterns") or [])
+            for item in list(rewrite_policy(spec).get("anti_patterns") or [])
         ]
     )
-    primary_axes = list(primary_spec.get("evaluation_axes") or [])
+    primary_axes = list(validation_policy(primary_spec).get("evaluation_axes") or [])
     supplemental_axes = [
         axis
         for spec in secondary_specs
-        for axis in list(spec.get("evaluation_axes") or [])[:2]
+        for axis in list(validation_policy(spec).get("evaluation_axes") or [])[:2]
     ]
-    merged["evaluation_axes"] = _dedupe_axes(primary_axes + supplemental_axes, cap=7)
-    merged["evaluation_checks"] = dict(primary_spec.get("evaluation_checks") or {})
-    merged["grounding_level"] = _max_grounding_level(component_specs)
-    merged["requires_company_rag"] = any(
-        bool(spec.get("requires_company_rag")) for spec in component_specs
+    merged_validation["evaluation_axes"] = _dedupe_axes(primary_axes + supplemental_axes, cap=7)
+    merged_validation["evaluation_checks"] = dict(validation_policy(primary_spec).get("evaluation_checks") or {})
+    merged_validation["grounding_level"] = _max_grounding_level(component_specs)
+    merged_validation["requires_company_rag"] = any(
+        bool(validation_policy(spec).get("requires_company_rag")) for spec in component_specs
     )
-    merged["company_usage"] = (
-        "required" if bool(merged["requires_company_rag"]) else str(primary_spec.get("company_usage") or "assistive")
+    merged_rewrite["company_usage"] = (
+        "required"
+        if bool(merged_validation["requires_company_rag"])
+        else str(rewrite_policy(primary_spec).get("company_usage") or "assistive")
     )
-    merged["fact_priority"] = (
+    merged_rewrite["fact_priority"] = (
         "mixed"
-        if any(str(spec.get("fact_priority") or "") == "mixed" for spec in component_specs)
-        else str(primary_spec.get("fact_priority") or "self")
+        if any(str(rewrite_policy(spec).get("fact_priority") or "") == "mixed" for spec in component_specs)
+        else str(rewrite_policy(primary_spec).get("fact_priority") or "self")
     )
-    merged["retry_guidance"] = _merge_retry_guidance(primary_spec, secondary_specs)
+    merged_retry["guidance_by_failure"] = _merge_retry_policy_guidance(primary_spec, secondary_specs)
 
     if len(unique_types) > 1:
         labels = [str(spec.get("label") or template_type) for spec, template_type in zip(component_specs, unique_types)]
         merged["label"] = " + ".join(labels)
-        merged["description"] = " / ".join(
-            str(spec.get("description") or "") for spec in component_specs if spec.get("description")
+        merged_rewrite["description"] = " / ".join(
+            str(rewrite_policy(spec).get("description") or "") for spec in component_specs if rewrite_policy(spec).get("description")
         )
 
     if variant == "strength_weakness":
         merged["label"] = "自己PR（強み・弱み）"
-        merged["required_elements"] = _dedupe_strings(
-            list(merged.get("required_elements") or []) + ["弱みの認識と克服姿勢"]
+        merged_rewrite["required_elements"] = _dedupe_strings(
+            list(merged_rewrite.get("required_elements") or []) + ["弱みの認識と克服姿勢"]
         )
-        merged["anti_patterns"] = _dedupe_strings(
-            list(merged.get("anti_patterns") or []) + ["弱みを自己否定で終わらせる"]
+        merged_rewrite["anti_patterns"] = _dedupe_strings(
+            list(merged_rewrite.get("anti_patterns") or []) + ["弱みを自己否定で終わらせる"]
         )
-        merged["recommended_structure"] = _append_to_structure(
-            dict(merged.get("recommended_structure") or {}),
+        merged_rewrite["structure_short"] = _append_to_structure_short(
+            str(merged_rewrite.get("structure_short") or ""),
             "弱みの認識から改善行動、成長につなげる",
         )
-        merged["evaluation_axes"] = _dedupe_axes(
-            list(merged.get("evaluation_axes") or [])
+        merged_validation["evaluation_axes"] = _dedupe_axes(
+            list(merged_validation.get("evaluation_axes") or [])
             + [
                 {
                     "name": "弱みの制御と成長",
@@ -218,9 +227,13 @@ def merge_template_specs(
             ],
             cap=7,
         )
-        retry_guidance = dict(merged.get("retry_guidance") or {})
-        retry_guidance["strength_weakness"] = "強みは根拠経験、弱みは認識と改善行動を分けて示す"
-        merged["retry_guidance"] = retry_guidance
+        retry_failure_guidance = dict(merged_retry.get("guidance_by_failure") or {})
+        retry_failure_guidance["strength_weakness"] = "強みは根拠経験、弱みは認識と改善行動を分けて示す"
+        merged_retry["guidance_by_failure"] = retry_failure_guidance
+
+    merged["rewrite_policy"] = cast(Any, merged_rewrite)
+    merged["validation_policy"] = cast(Any, merged_validation)
+    merged["retry_policy"] = cast(Any, merged_retry)
 
     return merged
 
@@ -268,7 +281,7 @@ def build_effective_template_context(
     )
     effective_axes = [
         cast(EvaluationAxis, dict(axis))
-        for axis in list(merged_spec.get("evaluation_axes") or [])
+        for axis in list(validation_policy(merged_spec).get("evaluation_axes") or [])
     ]
     secondary_types = [template_type for template_type in component_types[1:]]
 
@@ -286,8 +299,8 @@ def build_effective_template_context(
         ),
         component_types=component_types,
         merged_spec=merged_spec,
-        effective_grounding_level=str(merged_spec.get("grounding_level") or "light"),
-        requires_company_rag=bool(merged_spec.get("requires_company_rag")),
+        effective_grounding_level=str(validation_policy(merged_spec).get("grounding_level") or "light"),
+        requires_company_rag=bool(validation_policy(merged_spec).get("requires_company_rag")),
         effective_evaluation_axes=effective_axes,
         rag_profile_type=_resolve_rag_profile_type(primary_type, secondary_types),
     )

@@ -86,6 +86,7 @@ export function useFetchCorporateInfo({
         contentChannel: plan.contentChannel,
         contentType: plan.contentType,
         confirmedWarningUrls: plan.confirmedWarningUrls,
+        quoteId: plan.quoteId,
       });
 
       if (response.status === 402) {
@@ -197,6 +198,10 @@ export function useFetchCorporateInfo({
         );
       }
       const data = (await response.json().catch(() => ({}))) as CrawlEstimateResult;
+      const estimatedPlan: CorporateFetchPlan = {
+        ...plan,
+        quoteId: data.quoteId,
+      };
 
       let remainingHtml = Math.max(0, companyRagHtmlPagesRemaining ?? 0);
       let remainingPdf = Math.max(0, companyRagPdfPagesRemaining ?? 0);
@@ -234,12 +239,12 @@ export function useFetchCorporateInfo({
       };
 
       if (estimateResult.requires_confirmation) {
-        setPendingConfirmation({ kind: "cost_estimate", estimate: estimateResult, plan });
+        setPendingConfirmation({ kind: "cost_estimate", estimate: estimateResult, plan: estimatedPlan });
         setFetchPhase("confirming");
         return;
       }
 
-      await executeFetchPlan(plan);
+      await executeFetchPlan(estimatedPlan);
     } catch (err) {
       const uiError = toAppUiError(
         err,

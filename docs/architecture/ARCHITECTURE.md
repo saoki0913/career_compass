@@ -214,9 +214,9 @@ career_compass/
 
 3. 結果を受け取り
    └─> Next.js API
-       ├─> 成功時のみクレジット消費
-       ├─> AIスレッドに履歴保存
-       └─> フロントエンドにストリーミング返却
+       ├─> BFFで公開SSE DTOへsanitize
+       ├─> valid complete のときだけクレジット予約を確定
+       └─> error / abort / invalid complete では予約をキャンセル
 ```
 
 ### 企業情報取得フロー

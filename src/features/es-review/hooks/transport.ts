@@ -241,48 +241,58 @@ export async function consumeESReviewStream(args: {
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminal = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split("\n\n");
-    buffer = events.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
 
-    for (const eventText of events) {
-      if (!eventText.trim()) continue;
+      for (const eventText of events) {
+        if (!eventText.trim()) continue;
 
-      const event = parseSSEEvent(eventText);
-      if (!event) continue;
+        const event = parseSSEEvent(eventText);
+        if (!event) continue;
 
-      args.onEvent(event);
+        args.onEvent(event);
 
-      if (event.type === "complete") {
-        return {
-          ok: true,
-          result: event.result,
-          creditCost: event.creditCost,
-        };
-      }
+        if (event.type === "complete") {
+          terminal = true;
+          return {
+            ok: true,
+            result: event.result,
+            creditCost: event.creditCost,
+          };
+        }
 
-      if (event.type === "error") {
-        const errorEvent = event as SSEErrorEvent;
-        return {
-          ok: false,
-          reason: "stream_error",
-          message: errorEvent.message,
-          code: errorEvent.code,
-          action: errorEvent.action,
-          retryable: errorEvent.retryable,
-        };
+        if (event.type === "error") {
+          terminal = true;
+          const errorEvent = event as SSEErrorEvent;
+          return {
+            ok: false,
+            reason: "stream_error",
+            message: errorEvent.message,
+            code: errorEvent.code,
+            action: errorEvent.action,
+            retryable: errorEvent.retryable,
+          };
+        }
       }
     }
-  }
 
-  return {
-    ok: false,
-    reason: "missing_complete",
-    message: "添削結果を受信できませんでした",
-  };
+    return {
+      ok: false,
+      reason: "missing_complete",
+      message: "添削結果を受信できませんでした",
+    };
+  } finally {
+    if (terminal) {
+      await reader.cancel().catch(() => undefined);
+    }
+    reader.releaseLock();
+  }
 }

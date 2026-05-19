@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, TypedDict
 from urllib.parse import urlparse
 
@@ -49,7 +48,7 @@ class RewriteAttemptTraceRow(TypedDict, total=False):
 def _capture_rewrite_debug_enabled() -> bool:
     if settings.is_deployed:
         return False
-    return os.getenv("LIVE_ES_REVIEW_CAPTURE_DEBUG", "").strip() == "1"
+    return bool(settings.live_es_review_capture_debug)
 
 
 def _copy_string_list(value: Any) -> list[str]:

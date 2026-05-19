@@ -30,6 +30,10 @@ function getGreeting() {
   return "こんばんは";
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function DashboardPurchaseSuccessEffect() {
   const searchParams = useSearchParams();
   const { refreshPlan, isAuthenticated, isReady } = useAuth();
@@ -43,7 +47,12 @@ function DashboardPurchaseSuccessEffect() {
     purchaseHandled.current = true;
 
     (async () => {
-      const refreshedPlan = await refreshPlan();
+      let refreshedPlan = await refreshPlan();
+      for (const delayMs of [1200, 2400, 4200]) {
+        if (refreshedPlan?.plan === plan) break;
+        await wait(delayMs);
+        refreshedPlan = await refreshPlan();
+      }
       const isPlanConfirmed = refreshedPlan?.plan === plan;
       notifyPurchaseSuccess(plan, isPlanConfirmed);
       await creditsRefresh();
@@ -94,4 +103,3 @@ export function DashboardHeader({ viewer }: DashboardHeaderProps) {
     </div>
   );
 }
-

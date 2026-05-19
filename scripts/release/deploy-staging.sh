@@ -138,19 +138,21 @@ sync_staging_secrets() {
     release_log "Checking staging provider secrets without applying changes"
     run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target vercel-staging
     run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target railway-staging
+    run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target supabase-staging
     run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target github
     return 0
   fi
   release_log "Applying staging provider secrets from canonical bundle"
   run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --apply --target vercel-staging 2>&1 | redact_output
   run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --apply --target railway-staging 2>&1 | redact_output
+  run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --apply --target supabase-staging 2>&1 | redact_output
   run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --apply --target github 2>&1 | redact_output
 }
 
 run_expand_migrations() {
-  release_log "Checking shared production DB migrations before staging push"
+  release_log "Checking staging DB migrations before staging push"
   local result
-  if ! result="$(node "${repo_root}/scripts/release/run-migrations.mjs" --env production --dry-run --json 2>&1)"; then
+  if ! result="$(node "${repo_root}/scripts/release/run-migrations.mjs" --env staging --dry-run --json 2>&1)"; then
     print -r -- "$result" | redact_output
     release_die "Migration gate failed. Resolve the reported DB migration work, then rerun make deploy-staging."
   fi
@@ -162,11 +164,10 @@ run_expand_migrations() {
     return 0
   fi
 
-  release_log "Applying ${pending} expand-only Drizzle migration(s) to shared production DB"
-  release_log "Production-impact condition: expand-only, backward-compatible, idempotent"
-  node "${repo_root}/scripts/release/run-migrations.mjs" --env production --json 2>&1 | redact_output
-  "${repo_root}/scripts/release/deployment-state.sh" record-migration --env production --sha "$(run_real git rev-parse HEAD)" --pending-applied "$pending" >/dev/null || true
-  release_log "Shared DB migration completed. sha=$(run_real git rev-parse HEAD), pending_applied=${pending}"
+  release_log "Applying ${pending} expand-only Drizzle migration(s) to staging DB"
+  node "${repo_root}/scripts/release/run-migrations.mjs" --env staging --json 2>&1 | redact_output
+  "${repo_root}/scripts/release/deployment-state.sh" record-migration --env staging --sha "$(run_real git rev-parse HEAD)" --pending-applied "$pending" >/dev/null || true
+  release_log "Staging DB migration completed. sha=$(run_real git rev-parse HEAD), pending_applied=${pending}"
 }
 
 push_develop() {
@@ -180,14 +181,16 @@ push_develop() {
 write_staging_checkpoint() {
   local head_sha
   head_sha="$(run_real git rev-parse HEAD)"
-  local session_dir="${HOME}/.claude/sessions/career_compass"
-  mkdir -p "$session_dir"
-  node "${repo_root}/scripts/harness/diff-snapshot.mjs" checkpoint \
-    --kind staging-verified \
-    --decision verified \
-    --release-mode staging \
-    --project "${repo_root}" \
-    > "${session_dir}/staging-verified-${head_sha}"
+  local session_dir
+  for session_dir in "${HOME}/.claude/sessions/career_compass" "${HOME}/.codex/sessions/career_compass"; do
+    mkdir -p "$session_dir"
+    node "${repo_root}/scripts/harness/diff-snapshot.mjs" checkpoint \
+      --kind staging-verified \
+      --decision verified \
+      --release-mode staging \
+      --project "${repo_root}" \
+      > "${session_dir}/staging-verified-${head_sha}"
+  done
   release_log "Staging checkpoint written: staging-verified-${head_sha}"
 }
 

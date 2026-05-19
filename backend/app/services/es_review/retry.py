@@ -16,10 +16,11 @@ from app.prompts.es_templates import (
     TEMPLATE_DEFS,
     LengthTargetPlan,
     format_generation_target,
-    get_template_retry_guidance,
+    get_template_retry_policy_guidance,
     resolve_length_target_plan,
 )
 from app.prompts.es_templates._length_control import compute_shortfall_delta_band
+from app.prompts.es_templates._types import rewrite_policy
 from app.services.es_review.grounding import (
     COMPANY_DIRECTION_EVIDENCE_THEMES,
     ROLE_PROGRAM_EVIDENCE_THEMES,
@@ -578,8 +579,8 @@ def _retry_hint_from_code(
     )
     shortfall = max(0, (char_min or 0) - (current_length or 0)) if char_min and current_length else 0
     template_def = TEMPLATE_DEFS.get(template_type or "basic", TEMPLATE_DEFS["basic"])
-    template_usage = str(template_def.get("company_usage") or "assistive")
-    template_guidance = get_template_retry_guidance(template_type or "basic")
+    template_usage = str(rewrite_policy(template_def).get("company_usage") or "assistive")
+    template_guidance = get_template_retry_policy_guidance(template_type or "basic")
     spec_hint = str(template_guidance.get(code) or "").strip()
     formatted_spec_hint = (
         spec_hint.format(

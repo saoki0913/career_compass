@@ -21,7 +21,9 @@ describe("resolveE2EFunctionalScope", () => {
     const scope = resolveE2EFunctionalScope({
       changedFiles: [
         "backend/app/routers/es_review.py",
-        "src/app/api/documents/_services/handle-review-stream.ts",
+        "backend/app/prompts/es_reference_guidance.py",
+        "backend/scripts/es_review/generate_es_reference_guidance.py",
+        "src/bff/es-review/handle-review-stream.ts",
         "src/features/es-review/hooks/transport.ts",
       ],
     });

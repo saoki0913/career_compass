@@ -5,6 +5,13 @@ import type {
   PublicReviewMeta,
   ValidationStatus,
 } from "@/shared/contracts/es-review-sse";
+import {
+  ES_REVIEW_TEMPLATE_TYPES,
+  EVIDENCE_COVERAGE_LEVELS,
+  FINAL_ACCEPTANCE_SOURCES,
+  GROUNDING_MODES,
+  VALIDATION_STATUSES,
+} from "@/shared/contracts/es-review-sse";
 
 type PublicESReviewSource = {
   source_url: string;
@@ -41,9 +48,9 @@ function booleanValue(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
-function stringValueAs<T extends string>(value: unknown): T | undefined {
+function enumValue<T extends readonly string[]>(value: unknown, values: T): T[number] | undefined {
   const text = stringValue(value);
-  return text as T | undefined;
+  return text && (values as readonly string[]).includes(text) ? text as T[number] : undefined;
 }
 
 function sanitizeProgress(event: Record<string, unknown>): Record<string, unknown> {
@@ -92,21 +99,21 @@ function sanitizeReviewMeta(value: unknown): PublicReviewMeta | undefined {
     ...(typeof meta.llm_model === "string" || meta.llm_model === null ? { llm_model: meta.llm_model } : {}),
     ...(typeof meta.llm_model_alias === "string" || meta.llm_model_alias === null ? { llm_model_alias: meta.llm_model_alias } : {}),
     ...(stringValue(meta.review_variant) ? { review_variant: stringValue(meta.review_variant) } : {}),
-    ...(stringValueAs<GroundingMode>(meta.grounding_mode) ? { grounding_mode: stringValueAs<GroundingMode>(meta.grounding_mode) } : {}),
+    ...(enumValue(meta.grounding_mode, GROUNDING_MODES) ? { grounding_mode: enumValue(meta.grounding_mode, GROUNDING_MODES) as GroundingMode } : {}),
     ...(stringValue(meta.primary_role) ? { primary_role: stringValue(meta.primary_role) } : {}),
     ...(numberValue(meta.reference_es_count) !== undefined ? { reference_es_count: numberValue(meta.reference_es_count) } : {}),
-    ...(stringValueAs<EvidenceCoverageLevel>(meta.evidence_coverage_level)
-      ? { evidence_coverage_level: stringValueAs<EvidenceCoverageLevel>(meta.evidence_coverage_level) }
+    ...(enumValue(meta.evidence_coverage_level, EVIDENCE_COVERAGE_LEVELS)
+      ? { evidence_coverage_level: enumValue(meta.evidence_coverage_level, EVIDENCE_COVERAGE_LEVELS) as EvidenceCoverageLevel }
       : {}),
     ...(booleanValue(meta.weak_evidence_notice) !== undefined ? { weak_evidence_notice: booleanValue(meta.weak_evidence_notice) } : {}),
-    ...(stringValueAs<ValidationStatus>(meta.rewrite_validation_status)
-      ? { rewrite_validation_status: stringValueAs<ValidationStatus>(meta.rewrite_validation_status) }
+    ...(enumValue(meta.rewrite_validation_status, VALIDATION_STATUSES)
+      ? { rewrite_validation_status: enumValue(meta.rewrite_validation_status, VALIDATION_STATUSES) as ValidationStatus }
       : {}),
     ...(typeof meta.rewrite_validation_user_hint === "string" || meta.rewrite_validation_user_hint === null
       ? { rewrite_validation_user_hint: meta.rewrite_validation_user_hint }
       : {}),
-    ...(stringValueAs<FinalAcceptanceSource>(meta.final_acceptance_source)
-      ? { final_acceptance_source: stringValueAs<FinalAcceptanceSource>(meta.final_acceptance_source) }
+    ...(enumValue(meta.final_acceptance_source, FINAL_ACCEPTANCE_SOURCES)
+      ? { final_acceptance_source: enumValue(meta.final_acceptance_source, FINAL_ACCEPTANCE_SOURCES) as FinalAcceptanceSource }
       : {}),
     ...(numberValue(meta.ai_smell_tier) !== undefined ? { ai_smell_tier: numberValue(meta.ai_smell_tier) } : {}),
     ...(numberValue(meta.concrete_marker_count) !== undefined ? { concrete_marker_count: numberValue(meta.concrete_marker_count) } : {}),
@@ -119,7 +126,7 @@ function sanitizeTemplateReview(value: unknown): Record<string, unknown> | undef
   const review = objectValue(value);
   if (!review) return undefined;
 
-  const templateType = stringValue(review.template_type);
+  const templateType = enumValue(review.template_type, ES_REVIEW_TEMPLATE_TYPES);
   if (!templateType) return undefined;
 
   return {
@@ -141,11 +148,7 @@ function sanitizeBillingOutcome(value: unknown): Record<string, unknown> | undef
 
 function getCompleteResult(event: Record<string, unknown>): Record<string, unknown> | null {
   const direct = objectValue(event.result);
-  if (direct) return direct;
-
-  const data = objectValue(event.data);
-  const nested = data ? objectValue(data.result) : null;
-  return nested;
+  return direct;
 }
 
 export function sanitizePublicESReviewCompleteEvent(
@@ -158,7 +161,7 @@ export function sanitizePublicESReviewCompleteEvent(
   const templateReview = sanitizeTemplateReview(result.template_review);
   const reviewMeta = sanitizeReviewMeta(result.review_meta);
   const improvementExplanation = stringValue(result.improvement_explanation);
-  const billingOutcome = sanitizeBillingOutcome(result.billing_outcome ?? event.billing_outcome);
+  const billingOutcome = sanitizeBillingOutcome(result.billing_outcome);
 
   return {
     type: "complete",

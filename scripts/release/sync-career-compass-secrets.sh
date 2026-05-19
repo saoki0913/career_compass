@@ -18,7 +18,7 @@ source "${script_dir}/career-compass-secrets-root.sh"
 
 mode="check"
 target="all"
-vercel_env_scope="both"
+vercel_env_scope="production"
 cli_secret_dir=""
 repo_slug="saoki0913/career_compass"
 check_provider_drift=1
@@ -26,7 +26,7 @@ output_json=0
 
 usage() {
   cat <<'EOF'
-Usage: sync-career-compass-secrets.sh [--check|--apply] [--target all|vercel-staging|vercel-production|railway-staging|railway-production|github|supabase|google-oauth] [--vercel-env production|preview|both] [--secret-dir PATH] [--skip-provider-drift] [--json]
+Usage: sync-career-compass-secrets.sh [--check|--apply] [--target all|vercel-staging|vercel-production|railway-staging|railway-production|github|supabase-staging|supabase-production|supabase|google-oauth] [--vercel-env production] [--secret-dir PATH] [--skip-provider-drift] [--json]
 
 Secrets bundle (Vercel/Railway/supabase env files):
   Primary: ${repo_root}/.secrets (project-local SSOT)
@@ -35,7 +35,7 @@ Secrets bundle (Vercel/Railway/supabase env files):
 
 Google OAuth file: <same secrets root>/google-oauth/career_compass.env
 
-Vercel env scope defaults to both for backward compatibility.
+Vercel env scope is production-only. The staging project uses its own Vercel Production environment.
 EOF
 }
 
@@ -77,8 +77,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$vercel_env_scope" in
-  production|preview|both) ;;
-  *) release_die "Invalid --vercel-env: ${vercel_env_scope}. Expected production, preview, or both." ;;
+  production) ;;
+  *) release_die "Invalid --vercel-env: ${vercel_env_scope}. Expected production." ;;
 esac
 
 # --check --json: delegate to secret-plan.sh which outputs structured JSON to stdout.
@@ -86,7 +86,7 @@ esac
 if [[ "$mode" == "check" && "$output_json" == "1" ]]; then
   plan_args=(--target "$target")
   [[ -n "$cli_secret_dir" ]] && plan_args+=(--secret-dir "$cli_secret_dir")
-  [[ "$vercel_env_scope" != "both" ]] && plan_args+=(--vercel-env "$vercel_env_scope")
+  plan_args+=(--vercel-env "$vercel_env_scope")
   exec zsh "${script_dir}/lib/secret-plan.sh" "${plan_args[@]}"
 fi
 if [[ -n "$cli_secret_dir" ]]; then
@@ -143,7 +143,8 @@ resolve_bundle_file() {
       railway-staging)    print -r -- "${secret_dir}/railway-staging.env" ;;
       railway-production) print -r -- "${secret_dir}/railway-production.env" ;;
       github)             print -r -- "${secret_dir}/github-actions.env" ;;
-      supabase)           print -r -- "${secret_dir}/supabase.env" ;;
+      supabase-staging)   print -r -- "${secret_dir}/supabase-staging.env" ;;
+      supabase-production|supabase) print -r -- "${secret_dir}/supabase.env" ;;
       google-oauth)       print -r -- "${google_oauth_file}" ;;
       *) release_die "Unknown target for resolve_bundle_file: $tgt" ;;
     esac
@@ -178,7 +179,12 @@ resolve_bundle_file() {
       merge_env_files "$temp_file" \
         "${secret_dir}/ci/github-actions.env"
       ;;
-    supabase)
+    supabase-staging)
+      merge_env_files "$temp_file" \
+        "${secret_dir}/staging/shared.env" \
+        "${secret_dir}/staging/supabase.env"
+      ;;
+    supabase-production|supabase)
       merge_env_files "$temp_file" \
         "${secret_dir}/production/shared.env" \
         "${secret_dir}/production/supabase.env"
@@ -217,8 +223,6 @@ validate_shared_env_consistency() {
   release_log "Cross-service shared variable consistency: OK"
 }
 
-validate_shared_env_consistency
-
 # Cleanup temp bundle files on exit
 cleanup_temp_bundles() {
   local f
@@ -237,7 +241,7 @@ should_run_target() {
 }
 
 should_run_vercel_env() {
-  [[ "$vercel_env_scope" == "both" || "$vercel_env_scope" == "$1" ]]
+  [[ "$vercel_env_scope" == "$1" ]]
 }
 
 load_env_file() {
@@ -268,6 +272,8 @@ get_env_value() {
   print -r -- "$value"
 }
 
+validate_shared_env_consistency
+
 require_env_value() {
   local file="$1"
   local key="$2"
@@ -279,11 +285,19 @@ require_env_value() {
 }
 
 is_meta_key() {
-  [[ "$1" == VERCEL_* || "$1" == RAILWAY_* || "$1" == GITHUB_* || "$1" == TARGET_* || "$1" == SUPABASE_PRODUCTION_PROJECT_REF || "$1" == SUPABASE_ACCESS_TOKEN || "$1" == SUPABASE_ORG_ID ]]
+  [[ "$1" == VERCEL_* || "$1" == RAILWAY_* || "$1" == GITHUB_* || "$1" == TARGET_* || "$1" == SUPABASE_STAGING_PROJECT_REF || "$1" == SUPABASE_PRODUCTION_PROJECT_REF || "$1" == SUPABASE_ACCESS_TOKEN || "$1" == SUPABASE_ORG_ID ]]
 }
 
 is_placeholder_value() {
-  [[ -z "$1" || "$1" == "replace_me" ]]
+  local value
+  value="$(print -r -- "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  [[ -z "$value" ]] && return 0
+  [[ "$value" == "replace_me" || "$value" == "replace-me" ]] && return 0
+  [[ "$value" == "changeme" || "$value" == "change-me" ]] && return 0
+  [[ "$value" == "dummy" || "$value" == "dev" || "$value" == "test" ]] && return 0
+  [[ "$value" == "todo" || "$value" == "placeholder" ]] && return 0
+  [[ "$value" == xxx* ]] && return 0
+  return 1
 }
 
 is_sensitive_key() {
@@ -340,25 +354,15 @@ vercel_provider_keys() {
   local env_target="$1"
   local project_id="$2"
   local team_id="$3"
-  local preview_git_branch="${4:-}"
   local temp_file
   local pull_status
 
   temp_file="$(mktemp "/tmp/career-compass-vercel-env-${env_target}.XXXXXX")" || release_die "Could not create temp file for Vercel env pull"
-  if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
-    if VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-      run_real vercel env pull "$temp_file" --yes --environment preview --git-branch "$preview_git_branch" --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1; then
-      pull_status=0
-    else
-      pull_status=$?
-    fi
+  if VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+    run_real vercel env pull "$temp_file" --yes --environment "$env_target" --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1; then
+    pull_status=0
   else
-    if VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-      run_real vercel env pull "$temp_file" --yes --environment "$env_target" --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1; then
-      pull_status=0
-    else
-      pull_status=$?
-    fi
+    pull_status=$?
   fi
 
   if [[ "$pull_status" -ne 0 ]]; then
@@ -376,14 +380,9 @@ check_vercel_key_drift() {
   local env_target="$3"
   local project_id="$4"
   local team_id="$5"
-  local preview_git_branch=""
 
   shift 5
-  if [[ "$env_target" == "preview" ]]; then
-    preview_git_branch="${1:-}"
-    shift || true
-  fi
-  report_key_drift "$label" "$(bundle_keys_for_file "$file" "$@")" "$(vercel_provider_keys "$env_target" "$project_id" "$team_id" "$preview_git_branch")"
+  report_key_drift "$label" "$(bundle_keys_for_file "$file" "$@")" "$(vercel_provider_keys "$env_target" "$project_id" "$team_id")"
 }
 
 railway_provider_keys() {
@@ -451,7 +450,7 @@ validate_env_file() {
     [[ -n "$key" ]] || continue
     is_meta_key "$key" && continue
     value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
-    is_placeholder_value "$value" && release_die "${key} missing or replace_me in $(basename "$file")"
+    is_placeholder_value "$value" && release_die "${key} missing or placeholder value in $(basename "$file")"
   done < <(iter_env_keys "$file")
 }
 
@@ -460,7 +459,6 @@ vercel_upsert_env_file() {
   local env_target="$2"
   local project_id="$3"
   local team_id="$4"
-  local preview_git_branch="${5:-}"
   local key value sens_flag
 
   validate_env_file "$file"
@@ -469,17 +467,10 @@ vercel_upsert_env_file() {
     is_meta_key "$key" && continue
     value="$(get_env_value "$file" "$key")"
     sens_flag="$(sensitive_flag_for_key "$key")"
-    if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env rm "$key" preview "$preview_git_branch" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" preview "$preview_git_branch" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
-    else
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
-    fi
+    VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+      run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
+    VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+      run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
   done < <(iter_env_keys "$file")
 }
 
@@ -488,8 +479,7 @@ vercel_upsert_selected_keys_from_file() {
   local env_target="$2"
   local project_id="$3"
   local team_id="$4"
-  local preview_git_branch="${5:-}"
-  shift 5
+  shift 4
   local key value sens_flag
 
   [[ -f "$file" ]] || release_die "Missing required file: $file"
@@ -498,17 +488,10 @@ vercel_upsert_selected_keys_from_file() {
     value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
     [[ -n "$value" ]] || continue
     sens_flag="$(sensitive_flag_for_key "$key")"
-    if [[ "$env_target" == "preview" && -n "$preview_git_branch" ]]; then
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env rm "$key" preview "$preview_git_branch" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" preview "$preview_git_branch" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
-    else
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
-      VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-        run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
-    fi
+    VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+      run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
+    VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+      run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
   done
 }
 
@@ -536,6 +519,7 @@ railway_apply_env_file() {
 
 apply_supabase_bundle() {
   local file="$1"
+  local project_ref="$2"
   local pairs=()
   local key value
 
@@ -551,10 +535,10 @@ apply_supabase_bundle() {
     release_log "No Supabase runtime secrets to apply"
     return 0
   fi
-  release_log "exec: supabase secrets set --project-ref ${SUPABASE_PRODUCTION_PROJECT_REF} [REDACTED ${#pairs[@]} keys]"
+  release_log "exec: supabase secrets set --project-ref ${project_ref} [REDACTED ${#pairs[@]} keys]"
   supabase_bin="$(find_real_binary supabase)"
   [[ -n "$supabase_bin" ]] || release_die "Missing command: supabase"
-  "$supabase_bin" secrets set --project-ref "$SUPABASE_PRODUCTION_PROJECT_REF" "${pairs[@]}" >/dev/null
+  "$supabase_bin" secrets set --project-ref "$project_ref" "${pairs[@]}" >/dev/null
 }
 
 apply_google_oauth_env() {
@@ -574,9 +558,6 @@ if should_run_target "vercel-staging"; then
     if should_run_vercel_env "production"; then
       vercel_upsert_env_file "$staging_file" production "$staging_project_id" "$staging_team_id"
     fi
-    if should_run_vercel_env "preview"; then
-      vercel_upsert_env_file "$staging_file" preview "$staging_project_id" "$staging_team_id" "develop"
-    fi
     if [[ -f "$github_file" ]]; then
       release_log "Overlaying staging test-auth env from github-actions bundle"
       if should_run_vercel_env "production"; then
@@ -585,18 +566,6 @@ if should_run_target "vercel-staging"; then
           production \
           "$staging_project_id" \
           "$staging_team_id" \
-          "" \
-          "CI_E2E_AUTH_SECRET" \
-          "CI_E2E_AUTH_ENABLED" \
-          "PLAYWRIGHT_BASE_URL"
-      fi
-      if should_run_vercel_env "preview"; then
-        vercel_upsert_selected_keys_from_file \
-          "$github_file" \
-          preview \
-          "$staging_project_id" \
-          "$staging_team_id" \
-          "develop" \
           "CI_E2E_AUTH_SECRET" \
           "CI_E2E_AUTH_ENABLED" \
           "PLAYWRIGHT_BASE_URL"
@@ -606,11 +575,7 @@ if should_run_target "vercel-staging"; then
     release_log "Checked Vercel staging env"
     if [[ "$check_provider_drift" == "1" ]]; then
       if should_run_vercel_env "production"; then
-        check_vercel_key_drift "$staging_file" "Vercel staging production" production "$staging_project_id" "$staging_team_id" "" \
-          "CI_E2E_AUTH_SECRET" "CI_E2E_AUTH_ENABLED" "PLAYWRIGHT_BASE_URL"
-      fi
-      if should_run_vercel_env "preview"; then
-        check_vercel_key_drift "$staging_file" "Vercel staging preview/develop" preview "$staging_project_id" "$staging_team_id" "develop" \
+        check_vercel_key_drift "$staging_file" "Vercel staging production" production "$staging_project_id" "$staging_team_id" \
           "CI_E2E_AUTH_SECRET" "CI_E2E_AUTH_ENABLED" "PLAYWRIGHT_BASE_URL"
       fi
     fi
@@ -627,17 +592,11 @@ if should_run_target "vercel-production"; then
     if should_run_vercel_env "production"; then
       vercel_upsert_env_file "$production_file" production "$production_project_id" "$production_team_id"
     fi
-    if should_run_vercel_env "preview"; then
-      vercel_upsert_env_file "$production_file" preview "$production_project_id" "$production_team_id" "develop"
-    fi
   else
     release_log "Checked Vercel production env"
     if [[ "$check_provider_drift" == "1" ]]; then
       if should_run_vercel_env "production"; then
         check_vercel_key_drift "$production_file" "Vercel production" production "$production_project_id" "$production_team_id"
-      fi
-      if should_run_vercel_env "preview"; then
-        check_vercel_key_drift "$production_file" "Vercel production preview/develop" preview "$production_project_id" "$production_team_id" "develop"
       fi
     fi
   fi
@@ -699,17 +658,32 @@ if should_run_target "github"; then
   fi
 fi
 
-if should_run_target "supabase"; then
-  supabase_file="$(resolve_bundle_file supabase)"
-  SUPABASE_PRODUCTION_PROJECT_REF="$(require_env_value "$supabase_file" "SUPABASE_PRODUCTION_PROJECT_REF")"
+if should_run_target "supabase-staging"; then
+  supabase_staging_file="$(resolve_bundle_file supabase-staging)"
+  supabase_staging_project_ref="$(require_env_value "$supabase_staging_file" "SUPABASE_STAGING_PROJECT_REF")"
+  validate_env_file "$supabase_staging_file"
+  if [[ "$mode" == "apply" ]]; then
+    release_log "Applying Supabase staging secrets"
+    apply_supabase_bundle "$supabase_staging_file" "$supabase_staging_project_ref"
+  else
+    release_log "Checked Supabase staging bootstrap env"
+    if [[ "$check_provider_drift" == "1" ]]; then
+      check_supabase_key_drift "$supabase_staging_file" "$supabase_staging_project_ref"
+    fi
+  fi
+fi
+
+if should_run_target "supabase-production" || should_run_target "supabase"; then
+  supabase_file="$(resolve_bundle_file supabase-production)"
+  supabase_production_project_ref="$(require_env_value "$supabase_file" "SUPABASE_PRODUCTION_PROJECT_REF")"
   validate_env_file "$supabase_file"
   if [[ "$mode" == "apply" ]]; then
-    release_log "Applying Supabase secrets"
-    apply_supabase_bundle "$supabase_file"
+    release_log "Applying Supabase production secrets"
+    apply_supabase_bundle "$supabase_file" "$supabase_production_project_ref"
   else
-    release_log "Checked Supabase bootstrap env"
+    release_log "Checked Supabase production bootstrap env"
     if [[ "$check_provider_drift" == "1" ]]; then
-      check_supabase_key_drift "$supabase_file" "$SUPABASE_PRODUCTION_PROJECT_REF"
+      check_supabase_key_drift "$supabase_file" "$supabase_production_project_ref"
     fi
   fi
 fi

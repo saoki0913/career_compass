@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-
 import pytest
 
 from app.prompts import reference_es
@@ -118,55 +116,8 @@ def _evaluate_case(case: ESReviewRubricCase) -> dict[str, float | str | bool]:
 
 
 @pytest.fixture()
-def reference_payload(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    payload = {
-        "version": 1,
-        "references": [
-            {
-                "id": "ref_company",
-                "question_type": "post_join_goals",
-                "company_name": "三菱商事",
-                "char_max": 400,
-                "title": "入社後やりたいこと",
-                "text": "貴社で手掛けたい領域を述べ、自分が得たい経験を具体化し、中長期の姿につなげる。",
-            },
-            {
-                "id": "ref_motivation",
-                "question_type": "company_motivation",
-                "company_name": "三菱商事",
-                "char_max": 400,
-                "title": "志望理由",
-                "text": "志望理由を冒頭で示し、企業理解と自分の経験を接続し、入社後の貢献で締める。",
-            },
-            {
-                "id": "ref_gakuchika",
-                "question_type": "gakuchika",
-                "company_name": None,
-                "char_max": 400,
-                "title": "ガクチカ",
-                "text": "課題、行動、成果、学びの順で具体的に述べる。",
-            },
-            {
-                "id": "ref_role_course_reason",
-                "question_type": "role_course_reason",
-                "company_name": "三菱商事",
-                "char_max": 400,
-                "title": "職種・コース志望理由",
-                "text": "職種の役割理解を先に示し、自分の経験や志向との接点を述べ、企業の事業文脈に接続する。",
-            },
-            {
-                "id": "ref_intern_goals",
-                "question_type": "intern_goals",
-                "company_name": "三井物産",
-                "char_max": 400,
-                "title": "インターンで学びたいこと",
-                "text": "プログラムで得たい学びを具体化し、現時点の経験と将来の志向につなげて述べる。",
-            },
-        ],
-    }
-    path = tmp_path / "es_references.json"
-    path.write_text(reference_es.json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-    monkeypatch.setattr(reference_es, "REFERENCE_ES_PATH", path)
+def reference_payload() -> None:
+    return None
 
 
 def test_es_review_quality_rubric_cases(reference_payload: None) -> None:

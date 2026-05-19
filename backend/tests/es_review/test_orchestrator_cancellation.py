@@ -5,7 +5,7 @@ Debug logging formatters are tested in test_tracing_debug_format.py.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -48,17 +48,12 @@ async def test_prepare_review_context_sets_cancellation_token():
     token = CancellationToken()
     request = _make_minimal_request()
 
-    with patch(
-        "app.services.es_review.orchestrator.retrieve_reference_es_semantic",
-        new_callable=AsyncMock,
-        return_value=[],
-    ):
-        ctx = await prepare_review_context(
-            request=request,
-            rag_sources=[],
-            company_rag_available=False,
-            cancellation_token=token,
-        )
+    ctx = await prepare_review_context(
+        request=request,
+        rag_sources=[],
+        company_rag_available=False,
+        cancellation_token=token,
+    )
     assert ctx.cancellation_token is token
 
 
@@ -68,16 +63,11 @@ async def test_prepare_review_context_defaults_to_noop_token():
     from app.services.es_review.orchestrator import prepare_review_context
 
     request = _make_minimal_request()
-    with patch(
-        "app.services.es_review.orchestrator.retrieve_reference_es_semantic",
-        new_callable=AsyncMock,
-        return_value=[],
-    ):
-        ctx = await prepare_review_context(
-            request=request,
-            rag_sources=[],
-            company_rag_available=False,
-        )
+    ctx = await prepare_review_context(
+        request=request,
+        rag_sources=[],
+        company_rag_available=False,
+    )
     assert ctx.cancellation_token is noop_token()
 
 
@@ -138,3 +128,29 @@ async def test_execute_recovery_pipeline_checks_cancellation():
     loop_result = RewriteLoopResult()
     with pytest.raises(asyncio.CancelledError):
         await execute_recovery_pipeline(ctx, loop_result)
+
+
+@pytest.mark.asyncio
+async def test_prepare_review_context_wires_new_reference_block():
+    """Task 4 regression: prepare_review_context builds the no-stats reference
+    block (qualitative headers, no statistics line) and forwards component_types."""
+    from app.services.es_review.orchestrator import prepare_review_context
+
+    request = _make_minimal_request()
+    ctx = await prepare_review_context(
+        request=request,
+        rag_sources=[],
+        company_rag_available=False,
+    )
+    block = ctx.reference_quality_block or ""
+    assert "【この設問で意識する品質】" in block
+    assert "【参考ESから抽出した骨子】" in block
+    assert "参考件数:" not in block
+    assert "目安文字数:" not in block
+    profile = ctx.reference_quality_profile or {}
+    assert "conditional_hints" not in profile
+    # orchestrator forwards effective_template_ctx.component_types (primary-led;
+    # the classifier may add secondary candidates for a bare request)
+    component_types = profile.get("component_types") or []
+    assert component_types and component_types[0] == "self_pr"
+    assert profile.get("is_compound") is (len(component_types) > 1)

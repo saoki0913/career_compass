@@ -20,6 +20,8 @@
 
 ## クイックスタート
 
+初回だけ実行するセットアップです。毎日の起動・停止は次の「開発の開始と終了」を見てください。
+
 ```bash
 # 依存関係のインストール
 npm install
@@ -29,19 +31,108 @@ cp .env.example .env.local
 # npm run dev の preflight が不足項目と取得先を表示します。
 # まず BETTER_AUTH_TRUSTED_ORIGINS を設定してください。
 
+# ローカル Supabase / Postgres を起動
+make db-up
+
 # データベース（初回）
-# 空のDBに一気に反映（開発/初期構築向け）
+# 空の DB に一気に反映（開発/初期構築向け）
 npm run db:push
 #
 # 推奨: マイグレーション生成 -> 適用
 # npm run db:generate
 # npm run db:migrate
+```
 
-# 開発サーバーの起動
+詳細なセットアップ手順は [開発ガイドと環境変数](docs/setup/DEVELOPMENT_AND_ENV.md)、DB の詳しい扱いは [データベースと Supabase](docs/setup/DB_SUPABASE.md) を参照してください。
+
+## 開発の開始と終了
+
+日常開発では、Docker Compose で全部をまとめて起動するより、Supabase local、Next.js dev server、FastAPI を分けて起動する運用を推奨します。
+
+### 開発を始める
+
+ターミナル 1 でローカル DB/Auth/API を起動します。
+
+```bash
+cd /Users/saoki/work/career_compass
+make db-up
+```
+
+ターミナル 2 で Next.js を起動します。
+
+```bash
+cd /Users/saoki/work/career_compass
 npm run dev
 ```
 
-詳細なセットアップ手順は [開発ガイドと環境変数](docs/setup/DEVELOPMENT_AND_ENV.md) を参照してください。
+ターミナル 3 で FastAPI を起動します。
+
+```bash
+cd /Users/saoki/work/career_compass
+make up
+```
+
+起動したら Next.js は `http://localhost:3000`、FastAPI の API ドキュメントは `http://localhost:8000/docs` で確認できます。
+
+### 開発を終える
+
+Next.js と FastAPI を起動しているターミナルで、それぞれ `Ctrl+C` を押します。
+
+FastAPI だけを別途停止する場合は次を使います。
+
+```bash
+make down
+```
+
+DB/Auth/API も不要なら、Supabase local を止めます。
+
+```bash
+make db-down
+```
+
+`make db-down` は Postgres などのデータを Docker ボリュームに保持したまま停止します。ローカル DB データも消す `make db-down-clean` は、通常の終了作業では使わないでください。
+
+### 再起動する
+
+Supabase / Postgres を再起動する場合:
+
+```bash
+make db-restart
+```
+
+Next.js を再起動する場合は、`npm run dev` のターミナルで `Ctrl+C` を押してから、もう一度起動します。
+
+```bash
+npm run dev
+```
+
+FastAPI を再起動する場合:
+
+```bash
+make restart
+```
+
+### Docker Compose でまとめて起動する場合
+
+通常の開発は `make db-up`、`npm run dev`、`make up` を推奨します。コンテナでフロントエンドと FastAPI をまとめて確認したい場合だけ、Docker Compose を使います。
+
+```bash
+docker compose up --build
+docker compose down
+```
+
+## よく使う確認コマンド
+
+```bash
+# Docker で動いているものを見る
+docker ps
+
+# Supabase local の URL や状態を見る
+make db-local-status
+
+# Next.js dev server のメモリやディスク使用量を見る
+npm run dev:memory-report
+```
 
 ## 開発コマンド
 
@@ -50,7 +141,7 @@ npm run dev
 make dev
 
 # FastAPI バックエンド起動
-make backend
+make up
 
 # UI 実装前の preflight
 npm run ui:preflight -- /pricing --surface=marketing

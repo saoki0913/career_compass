@@ -33,6 +33,99 @@ function priceSignature(price) {
   return `${price.unit_amount}:${price.recurring?.interval ?? ""}:${price.currency ?? ""}`;
 }
 
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function assertUrl(value, label) {
+  try {
+    return new URL(value).toString().replace(/\/$/, "");
+  } catch {
+    throw new Error(`managed-config.json: ${label} must be a valid URL`);
+  }
+}
+
+function assertNoVercelPreviewUrl(value, label) {
+  const parsed = new URL(assertUrl(value, label));
+  if (parsed.hostname.endsWith(".vercel.app")) {
+    throw new Error(`managed-config.json: ${label} must not use an ephemeral vercel.app URL`);
+  }
+}
+
+function applyStripeTarget(expectedConfig, targetName) {
+  const target = expectedConfig.targets?.[targetName];
+  if (!isPlainObject(target)) {
+    throw new Error(`managed-config.json: unknown Stripe target ${targetName}`);
+  }
+  if (target.stripeMode !== "test" && target.stripeMode !== "live") {
+    throw new Error(`managed-config.json: targets.${targetName}.stripeMode must be test or live`);
+  }
+  for (const key of ["appUrl", "webhookUrl", "portalReturnUrl"]) {
+    if (typeof target[key] !== "string") {
+      throw new Error(`managed-config.json: targets.${targetName}.${key} is required`);
+    }
+    assertNoVercelPreviewUrl(target[key], `targets.${targetName}.${key}`);
+  }
+
+  return {
+    ...expectedConfig,
+    activeTarget: {
+      name: targetName,
+      stripeMode: target.stripeMode,
+      appUrl: assertUrl(target.appUrl, `targets.${targetName}.appUrl`),
+    },
+    webhook: {
+      ...expectedConfig.webhook,
+      url: assertUrl(target.webhookUrl, `targets.${targetName}.webhookUrl`),
+    },
+    portal: {
+      ...expectedConfig.portal,
+      returnUrl: assertUrl(target.portalReturnUrl, `targets.${targetName}.portalReturnUrl`),
+    },
+  };
+}
+
+export function resolveManagedStripeTarget({
+  expectedConfig,
+  target,
+  environment,
+}) {
+  const targets = expectedConfig.targets;
+  if (!targets) {
+    return {
+      config: expectedConfig,
+      environment,
+      target: null,
+    };
+  }
+
+  const targetName =
+    target ??
+    Object.entries(targets).find(([, entry]) => entry?.stripeMode === environment)?.[0] ??
+    null;
+
+  if (!targetName) {
+    return {
+      config: expectedConfig,
+      environment,
+      target: null,
+    };
+  }
+
+  const config = applyStripeTarget(expectedConfig, targetName);
+  if (environment && config.activeTarget.stripeMode !== environment && expectedConfig.environmentExplicit) {
+    throw new Error(
+      `--target ${targetName} uses Stripe ${config.activeTarget.stripeMode}, but --env ${environment} was requested.`,
+    );
+  }
+
+  return {
+    config,
+    environment: config.activeTarget.stripeMode,
+    target: config.activeTarget,
+  };
+}
+
 export function resolveStripeSecretKey({
   environment,
   env = process.env,
@@ -155,16 +248,29 @@ export function planWebhookSync({
   endpoints,
 }) {
   const matches = endpoints.filter((endpoint) => endpoint.url === expectedConfig.webhook.url);
-  const endpoint = matches[0] ?? null;
+  const enabledMatches = matches.filter((endpoint) => endpoint.status !== "disabled");
+  const endpoint = enabledMatches[0] ?? matches[0] ?? null;
   const actualEvents = sortedStrings(endpoint?.enabled_events ?? []);
   const expectedEvents = sortedStrings(expectedConfig.webhook.events);
   const missingEvents = expectedEvents.filter((event) => !actualEvents.includes(event));
   const extraEvents = actualEvents.filter((event) => !expectedEvents.includes(event));
-  const duplicateEndpointIds = matches.slice(1).map((match) => match.id);
+  const duplicateEndpointIds = matches
+    .filter((match) => match.id !== endpoint?.id)
+    .map((match) => match.id);
+  const staleEndpoints = endpoints
+    .filter((entry) => entry.url !== expectedConfig.webhook.url)
+    .filter((entry) => entry.status !== "disabled")
+    .filter((entry) => isEphemeralStripeWebhookEndpoint(entry.url))
+    .map((entry) => ({
+      id: entry.id,
+      url: entry.url,
+      status: entry.status ?? "enabled",
+      enabledEvents: sortedStrings(entry.enabled_events ?? []),
+    }));
 
   return {
     action: endpoint
-      ? missingEvents.length > 0 || extraEvents.length > 0 || duplicateEndpointIds.length > 0
+      ? missingEvents.length > 0 || extraEvents.length > 0 || duplicateEndpointIds.length > 0 || endpoint.status === "disabled"
         ? "update"
         : "noop"
       : "create",
@@ -172,7 +278,20 @@ export function planWebhookSync({
     missingEvents,
     extraEvents,
     duplicateEndpointIds,
+    disabled: endpoint?.status === "disabled",
+    shouldEnable: endpoint?.status === "disabled" && enabledMatches.length === 0,
+    staleEndpoints,
+    staleEndpointIds: staleEndpoints.map((entry) => entry.id),
   };
+}
+
+function isEphemeralStripeWebhookEndpoint(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname.endsWith(".vercel.app") && parsed.pathname === "/api/webhooks/stripe";
+  } catch {
+    return false;
+  }
 }
 
 export function buildExpectedPortalPayload({
@@ -435,7 +554,7 @@ export function auditManagedState({
   const productHasDiff =
     productPlan.products.some((entry) => entry.product.action !== "noop") ||
     productPlan.prices.some((entry) => entry.action !== "noop");
-  const webhookHasDiff = webhookPlan.action !== "noop";
+  const webhookHasDiff = webhookPlan.action !== "noop" || webhookPlan.staleEndpointIds.length > 0;
   const portalHasDiff = portalPlan.action !== "noop";
   const accountHasDiff = accountPlan.action !== "noop";
 
@@ -466,6 +585,9 @@ export function auditManagedState({
 
   if (productHasDiff) nextActions.push("scripts/stripe/sync-products.mjs を実行");
   if (webhookHasDiff) nextActions.push("scripts/stripe/sync-webhook.mjs を実行");
+  if (webhookPlan.staleEndpointIds.length > 0) {
+    nextActions.push("Stripe Dashboard または明示コマンドで stale webhook endpoint を disabled にする");
+  }
   if (portalHasDiff) nextActions.push("scripts/stripe/sync-portal.mjs を実行");
   if (accountHasDiff) nextActions.push("Dashboard で business profile / statement descriptor を確認");
   nextActions.push("Commerce Disclosure は Dashboard 上で手動確認");

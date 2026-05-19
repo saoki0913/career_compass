@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-import { collectManagedState, createStripeClient, loadManagedConfig, parseCliArgs, printResult, syncWebhook } from "./shared.mjs";
+import { collectManagedState, createStripeClient, loadResolvedManagedConfig, parseCliArgs, printResult, syncWebhook } from "./shared.mjs";
 
 async function main() {
   const args = parseCliArgs(process.argv.slice(2));
-  const config = await loadManagedConfig();
+  const config = await loadResolvedManagedConfig(args);
   const stripe = await createStripeClient({ environment: args.environment, config });
   const state = await collectManagedState({ stripe });
   const result = await syncWebhook({
@@ -17,6 +17,7 @@ async function main() {
   printResult(
     {
       environment: args.environment,
+      target: args.target,
       dryRun: args.dryRun,
       ...result,
     },

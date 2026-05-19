@@ -37,6 +37,14 @@ describe("FastAPI stream event contracts", () => {
     expect(event.type).toBe("complete");
     expect("result" in event).toBe(true);
     expect("data" in event).toBe(false);
+    if (event.type !== "complete" || !("result" in event)) {
+      throw new Error("Expected ES review complete event");
+    }
+    expect(event.result.rewrites).toEqual([
+      "私はチームの課題を整理し、改善施策を実行しました。",
+    ]);
+    expect(event.result.billing_outcome.success).toBe(true);
+    expect(event.internal_telemetry?.total_tokens).toBe(15);
   });
 
   it("treats complete as a final snapshot for gakuchika", () => {

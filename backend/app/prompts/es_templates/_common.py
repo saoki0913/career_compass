@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-
-
 # ---------------------------------------------------------------------------
 # 9-F helper: prose_style block for mid/long answers (char_max > 220)
 # ---------------------------------------------------------------------------
@@ -24,22 +22,6 @@ def _format_prose_style_block(char_max: int | None) -> str:
 </prose_style>"""
 
 
-def _format_anti_ai_phrase_block() -> str:
-    """Return an <anti_ai_phrase> block listing banned LLM-like expressions.
-
-    Content is generated from ai_smell._CATEGORIES (SSOT) to prevent drift.
-    """
-    from app.services.es_review.ai_smell import format_anti_ai_phrase_lines
-
-    lines = format_anti_ai_phrase_lines()
-    inner = "\n".join(f"  {line}" for line in lines)
-    return f"""
-<anti_ai_phrase>
-以下のフレーズはAI特有の定型句であり、ユーザーの元回答にない限り使用禁止:
-{inner}
-</anti_ai_phrase>"""
-
-
 def get_company_honorific(industry: str | None) -> str:
     """Return the appropriate honorific for a company based on its industry.
 
@@ -58,4 +40,3 @@ def get_company_honorific(industry: str | None) -> str:
     if "病院" in industry:
         return "貴院"
     return "貴社"
-

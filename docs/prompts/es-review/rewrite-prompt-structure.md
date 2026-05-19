@@ -101,4 +101,4 @@ constraints とは補完関係:
 | LLM特有フレーズ禁止 | `STYLE_RULES` | `<core_style>` WATCH |
 | 敬称ポリシー | `company_mention_rule` | `<constraints priority="target">` |
 | テンプレート完結パターン | `TEMPLATE_GUIDANCE` | 【テンプレート別ガイダンス】 |
-| 構造化リトライ | `retry_guidance["structure"]` | 【前回失敗の回避】 |
+| 構造化リトライ | `retry_policy.guidance_by_failure["structure"]` | 【前回失敗の回避】 |

@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { gakuchikaContents, gakuchikaConversations } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { CONVERSATION_CREDITS_PER_TURN } from "@/lib/credits";
 import { gakuchikaStreamPolicy } from "@/bff/billing/gakuchika-stream-policy";
 import {
@@ -46,10 +46,12 @@ interface GakuchikaStreamContext {
   userId: string;
   gakuchika: { title: string; content: string | null; charLimitType: string | null };
   conversationId: string;
+  conversationUpdatedAt: Date;
   messages: Array<{ id: string; role: "user" | "assistant"; content: string }>;
   newQC: number;
   curState: ConversationState | null;
   shouldConsumeCredit: boolean;
+  reservationId: string | null;
   stateMachine: ReturnType<typeof createGakuchikaStreamStateMachine>;
   principal: CreateCareerPrincipalInput;
   streamedQ: string;
@@ -154,6 +156,7 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
     const newQC = currentQuestionCount + 1;
 
     const shouldConsumeCredit = !!userId;
+    let reservationId: string | null = null;
     if (shouldConsumeCredit) {
       const pc = await gakuchikaStreamPolicy.precheck({
         userId: userId!,
@@ -161,19 +164,45 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
         newQuestionCount: newQC,
       });
       if (!pc.ok) return pc.errorResponse!;
+      const reserveResult = await gakuchikaStreamPolicy.reserve?.(
+        {
+          userId: userId!,
+          gakuchikaId,
+          newQuestionCount: newQC,
+        },
+        CONVERSATION_CREDITS_PER_TURN,
+      );
+      if (reserveResult?.errorResponse) return reserveResult.errorResponse;
+      reservationId = reserveResult?.reservationId ?? null;
     }
 
-    const principalPlan = await getViewerPlan(identity);
+    let principalPlan: Awaited<ReturnType<typeof getViewerPlan>>;
+    try {
+      principalPlan = await getViewerPlan(identity);
+    } catch (error) {
+      await gakuchikaStreamPolicy.cancel(
+        {
+          userId: userId!,
+          gakuchikaId,
+          newQuestionCount: newQC,
+        },
+        reservationId,
+        "prepare_failed",
+      );
+      throw error;
+    }
 
     return {
       gakuchikaId,
       userId: userId!,
       gakuchika,
       conversationId: conversation.id,
+      conversationUpdatedAt: conversation.updatedAt,
       messages,
       newQC,
       curState,
       shouldConsumeCredit,
+      reservationId,
       stateMachine: createGakuchikaStreamStateMachine(curState),
       principal: {
         scope: "ai-stream" as const,
@@ -254,7 +283,7 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
         content: qText,
       });
     }
-    await db
+    const updatedRows = await db
       .update(gakuchikaConversations)
       .set({
         messages: ctx.messages,
@@ -263,7 +292,22 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
         starScores: serializeConversationState(ns),
         updatedAt: new Date(),
       })
-      .where(eq(gakuchikaConversations.id, ctx.conversationId));
+      .where(and(
+        eq(gakuchikaConversations.id, ctx.conversationId),
+        eq(gakuchikaConversations.updatedAt, ctx.conversationUpdatedAt),
+      ))
+      .returning({ id: gakuchikaConversations.id });
+    if (updatedRows.length === 0) {
+      ctx.billingOutcomeStatus = "failed";
+      ctx.creditsAppliedForSummary = 0;
+      return {
+        replaceEvent: {
+          type: "error",
+          message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。",
+        },
+        cancel: true,
+      };
+    }
     if (ctx.shouldConsumeCredit) {
       try {
         await gakuchikaStreamPolicy.confirm(
@@ -277,7 +321,7 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
             creditsConsumed: CONVERSATION_CREDITS_PER_TURN,
             freeQuotaUsed: false,
           },
-          null,
+          ctx.reservationId,
         );
         ctx.billingOutcomeStatus = "success";
         ctx.creditsAppliedForSummary = CONVERSATION_CREDITS_PER_TURN;
@@ -310,6 +354,15 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
   async onStreamError(ctx) {
     ctx.billingOutcomeStatus = "failed";
     ctx.creditsAppliedForSummary = 0;
+    await gakuchikaStreamPolicy.cancel(
+      {
+        userId: ctx.userId,
+        gakuchikaId: ctx.gakuchikaId,
+        newQuestionCount: ctx.newQC,
+      },
+      ctx.reservationId,
+      "stream_error",
+    );
   },
 
   async onFinally(_ctx, { success, telemetry }) {
@@ -322,6 +375,15 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
         telemetry,
       });
     } else if (_ctx.billingOutcomeStatus === "failed") {
+      await gakuchikaStreamPolicy.cancel(
+        {
+          userId: _ctx.userId,
+          gakuchikaId: _ctx.gakuchikaId,
+          newQuestionCount: _ctx.newQC,
+        },
+        _ctx.reservationId,
+        "failed",
+      );
       logAiCreditCostSummary({
         feature: "gakuchika",
         requestId: "",
@@ -330,6 +392,15 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
         telemetry,
       });
     } else if (!success) {
+      await gakuchikaStreamPolicy.cancel(
+        {
+          userId: _ctx.userId,
+          gakuchikaId: _ctx.gakuchikaId,
+          newQuestionCount: _ctx.newQC,
+        },
+        _ctx.reservationId,
+        "cancelled_or_incomplete",
+      );
       logAiCreditCostSummary({
         feature: "gakuchika",
         requestId: "",

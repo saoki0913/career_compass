@@ -1,5 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 
+import { isDeployedAppEnvironment } from "@/env/deployment";
 import { db } from "@/lib/db";
 import { companyInfoMonthlyUsage } from "@/lib/db/schema";
 import {
@@ -138,10 +139,7 @@ async function getOrCreateMonthlyUsage(userId: string, monthKey: string) {
 function shouldFailClosedOnMissingMonthlyUsageSchema(): boolean {
   return (
     process.env.NODE_ENV === "production" ||
-    process.env.VERCEL_ENV === "production" ||
-    process.env.VERCEL_ENV === "preview" ||
-    process.env.RAILWAY_ENVIRONMENT_NAME === "production" ||
-    process.env.RAILWAY_ENVIRONMENT_NAME === "staging"
+    isDeployedAppEnvironment()
   );
 }
 

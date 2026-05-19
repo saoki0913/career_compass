@@ -13,7 +13,7 @@
 - secrets, API keys, OAuth client secrets, Stripe webhook secrets, Supabase service role keys
 - session / CSRF / guest / internal proxy tokens
 - real cookies, `guest_device_token`, `x-device-token`
-- raw reference ES text or distinctive phrasing from `backend/app/reference/es_review/**`
+- raw reference ES text or distinctive phrasing from `docs/reference/es-review/**`
 - raw user ES, real student profiles, application documents, email, phone, address, student number
 - private fixtures, `backend/tests/output/**`, production logs, live AI output
 - copyrighted examples from books, blogs, company PDFs, competitor tools, or paid materials
@@ -32,4 +32,3 @@
 - Prompt docs must describe grounding rules and hallucination risks.
 - Prompt docs must keep runtime source paths separate from review-only Markdown.
 - Any implementation change based on these docs must be a separate task touching `backend/app/prompts/**` or related services explicitly.
-

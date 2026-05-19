@@ -39,6 +39,7 @@ function rawRequest(url: string) {
 
 describe("api/company-logos", () => {
   beforeEach(() => {
+    vi.resetModules();
     checkRateLimitMock.mockReset().mockResolvedValue({ allowed: true, remaining: 119, resetIn: 0 });
     getRequestIdentityMock.mockReset().mockResolvedValue({ userId: "user-1", guestId: null });
   });
@@ -143,7 +144,7 @@ describe("api/company-logos", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("uses legacy NEXT_PUBLIC provider env only as a server-side compatibility alias", async () => {
+  it("does not use legacy NEXT_PUBLIC provider env as a server-side compatibility alias", async () => {
     vi.stubEnv("NEXT_PUBLIC_LOGO_DEV_TOKEN", "legacy-logo-token");
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(new Uint8Array([1, 2, 3]), {
@@ -157,8 +158,8 @@ describe("api/company-logos", () => {
       request("http://localhost:3000/api/company-logos?provider=logo-dev&domain=mitsui.com"),
     );
 
-    expect(response.status).toBe(200);
-    expect(String(fetchSpy.mock.calls[0]?.[0] ?? "")).toContain("token=legacy-logo-token");
+    expect(response.status).toBe(404);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("auto provider does not fall through to favicon providers", async () => {

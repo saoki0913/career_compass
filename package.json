@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev/check-next-env.mjs && node scripts/dev/check-local-db-drift.mjs && next dev",
+    "dev:cache": "NEXT_DEV_FS_CACHE=1 npm run dev",
+    "dev:memory-report": "node scripts/dev/dev-memory-report.mjs",
+    "dev:reset-next-cache": "node scripts/dev/reset-next-dev-cache.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -48,6 +51,7 @@
     "test:security:static": "node scripts/security/check-api-route-csrf.mjs && node scripts/security/check-raw-error-responses.mjs && node scripts/security/check-local-prod-secrets.mjs && node --test scripts/security/*.test.mjs",
     "test:security:light": "bash scripts/security/run-lightweight-scan.sh --staged-only --fail-on=critical",
     "test:ui:review": "node tools/run-ui-review.mjs",
+    "screenshots:capture": "dotenv -e .env.local -- node tools/run-screenshot-capture.mjs",
     "test:unit": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:agent-pipeline": "node --test scripts/agent-pipeline/sync-pipeline.test.mjs",

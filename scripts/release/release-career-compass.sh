@@ -98,11 +98,13 @@ run_secret_drift_check() {
     staging)
       run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target vercel-staging
       run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target railway-staging
+      run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target supabase-staging
       run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target github
       ;;
     production)
       run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target vercel-production
       run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target railway-production
+      run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target supabase-production
       ;;
     all)
       run_real zsh "${repo_root}/scripts/release/sync-career-compass-secrets.sh" --check --target all

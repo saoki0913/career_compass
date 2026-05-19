@@ -3,7 +3,8 @@
 import {
   collectManagedState,
   createStripeClient,
-  loadManagedConfig,
+  loadResolvedManagedConfig,
+  parseCliArgs,
   syncPortal,
   syncProducts,
   syncWebhook,
@@ -11,8 +12,9 @@ import {
 
 async function main() {
   console.log("Stripe 本番ブートストラップ（就活Pass）\n");
-  const config = await loadManagedConfig();
-  const stripe = await createStripeClient({ environment: "live", config });
+  const args = parseCliArgs(["--target", "production", "--env", "live", ...process.argv.slice(2)]);
+  const config = await loadResolvedManagedConfig(args);
+  const stripe = await createStripeClient({ environment: args.environment, config });
   const state = await collectManagedState({ stripe });
 
   const productsResult = await syncProducts({
@@ -48,6 +50,9 @@ async function main() {
   console.log("\n--- vercel-production.env 等に追記する行（値は控えてバンドルへ）---\n");
   for (const line of productsResult.envLines) {
     console.log(line);
+  }
+  if (portalResult.plan?.id) {
+    console.log(`STRIPE_PORTAL_CONFIGURATION_ID=${portalResult.plan.id}`);
   }
   if (webhookResult.webhookSecret) {
     console.log("# STRIPE_WEBHOOK_SECRET was created; store it in the canonical secrets bundle only.");

@@ -1,7 +1,4 @@
 import { Suspense } from "react";
-import { headers } from "next/headers";
-import { auth } from "@/lib/auth";
-import { getCurrentRequestIdentity } from "@/lib/server/request-identity-cache";
 import {
   getCompaniesPageData,
   getUpcomingDeadlinesData,
@@ -24,13 +21,12 @@ import {
   DashboardTasksSkeleton,
 } from "@/components/skeletons/DashboardSkeleton";
 import type { CompaniesPageData, DeadlinesPageData, TasksPageData, TodayTaskData } from "@/lib/dto/dashboard";
+import { resolvePageIdentity } from "@/lib/server/page-identity";
 
 export default async function DashboardPage() {
-  const requestHeaders = await headers();
-  const [session, identity] = await Promise.all([
-    auth.api.getSession({ headers: requestHeaders }),
-    getCurrentRequestIdentity(),
-  ]);
+  const identityResult = await resolvePageIdentity("dashboard-page");
+  const session = identityResult.session;
+  const identity = identityResult.identity;
 
   if (!identity) {
     return (

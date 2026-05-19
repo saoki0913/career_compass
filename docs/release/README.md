@@ -44,21 +44,23 @@
 | **Step 3** | Railway にバックエンドをデプロイ | [RAILWAY.md](./setup/RAILWAY.md) |
 | **Step 4** | Vercel にフロントエンドをデプロイ | [VERCEL.md](./setup/VERCEL.md) |
 | **Step 5** | 外部サービスの本番設定（Google OAuth, CORS, Upstash） | [EXTERNAL_SERVICES.md](./setup/EXTERNAL_SERVICES.md) |
-| **Ref** | 環境変数クイックリファレンス | [ENV_REFERENCE.md](./setup/ENV_REFERENCE.md) |
+| **Ref** | 環境変数チェックリスト | [ENVIRONMENT_VARIABLES.md](../ops/ENVIRONMENT_VARIABLES.md) |
 | **Ref** | 個人事業主コンプライアンス（特商法・Stripe 審査） | [INDIVIDUAL_BUSINESS_COMPLIANCE.md](./setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md) |
 
 ---
 
 ## 運用タスクを実行する場合
 
-[ops/RUNBOOK.md](./ops/RUNBOOK.md) を起点に、シナリオに応じた手順書を参照してください。
+[./ops/RUNBOOK.md](./ops/RUNBOOK.md) を起点に、シナリオに応じた手順書を参照してください。
 
 | ドキュメント | 内容 |
 |---|---|
 | [RUNBOOK.md](./ops/RUNBOOK.md) | 運用ランブック（シナリオ選択の入口） |
-| [REGULAR_RELEASE.md](./ops/REGULAR_RELEASE.md) | 通常リリース手順（develop → main） |
+| [ENVIRONMENT_VARIABLES.md](../ops/ENVIRONMENT_VARIABLES.md) | 本番環境変数チェックリスト |
+| [SECRETS_MANAGEMENT.md](./ops/SECRETS_MANAGEMENT.md) | シークレット管理 |
 | [DB_MIGRATION.md](./ops/DB_MIGRATION.md) | DB マイグレーション手順（分類・安全ゲート） |
-| [MIGRATION_RUNBOOK.md](./ops/MIGRATION_RUNBOOK.md) | Supabase CLI / Drizzle マイグレーション運用 |
+| [STRIPE.md](./setup/STRIPE.md) | Stripe 本番設定・運用 |
+| [REGULAR_RELEASE.md](./ops/REGULAR_RELEASE.md) | 通常リリース手順（develop → main） |
 | [INCIDENT_ROLLBACK.md](./ops/INCIDENT_ROLLBACK.md) | 障害対応・ロールバック手順 |
 
 ---

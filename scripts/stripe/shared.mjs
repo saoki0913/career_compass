@@ -11,6 +11,7 @@ import {
   planPortalSync,
   planProductSync,
   planWebhookSync,
+  resolveManagedStripeTarget,
   resolveStripeSecretKey,
 } from "./core.mjs";
 
@@ -23,9 +24,26 @@ export async function loadManagedConfig() {
   return JSON.parse(raw);
 }
 
+export async function loadResolvedManagedConfig(args) {
+  const baseConfig = await loadManagedConfig();
+  const resolved = resolveManagedStripeTarget({
+    expectedConfig: {
+      ...baseConfig,
+      environmentExplicit: args.environmentExplicit,
+    },
+    target: args.target,
+    environment: args.environment,
+  });
+  args.environment = resolved.environment;
+  args.target = resolved.target?.name ?? args.target ?? null;
+  return resolved.config;
+}
+
 export function parseCliArgs(argv) {
   const args = {
     environment: "test",
+    environmentExplicit: false,
+    target: null,
     json: false,
     dryRun: false,
     help: false,
@@ -35,6 +53,10 @@ export function parseCliArgs(argv) {
     const entry = argv[index];
     if (entry === "--env") {
       args.environment = argv[index + 1] ?? args.environment;
+      args.environmentExplicit = true;
+      index += 1;
+    } else if (entry === "--target") {
+      args.target = argv[index + 1] ?? args.target;
       index += 1;
     } else if (entry === "--json") {
       args.json = true;
@@ -121,13 +143,19 @@ export function buildInspectSummary({ config, state }) {
 
   return {
     title: "Stripe inspect",
+    target: config.activeTarget ?? null,
     managedProducts,
     webhookMatches: webhookMatches.map((endpoint) => ({
       id: endpoint.id,
       url: endpoint.url,
       enabledEvents: endpoint.enabled_events,
       apiVersion: endpoint.api_version ?? null,
+      status: endpoint.status ?? null,
     })),
+    staleWebhookEndpoints: planWebhookSync({
+      expectedConfig: config,
+      endpoints: state.webhookEndpoints,
+    }).staleEndpoints,
     portalDefault: portalDefault
       ? {
           id: portalDefault.id,
@@ -239,9 +267,11 @@ export async function syncWebhook({ stripe, config, state, dryRun }) {
       applied.push({ type: "webhook", action: "create", id: created.id });
       plan.id = created.id;
     } else if (plan.action === "update" && plan.id) {
-      await stripe.webhookEndpoints.update(plan.id, {
+      const updatePayload = {
         enabled_events: config.webhook.events,
-      });
+        ...(plan.shouldEnable ? { disabled: false } : {}),
+      };
+      await stripe.webhookEndpoints.update(plan.id, updatePayload);
       applied.push({ type: "webhook", action: "update", id: plan.id });
     }
   }

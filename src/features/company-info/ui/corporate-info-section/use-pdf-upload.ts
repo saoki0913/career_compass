@@ -61,6 +61,7 @@ export function usePdfUpload({
     useState<FetchConfirmation | null>(null);
   const [pdfUploadProgress, setPdfUploadProgress] = useState<PdfFileProgress[] | null>(null);
   const [pdfPageEstimates, setPdfPageEstimates] = useState<Record<string, number | null>>({});
+  const [pdfQuoteIds, setPdfQuoteIds] = useState<Record<string, string>>({});
   const [pdfEstimate, setPdfEstimate] = useState<PdfEstimateResult | null>(null);
   const [pdfEstimateLoading, setPdfEstimateLoading] = useState(false);
 
@@ -73,6 +74,7 @@ export function usePdfUpload({
     const files = pdfDraft.uploadFiles;
     if (files.length === 0) {
       setPdfPageEstimates({});
+      setPdfQuoteIds({});
       return;
     }
 
@@ -118,6 +120,7 @@ export function usePdfUpload({
           requires_confirmation: false,
           errors: [],
         };
+        const nextQuoteIds: Record<string, string> = {};
 
         for (const file of files) {
           const key = pdfFileKey(file);
@@ -146,6 +149,10 @@ export function usePdfUpload({
           if (!response.ok) {
             throw new Error(data.errors?.[0] || "PDFの見積に失敗しました。");
           }
+          if (!data.quoteId) {
+            throw new Error("PDFの見積情報を確認できませんでした。");
+          }
+          nextQuoteIds[key] = data.quoteId;
 
           aggregate.estimated_free_pdf_pages += data.estimated_free_pdf_pages || 0;
           aggregate.estimated_credits += data.estimated_credits || 0;
@@ -175,10 +182,12 @@ export function usePdfUpload({
 
         if (!cancelled) {
           setPdfEstimate(aggregate);
+          setPdfQuoteIds(nextQuoteIds);
         }
       } catch {
         if (!cancelled) {
           setPdfEstimate(null);
+          setPdfQuoteIds({});
         }
       } finally {
         if (!cancelled) {
@@ -218,6 +227,7 @@ export function usePdfUpload({
       contentType,
       contentChannel: CONTENT_TYPE_TO_CHANNEL[contentType] || "corporate_general",
       confirmedWarningUrls: [],
+      pdfQuoteIds,
     };
     const estimate: CrawlEstimateResult = {
       success: pdfEstimate.success,
@@ -234,7 +244,7 @@ export function usePdfUpload({
       errors: pdfEstimate.errors,
     };
     return { kind: "cost_estimate", estimate, plan };
-  }, [companyId, pdfDraft.uploadFileContentTypes, pdfDraft.uploadFiles, pdfEstimate, pdfPageEstimates]);
+  }, [companyId, pdfDraft.uploadFileContentTypes, pdfDraft.uploadFiles, pdfEstimate, pdfPageEstimates, pdfQuoteIds]);
 
   const executePdfUpload = useCallback(async () => {
     if (!acquireLock("企業情報PDFを取り込み中")) {
@@ -275,7 +285,12 @@ export function usePdfUpload({
           formData.append("file", file);
           const contentType =
             pdfDraft.uploadFileContentTypes[pdfFileKey(file)] || DEFAULT_PDF_UPLOAD_CONTENT_TYPE;
+          const quoteId = pdfQuoteIds[pdfFileKey(file)];
+          if (!quoteId) {
+            throw new Error("PDFの見積情報を確認できませんでした。もう一度見積を取得してください。");
+          }
           formData.append("contentType", contentType);
+          formData.append("quoteId", quoteId);
 
           const response = await uploadCorporatePdf(companyId, formData);
 
@@ -448,6 +463,7 @@ export function usePdfUpload({
     fetchStatus,
     pdfDraft.uploadFileContentTypes,
     pdfDraft.uploadFiles,
+    pdfQuoteIds,
     releaseLock,
     setError,
     setFetchResult,

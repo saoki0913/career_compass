@@ -56,7 +56,7 @@ ES添削時に企業情報を参照し、「企業接続」軸の評価を可能
 
 企業RAGの正本は `company_info__{provider}__{model}` collection。Contextual Retrieval は shadow dual-write として `company_info__{provider}__{model}__ctx` に書き込み、本文 chunk は汚さず `metadata.contextual_prefix` と embedding 用 text だけを拡張する。検索の既定切替は `CONTEXTUAL_RETRIEVAL_ENABLED` で制御する。
 
-参考 ES は企業RAGとは物理分離し、`reference_es__{provider}__{model}` collection に保存する。metadata に `company_id` / `tenant_key` を持たせず、設問タイプ・業界・文字数上限で検索する。既定では `REFERENCE_ES_RAG_ENABLED=false` のため、既存の quality profile にフォールバックする。
+参考 ES の semantic retrieval は ES 添削 runtime から削除済み。企業RAGは企業情報専用で、ES 添削の参考ES由来ヒントは `backend/app/prompts/es_reference_guidance.py` の抽象ガイダンスだけを使う。
 
 ### 4. コンテンツタイプ優先順位
 

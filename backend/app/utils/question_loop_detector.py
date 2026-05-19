@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
+
+from app.config import settings
 
 LOOP_DETECTION_WINDOW = 5
 SIMILARITY_THRESHOLD = 0.55
@@ -56,10 +57,10 @@ def _detect_question_loops_in_history(
     threshold: float = SIMILARITY_THRESHOLD,
 ) -> dict[str, Any]:
     """Check if candidate question is too similar to recent questions."""
-    raw_threshold = os.getenv("GAKUCHIKA_LOOP_SIMILARITY_THRESHOLD", "").strip()
-    if raw_threshold:
+    configured_threshold = settings.gakuchika_loop_similarity_threshold
+    if configured_threshold != SIMILARITY_THRESHOLD:
         try:
-            threshold = float(raw_threshold)
+            threshold = float(configured_threshold)
         except ValueError:
             pass
 

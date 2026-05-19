@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { serverEnv } from "@/env/server";
 import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1"]);
@@ -9,7 +10,7 @@ function isLocalOnlyRequest(request: NextRequest) {
 }
 
 function isLocalPreflightEnabled() {
-  return process.env.LOCAL_AI_LIVE_PREFLIGHT_ENABLED === "1";
+  return serverEnv.LOCAL_AI_LIVE_PREFLIGHT_ENABLED === "1";
 }
 
 async function parseUpstreamResponse(response: Response) {

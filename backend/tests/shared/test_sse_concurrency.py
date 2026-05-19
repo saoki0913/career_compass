@@ -66,6 +66,11 @@ def test_acquire_and_release_roundtrip() -> None:
     asyncio.run(run())
 
 
+def test_lease_keys_are_namespaced() -> None:
+    assert mod._lease_key("user 1", "lease/1").startswith("cc:local:sse:concurrent:")
+    assert mod._lease_pattern("user 1") == "cc:local:sse:concurrent:user%201:*"
+
+
 def test_acquire_rejects_when_limit_reached() -> None:
     client = FakeRedis()
 

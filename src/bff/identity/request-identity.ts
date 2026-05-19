@@ -32,6 +32,11 @@ export type OwnerIdentity = {
 
 export type RequestIdentity = OwnerIdentity;
 
+export type ResolvedRequestIdentity = {
+  identity: ActiveRequestIdentity | null;
+  session: Awaited<ReturnType<typeof auth.api.getSession>> | null;
+};
+
 type RequestIdentityOptions = {
   sessionErrorMode?: "fallback" | "throw";
 };
@@ -76,10 +81,10 @@ export function toOwnerIdentity(identity: ActiveRequestIdentity): OwnerIdentity 
   };
 }
 
-export async function getHeadersIdentity(
+export async function resolveHeadersIdentity(
   requestHeaders: Headers,
   options: RequestIdentityOptions = {},
-): Promise<ActiveRequestIdentity | null> {
+): Promise<ResolvedRequestIdentity> {
   let session: Awaited<ReturnType<typeof auth.api.getSession>> | null = null;
   const hasSessionCookie = hasBetterAuthSessionCookie(requestHeaders);
   let deviceTokenFromCookie: string | null | undefined;
@@ -106,39 +111,53 @@ export async function getHeadersIdentity(
 
   if (session?.user?.id) {
     if (isCurrentlyBanned(session.user)) {
-      return null;
+      return { identity: null, session };
     }
 
     return {
-      kind: "user",
-      type: "user",
-      userId: session.user.id,
-      guestId: null,
-      role: normalizeRole(session.user.role),
-      banned: false,
+      identity: {
+        kind: "user",
+        type: "user",
+        userId: session.user.id,
+        guestId: null,
+        role: normalizeRole(session.user.role),
+        banned: false,
+      },
+      session,
     };
   }
 
   if (hasSessionCookie && options.sessionErrorMode !== "fallback") {
-    return null;
+    return { identity: null, session };
   }
 
   const deviceToken = getDeviceTokenFromCookie();
   if (!deviceToken) {
-    return null;
+    return { identity: null, session };
   }
 
   const guest = await getGuestUser(deviceToken);
   if (!guest) {
-    return null;
+    return { identity: null, session };
   }
 
   return {
-    kind: "guest",
-    type: "guest",
-    userId: null,
-    guestId: guest.id,
+    identity: {
+      kind: "guest",
+      type: "guest",
+      userId: null,
+      guestId: guest.id,
+    },
+    session,
   };
+}
+
+export async function getHeadersIdentity(
+  requestHeaders: Headers,
+  options: RequestIdentityOptions = {},
+): Promise<ActiveRequestIdentity | null> {
+  const result = await resolveHeadersIdentity(requestHeaders, options);
+  return result.identity;
 }
 
 export async function getRequestIdentity(

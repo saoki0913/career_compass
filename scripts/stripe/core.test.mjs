@@ -7,6 +7,7 @@ import {
   planPortalSync,
   planProductSync,
   planWebhookSync,
+  resolveManagedStripeTarget,
   resolveStripeSecretKey,
 } from "./core.mjs";
 
@@ -105,6 +106,24 @@ const expectedConfig = {
   },
 };
 
+const targetAwareConfig = {
+  ...expectedConfig,
+  targets: {
+    staging: {
+      stripeMode: "test",
+      appUrl: "https://stg.shupass.jp",
+      webhookUrl: "https://stg.shupass.jp/api/webhooks/stripe",
+      portalReturnUrl: "https://stg.shupass.jp/settings",
+    },
+    production: {
+      stripeMode: "live",
+      appUrl: "https://www.shupass.jp",
+      webhookUrl: "https://www.shupass.jp/api/webhooks/stripe",
+      portalReturnUrl: "https://www.shupass.jp/settings",
+    },
+  },
+};
+
 test("resolveStripeSecretKey rejects environment mismatch", () => {
   assert.throws(
     () =>
@@ -151,6 +170,144 @@ test("planWebhookSync updates events when endpoint exists with wrong subscriptio
     "invoice.payment_failed",
     "invoice.payment_succeeded",
   ]);
+});
+
+test("resolveManagedStripeTarget maps staging to test-mode stable URLs", () => {
+  const resolved = resolveManagedStripeTarget({
+    expectedConfig: targetAwareConfig,
+    target: "staging",
+    environment: "test",
+  });
+
+  assert.equal(resolved.environment, "test");
+  assert.equal(resolved.target.name, "staging");
+  assert.equal(resolved.config.webhook.url, "https://stg.shupass.jp/api/webhooks/stripe");
+  assert.equal(resolved.config.portal.returnUrl, "https://stg.shupass.jp/settings");
+});
+
+test("resolveManagedStripeTarget lets target imply Stripe mode when --env is omitted", () => {
+  const resolved = resolveManagedStripeTarget({
+    expectedConfig: targetAwareConfig,
+    target: "production",
+    environment: "test",
+  });
+
+  assert.equal(resolved.environment, "live");
+  assert.equal(resolved.target.name, "production");
+  assert.equal(resolved.config.webhook.url, "https://www.shupass.jp/api/webhooks/stripe");
+});
+
+test("resolveManagedStripeTarget rejects explicit env mismatches", () => {
+  assert.throws(
+    () =>
+      resolveManagedStripeTarget({
+        expectedConfig: {
+          ...targetAwareConfig,
+          environmentExplicit: true,
+        },
+        target: "production",
+        environment: "test",
+      }),
+    /uses Stripe live, but --env test was requested/,
+  );
+});
+
+test("resolveManagedStripeTarget rejects preview webhook URLs", () => {
+  assert.throws(
+    () =>
+      resolveManagedStripeTarget({
+        expectedConfig: {
+          ...targetAwareConfig,
+          targets: {
+            staging: {
+              ...targetAwareConfig.targets.staging,
+              webhookUrl: "https://preview-example.vercel.app/api/webhooks/stripe",
+            },
+          },
+        },
+        target: "staging",
+        environment: "test",
+      }),
+    /must not use an ephemeral vercel\.app URL/,
+  );
+});
+
+test("planWebhookSync reports active stale Vercel webhook endpoints", () => {
+  const plan = planWebhookSync({
+    expectedConfig: {
+      ...expectedConfig,
+      webhook: {
+        ...expectedConfig.webhook,
+        url: "https://stg.shupass.jp/api/webhooks/stripe",
+      },
+    },
+    endpoints: [
+      {
+        id: "we_staging",
+        url: "https://stg.shupass.jp/api/webhooks/stripe",
+        enabled_events: expectedConfig.webhook.events,
+        status: "enabled",
+      },
+      {
+        id: "we_preview",
+        url: "https://old-preview.vercel.app/api/webhooks/stripe",
+        enabled_events: ["checkout.session.completed"],
+        status: "enabled",
+      },
+      {
+        id: "we_disabled_preview",
+        url: "https://disabled-preview.vercel.app/api/webhooks/stripe",
+        enabled_events: ["checkout.session.completed"],
+        status: "disabled",
+      },
+    ],
+  });
+
+  assert.equal(plan.action, "noop");
+  assert.deepEqual(plan.staleEndpointIds, ["we_preview"]);
+});
+
+test("planWebhookSync prefers enabled endpoint over disabled duplicate with same URL", () => {
+  const plan = planWebhookSync({
+    expectedConfig,
+    endpoints: [
+      {
+        id: "we_disabled",
+        url: "https://www.shupass.jp/api/webhooks/stripe",
+        enabled_events: ["checkout.session.completed"],
+        status: "disabled",
+      },
+      {
+        id: "we_enabled",
+        url: "https://www.shupass.jp/api/webhooks/stripe",
+        enabled_events: expectedConfig.webhook.events,
+        status: "enabled",
+      },
+    ],
+  });
+
+  assert.equal(plan.id, "we_enabled");
+  assert.equal(plan.action, "update");
+  assert.equal(plan.shouldEnable, false);
+  assert.deepEqual(plan.duplicateEndpointIds, ["we_disabled"]);
+});
+
+test("planWebhookSync marks a lone disabled matching endpoint for re-enable", () => {
+  const plan = planWebhookSync({
+    expectedConfig,
+    endpoints: [
+      {
+        id: "we_disabled",
+        url: "https://www.shupass.jp/api/webhooks/stripe",
+        enabled_events: expectedConfig.webhook.events,
+        status: "disabled",
+      },
+    ],
+  });
+
+  assert.equal(plan.id, "we_disabled");
+  assert.equal(plan.action, "update");
+  assert.equal(plan.shouldEnable, true);
 });
 
 test("planPortalSync detects default portal drift", () => {

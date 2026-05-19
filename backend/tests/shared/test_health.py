@@ -20,13 +20,16 @@ def test_health_check_is_public_liveness_only() -> None:
 def test_version_check_exposes_minimal_build_metadata(monkeypatch) -> None:
     monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "abcdef1234567890")
     monkeypatch.setenv("BUILD_TIME", "2026-05-13T00:00:00Z")
-    monkeypatch.setenv("APP_ENV", "production")
 
+    from app import config
     from app.routers import health
 
+    class FakeSettings:
+        logical_app_environment = "production"
+
+    monkeypatch.setattr(config, "settings", FakeSettings())
     health.BUILD_SHA = "abcdef1234567890"
     health.BUILD_TIME = "2026-05-13T00:00:00Z"
-    health.APP_ENV = "production"
 
     response = TestClient(make_app()).get("/health/version", headers={"host": "localhost"})
 

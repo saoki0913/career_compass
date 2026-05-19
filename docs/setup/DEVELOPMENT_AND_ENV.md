@@ -326,15 +326,13 @@ e2e/
 
 ## 環境変数
 
-| 変数名 | 説明 | 必須 |
-|--------|------|------|
-| `DATABASE_URL` | Supabase Postgres 接続URL（推奨: Pooler/6543） | ✅ |
-| `DIRECT_URL` | Supabase Postgres 直通URL（5432, マイグレーション推奨） | 🔶 |
-| `BETTER_AUTH_SECRET` | 認証シークレット | ✅ |
-| `GOOGLE_CLIENT_ID` | Google OAuth ID | ✅ |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth Secret | ✅ |
-| `STRIPE_SECRET_KEY` | Stripe シークレットキー | ✅ |
-| `STRIPE_WEBHOOK_SECRET` | Stripe Webhook シークレット | ✅ |
+環境変数の一覧・必須性・環境別の差・設定場所・生成/取得方法の正本（SSOT）は [`docs/ops/ENVIRONMENT_VARIABLES.md`](../ops/ENVIRONMENT_VARIABLES.md) に集約しました。重複防止のためこのファイルからは一覧表を削除しています。
+
+- 全変数リファレンス（required/optional・取得手順込み）: SSOT の **§5**
+- 環境別（local/CI/staging/production）の差: SSOT の **§3**
+- 新規変数を追加するときにどのファイルを触るか: SSOT の **§2 判断フロー**
+
+このファイル後半「環境変数・外部サービス（詳細）」には、サービスごとの `.env.local` 設定例（Supabase / Better Auth / Google OAuth / Stripe 等）を残しています。網羅的な一覧と本番値は上記 SSOT を見てください。
 
 ---
 
@@ -370,7 +368,7 @@ npm run db:generate
 - [SPEC.md](../SPEC.md) — 機能仕様書
 - [DB_SUPABASE.md](./DB_SUPABASE.md) — Supabase / DB 運用（ローカル・本番・マイグレーション）
 - [MCP_SETUP.md](./MCP_SETUP.md) — MCP サーバー設定
-- [環境変数クイックリファレンス](../release/ENV_REFERENCE.md) — 本番向け一覧
+- [環境変数 SSOT](../ops/ENVIRONMENT_VARIABLES.md) — 環境変数の唯一の正本（A 早見表・B 環境判定モデル・C 判断フロー・D 変数索引・E drift・F 保守）
 - [Next.js Docs](https://nextjs.org/docs)
 - [Drizzle ORM Docs](https://orm.drizzle.team/)
 - [Better Auth Docs](https://www.better-auth.com/)
@@ -548,7 +546,7 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 
 ```env
 STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxx
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_xxxxxxxxxxxxx
+# Stripe.js を直接使わない現行実装では NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY は不要
 STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxx
 ```
 
@@ -689,6 +687,31 @@ npm run dev
 
 http://localhost:3000 でアクセス可能
 
+### ローカルメモリ運用
+
+通常の `npm run dev` は、Next.js dev の Turbopack filesystem cache を無効にして起動します。開発ビルドの再起動速度を優先したいときだけ、明示的に cache 有効モードを使います。
+
+```bash
+npm run dev:cache
+```
+
+メモリやディスク使用量を確認する場合:
+
+```bash
+npm run dev:memory-report
+```
+
+このレポートは `.next/dev/server/app-paths-manifest.json` も確認します。`/api/documents/[id]/review/stream` の compiled artifact はあるのに manifest に登録されていない場合、Next dev の route metadata が壊れているため、次の cache reset を実行します。
+
+`.next/dev` が肥大した場合は、Next.js dev server を停止してから以下を実行します。削除対象は開発用生成物だけで、DB、Docker volume、`node_modules`、`.env*` は触りません。
+
+```bash
+npm run dev:reset-next-cache -- --dry-run
+npm run dev:reset-next-cache
+```
+
+DB/Auth/API の確認が不要な作業では、作業後に `make db-down` で Supabase local を止めます。ローカル DB データを消す `make db-down-clean` や Docker volume 削除系は、通常のメモリ対策では使いません。
+
 ### FastAPI (AI バックエンド) - 必要な場合
 
 ```bash
@@ -758,27 +781,7 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 
 ## 環境変数一覧
 
-| 変数名 | 説明 | 必須 | 取得先 |
-|--------|------|:----:|--------|
-| `DATABASE_URL` | Supabase Postgres 接続URL（推奨: Pooler/6543） | ✅ | Supabase Dashboard |
-| `DIRECT_URL` | Supabase Postgres 直通URL（5432, マイグレーション推奨） | 🔶 | Supabase Dashboard |
-| `BETTER_AUTH_SECRET` | 認証シークレット | ✅ | `openssl rand -base64 32` |
-| `BETTER_AUTH_URL` | 認証ベースURL | ✅ | `http://localhost:3000` |
-| `BETTER_AUTH_TRUSTED_ORIGINS` | Better Auth が信頼する origin | ✅ | `http://localhost:3000,http://127.0.0.1:3000` |
-| `GOOGLE_CLIENT_ID` | Google OAuth ID | 🔶 | Google Cloud Console |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth Secret | 🔶 | Google Cloud Console |
-| `STRIPE_SECRET_KEY` | Stripe シークレットキー | 🔶 | Stripe Dashboard |
-| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe 公開キー | 🔶 | Stripe Dashboard |
-| `STRIPE_WEBHOOK_SECRET` | Stripe Webhook シークレット | 🔶 | Stripe CLI |
-| `GITHUB_TOKEN` | GitHub Personal Access Token | 🔶 | GitHub Settings > Tokens（⚠️一度のみ表示） |
-| `OPENAI_API_KEY` | OpenAI APIキー（Embeddings + GPT） | 🔶 | OpenAI Dashboard |
-| `ANTHROPIC_API_KEY` | Anthropic APIキー（Claude） | 🔶 | Anthropic Console |
-| `NEXT_PUBLIC_FASTAPI_URL` | FastAPI バックエンドURL | 🔶 | `http://localhost:8000`（開発時） |
-| `LOGO_DEV_TOKEN` | ダッシュボード企業アイコンの実ロゴ取得（Logo.dev image token） | 🔶 | Logo.dev Dashboard |
-| `LOGO_DEV_SECRET_KEY` | 企業名から公式 domain を解決する Logo.dev Brand Search API secret key | 🔶 | Logo.dev Dashboard |
-| `BRANDFETCH_CLIENT_ID` | ダッシュボード企業アイコンの実ロゴ fallback（Brandfetch Logo API client ID） | 🔶 | Brandfetch Developer Portal |
-
-✅ = 必須、🔶 = 機能使用時に必要
+全変数の一覧・必須性（required/optional）・取得先・環境別の差・設定場所は [`docs/ops/ENVIRONMENT_VARIABLES.md`](../ops/ENVIRONMENT_VARIABLES.md) の **D 変数リファレンス**（環境差は **A-1 早見表**、判断フローは **C**）に集約しました（重複防止のためこのファイルからは一覧表を削除）。取得手順（Supabase project 作成 / Google OAuth コンソール / Stripe CLI / `openssl rand` 等）も同 SSOT に併記しています。
 
 企業ロゴが頭文字 avatar に落ちる場合は、まず `LOGO_DEV_TOKEN` を設定してください。企業名しかない登録データを Logo.dev の domain lookup に寄せる場合は `LOGO_DEV_SECRET_KEY` も追加します。Brandfetch も使う場合は `BRANDFETCH_CLIENT_ID` を追加します。既存の `NEXT_PUBLIC_LOGO_DEV_TOKEN` / `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` は互換 alias として読みますが、新規設定では server-only 名を使います。favicon は企業ロゴとして表示しません。
 

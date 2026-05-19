@@ -6,9 +6,8 @@ from ._types import TemplateDef
 
 
 TEMPLATE_DEF: TemplateDef = {
-        "label": "インターン志望理由",
-        "requires_company_rag": True,
-        "grounding_level": "standard",
+    "label": "インターン志望理由",
+    "rewrite_policy": {
         "description": "インターンへの参加理由を述べる設問。参加目的と自己成長の接点を示す。",
         "extra_fields": ["intern_name"],
         "purpose": "なぜそのインターンに参加したいかを、経験と得たい学びにつないで示す。",
@@ -18,26 +17,8 @@ TEMPLATE_DEF: TemplateDef = {
             "学びたいことが抽象的すぎる",
             "経験とインターンの接続がない",
         ],
-        "recommended_structure": {
-            "short": "1文目で参加理由、2文目で根拠経験、必要なら3文目でこのインターンで得たいことを置く",
-            "mid": "1文目で参加理由、2文目で根拠経験、3文目でインターン価値との接点、4文目で得たい学びを置く。参加理由を複数出す場合は本文内で第一に・第二にを使う",
-            "dense_short_answer": True,
-        },
-        "evaluation_checks": {
-            "repeated_opening_pattern": r"(参加理由|志望理由)は",
-            "head_sentence_window": 2,
-            "anchor_type": "intern",
-            "anchor_pattern": r"インターン|プログラム|インターンシップ",
-            "practice_context_pattern": r"実務|現場|課題|就業|体験",
-            "head_focus_pattern": r"参加|志望|理由|惹|魅力|学びたい|学びたく|身につけたい|得たい|挑戦したい|試したい|試し(?:ながら|て)|実践したい|実践的|期待|関心|魅力を感|惹か|ふさわしい|最適|身を置きたい|触れたい|体感|機会|鍛え",
-            "answer_focus_message": "冒頭でなぜそのインターンに参加したいかを短く言い切ってください。",
-        },
-        "retry_guidance": {
-            "under_min": "{target_hint} を狙い、参加理由から経験、得たい学びへの橋渡しを補う",
-            "answer_focus": "1文目で参加したい理由の核を短く言い切る",
-            "grounding": "インターンの価値との接点を1点だけ明確にする",
-            "structure": "参加理由が複数あるときは「理由は二つある。第一に〜第二に〜」で数を宣言し、各々に経験根拠と学び目標を完結させる",
-        },
+        "structure_short": "1文目で参加理由、2文目で根拠経験、必要なら3文目でこのインターンで得たいことを置く",
+        "dense_short_answer": True,
         "rewrite_closing_guidance": (
             "結びでインターン経験を将来のキャリア像に接続してよい。"
             "元回答にない具体的な職種名・企業施策は追加しない"
@@ -67,10 +48,32 @@ TEMPLATE_DEF: TemplateDef = {
             "example_good_2": "研究で磨いた仮説検証力を土台に、実務の制約下で優先順位を考える力を伸ばしたい。",
             "example_bad": "私は{intern_name}に参加したい理由は、参加してみたいからだ。",
         },
-        "evaluation_axes": [{'name': '学びたいことの核', 'pass_condition': '参加目的が冒頭で1点に絞られている', 'rewrite_instruction': '学びたい、検証したい対象を具体動詞で示す'},
-         {'name': '根拠になる経験や問題意識', 'pass_condition': 'なぜ学びたいのかを支える経験がある', 'rewrite_instruction': '経験、気づき、必要性、参加目的の因果をつなぐ'},
-         {'name': 'プログラムとの接点',
-          'pass_condition': 'インターン内容と自分の目的が結びついている',
-          'rewrite_instruction': '企業魅力の羅列ではなく、プログラム内容と目標の接点に絞る'},
-         {'name': '主体的姿勢', 'pass_condition': '試したい、検証したい等の能動表現がある', 'rewrite_instruction': '教えていただきたい、触れてみたい等の受け身表現を避ける'}],
-    }
+    },
+    "validation_policy": {
+        "requires_company_rag": True,
+        "grounding_level": "standard",
+        "evaluation_checks": {
+            "repeated_opening_pattern": r"(参加理由|志望理由)は",
+            "head_sentence_window": 2,
+            "anchor_type": "intern",
+            "anchor_pattern": r"インターン|プログラム|インターンシップ",
+            "practice_context_pattern": r"実務|現場|課題|就業|体験",
+            "head_focus_pattern": r"参加|志望|理由|惹|魅力|学びたい|学びたく|身につけたい|得たい|挑戦したい|試したい|試し(?:ながら|て)|実践したい|実践的|期待|関心|魅力を感|惹か|ふさわしい|最適|身を置きたい|触れたい|体感|機会|鍛え",
+            "answer_focus_message": "冒頭でなぜそのインターンに参加したいかを短く言い切ってください。",
+        },
+        "evaluation_axes": [
+            {"name": "学びたいことの核", "pass_condition": "参加目的が冒頭で1点に絞られている", "rewrite_instruction": "学びたい、検証したい対象を具体動詞で示す"},
+            {"name": "根拠になる経験や問題意識", "pass_condition": "なぜ学びたいのかを支える経験がある", "rewrite_instruction": "経験、気づき、必要性、参加目的の因果をつなぐ"},
+            {"name": "プログラムとの接点", "pass_condition": "インターン内容と自分の目的が結びついている", "rewrite_instruction": "企業魅力の羅列ではなく、プログラム内容と目標の接点に絞る"},
+            {"name": "主体的姿勢", "pass_condition": "試したい、検証したい等の能動表現がある", "rewrite_instruction": "教えていただきたい、触れてみたい等の受け身表現を避ける"},
+        ],
+    },
+    "retry_policy": {
+        "guidance_by_failure": {
+            "under_min": "{target_hint} を狙い、参加理由から経験、得たい学びへの橋渡しを補う",
+            "answer_focus": "1文目で参加したい理由の核を短く言い切る",
+            "grounding": "インターンの価値との接点を1点だけ明確にする",
+            "structure": "参加理由が複数あるときは「理由は二つある。第一に〜第二に〜」で数を宣言し、各々に経験根拠と学び目標を完結させる",
+        },
+    },
+}
