@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedAt": "2026-05-12T17:29:08.959Z",
-  "lastUpdated": "2026-05-13",
+  "lastUpdated": "2026-05-18",
   "description": "Unified SSOT for docs/plan task state. Markdown plan files are narrative; this JSON is the task state source of truth.",
   "statusValues": [
     "Todo",
@@ -18,6 +18,7 @@
   ],
   "documents": [
     "auth-guest-ownership-api-boundary-plan.md",
+    "backend-config-env-consolidation-improvement-plan.md",
     "billing-credit-integrity-report.md",
     "company-info-deadline-extraction-improvement-plan.md",
     "db-design-optimization-rls.md",
@@ -32,6 +33,7 @@
     "release-infrastructure-operations-plan.md",
     "security-vulnerability-hardening-plan.md",
     "seo-public-page-quality-plan.md",
+    "supabase-environment-separation-plan.md",
     "task-deadline-calendar-integration-plan.md",
     "test-quality-gate-plan.md",
     "ui-ux-responsive-quality-plan.md"
@@ -6211,7 +6213,7 @@
       "rawId": null,
       "aliases": [],
       "sourcePlan": "security-vulnerability-hardening-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "High",
       "area": "General",
@@ -6223,17 +6225,19 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "src/app/api/webhooks/stripe/route.ts, src/lib/credits/shared.ts, src/bff/es-review/review-stream-context.ts"
+        "src/app/api/webhooks/stripe/route.ts, src/lib/credits/shared.ts, src/bff/es-review/review-stream-context.ts",
+        "SEC-001"
       ],
-      "updatedAt": "2026-05-04",
-      "notes": ""
+      "updatedAt": "2026-05-14",
+      "notes": "Superseded by SEC-001 and Billing final hardening; invoice.payment_failed downgrade and credit-layer blocking are implemented.",
+      "lastUpdatedBy": "scripts/plan/update-plan-task-status.mjs"
     },
     {
       "id": "security-vulnerability-hardening-plan:task-002",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "security-vulnerability-hardening-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "High",
       "area": "General",
@@ -6245,17 +6249,19 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "src/app/api/companies/[id]/fetch-info/route.ts, src/bff/billing/company-fetch-policy.ts"
+        "src/app/api/companies/[id]/fetch-info/route.ts, src/bff/billing/company-fetch-policy.ts",
+        "SEC-003"
       ],
-      "updatedAt": "2026-05-04",
-      "notes": ""
+      "updatedAt": "2026-05-14",
+      "notes": "Superseded by SEC-003; company fetch uses reservation/confirm/cancel semantics.",
+      "lastUpdatedBy": "scripts/plan/update-plan-task-status.mjs"
     },
     {
       "id": "security-vulnerability-hardening-plan:task-003",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "security-vulnerability-hardening-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "High",
       "area": "General",
@@ -6267,17 +6273,19 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "src/lib/company-info/usage.ts, src/app/api/companies/[id]/fetch-corporate/route.ts, src/app/api/companies/[id]/fetch-corporate-upload/route.ts"
+        "src/lib/company-info/usage.ts, src/app/api/companies/[id]/fetch-corporate/route.ts, src/app/api/companies/[id]/fetch-corporate-upload/route.ts",
+        "SEC-004"
       ],
-      "updatedAt": "2026-05-04",
-      "notes": ""
+      "updatedAt": "2026-05-14",
+      "notes": "Superseded by SEC-004; RAG monthly free usage atomic handling is tracked as complete.",
+      "lastUpdatedBy": "scripts/plan/update-plan-task-status.mjs"
     },
     {
       "id": "security-vulnerability-hardening-plan:task-004",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "security-vulnerability-hardening-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "Medium-High",
       "area": "General",
@@ -6289,10 +6297,12 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "src/app/api/webhooks/stripe/route.ts, src/lib/db/schema.ts"
+        "src/app/api/webhooks/stripe/route.ts, src/lib/db/schema.ts",
+        "SEC-002"
       ],
-      "updatedAt": "2026-05-04",
-      "notes": ""
+      "updatedAt": "2026-05-14",
+      "notes": "Superseded by SEC-002 and release runner non-transactional apply support for concurrent index migrations.",
+      "lastUpdatedBy": "scripts/plan/update-plan-task-status.mjs"
     },
     {
       "id": "security-vulnerability-hardening-plan:task-005",
@@ -8754,6 +8764,365 @@
       "updatedAt": "2026-05-05",
       "notes": "Makefileターゲットを追加済み",
       "archivedFrom": "test-quality-gate-tasks.json"
+    },
+    {
+      "id": "supabase-environment-separation-plan.md:SEP-01",
+      "rawId": "SEP-01",
+      "aliases": [
+        "SEP-01"
+      ],
+      "sourcePlan": "supabase-environment-separation-plan.md",
+      "status": "Superseded",
+      "originalStatus": "Todo",
+      "priority": "P0",
+      "area": "Env SSOT",
+      "task": "Superseded: resolveDatabaseSchema() 追加（別 project 分離により schema 切替不要）",
+      "ownerAgent": "database-engineer",
+      "acceptanceCriteria": [
+        "別 Supabase project 分離により、staging/production は各 project の public schema を使う。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "src/env/deployment.ts:20, src/env/deployment.test.ts"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": "2026-05-19: career-compass-staging 別 project 採用により不要化。",
+      "lastUpdatedBy": "scripts/plan/update-plan-task-status.mjs"
+    },
+    {
+      "id": "supabase-environment-separation-plan.md:SEP-02",
+      "rawId": "SEP-02",
+      "aliases": [
+        "SEP-02"
+      ],
+      "sourcePlan": "supabase-environment-separation-plan.md",
+      "status": "Done",
+      "originalStatus": "Todo",
+      "priority": "P0",
+      "area": "VERCEL_ENV->APP_ENV",
+      "task": "残存 VERCEL_ENV->APP_ENV 移行（src/lib/stripe/config.ts:114, src/lib/auth/ci-e2e.ts:32 等）",
+      "ownerAgent": "security-auditor",
+      "acceptanceCriteria": [
+        "resolveAppEnvironment()===production に統一。test runtime bypass 維持。staging の sk_test_ が誤拒否されない単体テスト green。production 判定結果が不変。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [
+        "supabase-environment-separation-plan.md:SEP-01"
+      ],
+      "evidence": [
+        "src/lib/stripe/config.ts:114, src/lib/auth/ci-e2e.ts:29-32"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": "2026-05-19: Stripe config / portal route を resolveAppEnvironment() 判定へ移行済み。"
+    },
+    {
+      "id": "supabase-environment-separation-plan.md:SEP-03",
+      "rawId": "SEP-03",
+      "aliases": [
+        "SEP-03"
+      ],
+      "sourcePlan": "supabase-environment-separation-plan.md",
+      "status": "Superseded",
+      "originalStatus": "Todo",
+      "priority": "P1",
+      "area": "Migration runner",
+      "task": "Superseded: migration runner target-schema-aware 分割（別 project 分離により schema 履歴分離不要）",
+      "ownerAgent": "database-engineer",
+      "acceptanceCriteria": [
+        "staging runner は --env staging で .env.staging の別 project に接続する。schema 履歴分離は不要。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [
+        "supabase-environment-separation-plan.md:SEP-01"
+      ],
+      "evidence": [
+        "scripts/ci/migration-config.mjs:76, scripts/release/run-migrations.mjs:256,269,449"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": "2026-05-19: staging project 分離により target schema / staging_drizzle 設計は撤回。"
+    },
+    {
+      "id": "supabase-environment-separation-plan.md:SEP-04",
+      "rawId": "SEP-04",
+      "aliases": [
+        "SEP-04"
+      ],
+      "sourcePlan": "supabase-environment-separation-plan.md",
+      "status": "Superseded",
+      "originalStatus": "Todo",
+      "priority": "P1",
+      "area": "FK schema-qualification",
+      "task": "Superseded: public 固定 FK 解消（別 project の public schema を使うため変換不要）",
+      "ownerAgent": "database-engineer",
+      "acceptanceCriteria": [
+        "staging/production は各 project の public schema を使うため、Drizzle SQL の public 参照は環境内に閉じる。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [
+        "supabase-environment-separation-plan.md:SEP-03"
+      ],
+      "evidence": [
+        "drizzle_pg/0000_ambitious_infant_terrible.sql:426 (FK 67箇所), scripts/release/run-migrations.mjs:137"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": "2026-05-19: schema 分離を採用しないため不要。"
+    },
+    {
+      "id": "supabase-environment-separation-plan.md:SEP-05",
+      "rawId": "SEP-05",
+      "aliases": [
+        "SEP-05"
+      ],
+      "sourcePlan": "supabase-environment-separation-plan.md",
+      "status": "Superseded",
+      "originalStatus": "Todo",
+      "priority": "P1",
+      "area": "Staging schema bootstrap",
+      "task": "Superseded: staging schema bootstrap（別 project 分離により CREATE SCHEMA staging 不要）",
+      "ownerAgent": "security-auditor",
+      "acceptanceCriteria": [
+        "staging project の public schema に通常 migration を適用する。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [
+        "supabase-environment-separation-plan.md:SEP-04"
+      ],
+      "evidence": [
+        "supabase/migrations/20260325110000_harden_public_data_api.sql:55"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": "2026-05-19: career-compass-staging 別 project 採用により不要化。"
+    },
+    {
+      "id": "supabase-environment-separation-plan.md:SEP-06",
+      "rawId": "SEP-06",
+      "aliases": [
+        "SEP-06"
+      ],
+      "sourcePlan": "supabase-environment-separation-plan.md",
+      "status": "Done",
+      "originalStatus": "Todo",
+      "priority": "P1",
+      "area": "Staging deploy 経路分離",
+      "task": "staging deploy を --env staging に切替、migration 書込先を staging project に分離",
+      "ownerAgent": "release-engineer",
+      "acceptanceCriteria": [
+        "staging deploy が production project に migration を適用しない。staging E2E/reset-live-state は staging project の DB 接続情報で実行する。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [
+        "supabase-environment-separation-plan.md:SEP-03",
+        "supabase-environment-separation-plan.md:SEP-05"
+      ],
+      "evidence": [
+        "scripts/release/deploy-staging.sh:131,152"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": "2026-05-19: deploy-staging.sh は run-migrations.mjs --env staging を使用。"
+    },
+    {
+      "id": "supabase-environment-separation-plan.md:SEP-07",
+      "rawId": "SEP-07",
+      "aliases": [
+        "SEP-07"
+      ],
+      "sourcePlan": "supabase-environment-separation-plan.md",
+      "status": "Superseded",
+      "originalStatus": "Todo",
+      "priority": "P1",
+      "area": "Dry-run assert",
+      "task": "Superseded: staging schema assert（別 project 分離により search_path/schema assert 不要）",
+      "ownerAgent": "database-engineer",
+      "acceptanceCriteria": [
+        "staging の安全性は別 project の DATABASE_URL/DIRECT_URL と supabase-staging target で担保する。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [
+        "supabase-environment-separation-plan.md:SEP-05"
+      ],
+      "evidence": [
+        "scripts/release/run-migrations.mjs:447"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": "2026-05-19: schema 分離を採用しないため不要。"
+    },
+    {
+      "id": "supabase-environment-separation-plan.md:SEP-08",
+      "rawId": "SEP-08",
+      "aliases": [
+        "SEP-08"
+      ],
+      "sourcePlan": "supabase-environment-separation-plan.md",
+      "status": "Done",
+      "originalStatus": "Todo",
+      "priority": "P2",
+      "area": "Docs 改訂",
+      "task": "docs 改訂（別 Supabase project 分離・staging migration runner・secret target）",
+      "ownerAgent": "release-engineer",
+      "acceptanceCriteria": [
+        "shared production project / schema 分離の旧前提を、別 project + public schema の現行運用に更新する。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [
+        "supabase-environment-separation-plan.md:SEP-06",
+        "supabase-environment-separation-plan.md:SEP-07"
+      ],
+      "evidence": [
+        "docs/release/setup/SUPABASE.md:7, docs/release/ops/DB_MIGRATION.md, scripts/release/deploy-staging.sh:131"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": "2026-05-19: ENVIRONMENT_VARIABLES / SUPABASE / DB_MIGRATION / secrets examples を更新。"
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-01",
+      "rawId": "BCE-01",
+      "aliases": [
+        "BCE-01"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P1",
+      "area": "RERANKER_* 統合",
+      "task": "RERANKER_*（4 変数）を config 統合 + reranker.py 置換",
+      "ownerAgent": "search-quality-engineer",
+      "acceptanceCriteria": [
+        "等価テーブルテスト green（正常/clamp 内外/不正/未設定）。AB routing 決定性が統合前後で一致。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/utils/reranker.py:223,230,243,244, backend/app/config.py"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-02",
+      "rawId": "BCE-02",
+      "aliases": [
+        "BCE-02"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P1",
+      "area": "GAKUCHIKA_* 統合",
+      "task": "GAKUCHIKA_* + AI_LIVE_LOCAL_RELAX_GAKUCHIKA_GATES を config 統合 + 呼出側置換（三状態 None フォールバック維持）",
+      "ownerAgent": "search-quality-engineer",
+      "acceptanceCriteria": [
+        "isdigit 厳格・==\"1\" 厳密・三状態 None フォールバックの境界テスト green。draft-ready 判定が統合前と一致。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/normalization/gakuchika_payload.py:79,87,98, backend/app/utils/question_loop_detector.py:59"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-03",
+      "rawId": "BCE-03",
+      "aliases": [
+        "BCE-03"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P2",
+      "area": "LLM_*_JSON 明示化",
+      "task": "LLM_*_JSON を raw string 明示化（parse は lru_cache 内維持）",
+      "ownerAgent": "fastapi-developer",
+      "acceptanceCriteria": [
+        "json.loads 失敗時の silent ignore（return {}）動作が不変。lru_cache clear fixture で偽陰性回避。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/utils/llm_usage_cost.py:115,399"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-04",
+      "rawId": "BCE-04",
+      "aliases": [
+        "BCE-04"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P2",
+      "area": "health/web_search 統合",
+      "task": "BUILD_TIME / health 環境表示 / WEB_SEARCH_DEBUG_PRINT を config 統合",
+      "ownerAgent": "fastapi-developer",
+      "acceptanceCriteria": [
+        "_env_flag 真理値同値を真理値テーブルテストで証明後に置換。APP_ENV->ENVIRONMENT fallback 維持。health 表示文字列が統合前と一致。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/routers/health.py:14,15, backend/app/utils/web_search.py:75"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-05",
+      "rawId": "BCE-05",
+      "aliases": [
+        "BCE-05"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P2",
+      "area": "TOKENIZERS 移設",
+      "task": "TOKENIZERS_PARALLELISM を main.py 先頭へ移設（冪等二重防御、reranker.py:15 残置）",
+      "ownerAgent": "fastapi-developer",
+      "acceptanceCriteria": [
+        "main.py 先頭に setdefault。reranker.py:15 残置。import 順序によらず最終値 false（明示設定尊重）。config 化しない。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/main.py, backend/app/utils/reranker.py:15"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-06",
+      "rawId": "BCE-06",
+      "aliases": [
+        "BCE-06"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P3",
+      "area": "drift C4 整合 + cleanup",
+      "task": "cleanup + drift C4 整合（service-scoped、.env.example/secrets-examples documented 反映）",
+      "ownerAgent": "fastapi-developer",
+      "acceptanceCriteria": [
+        "npm run check:env-drift（service-scoped）が no drift。tuning 系は optional コメント付き記載・本番強制 validation 対象外。"
+      ],
+      "verificationCommands": [],
+      "dependencies": [
+        "backend-config-env-consolidation-improvement-plan.md:BCE-01",
+        "backend-config-env-consolidation-improvement-plan.md:BCE-02",
+        "backend-config-env-consolidation-improvement-plan.md:BCE-03",
+        "backend-config-env-consolidation-improvement-plan.md:BCE-04",
+        "backend-config-env-consolidation-improvement-plan.md:BCE-05"
+      ],
+      "evidence": [
+        ".env.example, scripts/release/secrets-examples/**"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
     }
   ]
 }
