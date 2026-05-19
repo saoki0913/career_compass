@@ -21,6 +21,8 @@ describe("redis/client", () => {
   const origToken = process.env.UPSTASH_REDIS_REST_TOKEN;
   const origNamespace = process.env.UPSTASH_REDIS_NAMESPACE;
   const origVercelEnv = process.env.VERCEL_ENV;
+  const origAppEnv = process.env.APP_ENV;
+  const origPublicAppEnv = process.env.NEXT_PUBLIC_APP_ENV;
 
   beforeEach(() => {
     vi.resetModules();
@@ -28,6 +30,8 @@ describe("redis/client", () => {
     process.env.UPSTASH_REDIS_REST_TOKEN = "test-token";
     delete process.env.UPSTASH_REDIS_NAMESPACE;
     delete process.env.VERCEL_ENV;
+    delete process.env.APP_ENV;
+    delete process.env.NEXT_PUBLIC_APP_ENV;
   });
 
   afterEach(() => {
@@ -35,6 +39,8 @@ describe("redis/client", () => {
     restoreEnv("UPSTASH_REDIS_REST_TOKEN", origToken);
     restoreEnv("UPSTASH_REDIS_NAMESPACE", origNamespace);
     restoreEnv("VERCEL_ENV", origVercelEnv);
+    restoreEnv("APP_ENV", origAppEnv);
+    restoreEnv("NEXT_PUBLIC_APP_ENV", origPublicAppEnv);
   });
 
   describe("isRedisConfigured", () => {
@@ -58,20 +64,39 @@ describe("redis/client", () => {
 
   describe("getRedisNamespace", () => {
     it("uses configured namespace when present", async () => {
-      process.env.UPSTASH_REDIS_NAMESPACE = "stg";
+      process.env.APP_ENV = "staging";
+      process.env.NEXT_PUBLIC_APP_ENV = "staging";
+      process.env.UPSTASH_REDIS_NAMESPACE = "staging";
       const { getRedisNamespace } = await import("./client");
-      expect(getRedisNamespace()).toBe("stg");
+      expect(getRedisNamespace()).toBe("staging");
     });
 
-    it("defaults Vercel production to prod", async () => {
+    it("defaults production app env to production", async () => {
+      process.env.APP_ENV = "production";
+      process.env.NEXT_PUBLIC_APP_ENV = "production";
+      const { getRedisNamespace } = await import("./client");
+      expect(getRedisNamespace()).toBe("production");
+    });
+
+    it("defaults staging app env to staging even when Vercel env scope is production", async () => {
+      process.env.APP_ENV = "staging";
+      process.env.NEXT_PUBLIC_APP_ENV = "staging";
       process.env.VERCEL_ENV = "production";
       const { getRedisNamespace } = await import("./client");
-      expect(getRedisNamespace()).toBe("prod");
+      expect(getRedisNamespace()).toBe("staging");
     });
 
     it("defaults local and test environments to local", async () => {
       const { getRedisNamespace } = await import("./client");
       expect(getRedisNamespace()).toBe("local");
+    });
+
+    it("rejects configured namespace that does not match APP_ENV", async () => {
+      process.env.APP_ENV = "staging";
+      process.env.NEXT_PUBLIC_APP_ENV = "staging";
+      process.env.UPSTASH_REDIS_NAMESPACE = "production";
+      const { getRedisNamespace } = await import("./client");
+      expect(() => getRedisNamespace()).toThrow(/UPSTASH_REDIS_NAMESPACE/);
     });
   });
 

@@ -8,6 +8,12 @@ vi.mock("./client", () => ({
   getRedis: vi.fn(),
 }));
 
+vi.mock("./keys", () => ({
+  redisKey: vi.fn((domain: string, ...parts: Array<string | number>) =>
+    ["cc", "local", domain, ...parts].join(":")
+  ),
+}));
+
 import { getRedis } from "./client";
 
 const mockRedis = {
@@ -30,7 +36,7 @@ describe("redis/cache", () => {
       const fetcher = vi.fn();
 
       const { cacheGet } = await import("./cache");
-      const result = await cacheGet("key", fetcher, { ttlSeconds: 60 });
+      const result = await cacheGet(["key"], fetcher, { ttlSeconds: 60 });
 
       expect(result).toEqual({ name: "cached" });
       expect(fetcher).not.toHaveBeenCalled();
@@ -43,11 +49,11 @@ describe("redis/cache", () => {
       const fetcher = vi.fn().mockResolvedValue({ name: "fresh" });
 
       const { cacheGet } = await import("./cache");
-      const result = await cacheGet("key", fetcher, { ttlSeconds: 300 });
+      const result = await cacheGet(["key"], fetcher, { ttlSeconds: 300 });
 
       expect(result).toEqual({ name: "fresh" });
       expect(fetcher).toHaveBeenCalledOnce();
-      expect(setexMock).toHaveBeenCalledWith("key", 300, { name: "fresh" });
+      expect(setexMock).toHaveBeenCalledWith("cc:local:cache:key", 300, { name: "fresh" });
     });
 
     it("does not cache null fetcher results", async () => {
@@ -56,7 +62,7 @@ describe("redis/cache", () => {
       const fetcher = vi.fn().mockResolvedValue(null);
 
       const { cacheGet } = await import("./cache");
-      const result = await cacheGet("key", fetcher, { ttlSeconds: 60 });
+      const result = await cacheGet(["key"], fetcher, { ttlSeconds: 60 });
 
       expect(result).toBeNull();
       expect(setexMock).not.toHaveBeenCalled();
@@ -68,7 +74,7 @@ describe("redis/cache", () => {
       const fetcher = vi.fn().mockResolvedValue(undefined);
 
       const { cacheGet } = await import("./cache");
-      const result = await cacheGet("key", fetcher, { ttlSeconds: 60 });
+      const result = await cacheGet(["key"], fetcher, { ttlSeconds: 60 });
 
       expect(result).toBeUndefined();
       expect(setexMock).not.toHaveBeenCalled();
@@ -81,7 +87,7 @@ describe("redis/cache", () => {
       const fetcher = vi.fn().mockResolvedValue("fallback");
 
       const { cacheGet } = await import("./cache");
-      const result = await cacheGet("key", fetcher, { ttlSeconds: 60 });
+      const result = await cacheGet(["key"], fetcher, { ttlSeconds: 60 });
 
       expect(result).toBe("fallback");
       expect(fetcher).toHaveBeenCalledOnce();
@@ -94,7 +100,7 @@ describe("redis/cache", () => {
       const fetcher = vi.fn().mockResolvedValue("value");
 
       const { cacheGet } = await import("./cache");
-      const result = await cacheGet("key", fetcher, { ttlSeconds: 60 });
+      const result = await cacheGet(["key"], fetcher, { ttlSeconds: 60 });
 
       expect(result).toBe("value");
     });
@@ -104,7 +110,7 @@ describe("redis/cache", () => {
       const fetcher = vi.fn().mockResolvedValue("direct");
 
       const { cacheGet } = await import("./cache");
-      const result = await cacheGet("key", fetcher, { ttlSeconds: 60 });
+      const result = await cacheGet(["key"], fetcher, { ttlSeconds: 60 });
 
       expect(result).toBe("direct");
       expect(getMock).not.toHaveBeenCalled();
@@ -117,16 +123,16 @@ describe("redis/cache", () => {
       delMock.mockResolvedValue(1);
 
       const { cacheInvalidate } = await import("./cache");
-      await cacheInvalidate("key");
+      await cacheInvalidate(["key"]);
 
-      expect(delMock).toHaveBeenCalledWith("key");
+      expect(delMock).toHaveBeenCalledWith("cc:local:cache:key");
     });
 
     it("does nothing when Redis is not configured", async () => {
       vi.mocked(getRedis).mockReturnValue(null);
 
       const { cacheInvalidate } = await import("./cache");
-      await cacheInvalidate("key");
+      await cacheInvalidate(["key"]);
 
       expect(delMock).not.toHaveBeenCalled();
     });
@@ -136,7 +142,7 @@ describe("redis/cache", () => {
       delMock.mockRejectedValue(new Error("del failed"));
 
       const { cacheInvalidate } = await import("./cache");
-      await expect(cacheInvalidate("key")).resolves.toBeUndefined();
+      await expect(cacheInvalidate(["key"])).resolves.toBeUndefined();
     });
   });
 });

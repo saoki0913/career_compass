@@ -1,12 +1,14 @@
 import { getRedis } from "./client";
+import { redisKey, type RedisKeyPart } from "./keys";
 
 export async function cacheGet<T>(
-  key: string,
+  keyParts: readonly RedisKeyPart[],
   fetcher: () => Promise<T>,
   opts: { ttlSeconds: number },
 ): Promise<T> {
   const redis = getRedis();
   if (!redis) return fetcher();
+  const key = redisKey("cache", ...keyParts);
 
   try {
     const cached = await redis.get<T>(key);
@@ -26,9 +28,10 @@ export async function cacheGet<T>(
   return value;
 }
 
-export async function cacheInvalidate(key: string): Promise<void> {
+export async function cacheInvalidate(keyParts: readonly RedisKeyPart[]): Promise<void> {
   const redis = getRedis();
   if (!redis) return;
+  const key = redisKey("cache", ...keyParts);
   try {
     await redis.del(key);
   } catch {

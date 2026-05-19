@@ -15,6 +15,7 @@ except Exception:
     redis = None  # type: ignore
 
 from app.config import settings
+from app.utils.redis_keys import redis_key, redis_pattern
 from app.utils.secure_logger import get_logger
 
 logger = get_logger(__name__)
@@ -80,7 +81,7 @@ class RAGCache(BaseCache):
         query_hash: str,
         tenant_key: str,
     ) -> str:
-        return f"rag:context:{tenant_key}:{company_id}:{query_hash}"
+        return redis_key("rag", "context", tenant_key, company_id, query_hash)
 
     async def get_context(
         self,
@@ -112,14 +113,16 @@ class RAGCache(BaseCache):
         company_id: str,
         tenant_key: str,
     ) -> None:
-        await self.delete_pattern(f"rag:context:{tenant_key}:{company_id}:*")
+        await self.delete_pattern(
+            redis_pattern("rag", "context", tenant_key, company_id, "*")
+        )
 
 
 class ESReviewCache(BaseCache):
     """Cache for ES review results."""
 
     def _review_key(self, review_hash: str) -> str:
-        return f"es:review:{review_hash}"
+        return redis_key("cache", "es-review", review_hash)
 
     async def get_review(self, review_hash: str) -> Optional[dict]:
         return await self.get_json(self._review_key(review_hash))
