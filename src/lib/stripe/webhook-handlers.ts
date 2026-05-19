@@ -7,16 +7,20 @@ import { notifications, subscriptions, userProfiles } from "@/lib/db/schema";
 import { stripe } from "@/lib/stripe";
 import {
   assertCheckoutOwnership,
-  isOlderOrSameTimeAsStoredStripeEvent,
+  hasSameStripeSubscriptionWatermarkRank,
   isOlderThanStoredStripeEvent,
   isSubscriptionEntitled,
   requirePlanFromPriceId,
-  stripeEventCreatedAt,
+  shouldApplySubscriptionEvent,
+  stripeSubscriptionEventWatermark,
+  type StripeSubscriptionMutationKind,
   stripeObjectId,
   type StoredSubscriptionState,
 } from "@/lib/stripe/webhook-utils";
 
 type WebhookTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type FinancialDowngradeStatus = "refunded" | "dispute_lost";
+type SubscriptionDowngradeStatus = Stripe.Subscription.Status | FinancialDowngradeStatus;
 
 function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
   return (invoice.parent?.subscription_details?.subscription as string | null)
@@ -82,25 +86,132 @@ async function selectSubscriptionByStripeIdTx(
   return existingSub ?? null;
 }
 
+async function upsertUserPlanTx(
+  tx: WebhookTransaction,
+  userId: string,
+  plan: "free" | "standard" | "pro",
+): Promise<void> {
+  const now = new Date();
+  await tx
+    .insert(userProfiles)
+    .values({
+      id: crypto.randomUUID(),
+      userId,
+      plan,
+      planSelectedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: userProfiles.userId,
+      set: {
+        plan,
+        planSelectedAt: now,
+        updatedAt: now,
+      },
+    });
+}
+
+function isFinancialDowngradeStatus(status: SubscriptionDowngradeStatus): boolean {
+  return status === "refunded" || status === "dispute_lost";
+}
+
+function isTerminalCancellationStatus(status: SubscriptionDowngradeStatus): boolean {
+  return status === "canceled" || status === "incomplete_expired";
+}
+
+function hasFinancialDowngradeStatus(
+  subscription: Pick<StoredSubscriptionState, "status"> | null | undefined,
+): boolean {
+  return subscription?.status === "refunded" || subscription?.status === "dispute_lost";
+}
+
+function shouldApplyDisputeCreatedHold(
+  existingSub: Pick<
+    StoredSubscriptionState,
+    "billingHoldStripeDisputeId" | "lastStripeEventCreatedAt" | "lastStripeEventType"
+  > | null | undefined,
+  dispute: Stripe.Dispute,
+  event: Stripe.Event,
+): boolean {
+  const lastCreatedAt = existingSub?.lastStripeEventCreatedAt;
+  const eventCreatedAt = new Date(event.created * 1000);
+  if (lastCreatedAt && lastCreatedAt.getTime() > eventCreatedAt.getTime()) {
+    return false;
+  }
+  if (
+    existingSub?.billingHoldStripeDisputeId === dispute.id &&
+    existingSub.lastStripeEventType === "charge.dispute.closed" &&
+    lastCreatedAt &&
+    lastCreatedAt.getTime() >= eventCreatedAt.getTime()
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function eventWatermarkForAppliedUpdate(
+  existingSub: Pick<StoredSubscriptionState, "lastStripeEventId" | "lastStripeEventCreatedAt" | "lastStripeEventRank" | "lastStripeEventType"> | null | undefined,
+  event: Stripe.Event | undefined,
+  kind: StripeSubscriptionMutationKind = "subscription_updated",
+): {
+  lastStripeEventId?: string;
+  lastStripeEventCreatedAt?: Date;
+  lastStripeEventType?: string;
+  lastStripeEventRank?: number;
+} {
+  if (!event) {
+    return {};
+  }
+
+  if (!shouldApplySubscriptionEvent(existingSub, event, kind)) {
+    return {
+      lastStripeEventId: existingSub?.lastStripeEventId ?? undefined,
+      lastStripeEventCreatedAt: existingSub?.lastStripeEventCreatedAt ?? undefined,
+      lastStripeEventType: existingSub?.lastStripeEventType ?? undefined,
+      lastStripeEventRank: existingSub?.lastStripeEventRank ?? undefined,
+    };
+  }
+
+  return stripeSubscriptionEventWatermark(event, kind);
+}
+
 async function downgradeSubscriptionToFreeTx(
   tx: WebhookTransaction,
   subscriptionId: string,
-  status: string,
+  status: SubscriptionDowngradeStatus,
   event?: Stripe.Event,
 ): Promise<boolean> {
   const existingSub = await selectSubscriptionByStripeIdTx(tx, subscriptionId);
 
-  if (event && isOlderThanStoredStripeEvent(existingSub, event)) {
+  const downgradeKind: StripeSubscriptionMutationKind = isFinancialDowngradeStatus(status)
+    ? "financial_downgrade"
+    : "subscription_deleted";
+  if (
+    event &&
+    !isFinancialDowngradeStatus(status) &&
+    !shouldApplySubscriptionEvent(existingSub, event, downgradeKind)
+  ) {
     return false;
   }
+
+  if (
+    existingSub &&
+    hasFinancialDowngradeStatus(existingSub) &&
+    !isFinancialDowngradeStatus(status) &&
+    !isTerminalCancellationStatus(status)
+  ) {
+    return false;
+  }
+
+  const eventWatermark = eventWatermarkForAppliedUpdate(existingSub, event, downgradeKind);
 
   await tx
     .update(subscriptions)
     .set({
       status,
       cancelAtPeriodEnd: status === "canceled" ? true : undefined,
-      lastStripeEventId: event?.id,
-      lastStripeEventCreatedAt: event ? stripeEventCreatedAt(event) : undefined,
+      ...eventWatermark,
       lastEntitlementSyncedAt: new Date(),
       updatedAt: new Date(),
     })
@@ -110,13 +221,7 @@ async function downgradeSubscriptionToFreeTx(
     return false;
   }
 
-  await tx
-    .update(userProfiles)
-    .set({
-      plan: "free",
-      planSelectedAt: new Date(),
-    })
-    .where(eq(userProfiles.userId, existingSub.userId));
+  await upsertUserPlanTx(tx, existingSub.userId, "free");
 
   await updatePlanAllocationCoreTx(tx, existingSub.userId, "free");
   return true;
@@ -124,7 +229,7 @@ async function downgradeSubscriptionToFreeTx(
 
 export async function downgradeSubscriptionToFree(
   subscriptionId: string,
-  status: string,
+  status: SubscriptionDowngradeStatus,
   event?: Stripe.Event,
 ): Promise<boolean> {
   return db.transaction((tx) => downgradeSubscriptionToFreeTx(tx, subscriptionId, status, event));
@@ -148,7 +253,11 @@ export async function restoreSubscriptionIfEntitled(
   await db.transaction(async (tx) => {
     const existingSub = await selectSubscriptionByStripeIdTx(tx, subscription.id);
 
-    if (event && isOlderThanStoredStripeEvent(existingSub, event)) {
+    if (event && !shouldApplySubscriptionEvent(existingSub, event, "restore")) {
+      return;
+    }
+
+    if (hasFinancialDowngradeStatus(existingSub)) {
       return;
     }
 
@@ -159,8 +268,7 @@ export async function restoreSubscriptionIfEntitled(
         status: subscription.status,
         currentPeriodEnd: new Date(subscriptionItem.current_period_end * 1000),
         cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        lastStripeEventId: event?.id,
-        lastStripeEventCreatedAt: event ? stripeEventCreatedAt(event) : undefined,
+        ...(event ? stripeSubscriptionEventWatermark(event, "restore") : {}),
         lastEntitlementSyncedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -170,13 +278,7 @@ export async function restoreSubscriptionIfEntitled(
       return;
     }
 
-    await tx
-      .update(userProfiles)
-      .set({
-        plan,
-        planSelectedAt: new Date(),
-      })
-      .where(eq(userProfiles.userId, existingSub.userId));
+    await upsertUserPlanTx(tx, existingSub.userId, plan);
 
     await updatePlanAllocationCoreTx(tx, existingSub.userId, plan);
   });
@@ -214,7 +316,7 @@ export async function handleCheckoutCompleted(event: Stripe.Event): Promise<void
     existingSub,
   });
 
-  if (isOlderThanStoredStripeEvent(existingSub, event)) {
+  if (!shouldApplySubscriptionEvent(existingSub, event, "checkout")) {
     return;
   }
 
@@ -227,8 +329,7 @@ export async function handleCheckoutCompleted(event: Stripe.Event): Promise<void
       ? new Date(subscriptionItem.current_period_end * 1000)
       : null,
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    lastStripeEventId: event.id,
-    lastStripeEventCreatedAt: stripeEventCreatedAt(event),
+    ...stripeSubscriptionEventWatermark(event, "checkout"),
     lastEntitlementSyncedAt: new Date(),
     updatedAt: new Date(),
   };
@@ -241,7 +342,7 @@ export async function handleCheckoutCompleted(event: Stripe.Event): Promise<void
         .where(eq(subscriptions.userId, userId))
         .limit(1);
 
-      if (isOlderThanStoredStripeEvent(currentSub, event)) {
+      if (!shouldApplySubscriptionEvent(currentSub, event, "checkout")) {
         return;
       }
 
@@ -272,7 +373,7 @@ export async function handleCheckoutCompleted(event: Stripe.Event): Promise<void
       .where(eq(subscriptions.userId, userId))
       .limit(1);
 
-    if (isOlderThanStoredStripeEvent(currentSub, event)) {
+    if (!shouldApplySubscriptionEvent(currentSub, event, "checkout")) {
       return;
     }
 
@@ -289,13 +390,7 @@ export async function handleCheckoutCompleted(event: Stripe.Event): Promise<void
         createdAt: new Date(),
       });
     }
-    await tx
-      .update(userProfiles)
-      .set({
-        plan: newPlan,
-        planSelectedAt: new Date(),
-      })
-      .where(eq(userProfiles.userId, userId));
+    await upsertUserPlanTx(tx, userId, newPlan);
     await updatePlanAllocationCoreTx(tx, userId, newPlan);
   });
 
@@ -303,21 +398,37 @@ export async function handleCheckoutCompleted(event: Stripe.Event): Promise<void
 }
 
 export async function handleSubscriptionUpdated(event: Stripe.Event): Promise<void> {
-  const subscription = event.data.object as Stripe.Subscription;
-  const subscriptionItem = subscription.items.data[0];
-  const priceId = subscriptionItem?.price.id ?? null;
-  const newPlan = subscriptionItem && isSubscriptionEntitled(subscription) && priceId
-    ? requirePlanFromPriceId(priceId, event.type)
-    : "free";
+  const eventSubscription = event.data.object as Stripe.Subscription;
+  let subscription = eventSubscription;
+  let subscriptionItem = subscription.items.data[0];
 
   await db.transaction(async (tx) => {
     const existingSub = await selectSubscriptionByStripeIdTx(tx, subscription.id);
+    const sameRankWatermark = hasSameStripeSubscriptionWatermarkRank(
+      existingSub,
+      event,
+      "subscription_updated",
+    );
 
-    if (isOlderThanStoredStripeEvent(existingSub, event)) {
+    if (!sameRankWatermark && !shouldApplySubscriptionEvent(existingSub, event, "subscription_updated")) {
       return;
     }
 
-    if (!subscriptionItem || !priceId || !isSubscriptionEntitled(subscription)) {
+    if (hasFinancialDowngradeStatus(existingSub)) {
+      return;
+    }
+
+    if (sameRankWatermark) {
+      subscription = await stripe.subscriptions.retrieve(eventSubscription.id);
+      subscriptionItem = subscription.items.data[0];
+    }
+
+    const effectivePriceId = subscriptionItem?.price.id ?? null;
+    const newPlan = subscriptionItem && isSubscriptionEntitled(subscription) && effectivePriceId
+      ? requirePlanFromPriceId(effectivePriceId, event.type)
+      : "free";
+
+    if (!subscriptionItem || !effectivePriceId || !isSubscriptionEntitled(subscription)) {
       await tx
         .update(subscriptions)
         .set({
@@ -326,21 +437,14 @@ export async function handleSubscriptionUpdated(event: Stripe.Event): Promise<vo
             ? new Date(subscriptionItem.current_period_end * 1000)
             : undefined,
           cancelAtPeriodEnd: subscription.cancel_at_period_end,
-          lastStripeEventId: event.id,
-          lastStripeEventCreatedAt: stripeEventCreatedAt(event),
+          ...eventWatermarkForAppliedUpdate(existingSub, event, "subscription_updated"),
           lastEntitlementSyncedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(subscriptions.stripeSubscriptionId, subscription.id));
 
       if (existingSub?.userId) {
-        await tx
-          .update(userProfiles)
-          .set({
-            plan: "free",
-            planSelectedAt: new Date(),
-          })
-          .where(eq(userProfiles.userId, existingSub.userId));
+        await upsertUserPlanTx(tx, existingSub.userId, "free");
 
         await updatePlanAllocationCoreTx(tx, existingSub.userId, "free");
         console.info("[Stripe Webhook] subscription.updated: downgraded to free");
@@ -351,25 +455,18 @@ export async function handleSubscriptionUpdated(event: Stripe.Event): Promise<vo
     await tx
       .update(subscriptions)
       .set({
-        stripePriceId: priceId,
+        stripePriceId: effectivePriceId,
         status: subscription.status,
         currentPeriodEnd: new Date(subscriptionItem.current_period_end * 1000),
         cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        lastStripeEventId: event.id,
-        lastStripeEventCreatedAt: stripeEventCreatedAt(event),
+        ...eventWatermarkForAppliedUpdate(existingSub, event, "subscription_updated"),
         lastEntitlementSyncedAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(subscriptions.stripeSubscriptionId, subscription.id));
 
     if (existingSub?.userId) {
-      await tx
-        .update(userProfiles)
-        .set({
-          plan: newPlan,
-          planSelectedAt: new Date(),
-        })
-        .where(eq(userProfiles.userId, existingSub.userId));
+      await upsertUserPlanTx(tx, existingSub.userId, newPlan);
 
       await updatePlanAllocationCoreTx(tx, existingSub.userId, newPlan);
       console.info(`[Stripe Webhook] subscription.updated: plan=${newPlan}`);
@@ -419,9 +516,11 @@ export async function applyBillingHoldForDispute(
   await db.transaction(async (tx) => {
     const existingSub = await selectSubscriptionByStripeIdTx(tx, subscriptionId);
 
-    if (isOlderOrSameTimeAsStoredStripeEvent(existingSub, event)) {
+    if (!shouldApplyDisputeCreatedHold(existingSub, dispute, event)) {
       return;
     }
+
+    const eventWatermark = eventWatermarkForAppliedUpdate(existingSub, event, "billing_hold_opened");
 
     await tx
       .update(subscriptions)
@@ -431,8 +530,7 @@ export async function applyBillingHoldForDispute(
         billingHoldStripeDisputeId: dispute.id,
         billingHoldStartedAt: new Date(),
         billingHoldEndedAt: null,
-        lastStripeEventId: event.id,
-        lastStripeEventCreatedAt: stripeEventCreatedAt(event),
+        ...eventWatermark,
         updatedAt: new Date(),
       })
       .where(eq(subscriptions.stripeSubscriptionId, subscriptionId));
@@ -468,16 +566,16 @@ export async function clearBillingHoldForDispute(
   await db.transaction(async (tx) => {
     const existingSub = await selectSubscriptionByStripeIdTx(tx, subscriptionId);
 
-    if (isOlderThanStoredStripeEvent(existingSub, event)) {
+    if (dispute.status !== "lost" && isOlderThanStoredStripeEvent(existingSub, event)) {
       return;
     }
 
     const recordClosedDisputeEvent = async (): Promise<void> => {
+      const eventWatermark = eventWatermarkForAppliedUpdate(existingSub, event, "billing_hold_closed");
       await tx
         .update(subscriptions)
         .set({
-          lastStripeEventId: event.id,
-          lastStripeEventCreatedAt: stripeEventCreatedAt(event),
+          ...eventWatermark,
           lastEntitlementSyncedAt: new Date(),
           updatedAt: new Date(),
         })
@@ -490,14 +588,14 @@ export async function clearBillingHoldForDispute(
         return;
       }
 
+      const eventWatermark = eventWatermarkForAppliedUpdate(existingSub, event, "billing_hold_closed");
       await tx
         .update(subscriptions)
         .set({
           billingHoldStatus: "none",
           billingHoldReason: null,
           billingHoldEndedAt: new Date(),
-          lastStripeEventId: event.id,
-          lastStripeEventCreatedAt: stripeEventCreatedAt(event),
+          ...eventWatermark,
           lastEntitlementSyncedAt: new Date(),
           updatedAt: new Date(),
         })
@@ -528,14 +626,14 @@ export async function clearBillingHoldForDispute(
         return;
       }
 
+      const eventWatermark = eventWatermarkForAppliedUpdate(existingSub, event, "billing_hold_closed");
       await tx
         .update(subscriptions)
         .set({
           billingHoldStatus: "none",
           billingHoldReason: null,
           billingHoldEndedAt: new Date(),
-          lastStripeEventId: event.id,
-          lastStripeEventCreatedAt: stripeEventCreatedAt(event),
+          ...eventWatermark,
           lastEntitlementSyncedAt: new Date(),
           updatedAt: new Date(),
         })
@@ -563,14 +661,14 @@ export async function clearBillingHoldForDispute(
     if (!existingSub?.userId) {
       return;
     }
+    const eventWatermark = eventWatermarkForAppliedUpdate(existingSub, event, "financial_downgrade");
     await tx
       .update(subscriptions)
       .set({
         billingHoldStatus: "none",
         billingHoldReason: null,
         billingHoldEndedAt: new Date(),
-        lastStripeEventId: event.id,
-        lastStripeEventCreatedAt: stripeEventCreatedAt(event),
+        ...eventWatermark,
         lastEntitlementSyncedAt: new Date(),
         updatedAt: new Date(),
       })
