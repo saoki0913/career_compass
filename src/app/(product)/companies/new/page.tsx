@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCompanies } from "@/hooks/useCompanies";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 import { trackEvent } from "@/lib/analytics/client";
@@ -81,10 +82,44 @@ const LoadingSpinner = () => (
   </svg>
 );
 
+type DuplicateCompanyPayload = {
+  error?: {
+    code?: unknown;
+    extra?: {
+      existingCompany?: {
+        id?: unknown;
+        name?: unknown;
+      };
+    };
+  };
+};
+
+function getDuplicateCompany(payload: unknown): { id: string; name: string } | null {
+  if (!payload || typeof payload !== "object") return null;
+
+  const error = (payload as DuplicateCompanyPayload).error;
+  if (error?.code !== "COMPANY_DUPLICATE") return null;
+
+  const existingCompany = error.extra?.existingCompany;
+  if (
+    typeof existingCompany?.id === "string" &&
+    typeof existingCompany.name === "string"
+  ) {
+    return { id: existingCompany.id, name: existingCompany.name };
+  }
+
+  return null;
+}
+
 export default function NewCompanyPage() {
   const router = useRouter();
-  const { count, refresh } = useCompanies();
-  const isFirstCompany = count === 0;
+  const { isReady, isAuthenticated, isGuest } = useAuth();
+  const canLoadCompanies = isReady && (isAuthenticated || isGuest);
+  const { count, refresh, isLoading: companiesLoading } = useCompanies({
+    enabled: canLoadCompanies,
+  });
+  const hasCompanyCount = canLoadCompanies && !companiesLoading;
+  const isFirstCompany = hasCompanyCount && count === 0;
 
   const [name, setName] = useState("");
   const [industry, setIndustry] = useState("");
@@ -102,6 +137,7 @@ export default function NewCompanyPage() {
   const [duplicateExisting, setDuplicateExisting] = useState<{ id: string; name: string } | null>(
     null,
   );
+  const canSubmit = hasCompanyCount && !isSubmitting;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,19 +169,10 @@ export default function NewCompanyPage() {
       });
 
       if (response.status === 409) {
-        const body = (await response.json().catch(() => null)) as {
-          code?: string;
-          existingCompany?: { id?: string; name?: string };
-        } | null;
-        if (
-          body?.code === "COMPANY_DUPLICATE" &&
-          body.existingCompany?.id &&
-          body.existingCompany?.name
-        ) {
-          setDuplicateExisting({
-            id: body.existingCompany.id,
-            name: body.existingCompany.name,
-          });
+        const body = await response.clone().json().catch(() => null);
+        const existingCompany = getDuplicateCompany(body);
+        if (existingCompany) {
+          setDuplicateExisting(existingCompany);
           setDuplicateOpen(true);
           return;
         }
@@ -242,7 +269,7 @@ export default function NewCompanyPage() {
                 初回は企業名と業界だけで始められます。登録後、そのまま志望動機の AI 作成に進みます。
               </div>
             ) : null}
-            <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
+            <form onSubmit={handleSubmit} autoComplete="off" className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 gap-y-4">
               {/* Error message - full width */}
               {error && (
                 <div className="lg:col-span-2 p-3 rounded-lg bg-red-50 border border-red-200">
@@ -371,6 +398,7 @@ export default function NewCompanyPage() {
                       <Input
                         id="mypageUrl"
                         type="url"
+                        autoComplete="off"
                         value={mypageUrl}
                         onChange={(e) => setMypageUrl(e.target.value)}
                         placeholder="https://"
@@ -383,6 +411,7 @@ export default function NewCompanyPage() {
                         <Input
                           id="mypageLoginId"
                           type="text"
+                          autoComplete="off"
                           value={mypageLoginId}
                           onChange={(e) => setMypageLoginId(e.target.value)}
                           placeholder="ID / メールアドレス"
@@ -395,6 +424,7 @@ export default function NewCompanyPage() {
                           <Input
                             id="mypagePassword"
                             type={showPassword ? "text" : "password"}
+                            autoComplete="new-password"
                             value={mypagePassword}
                             onChange={(e) => setMypagePassword(e.target.value)}
                             placeholder="••••••••"
@@ -431,7 +461,7 @@ export default function NewCompanyPage() {
                 <Button type="button" variant="outline" size="sm" asChild>
                   <Link href="/companies">キャンセル</Link>
                 </Button>
-                <Button type="submit" size="sm" disabled={isSubmitting}>
+                <Button type="submit" size="sm" disabled={!canSubmit}>
                   {isSubmitting ? (
                     <>
                       <LoadingSpinner />

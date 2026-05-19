@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useCompanySuggestions, type CompanySuggestion } from "@/hooks/useCompanySuggestions";
 import { Input } from "@/components/ui/input";
 import {
@@ -38,7 +38,6 @@ export function CompanyAutocomplete({
 }: CompanyAutocompleteProps) {
   const [open, setOpen] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
   const { suggestions, isLoading } = useCompanySuggestions(value);
 
   // Group suggestions by industry
@@ -85,7 +84,6 @@ export function CompanyAutocomplete({
       <PopoverAnchor asChild>
         <div className="relative">
           <Input
-            ref={inputRef}
             id={id}
             value={value}
             onChange={handleInputChange}

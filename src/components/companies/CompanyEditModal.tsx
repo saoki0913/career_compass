@@ -79,8 +79,8 @@ export interface UpdateCompanyData {
   recruitmentUrl: string | null;
   corporateUrl: string | null;
   mypageUrl: string | null;
-  mypageLoginId: string | null;
-  mypagePassword: string | null;
+  mypageLoginId?: string | null;
+  mypagePassword?: string | null;
   notes: string | null;
   status: CompanyStatus;
 }
@@ -100,6 +100,9 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
   const [mypageUrl, setMypageUrl] = useState(company.mypageUrl || "");
   const [mypageLoginId, setMypageLoginId] = useState("");
   const [mypagePassword, setMypagePassword] = useState("");
+  const [mypageLoginIdChanged, setMypageLoginIdChanged] = useState(false);
+  const [mypagePasswordChanged, setMypagePasswordChanged] = useState(false);
+  const [clearMypageCredentials, setClearMypageCredentials] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [notes, setNotes] = useState(company.notes || "");
   const [status, setStatus] = useState<CompanyStatus>(company.status);
@@ -115,6 +118,9 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
     setMypageUrl(company.mypageUrl || "");
     setMypageLoginId("");
     setMypagePassword("");
+    setMypageLoginIdChanged(false);
+    setMypagePasswordChanged(false);
+    setClearMypageCredentials(false);
     setNotes(company.notes || "");
     setStatus(company.status);
     setError(null);
@@ -132,17 +138,28 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
     setError(null);
 
     try {
-      await onSave({
+      const payload: UpdateCompanyData = {
         name: name.trim(),
         industry: industry.trim() || null,
         recruitmentUrl: recruitmentUrl.trim() || null,
         corporateUrl: corporateUrl.trim() || null,
         mypageUrl: mypageUrl.trim() || null,
-        mypageLoginId: mypageLoginId.trim() || null,
-        mypagePassword: mypagePassword.trim() || null,
         notes: notes.trim() || null,
         status,
-      });
+      };
+      if (clearMypageCredentials) {
+        payload.mypageLoginId = null;
+        payload.mypagePassword = null;
+      } else {
+        if (mypageLoginIdChanged) {
+        payload.mypageLoginId = mypageLoginId.trim() || null;
+        }
+        if (mypagePasswordChanged) {
+        payload.mypagePassword = mypagePassword.trim() || null;
+        }
+      }
+
+      await onSave(payload);
       notifySuccess({ title: "企業情報を保存しました" });
       onClose();
     } catch (err) {
@@ -191,7 +208,7 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6">
+        <form onSubmit={handleSubmit} autoComplete="off" className="p-6">
           {/* Error message */}
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200">
@@ -323,6 +340,7 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
                     <Input
                       id="edit-mypageUrl"
                       type="url"
+                      autoComplete="off"
                       value={mypageUrl}
                       onChange={(e) => setMypageUrl(e.target.value)}
                       placeholder="https://"
@@ -335,8 +353,13 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
                       <Input
                         id="edit-mypageLoginId"
                         type="text"
+                        autoComplete="off"
                         value={mypageLoginId}
-                        onChange={(e) => setMypageLoginId(e.target.value)}
+                        onChange={(e) => {
+                          setMypageLoginId(e.target.value);
+                          setMypageLoginIdChanged(true);
+                          setClearMypageCredentials(false);
+                        }}
                         placeholder="ID / メールアドレス"
                         className="h-9"
                       />
@@ -347,8 +370,13 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
                         <Input
                           id="edit-mypagePassword"
                           type={showPassword ? "text" : "password"}
+                          autoComplete="new-password"
                           value={mypagePassword}
-                          onChange={(e) => setMypagePassword(e.target.value)}
+                          onChange={(e) => {
+                            setMypagePassword(e.target.value);
+                            setMypagePasswordChanged(true);
+                            setClearMypageCredentials(false);
+                          }}
                           placeholder="••••••••"
                           className="h-9 pr-9"
                         />
@@ -359,10 +387,24 @@ export function CompanyEditModal({ isOpen, company, onClose, onSave }: CompanyEd
                         >
                           {showPassword ? <EyeOffIcon /> : <EyeIcon />}
                         </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+	                    </div>
+	                  </div>
+                    <Button
+                      type="button"
+                      variant={clearMypageCredentials ? "secondary" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setMypageLoginId("");
+                        setMypagePassword("");
+                        setMypageLoginIdChanged(false);
+                        setMypagePasswordChanged(false);
+                        setClearMypageCredentials((value) => !value);
+                      }}
+                    >
+                      保存済み認証情報を削除
+                    </Button>
+	                </div>
+	              </div>
               </div>
 
               {/* Notes */}

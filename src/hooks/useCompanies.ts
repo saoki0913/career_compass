@@ -60,6 +60,7 @@ interface CompaniesResponse {
 
 interface UseCompaniesOptions {
   initialData?: CompaniesResponse;
+  enabled?: boolean;
 }
 
 interface CreateCompanyData {
@@ -85,11 +86,12 @@ function buildHeaders(): Record<string, string> {
 }
 
 export function useCompanies(options: UseCompaniesOptions = {}) {
+  const enabled = options.enabled ?? true;
   const [companies, setCompanies] = useState<Company[]>(() => options.initialData?.companies ?? []);
   const [count, setCount] = useState(() => options.initialData?.count ?? 0);
   const [limit, setLimit] = useState<number | null>(() => options.initialData?.limit ?? null);
   const [canAddMore, setCanAddMore] = useState(() => options.initialData?.canAddMore ?? true);
-  const [isLoading, setIsLoading] = useState(() => !options.initialData);
+  const [isLoading, setIsLoading] = useState(() => !options.initialData && enabled);
   const [error, setError] = useState<string | null>(null);
   const statusUpdateTokens = useRef(new Map<string, number>());
 
@@ -398,8 +400,12 @@ export function useCompanies(options: UseCompaniesOptions = {}) {
     if (options.initialData) {
       return;
     }
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
     fetchCompanies();
-  }, [fetchCompanies, options.initialData]);
+  }, [enabled, fetchCompanies, options.initialData]);
 
   return {
     companies,
