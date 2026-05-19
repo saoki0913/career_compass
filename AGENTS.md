@@ -109,7 +109,7 @@ Edit/Write でその場しのぎのコードパターンを追加しようとし
 
 - Next API は `createApiErrorResponse()` を使って構造化エラーを返す。`userMessage` と `action` を含め、開発者向け詳細は dev 環境の `debug` にのみ出す。`X-Request-Id` / `requestId` を付与する。
 - フロントでは `parseApiErrorResponse()` と `AppUiError` を使う。raw error や例外文字列を UI にそのまま出さない。
-- secrets 正本は `.secrets/` (project-internal, gitignored)。フォールバック: `codex-company/.secrets/career_compass/`。**実ファイル (`*.env`) を直接 Read しない**。インベントリ確認は `zsh scripts/release/sync-career-compass-secrets.sh --check` のみ。バリデーションは `sync-career-compass-secrets.sh --check`、型安全アクセスは `src/env/` (T3 Env) 経由。
+- secrets 正本は `.secrets/` (project-internal, gitignored)。フォールバック: `codex-company/.secrets/career_compass/`。**実 secret ファイル（`.env` / `.env.local` / `.env.production` 等の実 `.env*`、`.secrets/**`、`*.pem|key|p12`）を直接 Read しない**。一方 `.env.example` と `scripts/release/secrets-examples/**`（placeholder のみ・git-tracked・実 secret なし）は Claude/Codex とも編集可（`scripts/harness/guard-core.sh` / `command-classifier.mjs` が sensitive 判定の前に除外、`.codex/config.toml` の deny は実 env ファイル列挙）。インベントリ確認は `zsh scripts/release/sync-career-compass-secrets.sh --check` のみ。バリデーションは `sync-career-compass-secrets.sh --check`、型安全アクセスは `src/env/` (T3 Env) 経由。
 
 ---
 

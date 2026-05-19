@@ -18,26 +18,15 @@ if [ -z "$SESSION_ID" ]; then
   exit 2
 fi
 
+if guard_command_is_release_read_only "$CMD" && ! guard_command_is_release_mutating "$CMD"; then
+  exit 0
+fi
+
 STATE_DIR=$(guard_state_dir_for_runtime claude)
 FLAG="$STATE_DIR/release-approved-$SESSION_ID"
 HEAD_SHA=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "")
-
-release_mode_for_command() {
-  case "$CMD" in
-    *"make ops-release-check"*|*"release-career-compass.sh --check"*|*"release-career-compass.sh --preflight-only"*) printf '%s\n' "check" ;;
-    *"make deploy-staging"*) printf '%s\n' "staging" ;;
-    *"make deploy-production"*) printf '%s\n' "production" ;;
-    *"make deploy-stage-all"*|*"release-career-compass.sh --stage-all"*) printf '%s\n' "release" ;;
-    *"make deploy-migrate"*) printf '%s\n' "production" ;;
-    *"make release-pr"*|*"create-career-compass-release-pr.sh"*) printf '%s\n' "release-pr" ;;
-    *"make rollback-prod"*|*"rollback-career-compass.sh"*) printf '%s\n' "rollback" ;;
-    *"release-career-compass.sh --staging-only"*) printf '%s\n' "staging-only" ;;
-    *"make deploy"*|*"release-career-compass.sh"*) printf '%s\n' "release" ;;
-    *) printf '%s\n' "provider" ;;
-  esac
-}
-
-EXPECTED_RELEASE_MODE="$(release_mode_for_command)"
+EXPECTED_RELEASE_MODE="$(guard_command_release_modes "$CMD" | head -1)"
+EXPECTED_RELEASE_MODE="${EXPECTED_RELEASE_MODE:-provider}"
 
 if [ ! -f "$FLAG" ]; then
   cat >&2 <<EOF

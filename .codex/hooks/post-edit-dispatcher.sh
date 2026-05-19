@@ -63,10 +63,47 @@ EOF
   case "$REL_PATH" in
   backend/app/prompts/*|backend/app/utils/llm*.py)
     PROMPT_STATE_DIR=$(codex_session_state_dir)
-    printf '%s\n' "$REL_PATH" > "$PROMPT_STATE_DIR/prompt-review-pending-$SESSION_ID"
-    rm -f "$PROMPT_STATE_DIR/prompt-review-confirmed-$SESSION_ID"
+    HEAD_SHA=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || echo "")
+    PROMPT_DIFF_HASH=$(git -C "$PROJECT_DIR" diff -- backend/app/prompts backend/app/utils/llm.py backend/app/utils/llm_responses.py backend/app/utils/llm_streaming.py 2>/dev/null | shasum -a 256 | awk '{print $1}')
+    case "$REL_PATH" in
+      backend/app/prompts/es_templates/*|backend/app/prompts/reference_es.py|backend/app/prompts/es_reference_guidance.py) AFFECTED_FEATURE="es_review" ;;
+      backend/app/prompts/motivation*) AFFECTED_FEATURE="motivation" ;;
+      backend/app/prompts/gakuchika*) AFFECTED_FEATURE="gakuchika" ;;
+      backend/app/utils/llm*.py) AFFECTED_FEATURE="llm_shared" ;;
+      *) AFFECTED_FEATURE="prompt_shared" ;;
+    esac
+    jq -n \
+      --arg changedFile "$REL_PATH" \
+      --arg headSha "$HEAD_SHA" \
+      --arg promptDiffHash "$PROMPT_DIFF_HASH" \
+      --arg affectedFeature "$AFFECTED_FEATURE" \
+      --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{
+        schemaVersion: 1,
+        kind: "prompt-review-pending",
+        decision: "verification-required",
+        issuer: "codex-post-edit-dispatcher",
+        createdAt: $createdAt,
+        headSha: $headSha,
+        promptDiffHash: $promptDiffHash,
+        changedFiles: [$changedFile],
+        affectedFeature: $affectedFeature,
+        requiredVerification: {
+          deterministic: [
+            "cd backend && pytest tests/es_review/test_es_review_prompt_structure.py -q",
+            "cd backend && pytest tests/es_review/test_reference_es_copy_safety.py -q"
+          ],
+          qualityAudit: [
+            "reference ES leakage",
+            "AI-smell phrase regression",
+            "Japanese tone and conclusion-first structure",
+            "token/cost impact"
+          ]
+        }
+      }' > "$PROMPT_STATE_DIR/prompt-review-pending-$SESSION_ID.json"
+    rm -f "$PROMPT_STATE_DIR/prompt-review-pending-$SESSION_ID" "$PROMPT_STATE_DIR/prompt-review-confirmed-$SESSION_ID" "$PROMPT_STATE_DIR/prompt-review-confirmed-$SESSION_ID.json"
     cat >&2 <<'EOF'
-Codex prompt/LLM reminder: run prompt structure tests and AI writing quality checks before commit.
+Codex prompt/LLM reminder: prompt quality verification is now required before commit.
 EOF
     ;;
   esac

@@ -119,6 +119,7 @@ ml/es_review_qwen/.venv/
 # Working image buffers (not shipped)
 public/generated_images/
 /screenshots/
+public/screenshots/generated/
 
 # Dashboard: only track empty-state illustrations
 public/dashboard/*

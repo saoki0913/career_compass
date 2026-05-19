@@ -53,9 +53,24 @@ command = "npx"
 "src/lib/trusted-origins.ts" = "security-auditor"
 
 [security]
+# Real secret files stay denied. Keep `.env.example` editable, but enumerate
+# common real environment file names for defense in depth; command guards catch
+# broader ad-hoc `.env*` access.
 deny_patterns = [
     "*.env",
-    ".env.*",
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.prod",
+    ".env.development",
+    ".env.dev",
+    ".env.staging",
+    ".env.stage",
+    ".env.preview",
+    ".env.vercel",
+    ".env.ci",
+    ".env.test",
+    ".env.*.local",
     "*.pem",
     "*.key",
     "*.p12",

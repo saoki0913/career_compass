@@ -30,11 +30,22 @@ guard_path_is_sensitive() {
   local path="${1:-}"
   [ -z "$path" ] && return 1
 
+  # Real secret store and key material always win, even if named *.example.
   case "$path" in
     */codex-company/.secrets/*|codex-company/.secrets/*|*/.secrets/*|.secrets/*) return 0 ;;
     */secrets/*|secrets/*) return 0 ;;
-    .env|.env.*|*/.env|*/.env.*) return 0 ;;
     *.pem|*.key|*.p12) return 0 ;;
+  esac
+
+  # Env/secret templates carry only placeholders and are git-tracked, so they
+  # must remain editable. Real secret files never use the .env.example suffix
+  # and secrets-examples/ is the tracked template directory.
+  case "$path" in
+    *.env.example|*/secrets-examples/*|secrets-examples/*) return 1 ;;
+  esac
+
+  case "$path" in
+    .env|.env.*|*/.env|*/.env.*) return 0 ;;
   esac
 
   return 1
@@ -48,6 +59,21 @@ guard_command_reads_sensitive_path() {
 guard_command_is_git_push() {
   local command="${1:-}"
   guard_command_predicate "$command" "gitPush"
+}
+
+guard_command_is_allowed_git_push_target() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "gitPushAllowedTarget"
+}
+
+guard_command_git_push_remote() {
+  local command="${1:-}"
+  node "$(dirname "${BASH_SOURCE[0]}")/command-classifier.mjs" "$command" | jq -r '.gitPushRemote // empty' 2>/dev/null || true
+}
+
+guard_command_git_push_refspec() {
+  local command="${1:-}"
+  node "$(dirname "${BASH_SOURCE[0]}")/command-classifier.mjs" "$command" | jq -r '.gitPushRefspecs[0] // empty' 2>/dev/null || true
 }
 
 guard_command_is_force_push() {
@@ -108,6 +134,16 @@ guard_command_is_production_promotion() {
 guard_command_is_secret_apply_production() {
   local command="${1:-}"
   guard_command_predicate "$command" "secretApplyProduction"
+}
+
+guard_command_has_unsafe_shell_expansion() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "unsafeShellExpansion"
+}
+
+guard_command_creates_protected_checkpoint() {
+  local command="${1:-}"
+  guard_command_predicate "$command" "protectedCheckpoint"
 }
 
 guard_state_dir_for_runtime() {

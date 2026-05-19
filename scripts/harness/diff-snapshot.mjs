@@ -33,6 +33,19 @@ function argValues(name) {
   return values;
 }
 
+function parseCsvList(source) {
+  if (!source) return undefined;
+  return source
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function commandHash(commandText) {
+  if (!commandText) return "";
+  return createHash("sha256").update(commandText).digest("hex");
+}
+
 function stagedSnapshot(project, { includeDirtyState = false } = {}) {
   const headSha = runGit(project, ["rev-parse", "HEAD"]).trim();
   const diff = runGit(project, ["diff", "--cached", "--binary", "--no-ext-diff"]);
@@ -146,25 +159,39 @@ if (command === "current") {
 if (command === "checkpoint") {
   const snapshot = stagedSnapshot(project, { includeDirtyState });
   const categories = parseCategories();
+  const actions = parseCsvList(argValue("--actions", ""));
+  const commandText = argValue("--command", "");
+  const ttlSeconds = Number.parseInt(argValue("--ttl-seconds", ""), 10);
   const qgItemId = argValue("--item-id", "");
   const qgItemSeverity = argValue("--item-severity", "");
   const qgReason = argValue("--reason", "");
   const qgExpiresAt = argValue("--expires-at", "");
+  const createdAt = new Date();
+  const expiresAt = qgExpiresAt || (Number.isFinite(ttlSeconds) && ttlSeconds > 0
+    ? new Date(createdAt.getTime() + ttlSeconds * 1000).toISOString()
+    : "");
   print({
     schemaVersion: 1,
     kind: argValue("--kind", "generic"),
     decision: argValue("--decision", ""),
+    issuer: argValue("--issuer", ""),
     reviewRequestId: argValue("--review-request-id", ""),
     reviewExecutionStatus: argValue("--review-execution-status", ""),
     reviewVerdict: argValue("--review-verdict", ""),
     maxSeverity: argValue("--max-severity", ""),
     releaseMode: argValue("--release-mode", ""),
+    target: argValue("--target", ""),
+    remote: argValue("--remote", ""),
+    refspec: argValue("--refspec", ""),
+    commandHash: commandHash(commandText),
+    artifactHash: argValue("--artifact-hash", ""),
     status: argValue("--status", ""),
-    createdAt: new Date().toISOString(),
+    createdAt: createdAt.toISOString(),
     ...(qgItemId ? { itemId: qgItemId } : {}),
     ...(qgItemSeverity ? { itemSeverity: qgItemSeverity } : {}),
     ...(qgReason ? { reason: qgReason } : {}),
-    ...(qgExpiresAt ? { expiresAt: qgExpiresAt } : {}),
+    ...(expiresAt ? { expiresAt } : {}),
+    ...(actions ? { actions } : {}),
     ...(categories ? { categories } : {}),
     ...snapshot,
   });
@@ -183,6 +210,29 @@ if (command === "verify") {
     checkpoint = JSON.parse(readFileSync(file, "utf8"));
   } catch {
     process.stderr.write("diff-snapshot: checkpoint is not valid JSON.\n");
+    process.exit(2);
+  }
+
+  if (checkpoint.expiresAt) {
+    const expiresAt = Date.parse(checkpoint.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+      process.stderr.write("diff-snapshot: checkpoint expired.\n");
+      process.exit(2);
+    }
+  }
+  const expectedCommand = argValue("--command", "");
+  if (expectedCommand && checkpoint.commandHash && checkpoint.commandHash !== commandHash(expectedCommand)) {
+    process.stderr.write("diff-snapshot: command changed after checkpoint creation.\n");
+    process.exit(2);
+  }
+  const expectedRemote = argValue("--remote", "");
+  if (expectedRemote && (checkpoint.remote || "") !== expectedRemote) {
+    process.stderr.write("diff-snapshot: remote changed after checkpoint creation.\n");
+    process.exit(2);
+  }
+  const expectedRefspec = argValue("--refspec", "");
+  if (expectedRefspec && (checkpoint.refspec || "") !== expectedRefspec) {
+    process.stderr.write("diff-snapshot: refspec changed after checkpoint creation.\n");
     process.exit(2);
   }
 
@@ -218,6 +268,12 @@ function verifyCheckpointFile(file) {
     return { file, ok: false, reason: "invalid_json" };
   }
 
+  if (checkpoint.expiresAt) {
+    const expiresAt = Date.parse(checkpoint.expiresAt);
+    if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
+      return { file, ok: false, reason: "checkpoint_expired" };
+    }
+  }
   const snapshot = stagedSnapshot(project, { includeDirtyState: Boolean(checkpoint.dirtyState) });
   if (checkpoint.headSha !== snapshot.headSha || checkpoint.stagedDiffHash !== snapshot.stagedDiffHash) {
     return {

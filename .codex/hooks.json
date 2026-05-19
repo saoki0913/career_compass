@@ -73,6 +73,18 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/session-end-cleanup.sh\"",
+            "timeout": 15,
+            "statusMessage": "Cleaning up Codex session state"
+          }
+        ]
+      }
     ]
   }
 }

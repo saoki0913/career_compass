@@ -44,6 +44,41 @@ const HOTSPOT_FILES = new Set([
   "src/lib/server/app-loaders.ts",
 ]);
 
+// --- Codex autonomy-budget taxonomy (single source of truth) ---
+// Consumed by .codex/hooks/lib/autonomy.sh, user-prompt-submit-router.sh and
+// the runtime guards via the `taxonomy` subcommand below, so the router, the
+// autonomy manifest and the guards can never disagree on the token universe.
+const CODEX_AUTONOMY_ACTIONS = Object.freeze([
+  "test",
+  "push",
+  "release",
+  "production-promotion",
+  "edit",
+  "commit",
+  "migration",
+]);
+const CODEX_AUTONOMY_RELEASE_MODES = Object.freeze([
+  "staging",
+  "production",
+  "stage-all",
+  "release",
+  "provider",
+]);
+// Reference/serialization only (NOT control flow): the predicate names whose
+// match means "dangerous / irreversible" and therefore can never be softened
+// by autonomy or HARNESS_DISABLE_ADVISORY. The guards still enforce these via
+// guard-core predicates; this list documents the frozen hard-stop boundary.
+const CODEX_HARDSTOP_PREDICATES = Object.freeze([
+  "forcePush",
+  "gitPushProtectedTarget",
+  "productionPromotion",
+  "secretApplyProduction",
+  "migrationApply",
+  "unsafeDelete",
+  "readsSensitivePath",
+  "protectedCheckpoint",
+]);
+
 function splitSegments(command) {
   const segments = [];
   let current = "";
@@ -81,6 +116,53 @@ function splitSegments(command) {
   }
   if (current.trim()) segments.push(current.trim());
   return segments;
+}
+
+function detectUnsafeShellExpansion(segment) {
+  let quote = null;
+  let escape = false;
+  for (let index = 0; index < segment.length; index += 1) {
+    const char = segment[index];
+    const next = segment[index + 1] || "";
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (char === "\\") {
+      escape = true;
+      continue;
+    }
+    if (quote === "'") {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (quote === '"') {
+      if (char === quote) {
+        quote = null;
+        continue;
+      }
+    } else if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "$" && next === "(") {
+      return { unsafe: true, reason: "command_substitution" };
+    }
+    if (char === "`") {
+      return { unsafe: true, reason: "backtick_substitution" };
+    }
+    if ((char === "<" || char === ">") && next === "(") {
+      return { unsafe: true, reason: "process_substitution" };
+    }
+    if (char === "$" && /[A-Za-z_{0-9@*#?$!-]/.test(next)) {
+      return { unsafe: true, reason: "variable_expansion" };
+    }
+  }
+  if (quote) {
+    return { unsafe: true, reason: "unmatched_quote" };
+  }
+  return { unsafe: false, reason: "" };
 }
 
 function tokenize(segment) {
@@ -151,15 +233,29 @@ function isSensitivePath(token) {
   const value = normalizePathToken(token);
   if (!value) return false;
   const base = path.basename(value);
-  return (
+  const inRealSecretStore =
     value.includes("codex-company/.secrets/") ||
     value.includes("/.secrets/") ||
+    value === ".secrets" ||
     value.startsWith(".secrets/") ||
     value.includes("/secrets/") ||
-    value.startsWith("secrets/") ||
+    value.startsWith("secrets/");
+  const isKeyMaterial = /\.(pem|key|p12)$/i.test(base);
+  // Env/secret templates carry only placeholders and are git-tracked, so they
+  // must remain editable. They are definitionally non-secret (real secret files
+  // never use the .env.example suffix, and secrets-examples/ is the tracked
+  // template directory). Exempt them — but never override the real secret store
+  // or key material, so a file under .secrets/ stays protected regardless.
+  const isEnvTemplate =
+    base.endsWith(".env.example") ||
+    value.includes("/secrets-examples/") ||
+    value.startsWith("secrets-examples/");
+  if (isEnvTemplate && !inRealSecretStore && !isKeyMaterial) return false;
+  return (
+    inRealSecretStore ||
     base === ".env" ||
     base.startsWith(".env.") ||
-    /\.(pem|key|p12)$/i.test(base)
+    isKeyMaterial
   );
 }
 
@@ -207,8 +303,64 @@ function nestedShellCommand(tokens) {
   return "";
 }
 
+function dotenvCommandIndex(tokens) {
+  const first = path.basename(tokens[0] || "");
+  if (first === "dotenv" || first === "dotenvx") return 0;
+  if (first !== "npx") return -1;
+
+  let index = 1;
+  while (index < tokens.length) {
+    const token = tokens[index] || "";
+    if (token === "--") {
+      index += 1;
+      break;
+    }
+    if (token === "-y" || token === "--yes" || token === "--no-install" || token === "--ignore-existing") {
+      index += 1;
+      continue;
+    }
+    if (token === "-p" || token === "--package" || token === "--call" || token === "-c") {
+      index += 2;
+      continue;
+    }
+    if (token.startsWith("--package=") || token.startsWith("--call=")) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+
+  const candidate = path.basename(tokens[index] || "");
+  return candidate === "dotenv" || candidate === "dotenvx" ? index : -1;
+}
+
+function dotenvNestedCommand(tokens) {
+  if (dotenvCommandIndex(tokens) === -1) return [];
+  const separator = tokens.lastIndexOf("--");
+  if (separator === -1) return [];
+  return tokens.slice(separator + 1);
+}
+
+function classifyDotenvLoader(tokens, actions, depth) {
+  const dotenvIndex = dotenvCommandIndex(tokens);
+  if (dotenvIndex === -1) return false;
+
+  actions.readsSensitivePath = true;
+
+  const nested = dotenvNestedCommand(tokens);
+  if (nested.length > 0) {
+    const nestedFirst = path.basename(nested[0] || "");
+    if (["env", "printenv", "set"].includes(nestedFirst)) {
+      actions.readsSensitivePath = true;
+    }
+    classifyTokens(nested, actions, depth + 1);
+  }
+  return true;
+}
+
 function classifyGit(tokens, actions) {
   if (path.basename(tokens[0] || "") !== "git") return;
+  const hadGitPush = actions.gitPush;
   let index = 1;
   while (index < tokens.length) {
     const token = tokens[index];
@@ -229,8 +381,56 @@ function classifyGit(tokens, actions) {
   const subcommand = tokens[index] || "";
   const rest = tokens.slice(index + 1);
   if (subcommand === "push") {
+    const nonTargetFlags = new Set([
+      "--force",
+      "--force-with-lease",
+      "-f",
+      "--delete",
+      "-d",
+      "--mirror",
+      "--all",
+      "--tags",
+      "--prune",
+      "--dry-run",
+      "-n",
+      "--porcelain",
+      "--atomic",
+      "--follow-tags",
+      "--set-upstream",
+      "-u",
+    ]);
+    const targets = [];
+    for (let restIndex = 0; restIndex < rest.length; restIndex += 1) {
+      const token = rest[restIndex];
+      if (!token) continue;
+      if (token === "--repo" || token === "--receive-pack" || token === "--exec" || token === "-o" || token === "--push-option") {
+        restIndex += 1;
+        continue;
+      }
+      if (token.startsWith("--repo=") || token.startsWith("--receive-pack=") || token.startsWith("--exec=") || token.startsWith("--push-option=")) {
+        continue;
+      }
+      if (nonTargetFlags.has(token) || token.startsWith("-")) {
+        continue;
+      }
+      targets.push(token);
+    }
+    const segmentRemote = targets[0] || "";
+    const segmentRefspecs = targets.slice(1);
+    const segmentAllowedTarget =
+      segmentRemote === "origin" &&
+      segmentRefspecs.length === 1 &&
+      segmentRefspecs[0] === "develop";
+    if (!actions.gitPushRemote) actions.gitPushRemote = segmentRemote;
+    actions.gitPushRefspecs.push(...segmentRefspecs);
+    actions.gitPushAllowedTarget = hadGitPush
+      ? actions.gitPushAllowedTarget && segmentAllowedTarget
+      : segmentAllowedTarget;
     actions.gitPush = true;
     if (rest.some((token) => token === "--force" || token === "--force-with-lease" || token === "-f" || /^-[A-Za-z]*f[A-Za-z]*$/.test(token))) {
+      actions.forcePush = true;
+    }
+    if (rest.some((token) => token === "--delete" || token === "-d" || token === "--mirror" || token.startsWith("+") || token === ":" || /^:[^:]+/.test(token))) {
       actions.forcePush = true;
     }
   }
@@ -258,9 +458,133 @@ function classifyGit(tokens, actions) {
   }
 }
 
+function classifyGithubCli(tokens, actions) {
+  const first = path.basename(tokens[0] || "");
+  if (first !== "gh") return;
+  const topic = tokens[1] || "";
+  const subcommand = tokens[2] || "";
+  if (topic === "api") {
+    actions.releaseProvider = true;
+    actions.releaseModes.add("github-api");
+    const methodIndex = tokens.findIndex((token) => token === "-X" || token === "--method");
+    const methodToken = methodIndex !== -1 ? tokens[methodIndex + 1] || "" : "";
+    const methodEquals = tokens.find((token) => token.startsWith("--method=") || token.startsWith("-X=")) || "";
+    const method = (methodToken || methodEquals.split("=").slice(1).join("=") || "GET").toUpperCase();
+    const endpoint = tokens.find((token) => token.startsWith("/") || token.includes("/actions/secrets") || token.includes("/secrets/")) || "";
+    const hasInputFields = tokens.some((token) =>
+      token === "-f" ||
+      token === "-F" ||
+      token === "--field" ||
+      token === "--raw-field" ||
+      token.startsWith("-f=") ||
+      token.startsWith("-F=") ||
+      token.startsWith("--field=") ||
+      token.startsWith("--raw-field=")
+    );
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method) || hasInputFields) {
+      actions.releaseMutating = true;
+    } else {
+      actions.releaseReadOnly = true;
+    }
+    if (/\/(?:actions\/)?secrets(?:\/|$)/u.test(endpoint)) {
+      actions.secretApplyProduction = true;
+      actions.releaseMutating = true;
+      actions.releaseReadOnly = false;
+    }
+  }
+  if (topic === "pr" && subcommand === "merge") {
+    actions.releaseProvider = true;
+    actions.releaseMutating = true;
+    actions.releaseModes.add("github-merge");
+  }
+  if (topic === "release" && ["create", "edit", "delete", "upload"].includes(subcommand)) {
+    actions.releaseProvider = true;
+    actions.releaseMutating = true;
+    actions.releaseModes.add("github-release");
+  }
+  if (topic === "secret" && ["set", "delete", "remove"].includes(subcommand)) {
+    actions.releaseProvider = true;
+    actions.releaseMutating = true;
+    actions.releaseModes.add("github-secret");
+    actions.secretApplyProduction = true;
+  }
+  if (topic === "workflow" && ["run", "enable", "disable"].includes(subcommand)) {
+    actions.releaseProvider = true;
+    actions.releaseMutating = true;
+    actions.releaseModes.add("github-workflow");
+  }
+}
+
+function classifyStripeCli(tokens, actions) {
+  const first = path.basename(tokens[0] || "");
+  if (first !== "stripe") return;
+  actions.releaseProvider = true;
+  actions.releaseModes.add("stripe");
+  const [resource, subcommand] = [tokens[1] || "", tokens[2] || ""];
+  const readOnly = resource === "events" && subcommand === "list";
+  if (readOnly) {
+    actions.releaseReadOnly = true;
+  } else {
+    actions.releaseMutating = true;
+  }
+}
+
+function classifySentryCli(tokens, actions) {
+  const first = path.basename(tokens[0] || "");
+  if (first !== "sentry") return;
+  actions.releaseProvider = true;
+  actions.releaseModes.add("sentry");
+  const topic = tokens[1] || "";
+  if (["issues", "events", "projects"].includes(topic)) {
+    actions.releaseReadOnly = true;
+  } else {
+    actions.releaseMutating = true;
+  }
+}
+
+function classifyNpmExternalService(tokens, actions) {
+  const first = path.basename(tokens[0] || "");
+  if (first !== "npm" || tokens[1] !== "run") return;
+  const scriptName = tokens[2] || "";
+  if (!scriptName.startsWith("stripe:")) return;
+  actions.releaseProvider = true;
+  actions.releaseModes.add("stripe");
+  if (["stripe:inspect", "stripe:audit", "stripe:check-live-readiness"].includes(scriptName)) {
+    actions.releaseReadOnly = true;
+  } else {
+    actions.releaseMutating = true;
+  }
+}
+
+function npxPackageCommand(tokens) {
+  if (path.basename(tokens[0] || "") !== "npx") return "";
+  let index = 1;
+  while (index < tokens.length) {
+    const token = tokens[index] || "";
+    if (token === "--") {
+      index += 1;
+      break;
+    }
+    if (token === "-y" || token === "--yes" || token === "--no-install" || token === "--ignore-existing") {
+      index += 1;
+      continue;
+    }
+    if (token === "-p" || token === "--package" || token === "--call" || token === "-c") {
+      index += 2;
+      continue;
+    }
+    if (token.startsWith("--package=") || token.startsWith("--call=")) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  return tokens[index] || "";
+}
+
 function releaseModeFor(tokens) {
   const first = path.basename(tokens[0] || "");
-  const second = tokens[1] || "";
+  const npxCommand = npxPackageCommand(tokens);
   if (first === "make") {
     const goals = parseMakeGoals(tokens);
     if (goals.some((goal) => /^(deploy-migrate|deploy-production)$/.test(goal))) return "production";
@@ -270,16 +594,25 @@ function releaseModeFor(tokens) {
     if (goals.some((goal) => /^(rollback-prod)$/.test(goal))) return "rollback";
     if (goals.some((goal) => /^(ops-release-check)$/.test(goal))) return "check";
   }
-  if ((first === "bash" || first === "zsh") && /^scripts\/release\//.test(second)) return "release-script";
-  if (/^scripts\/release\//.test(tokens[0] || "")) return "release-script";
-  if (["vercel", "railway", "supabase", "gcloud", "wrangler"].includes(first)) return "provider";
-  if (first === "npx" && ["vercel", "railway", "supabase", "wrangler"].includes(tokens[1] || "")) return "provider";
+  const releaseScriptToken = (first === "bash" || first === "zsh") && /^scripts\/release\//.test(tokens[1] || "")
+    ? tokens[1]
+    : /^scripts\/release\//.test(tokens[0] || "")
+      ? tokens[0]
+      : "";
+  if (releaseScriptToken) {
+    if (tokens.includes("--production")) return "production";
+    if (tokens.includes("--staging-only")) return "staging";
+    if (tokens.includes("--stage-all")) return "stage-all";
+    return "release";
+  }
+  if (["vercel", "railway", "supabase", "gcloud", "wrangler", "stripe", "sentry"].includes(first)) return "provider";
+  if (first === "npx" && ["vercel", "railway", "supabase", "wrangler"].includes(npxCommand)) return "provider";
   return "";
 }
 
 function releaseIntentFor(tokens) {
   const first = path.basename(tokens[0] || "");
-  const second = tokens[1] || "";
+  const npxCommand = npxPackageCommand(tokens);
   const hasFlag = (flag) => tokens.includes(flag);
 
   if (first === "make") {
@@ -314,7 +647,7 @@ function releaseIntentFor(tokens) {
   if (["vercel", "railway", "supabase", "gcloud", "wrangler"].includes(first)) {
     return "mutating";
   }
-  if (first === "npx" && ["vercel", "railway", "supabase", "wrangler"].includes(tokens[1] || "")) {
+  if (first === "npx" && ["vercel", "railway", "supabase", "wrangler"].includes(npxCommand)) {
     return "mutating";
   }
   return "";
@@ -541,10 +874,22 @@ function classifyMigration(tokens, actions) {
     actions.migrationApply = true;
     return;
   }
+  if (first === "npm" && tokens[1] === "run" && ["db:push", "db:migrate"].includes(tokens[2] || "")) {
+    actions.migrationApply = true;
+    return;
+  }
+  if (
+    (first === "npx" || first === "pnpm" || first === "yarn" || first === "drizzle-kit" || first === "supabase") &&
+    tokens.some((token) => /^(drizzle-kit|supabase)$/u.test(path.basename(token || ""))) &&
+    tokens.some((token) => /^(push|migrate|migration)$/u.test(token))
+  ) {
+    actions.migrationApply = true;
+    return;
+  }
   if (
     (first === "node" || first === "npx" || first === "run-migrations.mjs") &&
     tokens.some((t) => t.includes("run-migrations.mjs")) &&
-    flagValue(tokens, "--env", "local") === "production" &&
+    ["staging", "production"].includes(flagValue(tokens, "--env", "local")) &&
     !tokens.includes("--dry-run")
   ) {
     actions.migrationApply = true;
@@ -560,7 +905,8 @@ function classifyProductionPromotion(tokens, actions) {
   const shells = new Set(["zsh", "bash", "sh", "source", "."]);
   if (
     (shells.has(first) && tokens.some((t) => t.includes("deploy-production.sh"))) ||
-    normalizePathToken(tokens[0] || "").includes("deploy-production.sh")
+    normalizePathToken(tokens[0] || "").includes("deploy-production.sh") ||
+    (tokens.some((t) => t.includes("release-career-compass.sh")) && tokens.includes("--production"))
   ) {
     actions.productionPromotion = true;
   }
@@ -568,6 +914,13 @@ function classifyProductionPromotion(tokens, actions) {
 
 function classifySecretApply(tokens, assignments, actions) {
   const first = path.basename(tokens[0] || "");
+  if (first === "vercel" && tokens[1] === "env" && ["add", "pull", "rm", "remove"].includes(tokens[2] || "") && tokens.some((token) => token.includes("production"))) {
+    actions.secretApplyProduction = true;
+  }
+  if (first === "railway" && tokens.some((token) => token === "--set" || token.startsWith("--set=") || token.includes("variables"))) {
+    actions.secretApplyProduction = true;
+  }
+
   const makeInvocation = first === "make" ? parseMakeInvocation(tokens, assignments) : null;
   const effectiveAssignments = makeInvocation?.assignments ?? assignments;
   const makeTarget = first === "make" && makeInvocation?.goals?.includes("ops-secrets-sync");
@@ -593,6 +946,9 @@ function classifySecretApply(tokens, assignments, actions) {
 function classifyTokens(tokens, actions, depth = 0) {
   if (tokens.length === 0 || depth > 3) return;
   const { tokens: unwrapped, assignments } = unwrapCommandWithAssignments(tokens);
+  if (classifyDotenvLoader(unwrapped, actions, depth)) {
+    return;
+  }
   const nested = nestedShellCommand(unwrapped);
   if (nested) {
     mergeActions(actions, classifyCommand(nested, depth + 1));
@@ -601,14 +957,42 @@ function classifyTokens(tokens, actions, depth = 0) {
 
   const first = path.basename(unwrapped[0] || "");
   const readCommands = new Set(["cat", "head", "tail", "less", "more", "bat", "sed", "awk", "grep", "rg", "source", ".", "open", "pbcopy", "base64", "xxd", "strings"]);
-  if (readCommands.has(first) && unwrapped.slice(1).some(isSensitivePath)) {
+  const secretMovingCommands = new Set(["cp", "mv", "tar", "zip", "rsync", "scp", "curl"]);
+  if ((readCommands.has(first) || secretMovingCommands.has(first)) && unwrapped.slice(1).some(isSensitivePath)) {
+    actions.readsSensitivePath = true;
+  }
+  const commandText = unwrapped.join(" ");
+  if (["python", "python3", "node", "ruby", "perl"].includes(first) && /(?:open|readFile|readFileSync)\s*\(/u.test(commandText) && /(?:^|[/"'])\.?(?:env(?:\.[A-Za-z0-9_-]+)?|\.secrets\/|codex-company\/\.secrets\/|[^ ]+\.(?:pem|key|p12))/u.test(commandText)) {
     actions.readsSensitivePath = true;
   }
   if (unwrapped.some(isSensitivePath) && ["source", "."].includes(first)) {
     actions.readsSensitivePath = true;
   }
+  if (
+    first === "node" &&
+    unwrapped.some((token) => token.includes("scripts/harness/diff-snapshot.mjs")) &&
+    unwrapped.includes("checkpoint")
+  ) {
+    const kind = flagValue(unwrapped, "--kind", "");
+    if (["push", "release", "migration", "secret-apply", "production-promotion", "staging-verified"].includes(kind)) {
+      actions.protectedCheckpoint = true;
+    }
+  }
+  if (
+    normalizePathToken(unwrapped[0] || "").endsWith("scripts/harness/diff-snapshot.mjs") &&
+    unwrapped.includes("checkpoint")
+  ) {
+    const kind = flagValue(unwrapped, "--kind", "");
+    if (["push", "release", "migration", "secret-apply", "production-promotion", "staging-verified"].includes(kind)) {
+      actions.protectedCheckpoint = true;
+    }
+  }
 
   classifyGit(unwrapped, actions);
+  classifyGithubCli(unwrapped, actions);
+  classifyStripeCli(unwrapped, actions);
+  classifySentryCli(unwrapped, actions);
+  classifyNpmExternalService(unwrapped, actions);
   classifyTestCommand(unwrapped, assignments, actions);
 
   const releaseMode = releaseModeFor(unwrapped);
@@ -634,6 +1018,9 @@ function emptyActions() {
     segments: [],
     readsSensitivePath: false,
     gitPush: false,
+    gitPushRemote: "",
+    gitPushRefspecs: [],
+    gitPushAllowedTarget: false,
     forcePush: false,
     gitCommit: false,
     gitBranchCreate: false,
@@ -651,14 +1038,26 @@ function emptyActions() {
     migrationApply: false,
     productionPromotion: false,
     secretApplyProduction: false,
+    unsafeShellExpansion: false,
+    unsafeShellReason: "",
+    protectedCheckpoint: false,
   };
 }
 
 function mergeActions(target, source) {
   target.segments.push(...(source.segments || []));
-  for (const key of ["readsSensitivePath", "gitPush", "forcePush", "gitCommit", "gitBranchCreate", "releaseProvider", "releaseReadOnly", "releaseMutating", "destructiveDelete", "unsafeDelete", "safeDelete", "migrationApply", "productionPromotion", "secretApplyProduction"]) {
+  const hadGitPush = target.gitPush;
+  for (const key of ["readsSensitivePath", "gitPush", "forcePush", "gitCommit", "gitBranchCreate", "releaseProvider", "releaseReadOnly", "releaseMutating", "destructiveDelete", "unsafeDelete", "safeDelete", "migrationApply", "productionPromotion", "secretApplyProduction", "unsafeShellExpansion", "protectedCheckpoint"]) {
     target[key] = target[key] || Boolean(source[key]);
   }
+  if (source.gitPush) {
+    target.gitPushAllowedTarget = hadGitPush
+      ? target.gitPushAllowedTarget && Boolean(source.gitPushAllowedTarget)
+      : Boolean(source.gitPushAllowedTarget);
+  }
+  if (!target.gitPushRemote && source.gitPushRemote) target.gitPushRemote = source.gitPushRemote;
+  target.gitPushRefspecs.push(...(source.gitPushRefspecs || []));
+  if (!target.unsafeShellReason && source.unsafeShellReason) target.unsafeShellReason = source.unsafeShellReason;
   for (const mode of source.releaseModes || []) target.releaseModes.add(mode);
   for (const category of source.testCategories || []) target.testCategories.add(category);
   for (const feature of source.testFeatures || []) target.testFeatures.add(feature);
@@ -676,6 +1075,11 @@ function classifyCommand(command, depth = 0) {
   const actions = emptyActions();
   for (const segment of splitSegments(command || "")) {
     actions.segments.push(segment);
+    const unsafeExpansion = detectUnsafeShellExpansion(segment);
+    if (unsafeExpansion.unsafe) {
+      actions.unsafeShellExpansion = true;
+      actions.unsafeShellReason ||= unsafeExpansion.reason;
+    }
     classifyTokens(tokenize(segment), actions, depth);
   }
   return actions;
@@ -786,6 +1190,22 @@ if (command === "classify-change-path") {
     return !arg.startsWith("--");
   });
   process.stdout.write(`${JSON.stringify(classifyChangePath(files, { totalLines }), null, 2)}\n`);
+  process.exit(0);
+}
+
+if (command === "taxonomy") {
+  process.stdout.write(
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        actions: CODEX_AUTONOMY_ACTIONS,
+        releaseModes: CODEX_AUTONOMY_RELEASE_MODES,
+        hardStop: CODEX_HARDSTOP_PREDICATES,
+      },
+      null,
+      2,
+    )}\n`,
+  );
   process.exit(0);
 }
 

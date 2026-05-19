@@ -12,6 +12,20 @@ if [ "$STOP_HOOK_ACTIVE" = "true" ]; then
   exit 0
 fi
 
+# Subagents / headless runs cannot call AskUserQuestion; blocking their
+# Stop here would be a permanent deadlock (locked decision: a subagent
+# must never deadlock). The main interactive agent has a non-subagent
+# transcript path, so its behavior is unchanged — CLAUDE.md "User
+# Confirmation Rules" remain enforced for it.
+SPCG_PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+if [ -f "$SPCG_PROJECT_DIR/scripts/harness/guard-runtime.sh" ]; then
+  # shellcheck source=../../scripts/harness/guard-runtime.sh
+  . "$SPCG_PROJECT_DIR/scripts/harness/guard-runtime.sh"
+  if gr_is_subagent "$INPUT" claude || gr_is_headless; then
+    exit 0
+  fi
+fi
+
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || echo "")
 if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
   exit 0

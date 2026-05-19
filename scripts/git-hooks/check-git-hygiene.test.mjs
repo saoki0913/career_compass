@@ -28,6 +28,7 @@ test("blocks runtime and generated artifact paths", async () => {
     "product/.ai/verification/current.json",
     "docs/ops/agent-usage.log",
     "output/playwright/home.png",
+    "public/screenshots/generated/product/product.dashboard/desktop.png",
     "public/marketing/LP/assets/_archive/metadata/manifest.txt",
     "public/marketing/LP/section_image/asset/hero/card.png",
   ]);
@@ -39,6 +40,7 @@ test("blocks runtime and generated artifact paths", async () => {
       "product/.ai/verification/current.json",
       "docs/ops/agent-usage.log",
       "output/playwright/home.png",
+      "public/screenshots/generated/product/product.dashboard/desktop.png",
       "public/marketing/LP/assets/_archive/metadata/manifest.txt",
       "public/marketing/LP/section_image/asset/hero/card.png",
     ],

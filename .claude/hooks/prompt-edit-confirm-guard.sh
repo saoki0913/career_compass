@@ -5,6 +5,7 @@ set -euo pipefail
 
 INPUT=$(cat)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // empty')
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 
 if [ -z "$SESSION_ID" ]; then
   exit 0
@@ -28,17 +29,11 @@ fi
 
 EDITED_FILE=$(head -1 "$PENDING_FLAG" 2>/dev/null || echo "(unknown)")
 
-cat >&2 <<EOF
-⛔ プロンプトファイルの変更確認が未完了です。
-
-${EDITED_FILE} が変更されましたが、ユーザーの確認がまだです。
-
-手順:
-  1. AskUserQuestion では、人間が判断しやすい日本語で変更内容を提示
-     - どこを変えたか、なぜ変えたか、出力にどう影響するかを含める
-     - 選択肢は「この内容で進める」「見直す」にする
-  2. ユーザーが確認 → touch $CONFIRMED_FLAG
-  3. ユーザーが差し戻し → 変更を元に戻してから続行
-  4. 次の Edit|Write を再実行
-EOF
-exit 2
+# shellcheck source=../../scripts/harness/guard-runtime.sh
+. "$PROJECT_DIR/scripts/harness/guard-runtime.sh"
+GR_HOOK=prompt-edit-confirm-guard
+gr_init "$INPUT" claude
+gr_enforce high "プロンプト/LLM ファイルの変更確認が未完了です。
+${EDITED_FILE} が変更されました。コミット前に決定的プロンプトテストと AI 出力品質レビューを記録してください。
+推奨: AskUserQuestion で変更点・理由・出力影響を提示し、確認後 touch $CONFIRMED_FLAG。
+commit 時の prompt-quality ゲート / /codex:review / CI が最終ゲートです。"

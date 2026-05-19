@@ -49,6 +49,14 @@ function isCiMetaVar(varName) {
   return CI_META_PATTERNS.some((pattern) => pattern.test(varName));
 }
 
+function shouldScanDirectProcessEnvUsage(filePath) {
+  if (!filePath.startsWith("src/")) return false;
+  if (filePath.startsWith("src/env/")) return false;
+  if (filePath.startsWith("e2e/")) return false;
+  if (/\.(test|spec)\.tsx?$/.test(filePath)) return false;
+  return /\.(ts|tsx|js|jsx)$/.test(filePath);
+}
+
 // ---------------------------------------------------------------------------
 // Git helpers
 // ---------------------------------------------------------------------------
@@ -242,6 +250,7 @@ function isBalanced(text) {
 // .env.example.  Explicit Set (not regex) per Codex plan review finding.
 // ---------------------------------------------------------------------------
 const BACKEND_ALIAS_ALLOWLIST = new Set([
+  "ENVIRONMENT",
   "RAILWAY_ENVIRONMENT_NAME",
   "RAILWAY_GIT_COMMIT_SHA",
   "CLAUDE_MODEL",
@@ -347,6 +356,27 @@ export function findDirectProcessEnvUsage(srcContent, schemaVars, filePath) {
     }
   }
   return findings;
+}
+
+function collectSourceFiles(dirPath, cwd, files = []) {
+  let entries;
+  try {
+    entries = readdirSync(path.join(cwd, dirPath), { withFileTypes: true });
+  } catch {
+    return files;
+  }
+
+  for (const entry of entries) {
+    const filePath = path.posix.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      collectSourceFiles(filePath, cwd, files);
+      continue;
+    }
+    if (entry.isFile() && shouldScanDirectProcessEnvUsage(filePath)) {
+      files.push(filePath);
+    }
+  }
+  return files;
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +506,16 @@ async function main() {
 
   // Check drift
   const { errors, warnings } = checkDrift(t3Vars, backendVars, exampleVars, ciVarsMap);
+  const directEnvVars = new Set(["APP_ENV", "NEXT_PUBLIC_APP_ENV"]);
+  for (const filePath of collectSourceFiles("src", cwd)) {
+    const src = await readSource(filePath, staged, cwd);
+    for (const finding of findDirectProcessEnvUsage(src, directEnvVars, filePath)) {
+      warnings.push({
+        id: "C6",
+        message: `${finding.varName} direct process.env usage in ${finding.file}:${finding.line} (use src/env/*; warning-only until release B)`,
+      });
+    }
+  }
 
   for (const err of errors) {
     process.stderr.write(`[env-drift] ERROR: ${err.message}\n`);

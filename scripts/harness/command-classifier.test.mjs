@@ -26,18 +26,133 @@ test("detects quoted and nested sensitive file reads", () => {
   assert.equal(classify("sed -n '1,20p' private/agent-pipeline/skills/grill-me.md").readsSensitivePath, false);
 });
 
+test("treats env-example and secrets-examples templates as non-sensitive", () => {
+  // Templates carry only placeholders and are git-tracked. They must be editable.
+  assert.equal(classify('cat ".env.example"').readsSensitivePath, false);
+  assert.equal(classify("bash -lc 'cat .env.example'").readsSensitivePath, false);
+  assert.equal(
+    classify('cat "scripts/release/secrets-examples/staging/nextjs.env.example"').readsSensitivePath,
+    false,
+  );
+  assert.equal(
+    classify('cat "scripts/release/secrets-examples/production/shared.env.example"').readsSensitivePath,
+    false,
+  );
+  // Real secret files must stay sensitive (suffix/dir are definitionally non-template).
+  assert.equal(classify('cat ".env.local"').readsSensitivePath, true);
+  assert.equal(classify('cat ".env.production"').readsSensitivePath, true);
+  assert.equal(classify('cat ".env"').readsSensitivePath, true);
+  assert.equal(classify("cat .secrets/career_compass/production.env").readsSensitivePath, true);
+  assert.equal(classify("cat config/tls/private.key").readsSensitivePath, true);
+});
+
 test("detects wrapped git push and force push commands", () => {
   const envPush = classify("env GIT_SSH_COMMAND=ssh git push origin develop");
   assert.equal(envPush.gitPush, true);
   assert.equal(envPush.forcePush, false);
+  assert.equal(envPush.gitPushRemote, "origin");
+  assert.deepEqual(envPush.gitPushRefspecs, ["develop"]);
+  assert.equal(envPush.gitPushAllowedTarget, true);
 
   const nestedForce = classify("bash -lc 'git -c core.sshCommand=x push --force origin develop'");
   assert.equal(nestedForce.gitPush, true);
   assert.equal(nestedForce.forcePush, true);
+  assert.equal(classify("git push origin HEAD:main").gitPushAllowedTarget, false);
+  assert.equal(classify("git push origin +HEAD:main").forcePush, true);
+  assert.equal(classify("git push --delete origin develop").forcePush, true);
+  assert.equal(classify("git push --mirror origin").forcePush, true);
+  assert.equal(classify("git push origin main; git push origin develop").gitPushAllowedTarget, false);
+  assert.equal(
+    classify("bash -lc 'git push origin main'; bash -lc 'git push origin develop'").gitPushAllowedTarget,
+    false,
+  );
+});
+
+test("fails closed on unsafe shell expansion", () => {
+  assert.equal(classify("echo $(cat .secrets/example.env)").unsafeShellExpansion, true);
+  assert.equal(classify('echo "$(cat .secrets/example.env)"').unsafeShellExpansion, true);
+  assert.equal(classify("echo `cat .env.local`").unsafeShellExpansion, true);
+  assert.equal(classify('echo "`cat .env.local`"').unsafeShellExpansion, true);
+  assert.equal(classify("diff <(cat a) <(cat b)").unsafeShellExpansion, true);
+  assert.equal(classify("TARGET=deploy-production; make $TARGET").unsafeShellExpansion, true);
+  assert.equal(classify("CMD='git push origin develop'; $CMD").unsafeShellExpansion, true);
+  assert.equal(classify("make ${TARGET}").unsafeShellExpansion, true);
+  assert.equal(classify('set -- git push origin main; "$@"').unsafeShellExpansion, true);
+  assert.equal(classify("set -- g it pu sh; $1$2 $3$4 origin main").unsafeShellExpansion, true);
+  assert.equal(classify('set -- rm -rf src; "$@"').unsafeShellExpansion, true);
+  assert.equal(classify("set -- r m -f r; $1$2 $3$4 src").unsafeShellExpansion, true);
+  assert.equal(classify("echo '$(cat .env.local)'").unsafeShellExpansion, false);
+  assert.equal(classify('node -e "process.stdout.write(\'stripe:inspect\')"').unsafeShellExpansion, false);
+});
+
+test("treats raw dotenv local env loading as sensitive and still classifies wrapped commands", () => {
+  const wrappedVercel = classify("dotenv -e .env.local -- vercel deploy --prod");
+  assert.equal(wrappedVercel.readsSensitivePath, true);
+  assert.equal(wrappedVercel.releaseProvider, true);
+  assert.equal(wrappedVercel.releaseMutating, true);
+
+  const wrappedPush = classify("npx dotenv -e .env.local -- git push origin develop");
+  assert.equal(wrappedPush.readsSensitivePath, true);
+  assert.equal(wrappedPush.gitPush, true);
+  assert.equal(wrappedPush.gitPushAllowedTarget, true);
+
+  const wrappedMigration = classify("dotenv -e .env.local -- node scripts/release/run-migrations.mjs --env production --json");
+  assert.equal(wrappedMigration.readsSensitivePath, true);
+  assert.equal(wrappedMigration.migrationApply, true);
+
+  assert.equal(classify("dotenv -p SENTRY_AUTH_TOKEN").readsSensitivePath, true);
+  assert.equal(classify("dotenv -e .env.local -- printenv").readsSensitivePath, true);
+  assert.equal(classify("npx --yes dotenv -e .env.local -- printenv").readsSensitivePath, true);
+  assert.equal(classify("dotenv -- printenv").readsSensitivePath, true);
+});
+
+test("classifies Stripe and Sentry external service commands", () => {
+  const stripeRead = classify("stripe events list --limit 3");
+  assert.equal(stripeRead.releaseProvider, true);
+  assert.equal(stripeRead.releaseReadOnly, true);
+  assert.equal(stripeRead.releaseMutating, false);
+
+  const stripeMutating = classify("stripe products create --name demo");
+  assert.equal(stripeMutating.releaseProvider, true);
+  assert.equal(stripeMutating.releaseMutating, true);
+
+  const npmStripeRead = classify("npm run stripe:inspect -- --env test");
+  assert.equal(npmStripeRead.releaseProvider, true);
+  assert.equal(npmStripeRead.releaseReadOnly, true);
+
+  const npmStripeLiveMutation = classify("npm run stripe:sync-products -- --env live");
+  assert.equal(npmStripeLiveMutation.releaseProvider, true);
+  assert.equal(npmStripeLiveMutation.releaseMutating, true);
+
+  const sentryRead = classify("sentry issues list");
+  assert.equal(sentryRead.releaseProvider, true);
+  assert.equal(sentryRead.releaseReadOnly, true);
+});
+
+test("detects GitHub CLI provider mutations", () => {
+  assert.equal(classify("gh pr merge 123 --squash").releaseProvider, true);
+  assert.equal(classify("gh pr merge 123 --squash").releaseMutating, true);
+  assert.deepEqual(classify("gh release create v1.0.0").releaseModes, ["github-release"]);
+  assert.equal(classify("gh secret set FOO --body bar").secretApplyProduction, true);
+  assert.deepEqual(classify("gh workflow run deploy.yml").releaseModes, ["github-workflow"]);
+  assert.equal(classify("gh api -X PATCH /repos/o/r/actions/secrets/FOO").releaseMutating, true);
+  assert.equal(classify("gh api -X PATCH /repos/o/r/actions/secrets/FOO").secretApplyProduction, true);
+  assert.equal(classify("gh api /repos/o/r/actions/workflows/deploy.yml/dispatches -f ref=main").releaseMutating, true);
+  assert.equal(classify("gh api /repos/o/r/actions/workflows/deploy.yml/dispatches --raw-field ref=main").releaseMutating, true);
+});
+
+test("keeps autonomy-relevant actions distinct from hard-deny actions", () => {
+  assert.equal(classify("git push origin develop").gitPush, true);
+  assert.equal(classify("git push --force origin develop").forcePush, true);
+  assert.equal(classify("make deploy-production").productionPromotion, true);
+  assert.deepEqual(classify("npx tsc --noEmit").testCategories, ["static"]);
+  assert.equal(classify("cat .env.local").readsSensitivePath, true);
+  assert.equal(classify("rm -rf src/components").unsafeDelete, true);
 });
 
 test("detects provider and release command modes", () => {
   assert.deepEqual(classify("npx vercel deploy --prod").releaseModes, ["provider"]);
+  assert.deepEqual(classify("npx -y vercel deploy --prod").releaseModes, ["provider"]);
   assert.deepEqual(classify("make ops-release-check").releaseModes, ["check"]);
   assert.deepEqual(classify("make deploy-stage-all").releaseModes, ["stage-all"]);
   assert.deepEqual(classify("make deploy-migrate").releaseModes, ["production"]);
@@ -46,6 +161,8 @@ test("detects provider and release command modes", () => {
   assert.equal(classify("make doctor").releaseProvider, false);
   assert.equal(classify("make ops-release-check").releaseReadOnly, true);
   assert.equal(classify("zsh scripts/release/release-career-compass.sh --check").releaseReadOnly, true);
+  assert.deepEqual(classify("zsh scripts/release/release-career-compass.sh --production").releaseModes, ["production"]);
+  assert.deepEqual(classify("zsh scripts/release/release-career-compass.sh --staging-only").releaseModes, ["staging"]);
   assert.equal(classify("zsh scripts/release/release-career-compass.sh --check --staging-only").releaseReadOnly, false);
   assert.equal(classify("zsh scripts/release/release-career-compass.sh --check --staging-only").releaseMutating, true);
   assert.equal(classify("zsh scripts/release/sync-career-compass-secrets.sh --check --target all").releaseReadOnly, true);
@@ -56,16 +173,43 @@ test("detects provider and release command modes", () => {
   assert.equal(classify("make ops-secrets-sync SYNC_MODE=--apply").secretApplyProduction, true);
   assert.equal(classify("node scripts/release/run-migrations.mjs --env production --dry-run").releaseReadOnly, true);
   assert.equal(classify("node scripts/release/run-migrations.mjs --env production --json").migrationApply, true);
+  assert.equal(classify("node scripts/release/run-migrations.mjs --env staging --json").migrationApply, true);
+  assert.equal(classify("node scripts/release/run-migrations.mjs --env staging --dry-run").migrationApply, false);
   assert.equal(classify("node scripts/release/run-migrations.mjs --env local --json").migrationApply, false);
   assert.equal(classify("node scripts/release/run-migrations.mjs --json").migrationApply, false);
   assert.equal(classify("scripts/release/run-migrations.mjs --env production --json").migrationApply, true);
   assert.equal(classify("make deploy-production").productionPromotion, true);
   assert.equal(classify("scripts/release/deploy-production.sh --confirm").productionPromotion, true);
+  assert.equal(classify("zsh scripts/release/release-career-compass.sh --production").productionPromotion, true);
   assert.equal(classify("make deploy-migrate").migrationApply, true);
+  assert.equal(classify("npm run db:push").migrationApply, true);
+  assert.equal(classify("npm run db:migrate").migrationApply, true);
+  assert.equal(classify("drizzle-kit push").migrationApply, true);
+  assert.equal(classify("supabase db push").migrationApply, true);
   assert.equal(classify("make ops-release-check deploy-production").releaseMutating, true);
   assert.equal(classify("make ops-release-check deploy-production").releaseReadOnly, false);
   assert.equal(classify("make ops-release-check deploy-migrate").migrationApply, true);
   assert.equal(classify("make ops-status deploy-production").productionPromotion, true);
+});
+
+test("detects secret path movement and protected checkpoint creation", () => {
+  assert.equal(classify("cp .env.local /tmp/env-copy").readsSensitivePath, true);
+  assert.equal(classify("tar czf /tmp/secrets.tgz .secrets").readsSensitivePath, true);
+  assert.equal(classify("python3 -c 'open(\".env.local\").read()'").readsSensitivePath, true);
+  assert.equal(
+    classify("node scripts/harness/diff-snapshot.mjs checkpoint --kind release --decision approved").protectedCheckpoint,
+    true,
+  );
+  assert.equal(
+    classify("scripts/harness/diff-snapshot.mjs checkpoint --kind release --decision approved").protectedCheckpoint,
+    true,
+  );
+  assert.equal(
+    classify("node scripts/harness/diff-snapshot.mjs checkpoint --kind prompt-quality-verification --decision verified").protectedCheckpoint,
+    false,
+  );
+  assert.equal(classify("vercel env add FOO production").secretApplyProduction, true);
+  assert.equal(classify("railway variables --set FOO=bar").secretApplyProduction, true);
 });
 
 test("detects unsafe recursive delete and allows safe cache targets", () => {
@@ -172,4 +316,37 @@ test("classifies ordinary code changes as standard path", () => {
   const result = classifyChangePath(["src/bff/billing/es-review-stream-policy.test.ts"], 60);
   assert.equal(result.changePath, "STANDARD_PATH");
   assert.equal(result.reason, "default");
+});
+
+test("taxonomy subcommand returns the frozen Codex autonomy-budget sets", () => {
+  const taxonomy = JSON.parse(
+    execFileSync("node", [scriptPath, "taxonomy"], { cwd: repoRoot, encoding: "utf8" }),
+  );
+  assert.equal(taxonomy.schemaVersion, 1);
+  assert.deepEqual(taxonomy.actions, [
+    "test",
+    "push",
+    "release",
+    "production-promotion",
+    "edit",
+    "commit",
+    "migration",
+  ]);
+  assert.deepEqual(taxonomy.releaseModes, [
+    "staging",
+    "production",
+    "stage-all",
+    "release",
+    "provider",
+  ]);
+  assert.ok(taxonomy.hardStop.includes("forcePush"));
+  assert.ok(taxonomy.hardStop.includes("secretApplyProduction"));
+  assert.ok(taxonomy.hardStop.includes("productionPromotion"));
+});
+
+test("taxonomy subcommand does not perturb the command-classify path", () => {
+  // The taxonomy branch must return before classifyCommand, so a real command
+  // named neither subcommand still classifies normally.
+  assert.equal(classify("git push origin develop").gitPush, true);
+  assert.equal(classify("taxonomy of birds").gitPush, false);
 });

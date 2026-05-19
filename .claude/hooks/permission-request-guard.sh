@@ -33,6 +33,9 @@ fi
 if [ "$TOOL" = "Bash" ]; then
   CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
+  # unsafe-shell-expansion pre-dialog deny removed (top false-positive
+  # noise source). force-push / secrets / destructive-rm / release arms
+  # below remain HARD deny on the literal command text.
   if [ -n "$CMD" ] && guard_command_is_force_push "$CMD"; then
     deny "git push --force 系は repo policy で禁止です。追加コミットか承認済みの限定操作へ切り替えてください。"
     exit 0

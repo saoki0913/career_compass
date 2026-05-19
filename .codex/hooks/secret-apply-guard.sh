@@ -30,7 +30,12 @@ if [ -f "$FLAG" ]; then
   APPROVED_HEAD=$(jq -r '.headSha // empty' "$FLAG" 2>/dev/null || echo "")
   DECISION=$(jq -r '.decision // empty' "$FLAG" 2>/dev/null || echo "")
   KIND=$(jq -r '.kind // empty' "$FLAG" 2>/dev/null || echo "")
-  if [ "$KIND" = "secret-apply" ] && [ "$DECISION" = "approved" ] && [ "$APPROVED_HEAD" = "$HEAD_SHA" ]; then
+  COMMAND_HASH=$(jq -r '.commandHash // empty' "$FLAG" 2>/dev/null || echo "")
+  if [ "$KIND" = "secret-apply" ] \
+    && [ "$DECISION" = "approved" ] \
+    && [ "$APPROVED_HEAD" = "$HEAD_SHA" ] \
+    && [ -n "$COMMAND_HASH" ] \
+    && node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$FLAG" --command "$CMD" >/dev/null; then
     exit 0
   fi
 fi

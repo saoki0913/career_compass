@@ -8,7 +8,7 @@
 	backend-test-es-char backend-test-live-search backend-test-live-search-hybrid backend-test-live-search-legacy \
 	backend-test-live-es-review backend-test-interview-calibration \
 	deploy deploy-stage-all deploy-staging deploy-production deploy-check deploy-migrate deploy-status release-pr rollback-prod ops-status ops-auth-check ops-release-check ops-secrets-sync stripe-preflight doctor doctor-check \
-	db-validate db-migrate-check db-drift-check db-generate-rollback \
+	db-validate db-migrate-check db-migrate-check-staging db-drift-check db-drift-check-staging db-generate-rollback \
 	db-up db-down db-restart db-down-clean db-local-status \
 	supabase-start supabase-stop supabase-stop-clean supabase-status
 
@@ -624,9 +624,17 @@ db-validate:
 db-migrate-check:
 	node scripts/release/run-migrations.mjs --env production --dry-run --json
 
+## staging DB migration dry-run / pending 確認
+db-migrate-check-staging:
+	node scripts/release/run-migrations.mjs --env staging --dry-run --json
+
 ## 本番DB drift 汎用チェック
 db-drift-check:
 	node scripts/ci/check-schema-drift.mjs --env production --json
+
+## staging DB drift 汎用チェック
+db-drift-check-staging:
+	node scripts/ci/check-schema-drift.mjs --env staging --json
 
 ## rollback SQL artifact を生成（実行はしない）
 db-generate-rollback:

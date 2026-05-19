@@ -14,6 +14,7 @@ const FORBIDDEN_PREFIXES = [
   "backend/.ai/",
   "product/.ai/",
   "public/dashboard/",
+  "public/screenshots/generated/",
   "public/marketing/LP/LP_sub/",
   "public/marketing/LP/assets/_archive/",
   "public/marketing/LP/section_image/asset/",

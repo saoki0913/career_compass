@@ -25,6 +25,7 @@ function parseArgs(argv) {
   let outputPath = getPlaywrightAuthStatePath(process.cwd(), process.env);
   let headed = process.env.PLAYWRIGHT_AUTH_CAPTURE_HEADED === "1";
   let forceRefresh = false;
+  let interactive = process.env.PLAYWRIGHT_AUTH_CAPTURE_INTERACTIVE === "1";
 
   for (const arg of argv) {
     if (arg.startsWith("--base-url=")) {
@@ -47,10 +48,16 @@ function parseArgs(argv) {
       forceRefresh = true;
       continue;
     }
+    if (arg === "--interactive") {
+      interactive = true;
+      headed = true;
+      forceRefresh = true;
+      continue;
+    }
     throw new Error(`Unknown option: ${arg}`);
   }
 
-  return { baseUrl, routePath, outputPath, headed, forceRefresh };
+  return { baseUrl, routePath, outputPath, headed, forceRefresh, interactive };
 }
 
 function createTimeoutError(step, timeoutMs) {
@@ -326,6 +333,66 @@ async function captureAuthState({ baseUrl, routePath, outputPath, headed, tempUs
   }
 }
 
+async function captureInteractiveAuthState({ baseUrl, routePath, outputPath }) {
+  const cookieCandidates = getCookieCandidates(baseUrl);
+  const context = await chromium.launchPersistentContext(
+    await fs.mkdtemp(path.join(os.tmpdir(), "career-compass-auth-interactive-")),
+    {
+      channel: "chrome",
+      headless: false,
+    },
+  );
+  try {
+    const page = context.pages()[0] ?? (await context.newPage());
+    const targetUrl = new URL(routePath, baseUrl).toString();
+    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+
+    process.stdout.write(
+      [
+        "[auth:save-playwright-state] Playwright のブラウザでログインしてください。",
+        `[auth:save-playwright-state] ログイン完了後、${routePath} のセッション確認が通るまで自動で待機します。`,
+      ].join("\n") + "\n",
+    );
+
+    const deadline = Date.now() + 10 * 60_000;
+    let lastStatus = 0;
+    let lastCookieNames = "";
+    while (Date.now() < deadline) {
+      const cookies = await context.cookies(baseUrl);
+      lastCookieNames = cookies.map((cookie) => cookie.name).join(", ") || "(none)";
+      const hasSessionCookie = cookies.some((cookie) => cookieCandidates.includes(cookie.name));
+      const sessionResponse = await context.request.get(`${baseUrl.replace(/\/$/, "")}/api/auth/get-session`);
+      lastStatus = sessionResponse.status();
+      const sessionBody = await sessionResponse.json().catch(() => null);
+      if (hasSessionCookie && sessionBody?.user?.id) {
+        break;
+      }
+      await page.waitForTimeout(1000);
+    }
+
+    const finalCookies = await context.cookies(baseUrl);
+    const hasFinalSessionCookie = finalCookies.some((cookie) => cookieCandidates.includes(cookie.name));
+    const finalSessionResponse = await context.request.get(`${baseUrl.replace(/\/$/, "")}/api/auth/get-session`);
+    const finalSessionBody = await finalSessionResponse.json().catch(() => null);
+    if (!hasFinalSessionCookie || !finalSessionBody?.user?.id) {
+      throw new Error(
+        [
+          "Interactive login did not produce a reusable Playwright auth state.",
+          `expectedCookies=${cookieCandidates.join(", ")}`,
+          `presentCookies=${lastCookieNames}`,
+          `sessionStatus=${lastStatus}`,
+        ].join(" | "),
+      );
+    }
+
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await context.storageState({ path: outputPath });
+    process.stdout.write(`${outputPath}\n`);
+  } finally {
+    await context.close().catch(() => {});
+  }
+}
+
 function formatDiagnostics({
   baseUrl,
   chromeUserDataDir,
@@ -368,14 +435,13 @@ function formatDiagnostics({
 }
 
 async function main() {
-  const { baseUrl, routePath, outputPath, headed, forceRefresh } = parseArgs(process.argv.slice(2));
+  const { baseUrl, routePath, outputPath, headed, forceRefresh, interactive } = parseArgs(process.argv.slice(2));
 
   if (!forceRefresh && (await isUsableStorageState(outputPath))) {
     process.stdout.write(`${outputPath}\n`);
     return;
   }
 
-  const chromeUserDataDir = getChromeUserDataDir();
   const baseUrlReachable = await probeBaseUrl(baseUrl);
   if (!baseUrlReachable) {
     throw new Error(
@@ -385,6 +451,13 @@ async function main() {
       ].join(" "),
     );
   }
+
+  if (interactive) {
+    await captureInteractiveAuthState({ baseUrl, routePath, outputPath });
+    return;
+  }
+
+  const chromeUserDataDir = getChromeUserDataDir();
 
   const localState = await parseLocalState(chromeUserDataDir);
   const profileCandidates = getProfileCandidates(localState);

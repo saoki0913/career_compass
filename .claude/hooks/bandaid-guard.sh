@@ -94,27 +94,19 @@ if [ ${#FOUND[@]} -eq 0 ]; then
   exit 0
 fi
 
-# --- ブロック ---
 PATTERN_LIST=""
 for p in "${FOUND[@]}"; do
   PATTERN_LIST="$PATTERN_LIST  - $p
 "
 done
 
-cat >&2 <<EOF
-⛔ Band-aid パターンを検出しました。
-
+# shellcheck source=../../scripts/harness/guard-runtime.sh
+. "$PROJECT_DIR/scripts/harness/guard-runtime.sh"
+GR_HOOK=bandaid-guard
+gr_init "$INPUT"
+gr_enforce high "Band-aid パターンを検出しました。
 ファイル: ${FILE_PATH}
 検出パターン:
-${PATTERN_LIST}
-その場しのぎの修正は、根本原因の解決を妨げる可能性があります。
-
-手順:
-  1. AskUserQuestion でユーザーに確認:
-     - 検出パターンと、そのパターンを使う理由を提示
-     - 「許可する」「根本的に修正する」の選択肢を出す
-  2. 許可 → echo "${FILE_PATH}" >> $APPROVED_FILE
-  3. 修正 → パターンを除去して再度 Edit/Write
-  4. 再度 Edit/Write を実行
-EOF
-exit 2
+${PATTERN_LIST}その場しのぎの修正は根本原因の解決を妨げる可能性があります。許可を継続する場合は次を記録してください:
+  echo \"${FILE_PATH}\" >> ${APPROVED_FILE}
+（後段の /codex:review と pre-commit セキュリティスキャンが最終ゲートです）"

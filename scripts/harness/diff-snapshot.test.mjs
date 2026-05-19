@@ -168,6 +168,146 @@ test("checkpoint category parser preserves comma-separated feature lists", () =>
   }
 });
 
+test("codex autonomy checkpoint records allowed actions without claude paths", () => {
+  const dir = createRepo();
+  try {
+    const output = run("node", [
+      scriptPath,
+      "checkpoint",
+      "--project",
+      dir,
+      "--kind",
+      "codex-autonomy",
+      "--decision",
+      "approved",
+      "--issuer",
+      "codex-autonomy",
+      "--release-mode",
+      "production",
+      "--categories",
+      "e2e-functional=run:gakuchika,quality=skip,static=run,security=run",
+      "--actions",
+      "push,release,test,production-promotion",
+      "--command",
+      "make deploy-production",
+      "--ttl-seconds",
+      "86400",
+    ], repoRoot);
+    const checkpoint = JSON.parse(output);
+    const text = JSON.stringify(checkpoint);
+
+    assert.equal(checkpoint.kind, "codex-autonomy");
+    assert.equal(checkpoint.decision, "approved");
+    assert.equal(checkpoint.issuer, "codex-autonomy");
+    assert.deepEqual(checkpoint.actions, ["push", "release", "test", "production-promotion"]);
+    assert.equal(checkpoint.releaseMode, "production");
+    assert.equal(checkpoint.categories.static, "run");
+    assert.match(checkpoint.commandHash, /^[a-f0-9]{64}$/);
+    assert.match(checkpoint.expiresAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.doesNotMatch(text, /\.claude/);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("verify rejects codex autonomy checkpoint when command changes", () => {
+  const dir = createRepo();
+  try {
+    const checkpointPath = path.join(dir, "autonomy.json");
+    const output = run("node", [
+      scriptPath,
+      "checkpoint",
+      "--project",
+      dir,
+      "--kind",
+      "codex-autonomy",
+      "--decision",
+      "approved",
+      "--issuer",
+      "codex-autonomy",
+      "--actions",
+      "push",
+      "--command",
+      "git push origin develop",
+    ], repoRoot);
+    fs.writeFileSync(checkpointPath, output, "utf8");
+
+    const result = spawnSync("node", [
+      scriptPath,
+      "verify",
+      "--project",
+      dir,
+      "--file",
+      checkpointPath,
+      "--command",
+      "git push upstream main",
+    ], { cwd: repoRoot, encoding: "utf8" });
+
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /command changed/);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("verify rejects push checkpoint when remote or refspec changes", () => {
+  const dir = createRepo();
+  try {
+    const checkpointPath = path.join(dir, "push.json");
+    const output = run("node", [
+      scriptPath,
+      "checkpoint",
+      "--project",
+      dir,
+      "--kind",
+      "push",
+      "--decision",
+      "approved",
+      "--command",
+      "git push origin develop",
+      "--remote",
+      "origin",
+      "--refspec",
+      "develop",
+    ], repoRoot);
+    fs.writeFileSync(checkpointPath, output, "utf8");
+
+    const changedRemote = spawnSync("node", [
+      scriptPath,
+      "verify",
+      "--project",
+      dir,
+      "--file",
+      checkpointPath,
+      "--command",
+      "git push upstream develop",
+      "--remote",
+      "upstream",
+      "--refspec",
+      "develop",
+    ], { cwd: repoRoot, encoding: "utf8" });
+    assert.equal(changedRemote.status, 2);
+
+    const changedRefspec = spawnSync("node", [
+      scriptPath,
+      "verify",
+      "--project",
+      dir,
+      "--file",
+      checkpointPath,
+      "--command",
+      "git push origin main",
+      "--remote",
+      "origin",
+      "--refspec",
+      "main",
+    ], { cwd: repoRoot, encoding: "utf8" });
+    assert.equal(changedRefspec.status, 2);
+  } finally {
+    cleanup(dir);
+  }
+});
+
 test("batch-verify reports valid and invalid checkpoints together", () => {
   const dir = createRepo();
   try {

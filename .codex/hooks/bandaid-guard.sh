@@ -80,13 +80,14 @@ for pattern in "${FOUND[@]}"; do
 "
 done
 
-cat >&2 <<EOF
-Band-aid pattern detected by Codex hook.
-
+# shellcheck source=../../scripts/harness/guard-runtime.sh
+. "$PROJECT_DIR/scripts/harness/guard-runtime.sh"
+GR_HOOK=bandaid-guard
+gr_init "$INPUT"
+gr_enforce high "Band-aid pattern detected by Codex hook.
 File: $REL_PATH
 Patterns:
 $PATTERN_LIST
 Use a root-cause fix, or explicitly approve this file by recording:
-  echo "$REL_PATH" >> $APPROVED_FILE
-EOF
-exit 2
+  echo \"$REL_PATH\" >> $APPROVED_FILE
+(/codex:review and the pre-commit scan remain the final gate.)"
