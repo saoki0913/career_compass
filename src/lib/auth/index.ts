@@ -25,6 +25,10 @@ function createAuth() {
       provider: "pg",
       schema,
     }),
+    session: {
+      expiresIn: 60 * 60 * 24 * 7,
+      updateAge: 60 * 60 * 24,
+    },
     trustedOrigins,
     socialProviders: {
       google: {

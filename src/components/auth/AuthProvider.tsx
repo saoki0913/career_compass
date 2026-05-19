@@ -1,23 +1,16 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from "react";
 import { useSession } from "@/lib/auth/client";
 import { clearDeviceToken, hasDeviceToken } from "@/lib/auth/device-token";
 import { shouldDeferOnboardingForPricingIntent } from "@/lib/billing/pricing-flow";
 import { SnackbarHost } from "@/components/ui/snackbar-host";
+import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from "@/lib/csrf";
+import type { UserPlanResponse } from "@/lib/auth/plan-types";
 
 interface GuestSession {
   id: string;
   expiresAt: string;
-}
-
-interface UserPlan {
-  plan: "free" | "standard" | "pro" | null;
-  planSelectedAt: string | null;
-  needsPlanSelection: boolean;
-  onboardingCompleted: boolean;
-  needsOnboarding: boolean;
-  hasActiveSubscription: boolean;
 }
 
 interface AuthContextType {
@@ -37,67 +30,129 @@ interface AuthContextType {
   isGuest: boolean;
 
   // Plan info
-  userPlan: UserPlan | null;
+  userPlan: UserPlanResponse | null;
 
   // Actions
-  initGuest: () => Promise<void>;
-  migrateGuestData: () => Promise<void>;
-  refreshPlan: () => Promise<UserPlan | null>;
+  refreshPlan: () => Promise<UserPlanResponse | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const prefix = `${name}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) {
+      return decodeURIComponent(trimmed.slice(prefix.length));
+    }
+  }
+  return null;
+}
+
+async function ensureCsrfToken(): Promise<string | null> {
+  const existing = readCookie(CSRF_COOKIE_NAME);
+  if (existing) return existing;
+
+  await fetch("/api/csrf", {
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+    },
+  }).catch(() => null);
+
+  return readCookie(CSRF_COOKIE_NAME);
+}
+
+async function postJsonWithCsrf(url: string): Promise<Response> {
+  const token = await ensureCsrfToken();
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (token) {
+    headers.set(CSRF_HEADER_NAME, token);
+  }
+
+  return fetch(url, {
+    method: "POST",
+    headers,
+    credentials: "include",
+  });
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { data: session, isPending } = useSession();
   const [guest, setGuest] = useState<GuestSession | null>(null);
-  const [userPlan, setUserPlan] = useState<UserPlan | null>(null);
+  const [userPlan, setUserPlan] = useState<UserPlanResponse | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [rejectedUserId, setRejectedUserId] = useState<string | null>(null);
+  const lastVisibilityRefreshRef = useRef(0);
+  const migrationPendingRef = useRef(false);
+  const userId = session?.user?.id ?? null;
+  const isCurrentSessionRejected = Boolean(userId && rejectedUserId === userId);
 
-  const initGuest = useCallback(async () => {
+  const initGuest = useCallback(async (options: { force?: boolean } = {}): Promise<GuestSession | null> => {
+    if (userId && !options.force) return null;
     try {
-      const response = await fetch("/api/auth/guest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const response = await postJsonWithCsrf("/api/auth/guest");
 
       if (response.ok) {
         const data = await response.json();
         setGuest(data);
+        return data;
       }
     } catch (error) {
       console.error("Error initializing guest:", error);
     }
-  }, []);
+    return null;
+  }, [userId]);
 
-  const migrateGuestData = useCallback(async () => {
+  const migrateGuestData = useCallback(async (): Promise<boolean> => {
+    if (!userId) return false;
     try {
-      const response = await fetch("/api/guest/migrate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const response = await postJsonWithCsrf("/api/guest/migrate");
 
       if (response.ok) {
+        migrationPendingRef.current = false;
         clearDeviceToken();
         setGuest(null);
+        return true;
       }
     } catch (error) {
       console.error("Error migrating guest data:", error);
     }
-  }, []);
+    return false;
+  }, [userId]);
 
-  const fetchUserPlan = useCallback(async (): Promise<UserPlan | null> => {
+  const fetchUserPlan = useCallback(async (): Promise<UserPlanResponse | null> => {
+    if (!userId || isCurrentSessionRejected) {
+      setUserPlan(null);
+      return null;
+    }
+
     try {
       const response = await fetch("/api/auth/plan");
       if (response.ok) {
         const data = await response.json();
         setUserPlan(data);
+        if (migrationPendingRef.current) {
+          await migrateGuestData();
+        }
         return data;
+      }
+      if (response.status === 401) {
+        setRejectedUserId(userId);
+        setUserPlan(null);
+        await initGuest({ force: true });
       }
     } catch (error) {
       console.error("Error fetching user plan:", error);
     }
     return null;
-  }, []);
+  }, [initGuest, isCurrentSessionRejected, migrateGuestData, userId]);
 
   const refreshPlan = useCallback(async () => {
     return fetchUserPlan();
@@ -105,24 +160,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Re-fetch plan when tab regains visibility (e.g. returning from Stripe Checkout)
   useEffect(() => {
-    if (!session?.user) return;
-    const lastRefreshRef = { current: 0 };
+    if (!userId || isCurrentSessionRejected) return;
     const handleVisibility = () => {
       if (
         document.visibilityState === "visible" &&
-        Date.now() - lastRefreshRef.current > 5000
+        Date.now() - lastVisibilityRefreshRef.current > 5000
       ) {
-        lastRefreshRef.current = Date.now();
+        lastVisibilityRefreshRef.current = Date.now();
         fetchUserPlan();
       }
     };
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [session?.user, fetchUserPlan]);
+  }, [fetchUserPlan, isCurrentSessionRejected, userId]);
 
   // Initialize guest session on mount (client-side only)
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (isPending) return;
+
+    let cancelled = false;
 
     const init = async () => {
       if (hasDeviceToken()) {
@@ -130,9 +187,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // If user is authenticated, fetch plan and migrate guest if needed
-      if (session?.user) {
+      if (userId) {
         const plan = await fetchUserPlan();
-        await migrateGuestData();
+        if (cancelled) return;
+
+        if (plan) {
+          await migrateGuestData();
+        } else if (!isCurrentSessionRejected) {
+          migrationPendingRef.current = true;
+        }
         if (plan?.needsOnboarding && !plan?.onboardingCompleted) {
           const currentPath = window.location.pathname;
           const deferForPricingIntent = shouldDeferOnboardingForPricingIntent({
@@ -143,18 +206,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             window.location.href = "/onboarding";
           }
         }
-      } else if (!isPending) {
+      } else {
         // No user session, initialize guest
+        setUserPlan(null);
         await initGuest();
       }
-      setIsInitialized(true);
+      if (!cancelled) {
+        setIsInitialized(true);
+      }
     };
 
     init();
-  }, [session, isPending, fetchUserPlan, migrateGuestData, initGuest]);
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchUserPlan, initGuest, isCurrentSessionRejected, isPending, migrateGuestData, userId]);
+
+  const isConfirmedAuthenticated = Boolean(session?.user && !isCurrentSessionRejected);
 
   const value: AuthContextType = {
-    user: session?.user
+    user: isConfirmedAuthenticated && session?.user
       ? {
           id: session.user.id,
           name: session.user.name ?? null,
@@ -164,12 +235,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       : null,
     isLoading: isPending || !isInitialized,
     isReady: !isPending && isInitialized,
-    isAuthenticated: !!session?.user,
+    isAuthenticated: isConfirmedAuthenticated,
     guest,
-    isGuest: !session?.user && !!guest,
+    isGuest: (!session?.user || isCurrentSessionRejected) && !!guest,
     userPlan,
-    initGuest,
-    migrateGuestData,
     refreshPlan,
   };
 
