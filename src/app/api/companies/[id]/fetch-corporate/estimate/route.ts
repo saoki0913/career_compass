@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { requireUserMutationRequest } from "@/bff/api/mutation-guard";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
-import { headers } from "next/headers";
-import { detectContentTypeFromUrl } from "@/lib/company-info/sources";
+import { detectContentTypeFromUrl, parseCorporateInfoSources } from "@/lib/company-info/sources";
 import {
   getRemainingCompanyRagHtmlFreeUnits,
   getRemainingCompanyRagPdfFreeUnits,
@@ -20,6 +19,11 @@ import {
   summarizeUpstreamError,
 } from "@/bff/api/upstream-error-sanitizer";
 import { logError } from "@/lib/logger";
+import {
+  createCompanyRagIngestQuote,
+  hashCompanyRagQuoteInput,
+  type CompanyRagQuoteSourceResult,
+} from "@/lib/company-info/rag-quotes";
 
 export const runtime = "nodejs";
 
@@ -35,22 +39,18 @@ interface CrawlEstimateResult {
   requires_confirmation: boolean;
   errors: string[];
   page_routing_summaries?: Record<string, Record<string, unknown>>;
+  source_results?: CompanyRagQuoteSourceResult[];
 }
 
-async function getAuthenticatedUser(): Promise<{ userId: string; plan: "free" | "standard" | "pro" } | null> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user?.id) {
-    return null;
-  }
-
+async function getAuthenticatedUser(userId: string): Promise<{ userId: string; plan: "free" | "standard" | "pro" }> {
   const [profile] = await db
     .select()
     .from(userProfiles)
-    .where(eq(userProfiles.userId, session.user.id))
+    .where(eq(userProfiles.userId, userId))
     .limit(1);
 
   return {
-    userId: session.user.id,
+    userId,
     plan: (profile?.plan || "free") as "free" | "standard" | "pro",
   };
 }
@@ -74,6 +74,23 @@ export async function POST(
 ) {
   try {
     const { id: companyId } = await params;
+    const mutationGuard = await requireUserMutationRequest(request);
+    if (!mutationGuard.ok) {
+      return mutationGuard.response;
+    }
+    const authUser = await getAuthenticatedUser(mutationGuard.session.user.id);
+
+    const rateLimited = await enforceRateLimitLayers(
+      request,
+      [...CORPORATE_MUTATE_RATE_LAYERS],
+      authUser.userId,
+      null,
+      "companies_fetch_corporate_estimate"
+    );
+    if (rateLimited) {
+      return rateLimited;
+    }
+
     const body = await request.json();
     const { urls, contentType, contentChannel, confirmedWarningUrls } = body as {
       urls: string[];
@@ -87,30 +104,19 @@ export async function POST(
       return NextResponse.json({ error: msg, errors: [msg] }, { status: 400 });
     }
 
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) {
-      const msg = "この機能を利用するにはログインが必要です";
-      return NextResponse.json({ error: msg, errors: [msg] }, { status: 401 });
-    }
-
-    const rateLimited = await enforceRateLimitLayers(
-      request,
-      [...CORPORATE_MUTATE_RATE_LAYERS],
-      authUser.userId,
-      null,
-      "companies_fetch_corporate_estimate"
-    );
-    if (rateLimited) {
-      return rateLimited;
-    }
-
     const access = await verifyCompanyAccess(companyId, authUser.userId);
     if (!access.valid || !access.company) {
       const msg = "Company not found";
       return NextResponse.json({ error: msg, errors: [msg] }, { status: 404 });
     }
 
-    const compliance = await filterAllowedPublicSourceUrls(urls);
+    const existingUrls = parseCorporateInfoSources(access.company.corporateInfoUrls);
+    const existingUrlSet = new Set(existingUrls.map((source) => source.url));
+    const newRequestedUrls = urls
+      .map((url) => String(url).trim())
+      .filter((url) => url.length > 0 && !existingUrlSet.has(url));
+
+    const compliance = await filterAllowedPublicSourceUrls(newRequestedUrls);
     if (compliance.allowedUrls.length === 0) {
       const blockedReason =
         compliance.blockedResults[0]?.reasons[0] || "公開ページURLのみ取得できます";
@@ -181,11 +187,25 @@ export async function POST(
     let estimatedFreePdfPages = 0;
     let estimatedCredits = 0;
     const pageRoutingSummaries = result.page_routing_summaries || {};
+    if (!Array.isArray(result.source_results)) {
+      return NextResponse.json({
+        error: "企業情報の見積結果を確認できませんでした。",
+        errors: ["企業情報の見積結果を確認できませんでした。"],
+      }, { status: 502 });
+    }
+    const estimationTargets = result.source_results
+      .filter((source) => source && source.success === true && typeof source.url === "string");
+    if (estimationTargets.length === 0) {
+      return NextResponse.json({
+        error: "取り込み可能な企業情報ソースが見つかりませんでした。",
+        errors: ["取り込み可能な企業情報ソースが見つかりませんでした。"],
+      }, { status: 503 });
+    }
 
-    for (const url of compliance.allowedUrls) {
-      const pdfSummary = pageRoutingSummaries[url];
-      if (pdfSummary) {
-        const ingestPages = Math.max(1, Number(pdfSummary.ingest_pages ?? 1));
+    for (const source of estimationTargets) {
+      const pdfSummary = source.page_routing_summary || pageRoutingSummaries[source.url];
+      if (source.kind === "pdf" || pdfSummary) {
+        const ingestPages = Math.max(1, Number(pdfSummary?.ingest_pages ?? source.billable_units ?? 1));
         const freeApplied = Math.min(ingestPages, remainingPdfFreeUnits);
         const overflowPages = ingestPages - freeApplied;
         estimatedFreePdfPages += freeApplied;
@@ -205,8 +225,31 @@ export async function POST(
       result.estimated_mistral_ocr_pages > 0 ||
       result.will_truncate;
 
+    const inputHash = hashCompanyRagQuoteInput({
+      urls: compliance.allowedUrls,
+      contentType: contentTypeResolved,
+      contentChannel: contentChannelResolved,
+    });
+    const quote = await createCompanyRagIngestQuote({
+      userId: authUser.userId,
+      companyId,
+      kind: "url",
+      inputHash,
+      plan: authUser.plan,
+      estimatedHtmlUnits: estimationTargets
+        .filter((source) => source.kind !== "pdf" && !source.page_routing_summary)
+        .reduce((sum, source) => sum + Math.max(1, Number(source.billable_units ?? 1)), 0),
+      estimatedPdfUnits: estimationTargets
+        .filter((source) => source.kind === "pdf" || source.page_routing_summary)
+        .reduce((sum, source) => sum + Math.max(1, Number(source.billable_units ?? source.page_routing_summary?.ingest_pages ?? 1)), 0),
+      estimatedCredits,
+      sourceResults: estimationTargets,
+    });
+
     return NextResponse.json({
       ...result,
+      quoteId: quote.quoteId,
+      quoteExpiresAt: quote.expiresAt.toISOString(),
       estimatedFreeHtmlPages,
       estimatedFreePdfPages,
       estimatedCredits,

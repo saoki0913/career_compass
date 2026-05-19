@@ -10,12 +10,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createApiErrorResponse } from "@/bff/api/error-response";
+import { requireUserMutationRequest } from "@/bff/api/mutation-guard";
 import { persistCompanyRagSourcesAfterUsageReservation } from "@/bff/company-rag/persist-sources";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { headers } from "next/headers";
 import {
   detectContentTypeFromUrl,
   inferTrustedForEsReview,
@@ -28,6 +28,7 @@ import {
 import {
   getRemainingCompanyRagHtmlFreeUnits,
   getRemainingCompanyRagPdfFreeUnits,
+  cancelCompanyRagUsage,
   reserveCompanyRagUsage,
   type CompanyRagUsageReservation,
 } from "@/lib/company-info/usage";
@@ -45,6 +46,12 @@ import { fetchFastApiWithPrincipal } from "@/lib/fastapi/client";
 import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import { logError } from "@/lib/logger";
 import { summarizeUpstreamError } from "@/bff/api/upstream-error-sanitizer";
+import {
+  claimCompanyRagIngestQuote,
+  completeCompanyRagIngestQuote,
+  hashCompanyRagQuoteInput,
+  type CompanyRagQuoteSourceResult,
+} from "@/lib/company-info/rag-quotes";
 
 // FastAPI backend URL
 interface CrawlResult {
@@ -55,6 +62,7 @@ interface CrawlResult {
   errors: string[];
   url_content_types?: Record<string, string>;
   page_routing_summaries?: Record<string, Record<string, unknown>>;
+  source_results?: CompanyRagQuoteSourceResult[];
 }
 
 interface SourceMetadataInput {
@@ -64,25 +72,25 @@ interface SourceMetadataInput {
   trustedForEsReview?: boolean;
 }
 
-async function getAuthenticatedUser(): Promise<{ userId: string; plan: "free" | "standard" | "pro" } | null> {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
-
-  if (!session?.user?.id) {
-    return null;
-  }
-
+async function getAuthenticatedUser(userId: string): Promise<{ userId: string; plan: "free" | "standard" | "pro" }> {
   const [profile] = await db
     .select()
     .from(userProfiles)
-    .where(eq(userProfiles.userId, session.user.id))
+    .where(eq(userProfiles.userId, userId))
     .limit(1);
 
   return {
-    userId: session.user.id,
+    userId,
     plan: (profile?.plan || "free") as "free" | "standard" | "pro",
   };
+}
+
+async function getAuthenticatedUserFromRequest(request: NextRequest): Promise<{ userId: string; plan: "free" | "standard" | "pro" } | null> {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session?.user?.id) {
+    return null;
+  }
+  return getAuthenticatedUser(session.user.id);
 }
 
 async function verifyCompanyAccess(
@@ -104,15 +112,20 @@ export async function POST(
 ) {
   try {
     const { id: companyId } = await params;
+    const mutationGuard = await requireUserMutationRequest(request);
+    if (!mutationGuard.ok) {
+      return mutationGuard.response;
+    }
 
     // Get request body
     const body = await request.json();
-    const { urls, contentType, contentChannel, sourceMetadata, confirmedWarningUrls } = body as {
+    const { urls, contentType, contentChannel, sourceMetadata, confirmedWarningUrls, quoteId } = body as {
       urls: string[];
       contentType?: string; // 9-category content type (e.g., new_grad_recruitment, ir_materials)
       contentChannel?: "corporate_ir" | "corporate_business" | "corporate_general";
       sourceMetadata?: Record<string, SourceMetadataInput>;
       confirmedWarningUrls?: string[];
+      quoteId?: string;
     };
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
       return createApiErrorResponse(request, {
@@ -131,17 +144,7 @@ export async function POST(
         : "corporate_general");
 
     // Authenticate user (guests not allowed)
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) {
-      return createApiErrorResponse(request, {
-        status: 401,
-        code: "CORPORATE_FETCH_AUTH_REQUIRED",
-        userMessage: "この機能を利用するにはログインが必要です。",
-        action: "ログインしてから、もう一度お試しください。",
-        developerMessage: "Authentication required",
-        logContext: "corporate-fetch-auth",
-      });
-    }
+    const authUser = await getAuthenticatedUser(mutationGuard.session.user.id);
 
     const { userId, plan } = authUser;
 
@@ -242,6 +245,85 @@ export async function POST(
       });
     }
 
+    if (!quoteId || typeof quoteId !== "string") {
+      return createApiErrorResponse(request, {
+        status: 409,
+        code: "CORPORATE_RAG_QUOTE_REQUIRED",
+        userMessage: "取得前に見積の確認が必要です。",
+        action: "もう一度見積を取得してから、取り込みを実行してください。",
+      });
+    }
+    const inputHash = hashCompanyRagQuoteInput({
+      urls: compliance.allowedUrls,
+      contentType: contentTypeResolved,
+      contentChannel: contentChannelResolved,
+    });
+    const quote = await claimCompanyRagIngestQuote({
+      quoteId,
+      userId,
+      companyId,
+      kind: "url",
+      inputHash,
+    });
+    if (!quote) {
+      return createApiErrorResponse(request, {
+        status: 409,
+        code: "CORPORATE_RAG_QUOTE_INVALID",
+        userMessage: "見積の有効期限が切れたか、取得内容が変更されました。",
+        action: "もう一度見積を取得してから、取り込みを実行してください。",
+      });
+    }
+
+    const quotedSources = Array.isArray(quote.sourceResults)
+      ? quote.sourceResults as CompanyRagQuoteSourceResult[]
+      : [];
+    const quotedSuccessfulSources = quotedSources.filter((source) => source.success === true);
+    const quotedSuccessfulUrls = quotedSuccessfulSources
+      .map((source) => source.url)
+      .filter((url): url is string => typeof url === "string" && url.length > 0);
+    if (quotedSuccessfulUrls.length === 0) {
+      return createApiErrorResponse(request, {
+        status: 409,
+        code: "CORPORATE_RAG_QUOTE_INVALID",
+        userMessage: "見積結果に取り込み可能なURLがありません。",
+        action: "もう一度見積を取得してから、取り込みを実行してください。",
+      });
+    }
+    const quoteCompletion = {
+      quoteId,
+      userId,
+      companyId,
+      kind: "url" as const,
+    };
+    const preReservations: Array<{ url: string; usage: CompanyRagUsageReservation }> = [];
+    try {
+      for (const source of quotedSuccessfulSources) {
+        const isPdfSource = source.kind === "pdf" || Boolean(source.page_routing_summary);
+        const ingestUnits = Math.max(1, Math.floor(Number(
+          source.billable_units ?? source.page_routing_summary?.ingest_pages ?? 1,
+        )));
+        const usage = await reserveCompanyRagUsage({
+          userId,
+          plan,
+          pages: ingestUnits,
+          kind: isPdfSource ? "pdf" : "url",
+          referenceId: companyId,
+          description: `企業RAG取込(${isPdfSource ? "PDF" : "URL"}): ${company.name}`,
+        });
+        preReservations.push({ url: source.url, usage });
+      }
+    } catch (error) {
+      await Promise.allSettled(preReservations.map((entry) => cancelCompanyRagUsage(entry.usage)));
+      await completeCompanyRagIngestQuote(quoteCompletion, "canceled", preReservations.map((entry) => entry.usage.reservationId).filter((id): id is string => Boolean(id)));
+      return createApiErrorResponse(request, {
+        status: 402,
+        code: "CORPORATE_RAG_CREDITS_INSUFFICIENT",
+        userMessage: "企業情報の取り込みに必要なクレジットが不足しています。",
+        action: "取得するURL数を減らすか、クレジット残高を確認してください。",
+        error,
+      });
+    }
+
     // Call FastAPI backend to crawl pages
     let crawlResult: CrawlResult;
     try {
@@ -251,7 +333,7 @@ export async function POST(
         body: JSON.stringify({
           company_id: companyId,
           company_name: company.name,
-          urls: compliance.allowedUrls,
+          urls: quotedSuccessfulUrls,
           content_channel: contentChannelResolved,
           content_type: contentTypeResolved, // 9-category content type for proper counting
           billing_plan: plan,
@@ -280,6 +362,8 @@ export async function POST(
       crawlResult = await response.json();
     } catch (error) {
       if (isSecretMissingError(error)) {
+        await Promise.allSettled(preReservations.map((entry) => cancelCompanyRagUsage(entry.usage)));
+        await completeCompanyRagIngestQuote(quoteCompletion, "canceled", preReservations.map((entry) => entry.usage.reservationId).filter((id): id is string => Boolean(id)));
         return createApiErrorResponse(request, {
           status: 503,
           code: "AI_AUTH_CONFIG_MISSING",
@@ -289,6 +373,8 @@ export async function POST(
           developerMessage: "AI provider credentials are missing or unavailable",
         });
       }
+      await Promise.allSettled(preReservations.map((entry) => cancelCompanyRagUsage(entry.usage)));
+      await completeCompanyRagIngestQuote(quoteCompletion, "canceled", preReservations.map((entry) => entry.usage.reservationId).filter((id): id is string => Boolean(id)));
       return createApiErrorResponse(request, {
         status: 503,
         code: "CORPORATE_FETCH_FAILED",
@@ -300,6 +386,8 @@ export async function POST(
     }
 
     if (!crawlResult.success || crawlResult.pages_crawled <= 0) {
+      await Promise.allSettled(preReservations.map((entry) => cancelCompanyRagUsage(entry.usage)));
+      await completeCompanyRagIngestQuote(quoteCompletion, "canceled", preReservations.map((entry) => entry.usage.reservationId).filter((id): id is string => Boolean(id)));
       const backendError =
         crawlResult.errors.find((message) => typeof message === "string" && message.trim().length > 0) ||
         "企業情報の取得に失敗しました。";
@@ -323,7 +411,41 @@ export async function POST(
     // Update company record with URLs
     const urlContentTypes = crawlResult.url_content_types || {};
     const pageRoutingSummaries = crawlResult.page_routing_summaries || {};
-    const newUrls: CorporateInfoSource[] = uniqueRequestedUrls
+    if (!Array.isArray(crawlResult.source_results)) {
+      await Promise.allSettled(preReservations.map((entry) => cancelCompanyRagUsage(entry.usage)));
+      await completeCompanyRagIngestQuote(quoteCompletion, "canceled", preReservations.map((entry) => entry.usage.reservationId).filter((id): id is string => Boolean(id)));
+      return createApiErrorResponse(request, {
+        status: 502,
+        code: "CORPORATE_FETCH_SOURCE_RESULTS_REQUIRED",
+        userMessage: "企業情報の取得結果を確認できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        developerMessage: "FastAPI crawl response is missing source_results",
+      });
+    }
+    const quotedUrlSet = new Set(quotedSuccessfulUrls);
+    const successfulSourceResults = crawlResult.source_results
+      .filter((source) => source.success === true && typeof source.url === "string" && quotedUrlSet.has(source.url));
+    if (successfulSourceResults.length === 0) {
+      await Promise.allSettled(preReservations.map((entry) => cancelCompanyRagUsage(entry.usage)));
+      await completeCompanyRagIngestQuote(quoteCompletion, "canceled", preReservations.map((entry) => entry.usage.reservationId).filter((id): id is string => Boolean(id)));
+      return createApiErrorResponse(request, {
+        status: 503,
+        code: "CORPORATE_FETCH_FAILED",
+        userMessage: "企業情報の取得に失敗しました。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+      });
+    }
+    const successfulUrls = successfulSourceResults.map((source) => source.url);
+    const successfulUrlSet = new Set(successfulUrls);
+    const usageReservations = preReservations
+      .filter((entry) => successfulUrlSet.has(entry.url))
+      .map((entry) => entry.usage);
+    const unusedReservations = preReservations.filter((entry) => !successfulUrlSet.has(entry.url));
+    await Promise.allSettled(unusedReservations.map((entry) => cancelCompanyRagUsage(entry.usage)));
+
+    const newUrls: CorporateInfoSource[] = successfulUrls
       .map((url) => {
         const metadata = sourceMetadata?.[url];
         const resolvedContentType =
@@ -396,7 +518,7 @@ export async function POST(
     let remainingPdfFreeUnits = await getRemainingCompanyRagPdfFreeUnits(userId, plan);
     let actualUnits = 0;
 
-    for (const url of uniqueRequestedUrls) {
+    for (const url of successfulUrls) {
       const pdfSummary = pageRoutingSummaries[url];
       const isPdfSource = Boolean(pdfSummary);
       const ingestUnits = isPdfSource && typeof pdfSummary?.ingest_pages === "number"
@@ -405,38 +527,29 @@ export async function POST(
       actualUnits += isPdfSource ? ingestUnits : calculateCorporateCrawlUnits(1);
     }
 
-    const usageReservations: CompanyRagUsageReservation[] = [];
-    for (const url of uniqueRequestedUrls) {
-      const pdfSummary = pageRoutingSummaries[url];
-      const isPdfSource = Boolean(pdfSummary);
-      const ingestUnits = isPdfSource && typeof pdfSummary?.ingest_pages === "number"
-        ? Math.max(1, Math.floor(Number(pdfSummary.ingest_pages)))
-        : 1;
-      const usage = await reserveCompanyRagUsage({
-        userId,
-        plan,
-        pages: ingestUnits,
-        kind: isPdfSource ? "pdf" : "url",
-        referenceId: companyId,
-        description: `企業RAG取込(${isPdfSource ? "PDF" : "URL"}): ${company.name}`,
-      });
-      usageReservations.push(usage);
+    for (const usage of usageReservations) {
       totalFreeUnitsApplied += usage.freeUnitsApplied;
       totalCreditsConsumed += usage.creditsDisplayed;
       totalActualCreditsDeducted += usage.creditsActuallyDeducted;
-      if (isPdfSource) {
+      if (usage.kind === "pdf") {
         remainingPdfFreeUnits = usage.remainingFreeUnits;
       } else {
         remainingHtmlFreeUnits = usage.remainingFreeUnits;
       }
     }
 
-    await persistCompanyRagSourcesAfterUsageReservation({
-      companyId,
-      userId,
-      sources: backfilledUrls,
-      usageReservations,
-    });
+    try {
+      await persistCompanyRagSourcesAfterUsageReservation({
+        companyId,
+        userId,
+        sources: backfilledUrls,
+        usageReservations,
+      });
+      await completeCompanyRagIngestQuote(quoteCompletion, "confirmed", usageReservations.map((usage) => usage.reservationId).filter((id): id is string => Boolean(id)));
+    } catch (error) {
+      await completeCompanyRagIngestQuote(quoteCompletion, "canceled", usageReservations.map((usage) => usage.reservationId).filter((id): id is string => Boolean(id)));
+      throw error;
+    }
 
     return NextResponse.json({
       success: crawlResult.success,
@@ -482,7 +595,7 @@ export async function GET(
     const { id: companyId } = await params;
 
     // Authenticate user
-    const authUser = await getAuthenticatedUser();
+    const authUser = await getAuthenticatedUserFromRequest(request);
     if (!authUser) {
       return createApiErrorResponse(request, {
         status: 401,
