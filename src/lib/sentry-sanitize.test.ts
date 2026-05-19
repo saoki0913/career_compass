@@ -60,4 +60,87 @@ describe("scrubSentryEvent", () => {
       },
     });
   });
+
+  it("preserves exception type and stack frames while dropping frame vars", () => {
+    const scrubbed = scrubSentryEvent({
+      exception: {
+        values: [
+          {
+            type: "ReferenceError",
+            value: "window is not defined",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "app/(marketing)/page.tsx",
+                  function: "Home",
+                  lineno: 19,
+                  vars: {
+                    prompt: "志望動機の本文",
+                    token: "Bearer abcdefghijklmnopqrstuvwxyz",
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(scrubbed).toEqual({
+      exception: {
+        values: [
+          {
+            type: "ReferenceError",
+            value: "window is not defined",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "app/(marketing)/page.tsx",
+                  function: "Home",
+                  lineno: 19,
+                  vars: "[DROPPED]",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(scrubbed)).not.toContain("志望動機");
+    expect(JSON.stringify(scrubbed)).not.toContain("Bearer");
+  });
+
+  it("scrubs English free-text exception values unless they are known technical messages", () => {
+    const scrubbed = scrubSentryEvent({
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value: "I led the debate club and wrote my motivation essay about fintech.",
+          },
+          {
+            type: "ReferenceError",
+            value: "window is not defined",
+          },
+        ],
+      },
+    });
+
+    expect(scrubbed).toEqual({
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value: "[SCRUBBED_TEXT]",
+          },
+          {
+            type: "ReferenceError",
+            value: "window is not defined",
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(scrubbed)).not.toContain("debate club");
+    expect(JSON.stringify(scrubbed)).not.toContain("fintech");
+  });
 });

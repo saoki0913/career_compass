@@ -9,13 +9,11 @@ export async function register() {
     );
     const profile = getRuntimeEnvProfile();
     const startupReport = validateStartupCapabilities(profile);
-    if ((profile === "production" || profile === "preview") && startupReport.fatal.length > 0) {
+    if ((profile === "production" || profile === "staging") && startupReport.fatal.length > 0) {
       throw new Error(`Startup environment validation failed: ${startupReport.fatal.join("; ")}`);
     }
 
-    const isProduction =
-      process.env.VERCEL_ENV === "production" ||
-      (process.env.NODE_ENV === "production" && !process.env.VITEST);
+    const isProduction = profile === "production";
     if (isProduction || process.env.STRIPE_SECRET_KEY) {
       try {
         const { validateStripePriceConfig } = await import(
