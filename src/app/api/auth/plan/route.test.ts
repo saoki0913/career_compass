@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
 const { getSessionMock, dbSelectMock } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
@@ -56,8 +57,17 @@ describe("GET /api/auth/plan", () => {
     getSessionMock.mockResolvedValue(null);
 
     const { GET } = await import("./route");
-    const response = await GET();
+    const response = await GET(
+      new NextRequest("http://localhost:3000/api/auth/plan", {
+        headers: { "x-request-id": "req-plan-401" },
+      }),
+    );
+    const body = await response.json();
+
     expect(response.status).toBe(401);
+    expect(response.headers.get("X-Request-Id")).toBe("req-plan-401");
+    expect(body.error.code).toBe("AUTH_REQUIRED");
+    expect(body.requestId).toBe("req-plan-401");
   });
 
   it("returns hasActiveSubscription: false for free users without subscription", async () => {
@@ -68,9 +78,10 @@ describe("GET /api/auth/plan", () => {
     ]);
 
     const { GET } = await import("./route");
-    const response = await GET();
+    const response = await GET(new NextRequest("http://localhost:3000/api/auth/plan"));
     const body = await response.json();
     expect(body.hasActiveSubscription).toBe(false);
+    expect(body.subscriptionStatus).toBeNull();
     expect(body.plan).toBe("free");
   });
 
@@ -82,9 +93,10 @@ describe("GET /api/auth/plan", () => {
     ]);
 
     const { GET } = await import("./route");
-    const response = await GET();
+    const response = await GET(new NextRequest("http://localhost:3000/api/auth/plan"));
     const body = await response.json();
     expect(body.hasActiveSubscription).toBe(true);
+    expect(body.subscriptionStatus).toBe("active");
     expect(body.plan).toBe("standard");
   });
 
@@ -96,8 +108,9 @@ describe("GET /api/auth/plan", () => {
     ]);
 
     const { GET } = await import("./route");
-    const response = await GET();
+    const response = await GET(new NextRequest("http://localhost:3000/api/auth/plan"));
     const body = await response.json();
     expect(body.hasActiveSubscription).toBe(false);
+    expect(body.subscriptionStatus).toBe("canceled");
   });
 });

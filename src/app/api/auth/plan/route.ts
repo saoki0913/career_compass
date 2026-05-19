@@ -7,24 +7,34 @@
  * Plan changes MUST go through Stripe subscription webhooks.
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { subscriptions, userProfiles } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { isActiveSubscriptionStatus } from "@/lib/billing/subscription-status";
+import { createApiErrorResponse } from "@/bff/api/error-response";
+import { normalizeUserPlanName, type UserPlanResponse } from "@/lib/auth/plan-types";
 
-async function queryHasActiveSubscription(userId: string): Promise<boolean> {
+type SubscriptionPlanState = {
+  hasActiveSubscription: boolean;
+  subscriptionStatus: string | null;
+};
+
+async function querySubscriptionPlanState(userId: string): Promise<SubscriptionPlanState> {
   const [sub] = await db
     .select({ status: subscriptions.status })
     .from(subscriptions)
     .where(eq(subscriptions.userId, userId))
     .limit(1);
-  return isActiveSubscriptionStatus(sub?.status);
+  return {
+    hasActiveSubscription: isActiveSubscriptionStatus(sub?.status),
+    subscriptionStatus: sub?.status ?? null,
+  };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     // Get the authenticated user session
     const session = await auth.api.getSession({
@@ -32,10 +42,13 @@ export async function GET() {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Authentication required" },
-        { status: 401 }
-      );
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "AUTH_REQUIRED",
+        userMessage: "ログイン状態を確認して、もう一度お試しください。",
+        action: "ログインし直してください。",
+        developerMessage: "Authentication required",
+      });
     }
 
     const userId = session.user.id;
@@ -60,17 +73,19 @@ export async function GET() {
         updatedAt: now,
       });
 
-      return NextResponse.json({
+      const responseBody: UserPlanResponse = {
         plan: "free",
         planSelectedAt: now.toISOString(),
         onboardingCompleted: false,
         needsPlanSelection: false,
         needsOnboarding: true,
         hasActiveSubscription: false,
-      });
+        subscriptionStatus: null,
+      };
+      return NextResponse.json(responseBody);
     }
 
-    const hasActiveSubscription = await queryHasActiveSubscription(userId);
+    const subscriptionPlanState = await querySubscriptionPlanState(userId);
 
     // Backfill: older users may have planSelectedAt = null due to previous
     // "select a plan before continuing" flow. We now default to Free.
@@ -84,29 +99,36 @@ export async function GET() {
         })
         .where(eq(userProfiles.userId, userId));
 
-      return NextResponse.json({
-        plan: profile.plan,
+      const responseBody: UserPlanResponse = {
+        plan: normalizeUserPlanName(profile.plan),
         planSelectedAt: now.toISOString(),
         onboardingCompleted: profile.onboardingCompleted,
         needsPlanSelection: false,
         needsOnboarding: !profile.onboardingCompleted,
-        hasActiveSubscription,
-      });
+        ...subscriptionPlanState,
+      };
+      return NextResponse.json(responseBody);
     }
 
-    return NextResponse.json({
-      plan: profile.plan,
+    const responseBody: UserPlanResponse = {
+      plan: normalizeUserPlanName(profile.plan),
       planSelectedAt: profile.planSelectedAt?.toISOString() || null,
       onboardingCompleted: profile.onboardingCompleted,
       needsPlanSelection: false,
       needsOnboarding: !profile.onboardingCompleted,
-      hasActiveSubscription,
-    });
+      ...subscriptionPlanState,
+    };
+    return NextResponse.json(responseBody);
   } catch (error) {
-    console.error("Error getting plan:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "AUTH_PLAN_FETCH_FAILED",
+      userMessage: "プラン情報を読み込めませんでした。",
+      action: "時間をおいて、もう一度お試しください。",
+      retryable: true,
+      developerMessage: "Failed to get plan",
+      error,
+      logContext: "auth-plan",
+    });
   }
 }
