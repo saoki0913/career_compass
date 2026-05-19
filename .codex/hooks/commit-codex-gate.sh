@@ -12,6 +12,10 @@ PROJECT_DIR=$(codex_project_dir "$INPUT")
 . "$PROJECT_DIR/scripts/harness/hook-shared.sh"
 # shellcheck source=../../scripts/harness/guard-core.sh
 . "$PROJECT_DIR/scripts/harness/guard-core.sh"
+# shellcheck source=../../scripts/harness/guard-runtime.sh
+. "$PROJECT_DIR/scripts/harness/guard-runtime.sh"
+GR_HOOK=commit-codex-gate
+gr_init "$INPUT" codex
 
 CMD=$(codex_tool_command "$INPUT")
 SESSION_ID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true)
@@ -24,22 +28,54 @@ if ! guard_command_is_git_commit "$CMD"; then
   exit 0
 fi
 
-if printf '%s' "$CMD" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+add[[:space:]].*&&[[:space:]]*git[[:space:]]+commit'; then
+if printf '%s' "$CMD" | grep -qE '(^|[;&|][[:space:]]*)git[[:space:]]+add[[:space:]].*([;&|]{1,2})[[:space:]]*git[[:space:]]+commit'; then
   echo "大きなコミットでは、ファイル追加とコミットを別々に実行してください。レビュー確認の対象を固定するためです。" >&2
   exit 2
 fi
 
-if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit([^;&|]*[[:space:]])-[^;&|]*a'; then
+# `git commit -a / -am / --all` は staged review をすり抜ける。フラグ
+# トークン（単一ダッシュで 'a' を含む / --all）のみを検出する。message
+# 値（`-m "...a..."`）や `--amend` を誤検出していた旧 substring regex を修正。
+if printf '%s' "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit([^;&|]*[[:space:]])?(-[A-Za-z]*a[A-Za-z]*|--all)([[:space:]=;&|]|$)'; then
   echo "大きなコミットでは、先に対象ファイルを明示してからコミットしてください。" >&2
   exit 2
 fi
 
 NUMSTAT=$(git -C "$PROJECT_DIR" diff --cached --numstat 2>/dev/null || true)
+STAGED_NAMES=$(git -C "$PROJECT_DIR" diff --cached --name-only --diff-filter=ACMRD 2>/dev/null || true)
 
+STATE_DIR=""
+if [ -n "$SESSION_ID" ]; then
+  STATE_DIR=$(codex_session_state_dir)
+fi
+
+# Prompt-quality and large/hotspot commit review are high-severity gates.
+# Commits are reversible, but bypassing the review checkpoint makes staged
+# diff validation and the blocking reviewer contract unenforceable.
+
+# --- prompt / LLM quality verification (advisory) ---
+if printf '%s\n' "$STAGED_NAMES" | grep -qE '^(backend/app/prompts/|backend/app/utils/llm[^/]*\.py$)'; then
+  PQ_OK=0
+  if [ -n "$STATE_DIR" ]; then
+    PROMPT_QUALITY_FLAG="$STATE_DIR/prompt-quality-verification-$SESSION_ID"
+    if [ -f "$PROMPT_QUALITY_FLAG" ] \
+      && [ "$(jq -r '.kind // empty' "$PROMPT_QUALITY_FLAG" 2>/dev/null || echo "")" = "prompt-quality-verification" ] \
+      && [ "$(jq -r '.decision // empty' "$PROMPT_QUALITY_FLAG" 2>/dev/null || echo "")" = "verified" ] \
+      && node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$PROMPT_QUALITY_FLAG" >/dev/null 2>&1; then
+      PQ_OK=1
+    fi
+  fi
+  if [ "$PQ_OK" != 1 ]; then
+    gr_enforce high "プロンプト/LLM 基盤が staged されています。
+コミット前に prompt quality verification を記録してください:
+  node scripts/harness/diff-snapshot.mjs checkpoint --kind prompt-quality-verification --decision verified --project \"$PROJECT_DIR\" > \"${STATE_DIR:-<state-dir>}/prompt-quality-verification-${SESSION_ID:-<session>}\"
+/codex:review・CI prompt-structure テスト・pre-commit も併用してください。"
+  fi
+fi
+
+# --- large / hotspot post-review (advisory) ---
 CHANGED_FILES=$(printf '%s\n' "$NUMSTAT" | grep -cE '.' || true)
-TOTAL_FILES=$CHANGED_FILES
 TOTAL_LINES=$(printf '%s\n' "$NUMSTAT" | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {sum += $1 + $2} END {print sum+0}')
-
 HOTSPOT_HIT=""
 ALL_PATHS=$(printf '%s\n' "$NUMSTAT" | awk 'NF {print $NF}')
 while IFS= read -r changed_path; do
@@ -50,106 +86,21 @@ while IFS= read -r changed_path; do
   fi
 done <<< "$ALL_PATHS"
 
-if ! is_codex_post_review_candidate "$TOTAL_FILES" "$TOTAL_LINES" "$HOTSPOT_HIT"; then
-  exit 0
-fi
-
-if [ -z "$SESSION_ID" ]; then
-  echo "コミット前レビューの確認状態を読み取れないため、実行できませんでした。" >&2
-  exit 2
-fi
-
-STATE_DIR=$(codex_session_state_dir)
-COMMIT_DELEG_FLAG="$STATE_DIR/codex-commit-delegation-$SESSION_ID"
-
-if [ ! -f "$COMMIT_DELEG_FLAG" ]; then
-  cat >&2 <<EOF
-このコミットはまだ実行できません。
-
-変更が大きい、または重要なファイルを含むため、コミット前にレビューが必要です。
-検出結果: ファイル数 $TOTAL_FILES、変更行数 $TOTAL_LINES${HOTSPOT_HIT:+、重要ファイル $HOTSPOT_HIT}
-
-先に実行する確認:
-  bash scripts/codex/delegate.sh post_review
-
-開発者向けの記録手順:
-  node scripts/harness/diff-snapshot.mjs checkpoint --kind commit-review --decision reviewed-proceed --project "$PROJECT_DIR" \
-    --review-request-id "<review.json requestId>" --review-execution-status SUCCESS \
-    --review-verdict "<APPROVE|REQUEST_CHANGES>" --max-severity "<low|medium|high|critical>" > $COMMIT_DELEG_FLAG
-EOF
-  exit 2
-fi
-
-DECISION=$(jq -r '.decision // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-case "$DECISION" in
-  reviewed-proceed|delegate-fixes|fallback-reviewed|plugin-reviewed) ;;
-  *)
-    cat >&2 <<EOF
-コミット前レビューの判断内容を読み取れませんでした。
-レビュー結果を確認し、続行できる判断を記録してから再実行してください。
-EOF
-    exit 2
-    ;;
-esac
-
-if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$COMMIT_DELEG_FLAG" >/dev/null; then
-  echo "レビュー確認後に差分が変わったため、コミット前レビューをもう一度確認してください。" >&2
-  exit 2
-fi
-
-KIND=$(jq -r '.kind // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-if [ "$KIND" != "commit-review" ]; then
-  echo "コミット前レビューの確認記録ではないため、続行できませんでした。" >&2
-  exit 2
-fi
-
-if [ "$DECISION" != "fallback-reviewed" ] && [ "$DECISION" != "plugin-reviewed" ]; then
-  REVIEW_REQUEST_ID=$(jq -r '.reviewRequestId // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-  REVIEW_EXECUTION_STATUS=$(jq -r '.reviewExecutionStatus // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-  REVIEW_VERDICT=$(jq -r '.reviewVerdict // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-  MAX_SEVERITY=$(jq -r '.maxSeverity // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-
-  if [ -z "$REVIEW_REQUEST_ID" ] || [ "$REVIEW_EXECUTION_STATUS" != "SUCCESS" ]; then
-    echo "コミット前レビューが完了していないため、続行できませんでした。" >&2
-    exit 2
-  fi
-
-  case "$REVIEW_VERDICT" in
-    APPROVE) ;;
-    REQUEST_CHANGES)
-      case "$MAX_SEVERITY" in
-        low|medium) ;;
-        *)
-          echo "レビューで重大な修正が必要と判断されたため、修正してからコミットしてください。" >&2
-          exit 2
-          ;;
-      esac
-      ;;
-    *)
-      echo "レビュー結果の判断が続行可能な状態ではありません。内容を確認してください。" >&2
-      exit 2
-      ;;
-  esac
-
-  REVIEW_JSON=""
-  for dir in "$PROJECT_DIR/.codex/state/handoffs/$REVIEW_REQUEST_ID" "$PROJECT_DIR/.claude/state/codex-handoffs/$REVIEW_REQUEST_ID"; do
-    if [ -f "$dir/review.json" ]; then
-      REVIEW_JSON="$dir/review.json"
-      break
+if is_codex_post_review_candidate "$CHANGED_FILES" "$TOTAL_LINES" "$HOTSPOT_HIT"; then
+  CR_OK=0
+  if [ -n "$STATE_DIR" ]; then
+    COMMIT_DELEG_FLAG="$STATE_DIR/codex-commit-delegation-$SESSION_ID"
+    if [ -f "$COMMIT_DELEG_FLAG" ] \
+      && [ "$(jq -r '.kind // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")" = "commit-review" ] \
+      && printf '%s' "$(jq -r '.decision // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")" | grep -qE '^(reviewed-proceed|delegate-fixes|fallback-reviewed|plugin-reviewed)$' \
+      && node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$COMMIT_DELEG_FLAG" >/dev/null 2>&1; then
+      CR_OK=1
     fi
-  done
-
-  if [ -z "$REVIEW_JSON" ]; then
-    echo "対応するレビュー結果を見つけられませんでした。レビューをもう一度実行してください。" >&2
-    exit 2
   fi
-
-  CHECKPOINT_HASH=$(jq -r '.stagedDiffHash // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-  REVIEW_HASH=$(jq -r '.stagedDiffHash // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
-  REVIEW_ID=$(jq -r '.requestId // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
-  if [ "$REVIEW_ID" != "$REVIEW_REQUEST_ID" ] || [ -z "$CHECKPOINT_HASH" ] || [ "$REVIEW_HASH" != "$CHECKPOINT_HASH" ]; then
-    echo "レビュー後に差分が変わったため、コミット前レビューをもう一度実行してください。" >&2
-    exit 2
+  if [ "$CR_OK" != 1 ]; then
+    gr_enforce high "変更が大きい / 重要ファイルを含みます。
+検出: files=${CHANGED_FILES} lines=${TOTAL_LINES}${HOTSPOT_HIT:+ hotspot=${HOTSPOT_HIT}}
+コミット前に bash scripts/codex/delegate.sh post_review（または /codex:review）を実行し、staged diff に結び付いた checkpoint を記録してください。"
   fi
 fi
 

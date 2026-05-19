@@ -7,6 +7,9 @@ set -euo pipefail
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 # shellcheck source=lib/skill-recommender.sh
 . "$PROJECT_DIR/.claude/hooks/lib/skill-recommender.sh"
+# shellcheck source=../../scripts/harness/guard-runtime.sh
+. "$PROJECT_DIR/scripts/harness/guard-runtime.sh"
+GR_HOOK=commit-codex-gate
 
 INPUT=$(cat)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null || echo "")
@@ -33,14 +36,42 @@ EOF
   exit 2
 fi
 
-if echo "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit([^;&|]*[[:space:]])-[^;&|]*a'; then
+# フラグトークン（単一ダッシュで 'a' を含む / --all）のみを検出。message
+# 値（`-m "...a..."`）や `--amend` を誤検出していた旧 substring regex を修正。
+if echo "$CMD" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit([^;&|]*[[:space:]])?(-[A-Za-z]*a[A-Za-z]*|--all)([[:space:]=;&|]|$)'; then
   cat >&2 <<'EOF'
 ⛔ git commit をブロックしました。
 
-git commit -a / -am は staged diff review をすり抜ける可能性があります。
+git commit -a / -am / --all は staged diff review をすり抜ける可能性があります。
 対象ファイルを明示的に git add し、Codex post_review / checkpoint を作成してから git commit してください。
 EOF
   exit 2
+fi
+
+gr_init "$INPUT" claude
+STATE_DIR="$HOME/.claude/sessions/career_compass"
+mkdir -p "$STATE_DIR"
+
+# --- prompt / LLM quality verification (high severity; SSOT-unified with
+#     the Codex side so the definition is symmetric).
+STAGED_NAMES=$(git -C "$PROJECT_DIR" diff --cached --name-only --diff-filter=ACMRD 2>/dev/null || true)
+if printf '%s\n' "$STAGED_NAMES" | grep -qE '^(backend/app/prompts/|backend/app/utils/llm[^/]*\.py$)'; then
+  PQ_OK=0
+  if [ -n "$SESSION_ID" ]; then
+    PROMPT_QUALITY_FLAG="$STATE_DIR/prompt-quality-verification-$SESSION_ID"
+    if [ -f "$PROMPT_QUALITY_FLAG" ] \
+      && [ "$(jq -r '.kind // empty' "$PROMPT_QUALITY_FLAG" 2>/dev/null || echo "")" = "prompt-quality-verification" ] \
+      && [ "$(jq -r '.decision // empty' "$PROMPT_QUALITY_FLAG" 2>/dev/null || echo "")" = "verified" ] \
+      && node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$PROMPT_QUALITY_FLAG" >/dev/null 2>&1; then
+      PQ_OK=1
+    fi
+  fi
+  if [ "$PQ_OK" != 1 ]; then
+    gr_enforce high "プロンプト/LLM 基盤が staged されています。
+コミット前に prompt quality verification を記録してください:
+  node scripts/harness/diff-snapshot.mjs checkpoint --kind prompt-quality-verification --decision verified --project \"$PROJECT_DIR\" > \"$STATE_DIR/prompt-quality-verification-${SESSION_ID:-<session>}\"
+/codex:review・CI prompt-structure テスト・pre-commit も併用してください。"
+  fi
 fi
 
 # --- 変更統計を取得 (staged diff only) ---
@@ -65,130 +96,23 @@ if ! is_codex_post_review_candidate "$TOTAL_FILES" "$TOTAL_LINES" "$HOTSPOT_HIT"
   exit 0
 fi
 
-# --- 閾値以上: checkpoint を検証 ---
-if [ -z "$SESSION_ID" ]; then
-  cat >&2 <<'EOF'
-⛔ git commit をブロックしました。
-
-session_id を取得できず、commit delegation checkpoint を検証できません。
-CLAUDE.md §B (大規模変更時の post_review + delegation) に従って
-AskUserQuestion で確認し、checkpoint を作成してください。
-EOF
-  exit 2
-fi
-
-STATE_DIR="$HOME/.claude/sessions/career_compass"
-mkdir -p "$STATE_DIR"
+# --- large / hotspot post-review (high severity) ---
+# The good path (a valid commit-review checkpoint already exists) stays a
+# SILENT exit 0. Otherwise block until the staged diff has a review-bound
+# checkpoint. The git add&&commit / `git commit -a` integrity arms above
+# stay exit 2 (deterministic correctness, not bypassable).
 COMMIT_DELEG_FLAG="$STATE_DIR/codex-commit-delegation-$SESSION_ID"
-
-# --- Check 1: checkpoint 存在確認 ---
-if [ ! -f "$COMMIT_DELEG_FLAG" ]; then
-  cat >&2 <<EOF
-⛔ git commit をブロックしました。
-
-大規模変更 (files=$TOTAL_FILES, lines=$TOTAL_LINES${HOTSPOT_HIT:+, hotspot=$HOTSPOT_HIT}) のため
-CLAUDE.md §B の Codex post_review + delegation 確認が必要です。
-
-手順:
-  1. bash scripts/codex/delegate.sh post_review を実行
-  2. 最新 handoff: ls -td $PROJECT_DIR/.codex/state/handoffs/post_review-*/ $PROJECT_DIR/.claude/state/codex-handoffs/post_review-*/ 2>/dev/null | head -1
-  3. meta.json の status と result.md を確認
-  4. AskUserQuestion で以下を提示:
-       - post_review の status / 主要 findings
-       - 選択肢: 「commit 続行」「Codex に修正委譲」「Claude fallback」
-  5. 回答に応じて staged diff に結び付いた checkpoint を作成:
-       node scripts/harness/diff-snapshot.mjs checkpoint --kind commit-review --decision reviewed-proceed --project "$PROJECT_DIR" > $COMMIT_DELEG_FLAG
-       # decision は delegate-fixes / fallback-reviewed も可
-  6. 再度 git commit を実行
-EOF
-  exit 2
+CR_OK=0
+if [ -n "$SESSION_ID" ] && [ -f "$COMMIT_DELEG_FLAG" ] \
+  && printf '%s' "$(jq -r '.kind // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")" | grep -qE '^(commit-review|codex-post-review)$' \
+  && printf '%s' "$(jq -r '.decision // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")" | grep -qE '^(reviewed-proceed|delegate-fixes|fallback-reviewed|plugin-reviewed)$' \
+  && node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$COMMIT_DELEG_FLAG" >/dev/null 2>&1; then
+  CR_OK=1
 fi
-
-# --- Check 2: JSON checkpoint + staged diff snapshot ---
-DECISION=$(jq -r '.decision // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-case "$DECISION" in
-  reviewed-proceed|delegate-fixes|fallback-reviewed|plugin-reviewed) ;;
-  *)
-    cat >&2 <<EOF
-⛔ git commit をブロックしました。
-
-commit delegation checkpoint は JSON で、decision は reviewed-proceed / delegate-fixes / fallback-reviewed のいずれかが必要です。
-
-作成例:
-  node scripts/harness/diff-snapshot.mjs checkpoint --kind commit-review --decision reviewed-proceed --project "$PROJECT_DIR" > $COMMIT_DELEG_FLAG
-EOF
-    exit 2
-    ;;
-esac
-
-CHECKPOINT_KIND=$(jq -r '.kind // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-if [ "$CHECKPOINT_KIND" != "commit-review" ] && [ "$CHECKPOINT_KIND" != "codex-post-review" ]; then
-  cat >&2 <<EOF
-⛔ git commit をブロックしました。
-
-commit delegation checkpoint の kind は commit-review または codex-post-review である必要があります。
-checkpoint=$COMMIT_DELEG_FLAG
-EOF
-  exit 2
-fi
-
-if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$COMMIT_DELEG_FLAG" >/dev/null; then
-  cat >&2 <<EOF
-⛔ git commit をブロックしました。
-
-checkpoint 作成後に staged diff が変わりました。post_review / AskUserQuestion 確認をやり直してください。
-checkpoint=$COMMIT_DELEG_FLAG
-EOF
-  exit 2
-fi
-
-REVIEW_REQUEST_ID=$(jq -r '.reviewRequestId // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-REVIEW_EXECUTION_STATUS=$(jq -r '.reviewExecutionStatus // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-REVIEW_VERDICT=$(jq -r '.reviewVerdict // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-MAX_SEVERITY=$(jq -r '.maxSeverity // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-
-if [ "$DECISION" != "fallback-reviewed" ] && [ "$DECISION" != "plugin-reviewed" ]; then
-  if [ -z "$REVIEW_REQUEST_ID" ] || [ -z "$REVIEW_EXECUTION_STATUS" ] || [ -z "$REVIEW_VERDICT" ]; then
-    cat >&2 <<EOF
-⛔ git commit をブロックしました。
-
-checkpoint に reviewRequestId / reviewExecutionStatus / reviewVerdict がありません。
-Codex post_review の review.json を確認し、現在の staged diff に結び付いた checkpoint を作成してください。
-EOF
-    exit 2
-  fi
-
-  REVIEW_JSON=""
-  for dir in "$PROJECT_DIR/.codex/state/handoffs/$REVIEW_REQUEST_ID" "$PROJECT_DIR/.claude/state/codex-handoffs/$REVIEW_REQUEST_ID"; do
-    if [ -f "$dir/review.json" ]; then
-      REVIEW_JSON="$dir/review.json"
-      break
-    fi
-  done
-  if [ -z "$REVIEW_JSON" ]; then
-    echo "git commit blocked: review.json not found for $REVIEW_REQUEST_ID." >&2
-    exit 2
-  fi
-
-  REVIEW_JSON_EXECUTION=$(jq -r '.executionStatus // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
-  REVIEW_JSON_VERDICT=$(jq -r '.reviewStatus // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
-  REVIEW_JSON_HASH=$(jq -r '.stagedDiffHash // empty' "$REVIEW_JSON" 2>/dev/null || echo "")
-  CHECKPOINT_HASH=$(jq -r '.stagedDiffHash // empty' "$COMMIT_DELEG_FLAG" 2>/dev/null || echo "")
-
-  if [ "$REVIEW_JSON_EXECUTION" != "$REVIEW_EXECUTION_STATUS" ] || [ "$REVIEW_JSON_VERDICT" != "$REVIEW_VERDICT" ] || [ "$REVIEW_JSON_HASH" != "$CHECKPOINT_HASH" ]; then
-    echo "git commit blocked: checkpoint does not match post_review artifact." >&2
-    exit 2
-  fi
-
-  if [ "$REVIEW_EXECUTION_STATUS" != "SUCCESS" ]; then
-    echo "git commit blocked: Codex post_review did not complete successfully. Use fallback-reviewed after Claude review." >&2
-    exit 2
-  fi
-
-  if [ "$REVIEW_VERDICT" = "NEEDS_DISCUSSION" ] || { [ "$REVIEW_VERDICT" = "REQUEST_CHANGES" ] && echo "$MAX_SEVERITY" | grep -qE '^(high|critical)$'; }; then
-    echo "git commit blocked: post_review requires changes or discussion before commit." >&2
-    exit 2
-  fi
+if [ "$CR_OK" != 1 ]; then
+  gr_enforce high "変更が大きい / 重要ファイルを含みます。
+検出: files=$TOTAL_FILES, lines=$TOTAL_LINES${HOTSPOT_HIT:+, hotspot=$HOTSPOT_HIT}
+コミット前に bash scripts/codex/delegate.sh post_review（または /codex:review）を実行し、staged diff に結び付いた checkpoint を記録してください。"
 fi
 
 # All checks passed

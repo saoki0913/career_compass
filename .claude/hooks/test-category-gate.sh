@@ -21,9 +21,15 @@ COMMAND_CATEGORIES=$(printf '%s' "$COMMAND_CLASSIFICATION" | jq -r '.testCategor
 
 if [ -z "$COMMAND_CATEGORIES" ]; then exit 0; fi
 
+# Category selection is a high-severity gate: the selected checks must be
+# bound to the staged diff before important test commands are run.
+# shellcheck source=../../scripts/harness/guard-runtime.sh
+. "$PROJECT_DIR/scripts/harness/guard-runtime.sh"
+GR_HOOK=test-category-gate
+gr_init "$INPUT" claude
+
 if [ -z "$SESSION_ID" ]; then
-  echo "test-category-gate: session_id unknown. Confirm via AskUserQuestion first." >&2
-  exit 2
+  gr_enforce high "test-category-gate: session_id unknown; category selection cannot be verified."
 fi
 
 STATE_DIR="$HOME/.claude/sessions/career_compass"
@@ -32,38 +38,20 @@ FLAG="$STATE_DIR/test-categories-$SESSION_ID"
 
 # --- 1. Existence check ---
 if [ ! -f "$FLAG" ]; then
-  cat >&2 <<EOF
-test-category-gate: テスト実行をブロック。カテゴリ選択が未完了です。
-
-手順:
-  1. 変更ファイルを分析し、推奨テストカテゴリを決定
-  2. AskUserQuestion では、人間が判断しやすい日本語でカテゴリ選択を提示:
-     - 画面や機能の動作確認
-     - AI出力の品質確認
-     - 型チェックとlint
-     - セキュリティ確認
-     例: 「この変更では、どの確認を実行しますか？」
-  3. 選択結果を staged diff に結び付いた JSON checkpoint に記録:
-     node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project "$(pwd)" \
-       --categories "e2e-functional=run:<features>,quality=skip,static=run,security=run" > $FLAG
-  4. テストコマンドを再実行
-EOF
-  exit 2
+  gr_enforce high "test-category-gate: テストカテゴリ未選択のまま実行しようとしています。
+推奨: 変更ファイルを分析し、AskUserQuestion で確認項目（動作確認 / AI出力品質 / 型・lint / セキュリティ）を提示し、選択を staged diff に結び付けて記録:
+  node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved --project \"$PROJECT_DIR\" \\
+    --categories \"e2e-functional=run:<features>,quality=skip,static=run,security=run\" > $FLAG
+CI / pre-commit と同じ staged diff に結び付けてください。"
 fi
 
-# --- 2. JSON + staged diff validation ---
+# --- 2. JSON + staged diff validation (advisory, non-blocking) ---
 if ! jq -e . "$FLAG" >/dev/null 2>&1; then
-  echo "test-category-gate: checkpoint must be JSON. Re-confirm via AskUserQuestion." >&2
-  exit 2
+  gr_enforce high "test-category-gate: checkpoint が JSON ではありません。再記録してください。"
 fi
 
 if ! node "$PROJECT_DIR/scripts/harness/diff-snapshot.mjs" verify --project "$PROJECT_DIR" --file "$FLAG" >/dev/null; then
-  cat >&2 <<EOF
-test-category-gate: checkpoint 作成後に staged diff が変わりました。
-AskUserQuestion でカテゴリ選択をやり直してください。
-checkpoint=$FLAG
-EOF
-  exit 2
+  gr_enforce high "test-category-gate: checkpoint 作成後に staged diff が変わりました。カテゴリを選び直してください。checkpoint=$FLAG"
 fi
 
 feature_allowed_by_value() {
@@ -84,29 +72,16 @@ feature_allowed_by_value() {
 for command_category in $COMMAND_CATEGORIES; do
   category_value="$(jq -r --arg key "$command_category" '.categories[$key] // .[$key] // empty' "$FLAG" 2>/dev/null || echo "")"
   if [ -z "$category_value" ]; then
-    cat >&2 <<EOF
-test-category-gate: $command_category の選択が checkpoint にありません。
-checkpoint="$FLAG"
-EOF
-    exit 2
+    gr_enforce high "test-category-gate: '$command_category' の選択が checkpoint にありません。checkpoint=$FLAG"
   fi
 
   case "$category_value" in
     run|run:*|partial:*) ;;
     skip|skip:*)
-      cat >&2 <<EOF
-test-category-gate: $command_category は checkpoint で skip されています。
-AskUserQuestion で run に変更してからコマンドを実行してください。
-checkpoint="$FLAG"
-EOF
-      exit 2
+      gr_enforce high "test-category-gate: '$command_category' は checkpoint で skip 設定です。実行する場合は run に選び直してください。checkpoint=$FLAG"
       ;;
     *)
-      cat >&2 <<EOF
-test-category-gate: $command_category の選択値が不正です: "$category_value"
-許可値: run / run:<features> / partial:<runFeatures>:<skipFeatures> / skip
-EOF
-      exit 2
+      gr_enforce high "test-category-gate: '$command_category' の選択値が不正です: \"$category_value\"。許可値: run / run:<features> / partial:<runFeatures>:<skipFeatures> / skip"
       ;;
   esac
 
@@ -114,8 +89,7 @@ EOF
   if { [ "$command_category" = "e2e-functional" ] || [ "$command_category" = "quality" ]; } && [ -n "$command_features" ]; then
     for command_feature in $command_features; do
       if ! feature_allowed_by_value "$category_value" "$command_feature"; then
-        echo "test-category-gate: $command_category checkpoint ($category_value) does not cover command feature: $command_feature" >&2
-        exit 2
+        gr_enforce high "test-category-gate: '$command_category' checkpoint ($category_value) が変更範囲の機能 '$command_feature' を網羅していません。"
       fi
     done
   fi
