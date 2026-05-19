@@ -40,4 +40,47 @@ describe("calendar/google helpers", () => {
       expect.objectContaining({ method: "DELETE" }),
     );
   });
+
+  it("revokes a Google OAuth token with form encoding", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => "",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { revokeGoogleOAuthToken } = await import("@/lib/calendar/google");
+    await revokeGoogleOAuthToken("refresh-token");
+
+    expect(fetchMock).toHaveBeenCalledWith("https://oauth2.googleapis.com/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: expect.any(URLSearchParams),
+    });
+    const body = fetchMock.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get("token")).toBe("refresh-token");
+  });
+
+  it("treats terminal invalid_token revoke responses as already revoked", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: async () => "invalid_token",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { revokeGoogleOAuthToken } = await import("@/lib/calendar/google");
+    await expect(revokeGoogleOAuthToken("refresh-token")).resolves.toBeUndefined();
+  });
+
+  it("throws when Google OAuth token revoke has a non-terminal failure", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => "backend error",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { revokeGoogleOAuthToken } = await import("@/lib/calendar/google");
+    await expect(revokeGoogleOAuthToken("refresh-token")).rejects.toThrow("Token revoke failed");
+  });
 });

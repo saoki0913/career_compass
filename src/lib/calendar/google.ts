@@ -17,6 +17,7 @@ interface FreeBusySlot {
 
 const APP_CALENDAR_PREFIXES = ["[就活Pass]", "[シューパス]"] as const;
 const DEFAULT_CALENDAR_NAME = "就活Pass";
+const GOOGLE_REVOKE_TOKEN_URL = "https://oauth2.googleapis.com/revoke";
 
 export type AppCalendarEventKind = "deadline" | "work_block";
 
@@ -381,6 +382,25 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
     accessToken: data.access_token,
     expiresAt: new Date(Date.now() + data.expires_in * 1000),
   };
+}
+
+/**
+ * Revoke a Google OAuth access or refresh token.
+ */
+export async function revokeGoogleOAuthToken(token: string): Promise<void> {
+  const response = await fetch(GOOGLE_REVOKE_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ token }),
+  });
+
+  if (!response.ok) {
+    const error = await response.text().catch(() => "");
+    if (response.status === 400 && /\binvalid_token\b/i.test(error)) {
+      return;
+    }
+    throw new Error("Token revoke failed");
+  }
 }
 
 /**

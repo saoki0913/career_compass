@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
-import { clearGoogleCalendarConnection } from "@/lib/calendar/connection";
+import { revokeAndClearGoogleCalendarConnection } from "@/lib/calendar/connection";
 import { cancelPendingCalendarSyncJobsForUser } from "@/lib/calendar/sync";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { createCalendarCsrfErrorResponse } from "@/app/api/calendar/_shared/csrf";
@@ -29,7 +29,20 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    await clearGoogleCalendarConnection(session.user.id);
+    try {
+      await revokeAndClearGoogleCalendarConnection(session.user.id);
+    } catch (error) {
+      return createApiErrorResponse(request, {
+        status: 502,
+        code: "GOOGLE_CALENDAR_REVOKE_FAILED",
+        userMessage: "Google カレンダー連携を解除できませんでした。",
+        action: "時間を置いて、もう一度お試しください。",
+        retryable: true,
+        error,
+        developerMessage: "Google Calendar token revoke failed",
+        logContext: "calendar-disconnect-revoke",
+      });
+    }
     await cancelPendingCalendarSyncJobsForUser(session.user.id);
 
     return NextResponse.json({ success: true });
