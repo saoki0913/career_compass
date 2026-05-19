@@ -7,13 +7,32 @@ const {
   dbUpdateMock,
   enforceRateLimitLayersMock,
   fetchFastApiInternalMock,
+  claimCompanyRagIngestQuoteMock,
+  completeCompanyRagIngestQuoteMock,
+  createCompanyRagIngestQuoteMock,
+  hashCompanyRagQuoteFileMock,
+  hashCompanyRagQuoteInputMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
   enforceRateLimitLayersMock: vi.fn(),
   fetchFastApiInternalMock: vi.fn(),
+  claimCompanyRagIngestQuoteMock: vi.fn(),
+  completeCompanyRagIngestQuoteMock: vi.fn(),
+  createCompanyRagIngestQuoteMock: vi.fn(),
+  hashCompanyRagQuoteFileMock: vi.fn(),
+  hashCompanyRagQuoteInputMock: vi.fn(),
 }));
+
+function mutationHeaders(extra?: HeadersInit): HeadersInit {
+  return {
+    origin: "http://localhost:3000",
+    cookie: "csrf_token=test-csrf-token",
+    "x-csrf-token": "test-csrf-token",
+    ...extra,
+  };
+}
 
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers()),
@@ -38,7 +57,7 @@ vi.mock("@/lib/company-info/sources", () => ({
   inferTrustedForEsReview: vi.fn(() => true),
   parseCorporateInfoSources: vi.fn(() => []),
   serializeCorporateInfoSources: vi.fn(() => "[]"),
-  upsertCorporateInfoSource: vi.fn((sources: unknown[]) => sources),
+  upsertCorporateInfoSource: vi.fn((sources: unknown[], source: unknown) => [...sources, source]),
 }));
 
 vi.mock("@/lib/company-info/usage", () => ({
@@ -48,9 +67,17 @@ vi.mock("@/lib/company-info/usage", () => ({
   getRemainingCompanyRagPdfFreeUnits: vi.fn(async () => 40),
 }));
 
+vi.mock("@/lib/company-info/rag-quotes", () => ({
+  claimCompanyRagIngestQuote: claimCompanyRagIngestQuoteMock,
+  completeCompanyRagIngestQuote: completeCompanyRagIngestQuoteMock,
+  createCompanyRagIngestQuote: createCompanyRagIngestQuoteMock,
+  hashCompanyRagQuoteFile: hashCompanyRagQuoteFileMock,
+  hashCompanyRagQuoteInput: hashCompanyRagQuoteInputMock,
+}));
+
 vi.mock("@/lib/company-info/pricing", () => ({
   getCompanyRagSourceLimit: vi.fn(() => 5),
-  normalizePdfPageCount: vi.fn(() => 1),
+  normalizePdfPageCount: vi.fn((pages: number) => Math.max(1, Math.floor(Number(pages) || 1))),
 }));
 
 vi.mock("@/lib/rate-limit-spike", () => ({
@@ -115,6 +142,11 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     dbUpdateMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
     fetchFastApiInternalMock.mockReset();
+    claimCompanyRagIngestQuoteMock.mockReset();
+    completeCompanyRagIngestQuoteMock.mockReset();
+    createCompanyRagIngestQuoteMock.mockReset();
+    hashCompanyRagQuoteFileMock.mockReset();
+    hashCompanyRagQuoteInputMock.mockReset();
     vi.restoreAllMocks();
 
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -123,6 +155,18 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
       .mockReturnValueOnce(makeCompanyQuery());
     dbUpdateMock.mockReturnValue(makeUpdateQuery());
     enforceRateLimitLayersMock.mockResolvedValue(null);
+    hashCompanyRagQuoteFileMock.mockResolvedValue("sha256-company-pdf");
+    hashCompanyRagQuoteInputMock.mockReturnValue("quote-input-hash");
+    claimCompanyRagIngestQuoteMock.mockResolvedValue({
+      id: "quote-1",
+      estimatedPdfUnits: 4,
+      sourceResults: [{ billable_units: 4 }],
+    });
+    createCompanyRagIngestQuoteMock.mockResolvedValue({
+      quoteId: "quote-1",
+      expiresAt: new Date("2026-05-16T00:15:00.000Z"),
+    });
+    completeCompanyRagIngestQuoteMock.mockResolvedValue(undefined);
     fetchFastApiInternalMock.mockImplementation((path: string, init?: RequestInit) =>
       fetch(`https://fastapi.test${path}`, init)
     );
@@ -151,6 +195,7 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate-upload", {
       method: "POST",
       body: formData,
+      headers: mutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -197,16 +242,21 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     vi.mocked(companyRagUsage.getRemainingCompanyRagPdfFreeUnits).mockResolvedValue(6);
 
     const companyInfoSources = await import("@/lib/company-info/sources");
-    vi.mocked(companyInfoSources.upsertCorporateInfoSource).mockImplementation((sources) => sources);
+    vi.mocked(companyInfoSources.upsertCorporateInfoSource).mockImplementation((sources, source) => [
+      ...sources,
+      source,
+    ]);
 
     const formData = new FormData();
     formData.append("file", new File(["pdf"], "company.pdf", { type: "application/pdf" }));
     formData.append("contentType", "ir_materials");
+    formData.append("quoteId", "quote-1");
 
     const { POST } = await import("@/app/api/companies/[id]/fetch-corporate-upload/route");
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate-upload", {
       method: "POST",
       body: formData,
+      headers: mutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -217,6 +267,10 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     const backendForm = fetchInit?.body as FormData;
     expect(backendForm.get("content_type")).toBe("ir_materials");
     expect(backendForm.get("billing_plan")).toBe("free");
+    expect(hashCompanyRagQuoteInputMock).toHaveBeenCalledWith({
+      files: [{ name: "company.pdf", size: 3, type: "application/pdf", sha256: "sha256-company-pdf" }],
+      contentType: "ir_materials",
+    });
   });
 
   it("estimates via the dedicated pdf endpoint and forwards billing_plan", async () => {
@@ -260,6 +314,7 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate-upload/estimate", {
       method: "POST",
       body: formData,
+      headers: mutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -267,12 +322,17 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
 
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
+    expect(data.quoteId).toBe("quote-1");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [, backendInit] = fetchSpy.mock.calls[0];
     const backendForm = backendInit?.body as FormData;
     expect(backendForm.get("billing_plan")).toBe("free");
     expect(backendForm.get("remaining_free_pdf_pages")).toBe("6");
     expect(backendForm.get("source_url")).toContain("upload://corporate-pdf/company-1/");
+    expect(hashCompanyRagQuoteInputMock).toHaveBeenCalledWith({
+      files: [{ name: "company.pdf", size: 3, type: "application/pdf", sha256: "sha256-company-pdf" }],
+      contentType: "ir_materials",
+    });
   });
 
   it("does not expose raw upstream error messages when pdf estimate fails", async () => {
@@ -295,6 +355,7 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate-upload/estimate", {
       method: "POST",
       body: formData,
+      headers: mutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -321,10 +382,10 @@ describe("api/companies/[id]/fetch-corporate-upload", () => {
       {
         method: "POST",
         body: formData,
-        headers: {
+        headers: mutationHeaders({
           // Claim 60 MiB — above the 50 MiB aggregate cap.
           "content-length": String(60 * 1024 * 1024),
-        },
+        }),
       }
     );
 

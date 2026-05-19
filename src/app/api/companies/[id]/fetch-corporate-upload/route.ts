@@ -1,11 +1,10 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { requireUserMutationRequest } from "@/bff/api/mutation-guard";
 import { persistCompanyRagSourcesAfterUsageReservation } from "@/bff/company-rag/persist-sources";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { companies, userProfiles } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
-import { headers } from "next/headers";
 import {
   inferTrustedForEsReview,
   parseCorporateInfoSources,
@@ -13,6 +12,7 @@ import {
   upsertCorporateInfoSource,
 } from "@/lib/company-info/sources";
 import {
+  cancelCompanyRagUsage,
   getRemainingCompanyRagPdfFreeUnits,
   reserveCompanyRagUsage,
 } from "@/lib/company-info/usage";
@@ -26,10 +26,16 @@ import { isSecretMissingError } from "@/lib/fastapi/secret-guard";
 import type { CareerPrincipalPlan } from "@/lib/fastapi/career-principal";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { logError } from "@/lib/logger";
+import {
+  claimCompanyRagIngestQuote,
+  completeCompanyRagIngestQuote,
+  hashCompanyRagQuoteFile,
+  hashCompanyRagQuoteInput,
+} from "@/lib/company-info/rag-quotes";
 
 export const runtime = "nodejs";
 
-const MAX_FILES_PER_REQUEST = 10;
+const MAX_FILES_PER_REQUEST = 1;
 
 /**
  * Per-file ceiling for PDF uploads (D-2 象限②).
@@ -43,10 +49,9 @@ const MAX_PDF_FILE_BYTES = 20 * 1024 * 1024;
 /**
  * Aggregate ceiling across all files in a single multipart request (D-2 象限②).
  *
- * 10 × 20 MiB = 200 MiB is the theoretical maximum given ``MAX_FILES_PER_REQUEST``
- * but nobody legitimately uploads 10 maximum-size PDFs in one batch. Cap the
- * total at 50 MiB so a malicious client cannot force the BFF to buffer hundreds
- * of MiB into FormData before any ``file.size`` checks run.
+ * The quote/reservation flow is intentionally one quote per file, so this route
+ * accepts one PDF per request. Keep a separate aggregate cap as a defense
+ * against multipart overhead and malformed clients.
  */
 const MAX_PDF_AGGREGATE_BYTES = 50 * 1024 * 1024;
 
@@ -144,23 +149,18 @@ function validatePdfFile(file: File): string | null {
   return null;
 }
 
-async function getAuthenticatedUser(): Promise<{
+async function getAuthenticatedUser(userId: string): Promise<{
   userId: string;
   plan: "free" | "standard" | "pro";
-} | null> {
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session?.user?.id) {
-    return null;
-  }
-
+}> {
   const [profile] = await db
     .select()
     .from(userProfiles)
-    .where(eq(userProfiles.userId, session.user.id))
+    .where(eq(userProfiles.userId, userId))
     .limit(1);
 
   return {
-    userId: session.user.id,
+    userId,
     plan: (profile?.plan || "free") as "free" | "standard" | "pro",
   };
 }
@@ -207,6 +207,10 @@ export async function POST(
   let companyId = "unknown";
   try {
     ({ id: companyId } = await params);
+    const mutationGuard = await requireUserMutationRequest(request);
+    if (!mutationGuard.ok) {
+      return mutationGuard.response;
+    }
 
     // Reject multipart bodies whose Content-Length already exceeds the
     // aggregate cap before we buffer any part of them into FormData.
@@ -230,7 +234,9 @@ export async function POST(
 
     const formData = await request.formData();
     const files = parseFiles(formData);
-    const contentType = normalizePdfContentType(formData.get("contentType") ?? formData.get("content_type"));
+    const rawContentType = formData.get("contentType") ?? formData.get("content_type");
+    const contentType = normalizePdfContentType(rawContentType);
+    const quoteId = formData.get("quoteId");
 
     if (files.length === 0) {
       return NextResponse.json({ error: "PDFファイルを指定してください" }, { status: 400 });
@@ -241,7 +247,6 @@ export async function POST(
         { status: 400 }
       );
     }
-
     // Aggregate size check after FormData parse — ``file.size`` is authoritative
     // even when clients omit or misreport Content-Length. The per-file cap is
     // enforced later inside ``validatePdfFile``.
@@ -257,13 +262,7 @@ export async function POST(
       );
     }
 
-    const authUser = await getAuthenticatedUser();
-    if (!authUser) {
-      return NextResponse.json(
-        { error: "この機能を利用するにはログインが必要です" },
-        { status: 401 }
-      );
-    }
+    const authUser = await getAuthenticatedUser(mutationGuard.session.user.id);
 
     const rateLimited = await enforceRateLimitLayers(
       request,
@@ -279,6 +278,14 @@ export async function POST(
     const access = await verifyCompanyAccess(companyId, authUser.userId);
     if (!access.valid || !access.company) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
+    }
+    if (typeof quoteId !== "string" || !quoteId) {
+      return createApiErrorResponse(request, {
+        status: 409,
+        code: "CORPORATE_RAG_QUOTE_REQUIRED",
+        userMessage: "取得前に見積の確認が必要です。",
+        action: "もう一度見積を取得してから、取り込みを実行してください。",
+      });
     }
 
     const company = access.company;
@@ -302,6 +309,51 @@ export async function POST(
         });
         continue;
       }
+
+      const fileSha256 = await hashCompanyRagQuoteFile(file);
+      const inputHash = hashCompanyRagQuoteInput({
+        files: [{ name: file.name, size: file.size, type: file.type, sha256: fileSha256 }],
+        contentType: typeof rawContentType === "string" ? rawContentType : null,
+      });
+      const quote = await claimCompanyRagIngestQuote({
+        quoteId,
+        userId: authUser.userId,
+        companyId,
+        kind: "pdf",
+        inputHash,
+      });
+      if (!quote) {
+        items.push({
+          fileName: file.name,
+          status: "failed",
+          error: "見積の有効期限が切れたか、取得内容が変更されました。",
+        });
+        continue;
+      }
+      const quoteCompletion = {
+        quoteId,
+        userId: authUser.userId,
+        companyId,
+        kind: "pdf" as const,
+      };
+      const quotedSources = Array.isArray(quote.sourceResults)
+        ? quote.sourceResults as Array<{ billable_units?: unknown }>
+        : [];
+      const quotedSource = quotedSources[0] ?? null;
+      const quotedPages = Math.max(1, Math.floor(Number(
+        quotedSource?.billable_units ?? quote.estimatedPdfUnits ?? 1,
+      )));
+      const usage = await reserveCompanyRagUsage({
+        userId: authUser.userId,
+        plan: authUser.plan,
+        pages: quotedPages,
+        kind: "pdf",
+        referenceId: companyId,
+        description: `企業RAG取込(PDF): ${company.name}`,
+      }).catch(async (error) => {
+        await completeCompanyRagIngestQuote(quoteCompletion, "canceled", []);
+        throw error;
+      });
 
       const sourceUrl = `upload://corporate-pdf/${companyId}/${randomUUID()}`;
       const backendForm = new FormData();
@@ -332,6 +384,8 @@ export async function POST(
         }
         uploadResult = data as UploadPdfResult;
       } catch (error) {
+        await cancelCompanyRagUsage(usage);
+        await completeCompanyRagIngestQuote(quoteCompletion, "canceled", usage.reservationId ? [usage.reservationId] : []);
         if (isSecretMissingError(error)) {
           return NextResponse.json(
             { error: "AI機能を利用できませんでした。" },
@@ -348,6 +402,8 @@ export async function POST(
       }
 
       if (!uploadResult.success) {
+        await cancelCompanyRagUsage(usage);
+        await completeCompanyRagIngestQuote(quoteCompletion, "canceled", usage.reservationId ? [usage.reservationId] : []);
         items.push({
           fileName: file.name,
           status: "failed",
@@ -359,6 +415,21 @@ export async function POST(
 
       const nowIso = new Date().toISOString();
       const ingestUnits = normalizePdfPageCount(uploadResult.page_count);
+      if (ingestUnits !== quotedPages) {
+        await cancelCompanyRagUsage(usage);
+        await completeCompanyRagIngestQuote(quoteCompletion, "canceled", usage.reservationId ? [usage.reservationId] : []);
+        await bestEffortDeleteRag(companyId, sourceUrl, {
+          userId: authUser.userId,
+          plan: authUser.plan,
+        });
+        items.push({
+          fileName: file.name,
+          status: "failed",
+          sourceUrl,
+          error: "見積時点からPDFの取り込みページ数が変わりました。もう一度見積を取得してください。",
+        });
+        continue;
+      }
 
       const completedSource: CorporateInfoSource = {
         url: sourceUrl,
@@ -380,16 +451,7 @@ export async function POST(
         }),
       };
 
-      let usage: Awaited<ReturnType<typeof reserveCompanyRagUsage>> | null = null;
       try {
-        usage = await reserveCompanyRagUsage({
-          userId: authUser.userId,
-          plan: authUser.plan,
-          pages: ingestUnits,
-          kind: "pdf",
-          referenceId: companyId,
-          description: `企業RAG取込(PDF): ${company.name}`,
-        });
         const nextSources = upsertCorporateInfoSource(currentSources, completedSource);
         await persistCompanyRagSourcesAfterUsageReservation({
           companyId,
@@ -397,6 +459,7 @@ export async function POST(
           sources: nextSources,
           usageReservations: [usage],
         });
+        await completeCompanyRagIngestQuote(quoteCompletion, "confirmed", usage.reservationId ? [usage.reservationId] : []);
         currentSources = nextSources;
         items.push({
           fileName: file.name,
@@ -419,6 +482,7 @@ export async function POST(
           pageRoutingSummary: uploadResult.page_routing_summary ?? null,
         });
       } catch (error) {
+        await completeCompanyRagIngestQuote(quoteCompletion, "canceled", usage.reservationId ? [usage.reservationId] : []);
         logError("corporate-pdf-upload-metadata-update-failed", error, { companyId, sourceUrl });
         await bestEffortDeleteRag(companyId, sourceUrl, {
           userId: authUser.userId,
