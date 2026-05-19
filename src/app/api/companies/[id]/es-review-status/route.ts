@@ -86,7 +86,7 @@ export async function GET(
 
     let fetchError: unknown = null;
     const data = await cacheGet(
-      `es-review-status:${id}`,
+      ["es-review-status", id],
       async () => {
         let response: Response;
         try {

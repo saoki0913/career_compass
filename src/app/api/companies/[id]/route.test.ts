@@ -8,6 +8,7 @@ const {
   dbSelectMock,
   dbUpdateMock,
   dbDeleteMock,
+  encryptMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   getCompanyDetailPageDataMock: vi.fn(),
@@ -15,6 +16,7 @@ const {
   dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
   dbDeleteMock: vi.fn(),
+  encryptMock: vi.fn(),
 }));
 
 vi.mock("@/bff/identity/request-identity", () => ({
@@ -36,6 +38,10 @@ vi.mock("@/lib/db", () => ({
     update: dbUpdateMock,
     delete: dbDeleteMock,
   },
+}));
+
+vi.mock("@/lib/crypto", () => ({
+  encrypt: encryptMock,
 }));
 
 function makeCompanyQuery(result: unknown[]) {
@@ -91,6 +97,8 @@ describe("api/companies/[id]", () => {
     dbSelectMock.mockReset();
     dbUpdateMock.mockReset();
     dbDeleteMock.mockReset();
+    encryptMock.mockReset();
+    encryptMock.mockImplementation((value: string) => `encrypted:${value}`);
   });
 
   it("returns 401 when the request has no valid identity", async () => {
@@ -197,6 +205,92 @@ describe("api/companies/[id]", () => {
     expect(data.company?.hasCredentials).toBe(true);
     expect(data.company?.mypageLoginId).toBeUndefined();
     expect(data.company?.mypagePassword).toBeUndefined();
+  });
+
+  it("PUT clears stored mypage credentials when null or empty values are sent", async () => {
+    const { PUT } = await import("@/app/api/companies/[id]/route");
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    hasOwnedCompanyMock.mockResolvedValue(true);
+    const returningMock = vi.fn().mockResolvedValue([
+      {
+        id: "c1",
+        userId: "user-1",
+        guestId: null,
+        name: "Acme",
+        mypagePassword: null,
+        mypageLoginId: null,
+      },
+    ]);
+    const setMock = vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        returning: returningMock,
+      }),
+    });
+    dbUpdateMock.mockReturnValue({ set: setMock });
+
+    const req = new NextRequest("http://localhost:3000/api/companies/c1", {
+      method: "PUT",
+      body: JSON.stringify({
+        mypageLoginId: "",
+        mypagePassword: null,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PUT(req, { params: Promise.resolve({ id: "c1" }) });
+
+    expect(res.status).toBe(200);
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mypageLoginId: null,
+        mypagePassword: null,
+      })
+    );
+    expect(encryptMock).not.toHaveBeenCalled();
+  });
+
+  it("PUT stores encrypted mypage passwords instead of plaintext", async () => {
+    const { PUT } = await import("@/app/api/companies/[id]/route");
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    hasOwnedCompanyMock.mockResolvedValue(true);
+    const setMock = vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([
+          {
+            id: "c1",
+            userId: "user-1",
+            guestId: null,
+            name: "Acme",
+            mypagePassword: "encrypted:plain-password",
+            mypageLoginId: "student@example.com",
+          },
+        ]),
+      }),
+    });
+    dbUpdateMock.mockReturnValue({ set: setMock });
+
+    const req = new NextRequest("http://localhost:3000/api/companies/c1", {
+      method: "PUT",
+      body: JSON.stringify({
+        mypageLoginId: " student@example.com ",
+        mypagePassword: " plain-password ",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PUT(req, { params: Promise.resolve({ id: "c1" }) });
+
+    expect(res.status).toBe(200);
+    expect(encryptMock).toHaveBeenCalledWith("plain-password");
+    expect(setMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mypageLoginId: "student@example.com",
+        mypagePassword: "encrypted:plain-password",
+      })
+    );
+    expect(setMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        mypagePassword: "plain-password",
+      })
+    );
   });
 
   it("PUT rejects unsafe company URLs before update", async () => {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { createHash } from "crypto";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import {
   checkRateLimit,
@@ -20,6 +21,13 @@ interface CompanyMappings {
 
 // Cache the parsed mappings
 let cachedMappings: Map<string, string> | null = null;
+
+function hashSuggestionQuery(query: string): string {
+  return createHash("sha256")
+    .update(query.trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 24);
+}
 
 function loadCompanyMappings(): Map<string, string> {
   if (cachedMappings) {
@@ -99,7 +107,7 @@ export async function GET(request: NextRequest) {
   }
 
   const suggestions = await cacheGet(
-    `company-suggestions:${query}`,
+    ["company-suggestions", hashSuggestionQuery(query)],
     async () => searchCompanies(query),
     { ttlSeconds: 86400 },
   );

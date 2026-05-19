@@ -24,6 +24,15 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
+function normalizeCredentialInput(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "string") return undefined;
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 export async function GET(
   request: NextRequest,
   context: RouteContext
@@ -182,8 +191,12 @@ export async function PUT(
     if (recruitmentUrl !== undefined) updateData.recruitmentUrl = normalizedRecruitmentUrl?.value ?? null;
     if (corporateUrl !== undefined) updateData.corporateUrl = normalizedCorporateUrl?.value ?? null;
     if (mypageUrl !== undefined) updateData.mypageUrl = normalizedMypageUrl?.value ?? null;
-    if (mypageLoginId !== undefined && mypageLoginId !== null && mypageLoginId.trim() !== "") updateData.mypageLoginId = mypageLoginId.trim();
-    if (mypagePassword !== undefined && mypagePassword !== null && mypagePassword.trim() !== "") updateData.mypagePassword = encrypt(mypagePassword.trim());
+    const normalizedMypageLoginId = normalizeCredentialInput(mypageLoginId);
+    if (normalizedMypageLoginId !== undefined) updateData.mypageLoginId = normalizedMypageLoginId;
+    const normalizedMypagePassword = normalizeCredentialInput(mypagePassword);
+    if (normalizedMypagePassword !== undefined) {
+      updateData.mypagePassword = normalizedMypagePassword ? encrypt(normalizedMypagePassword) : null;
+    }
     if (notes !== undefined) updateData.notes = notes?.trim() || null;
     if (status !== undefined) updateData.status = status;
     if (sortOrder !== undefined) updateData.sortOrder = sortOrder;

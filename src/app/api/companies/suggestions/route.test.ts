@@ -26,7 +26,7 @@ vi.mock("@/lib/rate-limit", () => ({
 }));
 
 vi.mock("@/lib/redis", () => ({
-  cacheGet: vi.fn((_key: string, fetcher: () => Promise<unknown>) => fetcher()),
+  cacheGet: vi.fn((_keyParts: Array<string | number>, fetcher: () => Promise<unknown>) => fetcher()),
 }));
 
 function makeRequest(path: string) {

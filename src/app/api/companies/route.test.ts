@@ -6,11 +6,13 @@ const {
   getCompaniesPageDataMock,
   dbSelectMock,
   dbInsertMock,
+  encryptMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   getCompaniesPageDataMock: vi.fn(),
   dbSelectMock: vi.fn(),
   dbInsertMock: vi.fn(),
+  encryptMock: vi.fn(),
 }));
 
 vi.mock("@/bff/identity/request-identity", () => ({
@@ -26,6 +28,10 @@ vi.mock("@/lib/db", () => ({
     select: dbSelectMock,
     insert: dbInsertMock,
   },
+}));
+
+vi.mock("@/lib/crypto", () => ({
+  encrypt: encryptMock,
 }));
 
 function makeSelectLimitResult(result: unknown[]) {
@@ -62,6 +68,8 @@ describe("api/companies", () => {
     getCompaniesPageDataMock.mockReset();
     dbSelectMock.mockReset();
     dbInsertMock.mockReset();
+    encryptMock.mockReset();
+    encryptMock.mockImplementation((value: string) => `encrypted:${value}`);
   });
 
   it("returns 401 when no request identity is available", async () => {
@@ -131,6 +139,44 @@ describe("api/companies", () => {
     expect(data.company.hasCredentials).toBe(true);
     expect(data.company.mypageLoginId).toBeUndefined();
     expect(data.company.mypagePassword).toBeUndefined();
+  });
+
+  it("stores encrypted mypage passwords when creating a company", async () => {
+    const { POST } = await import("@/app/api/companies/route");
+    const request = new NextRequest("http://localhost:3000/api/companies", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "暗号化テスト",
+        mypageLoginId: " student@example.com ",
+        mypagePassword: " plain-password ",
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    dbSelectMock
+      .mockReturnValueOnce(makeSelectLimitResult([{ userId: "user-1", plan: "free" }]))
+      .mockReturnValueOnce(makeSelectWhereResult([]));
+    const valuesMock = vi.fn().mockResolvedValue(undefined);
+    dbInsertMock.mockReturnValue({ values: valuesMock });
+
+    const response = await POST(request);
+
+    expect(response.status).toBe(200);
+    expect(encryptMock).toHaveBeenCalledWith("plain-password");
+    expect(valuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mypageLoginId: "student@example.com",
+        mypagePassword: "encrypted:plain-password",
+      })
+    );
+    expect(valuesMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        mypagePassword: "plain-password",
+      })
+    );
   });
 
   it("rejects unsafe company URLs before insert", async () => {

@@ -38,7 +38,7 @@ vi.mock("@/lib/server/loader-helpers", () => ({
 }));
 
 vi.mock("@/lib/redis", () => ({
-  cacheGet: vi.fn((_key: string, fetcher: () => Promise<unknown>) => fetcher()),
+  cacheGet: vi.fn((_keyParts: Array<string | number>, fetcher: () => Promise<unknown>) => fetcher()),
 }));
 
 type CompanyRow = {
