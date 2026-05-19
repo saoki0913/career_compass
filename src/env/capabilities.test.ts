@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AuthConfigurationError,
   getDatabaseEnvStatus,
+  getRuntimeEnvProfile,
   requireAuthEnv,
   validateStartupCapabilities,
 } from "./capabilities";
@@ -13,6 +14,22 @@ const validAuthEnv = {
   BETTER_AUTH_TRUSTED_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000",
   GOOGLE_CLIENT_ID: "google-client",
   GOOGLE_CLIENT_SECRET: "google-secret",
+};
+
+const validDeployedEnv = {
+  ...validAuthEnv,
+  APP_ENV: "production",
+  NEXT_PUBLIC_APP_ENV: "production",
+  BETTER_AUTH_URL: "https://www.shupass.jp",
+  BETTER_AUTH_TRUSTED_ORIGINS: "https://www.shupass.jp,https://shupass.jp",
+  STRIPE_SECRET_KEY: "sk_live_test",
+  STRIPE_WEBHOOK_SECRET: "whsec_test",
+  ENCRYPTION_KEY: "a".repeat(64),
+  CRON_SECRET: "cron-secret",
+  INTERNAL_API_JWT_SECRET: "i".repeat(32),
+  CAREER_PRINCIPAL_HMAC_SECRET: "p".repeat(32),
+  TENANT_KEY_SECRET: "t".repeat(32),
+  FASTAPI_URL: "https://api.shupass.jp",
 };
 
 describe("capability env validation", () => {
@@ -42,11 +59,98 @@ describe("capability env validation", () => {
     expect(report.disabled).toContain("database");
   });
 
-  it("requires deployed profile capabilities", () => {
-    const report = validateStartupCapabilities("preview", validAuthEnv);
+  it("requires deployed profile capabilities in staging", () => {
+    const report = validateStartupCapabilities("staging", {
+      ...validAuthEnv,
+      APP_ENV: "staging",
+      NEXT_PUBLIC_APP_ENV: "staging",
+      BETTER_AUTH_URL: "https://stg.shupass.jp",
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://stg.shupass.jp",
+    });
 
     expect(report.fatal.join("\n")).toMatch(/STRIPE_SECRET_KEY/);
     expect(report.fatal.join("\n")).toMatch(/FASTAPI_URL/);
+    expect(report.fatal.join("\n")).toMatch(/TENANT_KEY_SECRET/);
+  });
+
+  it("maps explicit APP_ENV staging even when Vercel uses production env scope", () => {
+    expect(
+      getRuntimeEnvProfile({
+        NODE_ENV: "production",
+        VERCEL_ENV: "production",
+        APP_ENV: "staging",
+        NEXT_PUBLIC_APP_ENV: "staging",
+      }),
+    ).toBe("staging");
+  });
+
+  it("does not treat Vercel preview as an official runtime profile", () => {
+    expect(getRuntimeEnvProfile({ VERCEL_ENV: "preview", NODE_ENV: "development" })).toBe("development");
+  });
+
+  it("rejects mismatched APP_ENV and NEXT_PUBLIC_APP_ENV in deployed builds", () => {
+    const report = validateStartupCapabilities("staging", {
+      ...validDeployedEnv,
+      APP_ENV: "staging",
+      NEXT_PUBLIC_APP_ENV: "production",
+      BETTER_AUTH_URL: "https://stg.shupass.jp",
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://stg.shupass.jp",
+    });
+
+    expect(report.fatal.join("\n")).toMatch(/APP_ENV and NEXT_PUBLIC_APP_ENV must match/);
+  });
+
+  it("rejects local app env in deployed builds", () => {
+    const report = validateStartupCapabilities("production", {
+      ...validDeployedEnv,
+      APP_ENV: "local",
+      NEXT_PUBLIC_APP_ENV: "local",
+      STRIPE_PRICE_STANDARD_MONTHLY: "price_std_month",
+      STRIPE_PRICE_STANDARD_ANNUAL: "price_std_year",
+      STRIPE_PRICE_PRO_MONTHLY: "price_pro_month",
+      STRIPE_PRICE_PRO_ANNUAL: "price_pro_year",
+      STRIPE_PORTAL_CONFIGURATION_ID: "bpc_test",
+    });
+
+    expect(report.fatal.join("\n")).toMatch(/must not be local/);
+  });
+
+  it("requires Stripe portal configuration in production", () => {
+    const report = validateStartupCapabilities("production", {
+      ...validDeployedEnv,
+      STRIPE_PRICE_STANDARD_MONTHLY: "price_std_month",
+      STRIPE_PRICE_STANDARD_ANNUAL: "price_std_year",
+      STRIPE_PRICE_PRO_MONTHLY: "price_pro_month",
+      STRIPE_PRICE_PRO_ANNUAL: "price_pro_year",
+    });
+
+    expect(report.fatal.join("\n")).toMatch(/STRIPE_PORTAL_CONFIGURATION_ID/);
+  });
+
+  it("rejects invalid Stripe portal configuration format in production", () => {
+    const report = validateStartupCapabilities("production", {
+      ...validDeployedEnv,
+      STRIPE_PRICE_STANDARD_MONTHLY: "price_std_month",
+      STRIPE_PRICE_STANDARD_ANNUAL: "price_std_year",
+      STRIPE_PRICE_PRO_MONTHLY: "price_pro_month",
+      STRIPE_PRICE_PRO_ANNUAL: "price_pro_year",
+      STRIPE_PORTAL_CONFIGURATION_ID: "portal_test",
+    });
+
+    expect(report.fatal.join("\n")).toMatch(/STRIPE_PORTAL_CONFIGURATION_ID/);
+  });
+
+  it("accepts production startup env when all production gates are configured", () => {
+    const report = validateStartupCapabilities("production", {
+      ...validDeployedEnv,
+      STRIPE_PRICE_STANDARD_MONTHLY: "price_std_month",
+      STRIPE_PRICE_STANDARD_ANNUAL: "price_std_year",
+      STRIPE_PRICE_PRO_MONTHLY: "price_pro_month",
+      STRIPE_PRICE_PRO_ANNUAL: "price_pro_year",
+      STRIPE_PORTAL_CONFIGURATION_ID: "bpc_test",
+    });
+
+    expect(report.fatal).toEqual([]);
   });
 
   it("validates DATABASE_URL only when database capability is configured", () => {

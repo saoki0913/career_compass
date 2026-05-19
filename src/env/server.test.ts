@@ -23,6 +23,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 const serverSchemas = {
+  APP_ENV: z.enum(["local", "staging", "production"]).optional(),
   DATABASE_URL: z.string().url(),
   DIRECT_URL: z.string().url().optional(),
   DATABASE_POOL_SIZE: z.coerce.number().int().positive().optional(),
@@ -34,20 +35,36 @@ const serverSchemas = {
   STRIPE_SECRET_KEY: z.string().min(1),
   STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_"),
   STRIPE_PRICE_STANDARD_MONTHLY: z.string().optional(),
+  STRIPE_PORTAL_CONFIGURATION_ID: z.string().startsWith("bpc_").optional(),
   ENCRYPTION_KEY: z.string().length(64).regex(/^[0-9a-fA-F]+$/),
   CRON_SECRET: z.string().min(1),
   INTERNAL_API_JWT_SECRET: z.string().min(32),
   CAREER_PRINCIPAL_HMAC_SECRET: z.string().min(32),
+  TENANT_KEY_SECRET: z.string().min(32).optional(),
   FASTAPI_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
   UPSTASH_REDIS_NAMESPACE: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,31}$/).optional(),
   RESEND_API_KEY: z.string().min(1).optional(),
   CONTACT_TO_EMAIL: z.string().email().optional(),
+  CI_E2E_TEST_EMAIL: z.string().email().optional(),
+  CI_E2E_TEST_NAME: z.string().optional(),
+  CI_E2E_TEST_PLAN: z.enum(["free", "standard", "pro"]).optional(),
+  LOCAL_AI_LIVE_PREFLIGHT_ENABLED: z.string().optional(),
+  ALLOW_COMPANY_SEARCH_MOCK_FALLBACK: z.string().optional(),
+  CI_ALLOW_TEST_STRIPE_KEYS: z.string().optional(),
   DISABLE_TOKEN_LIMIT: z.string().optional(),
 };
 
 describe("server env schemas", () => {
+  it("validates APP_ENV when provided", () => {
+    expect(serverSchemas.APP_ENV.safeParse(undefined).success).toBe(true);
+    expect(serverSchemas.APP_ENV.safeParse("local").success).toBe(true);
+    expect(serverSchemas.APP_ENV.safeParse("staging").success).toBe(true);
+    expect(serverSchemas.APP_ENV.safeParse("production").success).toBe(true);
+    expect(serverSchemas.APP_ENV.safeParse("preview").success).toBe(false);
+  });
+
   it("accepts a valid DATABASE_URL", () => {
     expect(serverSchemas.DATABASE_URL.safeParse("postgresql://user:pass@host:5432/db").success).toBe(true);
   });
@@ -97,6 +114,19 @@ describe("server env schemas", () => {
     expect(serverSchemas.STRIPE_WEBHOOK_SECRET.safeParse("wrong_abc123").success).toBe(false);
   });
 
+  it("validates STRIPE_PORTAL_CONFIGURATION_ID starts with bpc_ when provided", () => {
+    expect(serverSchemas.STRIPE_PORTAL_CONFIGURATION_ID.safeParse(undefined).success).toBe(true);
+    expect(serverSchemas.STRIPE_PORTAL_CONFIGURATION_ID.safeParse("bpc_abc123").success).toBe(true);
+    expect(serverSchemas.STRIPE_PORTAL_CONFIGURATION_ID.safeParse("portal_abc123").success).toBe(false);
+  });
+
+  it("validates typed CI-only helper envs", () => {
+    expect(serverSchemas.CI_E2E_TEST_EMAIL.safeParse("ci@example.com").success).toBe(true);
+    expect(serverSchemas.CI_E2E_TEST_EMAIL.safeParse("not-email").success).toBe(false);
+    expect(serverSchemas.CI_E2E_TEST_PLAN.safeParse("standard").success).toBe(true);
+    expect(serverSchemas.CI_E2E_TEST_PLAN.safeParse("enterprise").success).toBe(false);
+  });
+
   it("validates BETTER_AUTH_SECRET minimum length", () => {
     expect(serverSchemas.BETTER_AUTH_SECRET.safeParse("a".repeat(32)).success).toBe(true);
     expect(serverSchemas.BETTER_AUTH_SECRET.safeParse("short").success).toBe(false);
@@ -105,6 +135,12 @@ describe("server env schemas", () => {
   it("validates INTERNAL_API_JWT_SECRET minimum length", () => {
     expect(serverSchemas.INTERNAL_API_JWT_SECRET.safeParse("a".repeat(32)).success).toBe(true);
     expect(serverSchemas.INTERNAL_API_JWT_SECRET.safeParse("a".repeat(31)).success).toBe(false);
+  });
+
+  it("validates optional TENANT_KEY_SECRET minimum length when provided", () => {
+    expect(serverSchemas.TENANT_KEY_SECRET.safeParse(undefined).success).toBe(true);
+    expect(serverSchemas.TENANT_KEY_SECRET.safeParse("a".repeat(32)).success).toBe(true);
+    expect(serverSchemas.TENANT_KEY_SECRET.safeParse("a".repeat(31)).success).toBe(false);
   });
 
   it("validates CONTACT_TO_EMAIL as email format", () => {

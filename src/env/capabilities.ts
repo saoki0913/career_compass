@@ -1,9 +1,10 @@
 import "server-only";
 
 import { z } from "zod";
+import { resolveAppEnvironment, validateAppEnvironmentConfiguration } from "@/env/deployment";
 import { parseTrustedOriginList } from "@/lib/trusted-origins";
 
-export type RuntimeEnvProfile = "development" | "test" | "preview" | "production";
+export type RuntimeEnvProfile = "development" | "test" | "staging" | "production";
 
 type RuntimeEnv = Record<string, string | undefined>;
 
@@ -56,6 +57,7 @@ const baseDeployedEnvSchema = authEnvSchema.extend({
   CRON_SECRET: nonEmptyString,
   INTERNAL_API_JWT_SECRET: secret32,
   CAREER_PRINCIPAL_HMAC_SECRET: secret32,
+  TENANT_KEY_SECRET: secret32,
   FASTAPI_URL: url,
 });
 
@@ -64,6 +66,7 @@ const productionEnvSchema = baseDeployedEnvSchema.extend({
   STRIPE_PRICE_STANDARD_ANNUAL: nonEmptyString,
   STRIPE_PRICE_PRO_MONTHLY: nonEmptyString,
   STRIPE_PRICE_PRO_ANNUAL: nonEmptyString,
+  STRIPE_PORTAL_CONFIGURATION_ID: z.string().trim().startsWith("bpc_"),
 });
 
 export type DatabaseEnv = z.infer<typeof databaseEnvSchema>;
@@ -134,9 +137,8 @@ function buildCapabilityErrorMessage(capability: string, missing: string[], inva
 
 export function getRuntimeEnvProfile(env: RuntimeEnv = process.env): RuntimeEnvProfile {
   if (env.VITEST) return "test";
-  if (env.VERCEL_ENV === "production") return "production";
-  if (env.VERCEL_ENV === "preview") return "preview";
-  if (env.NODE_ENV === "production") return "production";
+  const appEnv = resolveAppEnvironment(env);
+  if (appEnv === "staging" || appEnv === "production") return appEnv;
   return "development";
 }
 
@@ -190,6 +192,13 @@ export function validateStartupCapabilities(
   const fatal: string[] = [];
   const degraded: string[] = [];
   const disabled: string[] = [];
+  fatal.push(...validateAppEnvironmentConfiguration(env));
+  if (
+    (profile === "staging" || profile === "production") &&
+    (env.APP_ENV?.trim() === "local" || env.NEXT_PUBLIC_APP_ENV?.trim() === "local")
+  ) {
+    fatal.push("APP_ENV and NEXT_PUBLIC_APP_ENV must not be local in deployed builds.");
+  }
 
   if (profile === "development" || profile === "test") {
     if (env.DATABASE_URL) {
@@ -227,6 +236,10 @@ export function validateStartupCapabilities(
         if (!origins.has(origin)) {
           fatal.push(`BETTER_AUTH_TRUSTED_ORIGINS must include ${origin} in production.`);
         }
+      }
+    } else if (profile === "staging") {
+      if (!origins.has("https://stg.shupass.jp")) {
+        fatal.push("BETTER_AUTH_TRUSTED_ORIGINS must include https://stg.shupass.jp in staging.");
       }
     }
   } catch (error) {
