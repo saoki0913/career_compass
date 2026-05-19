@@ -6,21 +6,31 @@ const {
   getSessionMock,
   createApiErrorResponseMock,
   stripeCheckoutCreateMock,
+  stripeCheckoutListMock,
   stripeCustomerCreateMock,
+  stripeCustomerRetrieveMock,
   stripeSubscriptionsListMock,
   dbSelectLimitMock,
   dbInsertValuesMock,
   dbOnConflictDoUpdateMock,
+  dbTransactionMock,
+  dbExecuteMock,
+  logErrorMock,
 } = vi.hoisted(() => ({
   csrfMock: vi.fn(),
   getSessionMock: vi.fn(),
   createApiErrorResponseMock: vi.fn(),
   stripeCheckoutCreateMock: vi.fn(),
+  stripeCheckoutListMock: vi.fn(),
   stripeCustomerCreateMock: vi.fn(),
+  stripeCustomerRetrieveMock: vi.fn(),
   stripeSubscriptionsListMock: vi.fn(),
   dbSelectLimitMock: vi.fn(),
   dbInsertValuesMock: vi.fn(),
   dbOnConflictDoUpdateMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
+  dbExecuteMock: vi.fn(),
+  logErrorMock: vi.fn(),
 }));
 
 vi.mock("@/lib/csrf", () => ({
@@ -44,10 +54,12 @@ vi.mock("@/lib/stripe", () => ({
     checkout: {
       sessions: {
         create: stripeCheckoutCreateMock,
+        list: stripeCheckoutListMock,
       },
     },
     customers: {
       create: stripeCustomerCreateMock,
+      retrieve: stripeCustomerRetrieveMock,
     },
     subscriptions: {
       list: stripeSubscriptionsListMock,
@@ -55,8 +67,8 @@ vi.mock("@/lib/stripe", () => ({
   },
 }));
 
-vi.mock("@/lib/db", () => ({
-  db: {
+vi.mock("@/lib/db", () => {
+  const dbMock = {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
@@ -67,8 +79,11 @@ vi.mock("@/lib/db", () => ({
     insert: vi.fn(() => ({
       values: dbInsertValuesMock,
     })),
-  },
-}));
+    execute: dbExecuteMock,
+    transaction: dbTransactionMock,
+  };
+  return { db: dbMock };
+});
 
 vi.mock("@/lib/stripe/config", () => ({
   getPriceId: vi.fn(() => "price_test"),
@@ -80,7 +95,7 @@ vi.mock("@/lib/app-url", () => ({
 }));
 
 vi.mock("@/lib/logger", () => ({
-  logError: vi.fn(),
+  logError: logErrorMock,
 }));
 
 vi.mock("@/bff/api/error-response", () => ({
@@ -94,11 +109,16 @@ describe("POST /api/stripe/checkout", () => {
     getSessionMock.mockReset();
     createApiErrorResponseMock.mockReset();
     stripeCheckoutCreateMock.mockReset();
+    stripeCheckoutListMock.mockReset();
     stripeCustomerCreateMock.mockReset();
+    stripeCustomerRetrieveMock.mockReset();
     stripeSubscriptionsListMock.mockReset();
     dbSelectLimitMock.mockReset();
     dbInsertValuesMock.mockReset();
     dbOnConflictDoUpdateMock.mockReset();
+    dbTransactionMock.mockReset();
+    dbExecuteMock.mockReset();
+    logErrorMock.mockReset();
     csrfMock.mockReturnValue(null);
     getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
     let selectCallCount = 0;
@@ -110,8 +130,27 @@ describe("POST /api/stripe/checkout", () => {
       onConflictDoUpdate: dbOnConflictDoUpdateMock,
     });
     dbOnConflictDoUpdateMock.mockResolvedValue(undefined);
+    dbExecuteMock.mockResolvedValue(undefined);
+    dbTransactionMock.mockImplementation(async (operation) => operation({
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: dbSelectLimitMock,
+          })),
+        })),
+      })),
+      insert: vi.fn(() => ({
+        values: dbInsertValuesMock,
+      })),
+      execute: dbExecuteMock,
+    }));
     stripeCustomerCreateMock.mockResolvedValue({ id: "cus_1" });
+    stripeCustomerRetrieveMock.mockResolvedValue({
+      id: "cus_1",
+      metadata: { userId: "user-1" },
+    });
     stripeSubscriptionsListMock.mockResolvedValue({ data: [] });
+    stripeCheckoutListMock.mockResolvedValue({ data: [] });
     stripeCheckoutCreateMock.mockResolvedValue({ id: "cs_1", url: "https://checkout.stripe.test/cs_1" });
     createApiErrorResponseMock.mockImplementation((request: unknown, payload: { status: number }) =>
       NextResponse.json(payload, { status: payload.status }),
@@ -174,6 +213,18 @@ describe("POST /api/stripe/checkout", () => {
     expect(checkoutPayload.cancel_url).toBe("http://localhost:3000/pricing?canceled=true");
   });
 
+  it("serializes checkout list-and-create with a user-scoped database lock", async () => {
+    const { POST } = await import("./route");
+
+    await POST(makeCheckoutRequest({ plan: "standard", period: "monthly" }));
+
+    expect(dbTransactionMock).toHaveBeenCalledTimes(1);
+    expect(dbExecuteMock).toHaveBeenCalledTimes(1);
+    expect(dbExecuteMock.mock.calls[0][0]).toBeDefined();
+    expect(stripeCheckoutListMock).toHaveBeenCalledTimes(1);
+    expect(stripeCheckoutCreateMock).toHaveBeenCalledTimes(1);
+  });
+
   it("uses the stored customer id after first-checkout customer persistence races", async () => {
     dbSelectLimitMock
       .mockReset()
@@ -222,7 +273,7 @@ describe("POST /api/stripe/checkout", () => {
     expect(checkoutPayload.cancel_url).toBe("http://localhost:3000/pricing?canceled=true");
   });
 
-  it("passes an idempotencyKey derived from user, plan, period, and time bucket", async () => {
+  it("passes a user-scoped idempotencyKey for the active checkout window", async () => {
     const { POST } = await import("./route");
     const request = makeCheckoutRequest({ plan: "pro", period: "annual" });
 
@@ -233,6 +284,198 @@ describe("POST /api/stripe/checkout", () => {
     expect(opts).toBeDefined();
     expect(typeof opts.idempotencyKey).toBe("string");
     expect(opts.idempotencyKey.length).toBe(64); // SHA-256 hex digest
+  });
+
+  it("uses distinct checkout idempotency keys for different plan or period attempts", async () => {
+    const { POST } = await import("./route");
+
+    await POST(makeCheckoutRequest({ plan: "standard", period: "monthly" }));
+    const firstKey = stripeCheckoutCreateMock.mock.calls[0][1].idempotencyKey;
+
+    stripeCheckoutCreateMock.mockClear();
+    await POST(makeCheckoutRequest({ plan: "pro", period: "annual" }));
+    const secondKey = stripeCheckoutCreateMock.mock.calls[0][1].idempotencyKey;
+
+    expect(firstKey).not.toBe(secondKey);
+  });
+
+  it("reuses an open checkout session for the same plan and period", async () => {
+    dbSelectLimitMock.mockResolvedValue([
+      {
+        stripeCustomerId: "cus_existing",
+        stripeSubscriptionId: null,
+        status: "free",
+      },
+    ]);
+    stripeCustomerRetrieveMock.mockResolvedValueOnce({
+      id: "cus_existing",
+      metadata: { userId: "user-1" },
+    });
+    stripeCheckoutListMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: "cs_open",
+          status: "open",
+          url: "https://checkout.stripe.test/cs_open",
+          metadata: { plan: "standard", period: "monthly" },
+        },
+      ],
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(makeCheckoutRequest({ plan: "standard", period: "monthly" }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload).toMatchObject({
+      url: "https://checkout.stripe.test/cs_open",
+      sessionId: "cs_open",
+      reused: true,
+    });
+    expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects checkout when another open checkout session exists for the customer", async () => {
+    dbSelectLimitMock.mockResolvedValue([
+      {
+        stripeCustomerId: "cus_existing",
+        stripeSubscriptionId: null,
+        status: "free",
+      },
+    ]);
+    stripeCustomerRetrieveMock.mockResolvedValueOnce({
+      id: "cus_existing",
+      metadata: { userId: "user-1" },
+    });
+    stripeCheckoutListMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: "cs_open",
+          status: "open",
+          url: "https://checkout.stripe.test/cs_open",
+          metadata: { plan: "pro", period: "annual" },
+        },
+      ],
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(makeCheckoutRequest({ plan: "standard", period: "monthly" }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.code).toBe("STRIPE_CHECKOUT_PENDING_SESSION");
+    expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects checkout when any open checkout session conflicts with the requested plan", async () => {
+    dbSelectLimitMock.mockResolvedValue([
+      {
+        stripeCustomerId: "cus_existing",
+        stripeSubscriptionId: null,
+        status: "free",
+      },
+    ]);
+    stripeCustomerRetrieveMock.mockResolvedValueOnce({
+      id: "cus_existing",
+      metadata: { userId: "user-1" },
+    });
+    stripeCheckoutListMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: "cs_matching",
+          status: "open",
+          url: "https://checkout.stripe.test/cs_matching",
+          metadata: { plan: "standard", period: "monthly" },
+        },
+        {
+          id: "cs_conflicting",
+          status: "open",
+          url: "https://checkout.stripe.test/cs_conflicting",
+          metadata: { plan: "pro", period: "annual" },
+        },
+      ],
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(makeCheckoutRequest({ plan: "standard", period: "monthly" }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.code).toBe("STRIPE_CHECKOUT_PENDING_SESSION");
+    expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("checks later open checkout session pages before reusing a matching session", async () => {
+    dbSelectLimitMock.mockResolvedValue([
+      {
+        stripeCustomerId: "cus_existing",
+        stripeSubscriptionId: null,
+        status: "free",
+      },
+    ]);
+    stripeCustomerRetrieveMock.mockResolvedValueOnce({
+      id: "cus_existing",
+      metadata: { userId: "user-1" },
+    });
+    stripeCheckoutListMock
+      .mockResolvedValueOnce({
+        has_more: true,
+        data: [
+          {
+            id: "cs_matching",
+            status: "open",
+            url: "https://checkout.stripe.test/cs_matching",
+            metadata: { plan: "standard", period: "monthly" },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        has_more: false,
+        data: [
+          {
+            id: "cs_later_conflict",
+            status: "open",
+            url: "https://checkout.stripe.test/cs_later_conflict",
+            metadata: { plan: "pro", period: "annual" },
+          },
+        ],
+      });
+
+    const { POST } = await import("./route");
+    const response = await POST(makeCheckoutRequest({ plan: "standard", period: "monthly" }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.code).toBe("STRIPE_CHECKOUT_PENDING_SESSION");
+    expect(stripeCheckoutListMock).toHaveBeenNthCalledWith(2, {
+      customer: "cus_existing",
+      status: "open",
+      limit: 100,
+      starting_after: "cs_matching",
+    });
+    expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects checkout when the stored Stripe customer belongs to another user", async () => {
+    dbSelectLimitMock.mockResolvedValue([
+      {
+        stripeCustomerId: "cus_existing",
+        stripeSubscriptionId: null,
+        status: "free",
+      },
+    ]);
+    stripeCustomerRetrieveMock.mockResolvedValueOnce({
+      id: "cus_existing",
+      metadata: { userId: "user-2" },
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(makeCheckoutRequest({ plan: "standard", period: "monthly" }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(payload.code).toBe("STRIPE_CHECKOUT_CUSTOMER_OWNER_MISMATCH");
+    expect(stripeCheckoutCreateMock).not.toHaveBeenCalled();
   });
 
   it("rejects invalid billing period before creating a customer", async () => {

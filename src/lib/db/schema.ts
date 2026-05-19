@@ -320,6 +320,8 @@ export const subscriptions = pgTable(
     cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
     lastStripeEventId: text("last_stripe_event_id"),
     lastStripeEventCreatedAt: timestamptz("last_stripe_event_created_at"),
+    lastStripeEventType: text("last_stripe_event_type"),
+    lastStripeEventRank: integer("last_stripe_event_rank").notNull().default(0),
     lastEntitlementSyncedAt: timestamptz("last_entitlement_synced_at"),
     billingHoldStatus: text("billing_hold_status", { enum: ["none", "dispute"] }).notNull().default("none"),
     billingHoldReason: text("billing_hold_reason"),
@@ -432,6 +434,43 @@ export const companyInfoMonthlyUsage = pgTable(
     uniqueIndex("company_info_monthly_usage_user_month_ux").on(t.userId, t.monthKey),
     index("company_info_monthly_usage_user_idx").on(t.userId),
   ]
+);
+
+export const companyRagIngestQuotes = pgTable(
+  "company_rag_ingest_quotes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    companyId: text("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["url", "pdf"] }).notNull(),
+    inputHash: text("input_hash").notNull(),
+    planSnapshot: text("plan_snapshot").notNull(),
+    estimatedHtmlUnits: integer("estimated_html_units").notNull().default(0),
+    estimatedPdfUnits: integer("estimated_pdf_units").notNull().default(0),
+    estimatedCredits: integer("estimated_credits").notNull().default(0),
+    status: text("status", { enum: ["quoted", "reserved", "confirmed", "canceled", "expired"] }).notNull().default("quoted"),
+    sourceResults: jsonb("source_results").$type<JsonRecord[]>().notNull().default(sql`'[]'::jsonb`),
+    reservationIds: jsonb("reservation_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    expiresAt: timestamptz("expires_at").notNull(),
+    reservedAt: timestamptz("reserved_at"),
+    confirmedAt: timestamptz("confirmed_at"),
+    canceledAt: timestamptz("canceled_at"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("company_rag_ingest_quotes_user_company_idx").on(t.userId, t.companyId),
+    index("company_rag_ingest_quotes_status_expires_idx").on(t.status, t.expiresAt),
+    check("company_rag_ingest_quotes_kind_check", sql`${t.kind} in ('url', 'pdf')`),
+    check(
+      "company_rag_ingest_quotes_status_check",
+      sql`${t.status} in ('quoted', 'reserved', 'confirmed', 'canceled', 'expired')`,
+    ),
+  ],
 );
 
 // Tasks table - task management

@@ -15,6 +15,7 @@ import {
   reserveCredits,
   type TransactionType,
 } from "@/lib/credits";
+import { logError } from "@/lib/logger";
 import type {
   BillingOutcome,
   BillingPolicy,
@@ -62,7 +63,14 @@ export const interviewInlinePolicy: BillingPolicy<InterviewInlineBillingContext>
     if (outcome.kind !== "billable_success" || !reservationId) {
       return;
     }
-    await confirmReservation(reservationId);
+    const result = await confirmReservation(reservationId);
+    if (!result.confirmed) {
+      logError("interview-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+        reservationId,
+        userId: _ctx.userId,
+        companyId: _ctx.companyId,
+      });
+    }
   },
 
   async cancel(

@@ -13,10 +13,11 @@ import { eq } from "drizzle-orm";
 import { getAppUrl } from "@/lib/app-url";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { requireUserMutationRequest } from "@/bff/api/mutation-guard";
+import { resolveAppEnvironment } from "@/env/deployment";
 import { getPortalConfigurationId } from "@/lib/stripe/config";
 
 function isProductionDeployment() {
-  return process.env.VERCEL_ENV === "production" || process.env.NODE_ENV === "production";
+  return resolveAppEnvironment() === "production";
 }
 
 function getStripeCustomerId(

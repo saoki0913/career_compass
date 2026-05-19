@@ -31,12 +31,16 @@ describe("BillingSection", () => {
     expect(source).toContain("getSubscriptionStatusMessage");
   });
 
-  it("uses isActiveSubscriptionStatus for portal button visibility", () => {
-    expect(source).toContain("isActiveSubscriptionStatus");
+  it("uses portal eligibility for portal button visibility", () => {
+    expect(source).toContain("canManageSubscriptionInPortal");
   });
 
   it("renders upgrade link for free users pointing to /pricing?source=settings", () => {
     expect(source).toContain("/pricing?source=settings");
+  });
+
+  it("does not send free-profile payment recovery users away from portal", () => {
+    expect(source).toContain("{isFreeUser && !canOpenPortal &&");
   });
 
   it("renders portal button for paid users with active subscription", () => {

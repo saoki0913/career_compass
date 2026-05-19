@@ -18,6 +18,7 @@ import {
   reserveCredits,
 } from "@/lib/credits";
 import { cancelMonthlyScheduleFreeUse, reserveMonthlyScheduleFreeUse } from "@/lib/company-info/usage";
+import { logError } from "@/lib/logger";
 import type {
   BillingOutcome,
   BillingPolicy,
@@ -89,7 +90,14 @@ export const companyFetchPolicy: BillingPolicy<CompanyFetchBillingContext> = {
     }
 
     if (reservationId !== FREE_SCHEDULE_RESERVATION_ID) {
-      await confirmReservation(reservationId);
+      const result = await confirmReservation(reservationId);
+      if (!result.confirmed) {
+        logError("company-fetch-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+          reservationId,
+          userId: ctx.userId,
+          companyId: ctx.companyId,
+        });
+      }
     }
   },
 

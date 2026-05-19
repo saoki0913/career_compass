@@ -9,11 +9,11 @@ import { trackEvent } from "@/lib/analytics/client";
 import type { BillingPeriod, PlanType } from "@/lib/billing/plan-metadata";
 import {
   PRICING_CHECKOUT_PATH,
-  clearPricingIntent,
   createPricingIntent,
   getPricingSelectionAction,
   isPaidPlanType,
-  savePricingIntent,
+  tryClearPricingIntent,
+  trySavePricingIntent,
   type PaidPlanType,
   type PricingIntentSource,
 } from "@/lib/billing/pricing-flow";
@@ -94,7 +94,7 @@ export function usePricingPlanSelection({
         throw new Error("請求管理ページを開けませんでした");
       }
       trackEvent("portal_opened", { source: sourceForAnalytics, currentPlan: currentPlan ?? "unknown" });
-      clearPricingIntent(window.sessionStorage);
+      tryClearPricingIntent(window.sessionStorage);
       window.location.href = url;
       return true;
     } catch (portalError) {
@@ -138,7 +138,7 @@ export function usePricingPlanSelection({
       const url = readCheckoutUrl(data);
       if (url) {
         trackEvent("checkout_start", { plan, period, source: context.analyticsSource, reason: context.reason });
-        clearPricingIntent(window.sessionStorage);
+        tryClearPricingIntent(window.sessionStorage);
         window.location.href = url;
         return true;
       }
@@ -174,16 +174,17 @@ export function usePricingPlanSelection({
       targetPlan: planId,
       isAuthenticated,
       hasActiveSubscription,
+      subscriptionStatus: userPlan?.subscriptionStatus,
     });
 
     if (action === "dashboard") {
-      clearPricingIntent(window.sessionStorage);
+      tryClearPricingIntent(window.sessionStorage);
       startTransition(() => { router.push("/dashboard"); });
       return true;
     }
 
     if (action === "free") {
-      clearPricingIntent(window.sessionStorage);
+      tryClearPricingIntent(window.sessionStorage);
       startTransition(() => {
         router.push(isAuthenticated ? "/dashboard" : "/login?redirect=/dashboard");
       });
@@ -192,12 +193,17 @@ export function usePricingPlanSelection({
 
     if (action === "login") {
       if (isPaidPlanType(planId)) {
-        savePricingIntent(window.sessionStorage, createPricingIntent({
+        const saved = trySavePricingIntent(window.sessionStorage, createPricingIntent({
           plan: planId,
           period: billingPeriod,
           source: effectiveContext.intentSource,
           reason: effectiveContext.reason,
         }));
+        if (!saved) {
+          setError("ブラウザの保存領域を確認できませんでした。ログイン後にもう一度プランを選択してください。");
+          isBusyRef.current = false;
+          return false;
+        }
       }
       trackEvent("checkout_intent_login", {
         plan: planId,
@@ -213,12 +219,6 @@ export function usePricingPlanSelection({
 
     if (action === "portal") {
       const navigated = await openBillingPortal(effectiveContext.analyticsSource);
-      if (!navigated && isPaidPlanType(planId)) {
-        setError(null);
-        const fallback = await handleCheckout(planId, billingPeriod, effectiveContext);
-        if (!fallback) isBusyRef.current = false;
-        return fallback;
-      }
       if (!navigated) isBusyRef.current = false;
       return navigated;
     }
@@ -243,6 +243,7 @@ export function usePricingPlanSelection({
     reason,
     router,
     startTransition,
+    userPlan?.subscriptionStatus,
   ]);
 
   return {

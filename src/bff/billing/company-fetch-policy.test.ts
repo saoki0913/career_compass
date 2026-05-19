@@ -13,6 +13,10 @@ vi.mock("@/lib/company-info/usage", () => ({
   reserveMonthlyScheduleFreeUse: vi.fn(),
 }));
 
+vi.mock("@/lib/logger", () => ({
+  logError: vi.fn(),
+}));
+
 describe("companyFetchPolicy", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -88,6 +92,7 @@ describe("companyFetchPolicy", () => {
 
   it("confirms only paid credit reservations and requires a success reservation", async () => {
     const credits = await import("@/lib/credits");
+    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: true });
     const { companyFetchPolicy } = await import("./company-fetch-policy");
     const outcome = { kind: "billable_success" as const, creditsConsumed: 1, freeQuotaUsed: false };
 
@@ -97,6 +102,25 @@ describe("companyFetchPolicy", () => {
     expect(credits.confirmReservation).toHaveBeenCalledTimes(1);
     expect(credits.confirmReservation).toHaveBeenCalledWith("reservation-1");
     await expect(companyFetchPolicy.confirm(ctx, outcome, null)).rejects.toThrow("Missing company fetch billing reservation");
+  });
+
+  it("logs when paid credit reservation confirmation is not applied", async () => {
+    const credits = await import("@/lib/credits");
+    const logger = await import("@/lib/logger");
+    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: false });
+    const { companyFetchPolicy } = await import("./company-fetch-policy");
+
+    await companyFetchPolicy.confirm(
+      ctx,
+      { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
+      "reservation-1",
+    );
+
+    expect(logger.logError).toHaveBeenCalledWith(
+      "company-fetch-reservation-confirm-after-success-failed",
+      expect.any(Error),
+      expect.objectContaining({ reservationId: "reservation-1", userId: "user-1" }),
+    );
   });
 
   it("cancels free quota and paid credit reservations through their matching stores", async () => {

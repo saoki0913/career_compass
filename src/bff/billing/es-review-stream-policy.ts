@@ -30,15 +30,47 @@ export interface EsReviewStreamBillingContext {
   requestId?: string;
 }
 
+function structuredBillingErrorResponse(
+  status: number,
+  code: string,
+  userMessage: string,
+  action: string,
+  requestId?: string,
+  extra?: Record<string, unknown>,
+): Response {
+  return new Response(
+    JSON.stringify({
+      error: {
+        code,
+        userMessage,
+        action,
+        retryable: status >= 500,
+      },
+      ...(requestId ? { requestId } : {}),
+      ...(extra ?? {}),
+    }),
+    {
+      status,
+      headers: {
+        "Content-Type": "application/json",
+        ...(requestId ? { "X-Request-Id": requestId } : {}),
+      },
+    },
+  );
+}
+
 export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> = {
   async precheck(ctx): Promise<BillingPrecheckResult> {
     if (!ctx.userId) {
       return {
         ok: false,
         freeQuotaAvailable: false,
-        errorResponse: new Response(
-          JSON.stringify({ error: "AI添削機能を使用するにはログインが必要です" }),
-          { status: 401, headers: { "Content-Type": "application/json" } },
+        errorResponse: structuredBillingErrorResponse(
+          401,
+          "ES_REVIEW_AUTH_REQUIRED",
+          "AI添削機能を使用するにはログインが必要です。",
+          "ログインしてから、もう一度お試しください。",
+          ctx.requestId,
         ),
       };
     }
@@ -52,9 +84,12 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
     if (!ctx.userId) {
       return {
         reservationId: null,
-        errorResponse: new Response(
-          JSON.stringify({ error: "AI添削機能を使用するにはログインが必要です" }),
-          { status: 401, headers: { "Content-Type": "application/json" } },
+        errorResponse: structuredBillingErrorResponse(
+          401,
+          "ES_REVIEW_AUTH_REQUIRED",
+          "AI添削機能を使用するにはログインが必要です。",
+          "ログインしてから、もう一度お試しください。",
+          ctx.requestId,
         ),
       };
     }
@@ -68,34 +103,26 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
     );
     if (!reservation.success) {
       if (reservation.errorCode === "BILLING_GATE_UNAVAILABLE") {
-        const responseBody = {
-          error: {
-            code: "BILLING_GATE_UNAVAILABLE",
-            message: "Billing gate unavailable",
-            retryable: true,
-          },
-          requestId: ctx.requestId,
-        };
-
         return {
           reservationId: null,
-          errorResponse: new Response(
-            JSON.stringify(responseBody),
-            {
-              status: 503,
-              headers: {
-                "Content-Type": "application/json",
-                ...(ctx.requestId ? { "X-Request-Id": ctx.requestId } : {}),
-              },
-            },
+          errorResponse: structuredBillingErrorResponse(
+            503,
+            "BILLING_GATE_UNAVAILABLE",
+            "課金状態の確認に失敗しました。",
+            "時間を置いて、もう一度お試しください。",
+            ctx.requestId,
           ),
         };
       }
       return {
         reservationId: null,
-        errorResponse: new Response(
-          JSON.stringify({ error: "クレジットが不足しています", creditCost }),
-          { status: 402, headers: { "Content-Type": "application/json" } },
+        errorResponse: structuredBillingErrorResponse(
+          402,
+          "ES_REVIEW_CREDITS_INSUFFICIENT",
+          "クレジットが不足しています。",
+          "プランまたはクレジット残高を確認してください。",
+          ctx.requestId,
+          { creditCost },
         ),
       };
     }
@@ -113,7 +140,12 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
     if (!reservationId) {
       return;
     }
-    await confirmReservation(reservationId);
+    const result = await confirmReservation(reservationId);
+    if (!result.confirmed) {
+      logError("es-review-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+        reservationId,
+      });
+    }
   },
 
   async cancel(

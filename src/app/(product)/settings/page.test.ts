@@ -9,6 +9,13 @@ describe("settings guest gate", () => {
     expect(source).toContain("アカウント設定");
     expect(source).toContain("fallbackAction");
   });
+
+  it("gates settings API reads on authenticated state instead of guest state alone", () => {
+    expect(source).toContain("isAuthenticated");
+    expect(source).toContain("if (!isAuthenticated)");
+    expect(source).not.toContain("if (!isAuthLoading && isGuest) return");
+    expect(source).not.toContain("if (!isAuthLoading && !isGuest)");
+  });
 });
 
 describe("settings billing boundary", () => {

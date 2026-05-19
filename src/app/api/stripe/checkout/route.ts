@@ -29,6 +29,26 @@ const NON_TERMINAL_SUBSCRIPTION_STATUSES = new Set([
   "incomplete",
 ]);
 
+type CheckoutDatabase = typeof db;
+
+type OpenCheckoutSessionDecision =
+  | { kind: "none" }
+  | { kind: "reuse"; session: Stripe.Checkout.Session }
+  | { kind: "conflict"; session: Stripe.Checkout.Session };
+
+class StripeCheckoutCustomerError extends Error {
+  constructor(
+    readonly status: 403 | 409,
+    readonly code: string,
+    readonly userMessage: string,
+    readonly action: string,
+    developerMessage: string,
+  ) {
+    super(developerMessage);
+    this.name = "StripeCheckoutCustomerError";
+  }
+}
+
 function getCheckoutCancelUrl(appUrl: string, value: unknown): string {
   const cancelSource: CheckoutCancelSource | null = value === "lp-pricing" ? "lp-pricing" : null;
   if (cancelSource === "lp-pricing") {
@@ -47,9 +67,74 @@ function findNonTerminalStripeSubscription(
   return items.find((subscription) => hasNonTerminalSubscriptionStatus(subscription.status)) ?? null;
 }
 
-async function persistStripeCustomerId(userId: string, stripeCustomerId: string): Promise<string> {
+async function assertOwnedStripeCustomer(
+  userId: string,
+  stripeCustomerId: string,
+): Promise<void> {
+  const customer = await stripe.customers.retrieve(stripeCustomerId);
+  if ("deleted" in customer && customer.deleted) {
+    throw new StripeCheckoutCustomerError(
+      409,
+      "STRIPE_CHECKOUT_CUSTOMER_UNAVAILABLE",
+      "プラン変更を開始できませんでした。",
+      "サポートにお問い合わせください。",
+      `Stripe customer is deleted: ${stripeCustomerId}`,
+    );
+  }
+  if (customer.metadata?.userId !== userId) {
+    throw new StripeCheckoutCustomerError(
+      403,
+      "STRIPE_CHECKOUT_CUSTOMER_OWNER_MISMATCH",
+      "プラン変更を開始できませんでした。",
+      "サポートにお問い合わせください。",
+      `Stripe customer metadata userId ${customer.metadata?.userId ?? "<missing>"} does not match ${userId}`,
+    );
+  }
+}
+
+async function findOpenCheckoutSession(
+  stripeCustomerId: string,
+  plan: PlanType,
+  period: BillingPeriod,
+): Promise<OpenCheckoutSessionDecision> {
+  let reusableSession: Stripe.Checkout.Session | null = null;
+  let startingAfter: string | undefined;
+
+  do {
+    const sessions = await stripe.checkout.sessions.list({
+      customer: stripeCustomerId,
+      status: "open",
+      limit: 100,
+      ...(startingAfter ? { starting_after: startingAfter } : {}),
+    });
+
+    for (const session of sessions.data) {
+      if (session.status !== "open") {
+        continue;
+      }
+      if (
+        !session.url ||
+        session.metadata?.plan !== plan ||
+        session.metadata?.period !== period
+      ) {
+        return { kind: "conflict", session };
+      }
+      reusableSession ??= session;
+    }
+
+    startingAfter = sessions.has_more ? sessions.data.at(-1)?.id : undefined;
+  } while (startingAfter);
+
+  return reusableSession ? { kind: "reuse", session: reusableSession } : { kind: "none" };
+}
+
+async function persistStripeCustomerId(
+  database: CheckoutDatabase,
+  userId: string,
+  stripeCustomerId: string,
+): Promise<string> {
   const now = new Date();
-  await db
+  await database
     .insert(subscriptions)
     .values({
       id: crypto.randomUUID(),
@@ -66,7 +151,7 @@ async function persistStripeCustomerId(userId: string, stripeCustomerId: string)
       },
     });
 
-  const [storedSubscription] = await db
+  const [storedSubscription] = await database
     .select()
     .from(subscriptions)
     .where(eq(subscriptions.userId, userId))
@@ -77,6 +162,16 @@ async function persistStripeCustomerId(userId: string, stripeCustomerId: string)
   }
 
   return storedSubscription.stripeCustomerId;
+}
+
+async function withCheckoutCreationLock<T>(
+  userId: string,
+  operation: (database: CheckoutDatabase) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`stripe_checkout:${userId}`}))`);
+    return operation(tx as CheckoutDatabase);
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -124,20 +219,21 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Get or create Stripe customer
-    let stripeCustomerId: string | undefined;
+    return await withCheckoutCreationLock(session.user.id, async (database) => {
+      // Get or create Stripe customer
+      let stripeCustomerId: string | undefined;
+      let checkedOpenCheckoutSession = false;
 
-    // Check if user already has a subscription with customer ID
-    const [existingSubscription] = await db
-      .select()
-      .from(subscriptions)
-      .where(eq(subscriptions.userId, session.user.id))
-      .limit(1);
+      // Check if user already has a subscription with customer ID
+      const [existingSubscription] = await database
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, session.user.id))
+        .limit(1);
 
     // Block checkout if user already has a non-terminal subscription.
     if (
-      existingSubscription?.stripeSubscriptionId &&
-      existingSubscription.status &&
+      existingSubscription?.status &&
       hasNonTerminalSubscriptionStatus(existingSubscription.status)
     ) {
       return createApiErrorResponse(req, {
@@ -151,6 +247,8 @@ export async function POST(req: NextRequest) {
 
     // Also check Stripe API for non-terminal subscriptions (handles concurrent POST before webhook fires).
     if (existingSubscription?.stripeCustomerId) {
+      await assertOwnedStripeCustomer(session.user.id, existingSubscription.stripeCustomerId);
+
       const stripeSubscriptions = await stripe.subscriptions.list({
         customer: existingSubscription.stripeCustomerId,
         status: "all",
@@ -167,6 +265,29 @@ export async function POST(req: NextRequest) {
           developerMessage: `Stripe customer already has a non-terminal subscription: ${nonTerminalSubscription.status}`,
         });
       }
+
+      const openCheckoutDecision = await findOpenCheckoutSession(
+        existingSubscription.stripeCustomerId,
+        plan,
+        period,
+      );
+      checkedOpenCheckoutSession = true;
+      if (openCheckoutDecision.kind === "reuse") {
+        return NextResponse.json({
+          url: openCheckoutDecision.session.url,
+          sessionId: openCheckoutDecision.session.id,
+          reused: true,
+        });
+      }
+      if (openCheckoutDecision.kind === "conflict") {
+        return createApiErrorResponse(req, {
+          status: 409,
+          code: "STRIPE_CHECKOUT_PENDING_SESSION",
+          userMessage: "進行中の決済手続きがあります。",
+          action: "開いている決済画面を完了するか、しばらく時間をおいてからもう一度お試しください。",
+          developerMessage: `Stripe customer already has an open checkout session: ${openCheckoutDecision.session.id}`,
+        });
+      }
     }
 
     if (existingSubscription?.stripeCustomerId) {
@@ -180,13 +301,33 @@ export async function POST(req: NextRequest) {
         },
       });
       stripeCustomerId = customer.id;
-      stripeCustomerId = await persistStripeCustomerId(session.user.id, stripeCustomerId);
+      stripeCustomerId = await persistStripeCustomerId(database, session.user.id, stripeCustomerId);
+    }
+
+    if (!checkedOpenCheckoutSession) {
+      const openCheckoutDecision = await findOpenCheckoutSession(stripeCustomerId, plan, period);
+      if (openCheckoutDecision.kind === "reuse") {
+        return NextResponse.json({
+          url: openCheckoutDecision.session.url,
+          sessionId: openCheckoutDecision.session.id,
+          reused: true,
+        });
+      }
+      if (openCheckoutDecision.kind === "conflict") {
+        return createApiErrorResponse(req, {
+          status: 409,
+          code: "STRIPE_CHECKOUT_PENDING_SESSION",
+          userMessage: "進行中の決済手続きがあります。",
+          action: "開いている決済画面を完了するか、しばらく時間をおいてからもう一度お試しください。",
+          developerMessage: `Stripe customer already has an open checkout session: ${openCheckoutDecision.session.id}`,
+        });
+      }
     }
 
     // Create checkout session
     //
     // 改正特商法 12 条の 6（最終確認画面の表示義務）対応:
-    //   docs/release/INDIVIDUAL_BUSINESS_COMPLIANCE.md §6-2 に従い、
+    //   docs/release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md §6-2 に従い、
     //   Stripe Checkout の最終確認画面で以下を明示する:
     //     - 自動更新サブスクリプションである旨
     //     - 解約方法と次回更新日までの利用可
@@ -200,7 +341,7 @@ export async function POST(req: NextRequest) {
     // 必ず Dashboard 側の設定を完了させること。
     const timeBucket = Math.floor(Date.now() / (10 * 60 * 1000));
     const idempotencyKey = createHash("sha256")
-      .update(`checkout:${session.user.id}:${plan}:${period}:${timeBucket}`)
+      .update(`checkout:${session.user.id}:${stripeCustomerId}:${plan}:${period}:${timeBucket}`)
       .digest("hex");
 
     const checkoutSession = await stripe.checkout.sessions.create({
@@ -251,11 +392,21 @@ export async function POST(req: NextRequest) {
       },
     }, { idempotencyKey });
 
-    return NextResponse.json({
-      url: checkoutSession.url,
-      sessionId: checkoutSession.id,
+      return NextResponse.json({
+        url: checkoutSession.url,
+        sessionId: checkoutSession.id,
+      });
     });
   } catch (error) {
+    if (error instanceof StripeCheckoutCustomerError) {
+      return createApiErrorResponse(req, {
+        status: error.status,
+        code: error.code,
+        userMessage: error.userMessage,
+        action: error.action,
+        developerMessage: error.message,
+      });
+    }
     logError("stripe-checkout", error);
     return createApiErrorResponse(req, {
       status: 500,

@@ -9,6 +9,8 @@ import {
   restorePricingIntent,
   savePricingIntent,
   shouldDeferOnboardingForPricingIntent,
+  tryClearPricingIntent,
+  trySavePricingIntent,
 } from "@/lib/billing/pricing-flow";
 
 class MemoryStorage implements Pick<Storage, "getItem" | "setItem" | "removeItem"> {
@@ -48,6 +50,63 @@ describe("getPricingSelectionAction", () => {
         hasActiveSubscription: false,
       })
     ).toBe("checkout");
+  });
+
+  it("routes paid users with payment recovery status to portal", () => {
+    expect(
+      getPricingSelectionAction({
+        currentPlan: "standard",
+        targetPlan: "pro",
+        isAuthenticated: true,
+        hasActiveSubscription: false,
+        subscriptionStatus: "past_due",
+      })
+    ).toBe("portal");
+  });
+
+  it("routes free-profile users with payment recovery status to portal", () => {
+    expect(
+      getPricingSelectionAction({
+        currentPlan: "free",
+        targetPlan: "standard",
+        isAuthenticated: true,
+        hasActiveSubscription: false,
+        subscriptionStatus: "past_due",
+      })
+    ).toBe("portal");
+  });
+
+  it("routes financial-downgrade users to portal instead of checkout", () => {
+    expect(
+      getPricingSelectionAction({
+        currentPlan: "free",
+        targetPlan: "standard",
+        isAuthenticated: true,
+        hasActiveSubscription: false,
+        subscriptionStatus: "refunded",
+      })
+    ).toBe("portal");
+    expect(
+      getPricingSelectionAction({
+        currentPlan: "free",
+        targetPlan: "pro",
+        isAuthenticated: true,
+        hasActiveSubscription: false,
+        subscriptionStatus: "dispute_lost",
+      })
+    ).toBe("portal");
+  });
+
+  it("routes users with payment recovery status to portal even when selecting current plan", () => {
+    expect(
+      getPricingSelectionAction({
+        currentPlan: "standard",
+        targetPlan: "standard",
+        isAuthenticated: true,
+        hasActiveSubscription: false,
+        subscriptionStatus: "past_due",
+      })
+    ).toBe("portal");
   });
 
   it("routes authenticated free users to checkout", () => {
@@ -159,6 +218,34 @@ describe("pricing intent helpers", () => {
     })).toBe(true);
     expect(shouldDeferOnboardingForPricingIntent({
       pathname: "/dashboard",
+      storage,
+      now: 1_100,
+    })).toBe(false);
+  });
+
+  it("fails closed when browser storage throws", () => {
+    const storage = {
+      getItem: () => {
+        throw new Error("storage blocked");
+      },
+      setItem: () => {
+        throw new Error("storage blocked");
+      },
+      removeItem: () => {
+        throw new Error("storage blocked");
+      },
+    };
+
+    expect(trySavePricingIntent(storage, createPricingIntent({
+      plan: "standard",
+      period: "monthly",
+      source: "pricing",
+      now: 1_000,
+    }))).toBe(false);
+    expect(tryClearPricingIntent(storage)).toBe(false);
+    expect(restorePricingIntent(storage, 1_100)).toBeNull();
+    expect(shouldDeferOnboardingForPricingIntent({
+      pathname: PRICING_CHECKOUT_PATH,
       storage,
       now: 1_100,
     })).toBe(false);

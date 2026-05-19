@@ -9,20 +9,7 @@ import { usePricingPlanSelection } from "@/hooks/usePricingPlanSelection";
 type CheckoutResolution =
   | { state: "pending" }
   | { state: "missing" }
-  | { state: "storage_error" }
   | { state: "selection_failed" };
-
-type RestoredPricingIntent =
-  | { ok: true; intent: PricingIntent | null }
-  | { ok: false };
-
-function restorePricingIntentSafely(storage: Storage): RestoredPricingIntent {
-  try {
-    return { ok: true, intent: restorePricingIntent(storage) };
-  } catch {
-    return { ok: false };
-  }
-}
 
 export function PricingCheckoutResolver() {
   const attemptedRef = useRef(false);
@@ -37,17 +24,12 @@ export function PricingCheckoutResolver() {
     attemptedRef.current = true;
 
     let cancelled = false;
-    const restored = restorePricingIntentSafely(window.sessionStorage);
-    if (!restored.ok) {
-      queueMicrotask(() => {
-        if (!cancelled) setResolution({ state: "storage_error" });
-      });
-    } else if (!restored.intent) {
+    const intent: PricingIntent | null = restorePricingIntent(window.sessionStorage);
+    if (!intent) {
       queueMicrotask(() => {
         if (!cancelled) setResolution({ state: "missing" });
       });
     } else {
-      const intent = restored.intent;
       void (async () => {
         const selected = await selectPlan(intent.plan, intent.period, {
           intentSource: intent.source,
@@ -70,9 +52,7 @@ export function PricingCheckoutResolver() {
   }, [isLoading, selectPlan]);
 
   const terminalMessage = error
-    || (resolution.state === "storage_error"
-      ? "ブラウザの保存領域を確認できませんでした。料金ページからもう一度選択してください。"
-      : resolution.state === "missing"
+    || (resolution.state === "missing"
         ? "プラン選択の有効期限が切れました。料金ページからもう一度選択してください。"
         : resolution.state === "selection_failed"
           ? "決済画面を開始できませんでした。時間をおいて、もう一度お試しください。"

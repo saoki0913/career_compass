@@ -1,5 +1,11 @@
-import { CONVERSATION_CREDITS_PER_TURN, consumeCredits, hasEnoughCredits } from "@/lib/credits";
-import type { BillingOutcome, BillingPolicy, BillingPrecheckResult } from "./types";
+import {
+  CONVERSATION_CREDITS_PER_TURN,
+  cancelReservation,
+  confirmReservation,
+  reserveCredits,
+} from "@/lib/credits";
+import { logError } from "@/lib/logger";
+import type { BillingOutcome, BillingPolicy, BillingPrecheckResult, BillingReserveResult } from "./types";
 
 export interface GakuchikaStreamBillingContext {
   userId: string;
@@ -8,33 +14,72 @@ export interface GakuchikaStreamBillingContext {
 }
 
 export const gakuchikaStreamPolicy: BillingPolicy<GakuchikaStreamBillingContext> = {
-  async precheck(ctx): Promise<BillingPrecheckResult> {
-    const canPay = await hasEnoughCredits(ctx.userId, CONVERSATION_CREDITS_PER_TURN);
-    if (!canPay) {
-      return {
-        ok: false,
-        freeQuotaAvailable: false,
-        errorResponse: new Response(
-          JSON.stringify({ error: "クレジットが不足しています" }),
-          { status: 402, headers: { "Content-Type": "application/json" } },
-        ),
-      };
-    }
-
+  async precheck(): Promise<BillingPrecheckResult> {
     return { ok: true, freeQuotaAvailable: false };
   },
 
-  async confirm(ctx, outcome: BillingOutcome): Promise<void> {
+  async reserve(ctx): Promise<BillingReserveResult> {
+    const reservation = await reserveCredits(
+      ctx.userId,
+      CONVERSATION_CREDITS_PER_TURN,
+      "gakuchika",
+      ctx.gakuchikaId,
+      `ガクチカ深掘り: ${ctx.gakuchikaId}`,
+    );
+    if (!reservation.success) {
+      return {
+        reservationId: null,
+        errorResponse: new Response(
+          JSON.stringify({
+            error:
+              reservation.errorCode === "BILLING_GATE_UNAVAILABLE"
+                ? {
+                    code: "BILLING_GATE_UNAVAILABLE",
+                    userMessage: "クレジットの確認に失敗しました。",
+                    action: "時間を置いて、もう一度お試しください。",
+                    retryable: true,
+                  }
+                : "クレジットが不足しています",
+          }),
+          {
+            status: reservation.errorCode === "BILLING_GATE_UNAVAILABLE" ? 503 : 402,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      };
+    }
+    return { reservationId: reservation.reservationId };
+  },
+
+  async confirm(ctx, outcome: BillingOutcome, reservationId: string | null): Promise<void> {
     if (outcome.kind !== "billable_success") {
       return;
     }
-    if (outcome.creditsConsumed <= 0) {
+    if (outcome.creditsConsumed <= 0 || !reservationId) {
       return;
     }
-    await consumeCredits(ctx.userId, outcome.creditsConsumed, "gakuchika", ctx.gakuchikaId);
+    const result = await confirmReservation(reservationId);
+    if (!result.confirmed) {
+      logError("gakuchika-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+        userId: ctx.userId,
+        gakuchikaId: ctx.gakuchikaId,
+        reservationId,
+        creditsConsumed: outcome.creditsConsumed,
+      });
+    }
   },
 
-  async cancel(): Promise<void> {
-    // No reservation exists for gakuchika streaming; cancel is a no-op.
+  async cancel(ctx, reservationId, reason): Promise<void> {
+    if (!reservationId) {
+      return;
+    }
+    await cancelReservation(reservationId).catch((error: unknown) => {
+      logError("gakuchika-reservation-cancel", error, {
+        userId: ctx.userId,
+        gakuchikaId: ctx.gakuchikaId,
+        reservationId,
+        reason,
+      });
+    });
   },
 };

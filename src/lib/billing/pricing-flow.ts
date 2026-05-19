@@ -1,4 +1,5 @@
 import type { BillingPeriod, PlanType } from "@/lib/billing/plan-metadata";
+import { canManageSubscriptionInPortal, requiresBillingPortalAttention } from "@/lib/billing/subscription-status";
 
 export type PricingSelectionAction = "dashboard" | "free" | "login" | "checkout" | "portal";
 export type PaidPlanType = Exclude<PlanType, "free">;
@@ -21,6 +22,7 @@ type PricingSelectionInput = {
   targetPlan: PlanType;
   isAuthenticated: boolean;
   hasActiveSubscription: boolean;
+  subscriptionStatus?: string | null;
 };
 
 type PricingIntentInput = {
@@ -38,6 +40,14 @@ export function getPricingSelectionAction(
 ): PricingSelectionAction {
   const { currentPlan, targetPlan, isAuthenticated, hasActiveSubscription } = input;
 
+  if (!isAuthenticated) {
+    return targetPlan === "free" ? "free" : "login";
+  }
+
+  if (requiresBillingPortalAttention(input.subscriptionStatus)) {
+    return "portal";
+  }
+
   if (currentPlan === targetPlan) {
     return "dashboard";
   }
@@ -46,11 +56,10 @@ export function getPricingSelectionAction(
     return "free";
   }
 
-  if (!isAuthenticated) {
-    return "login";
-  }
-
-  if ((currentPlan === "standard" || currentPlan === "pro") && hasActiveSubscription) {
+  if (
+    (currentPlan === "standard" || currentPlan === "pro") &&
+    (hasActiveSubscription || canManageSubscriptionInPortal(input.subscriptionStatus))
+  ) {
     return "portal";
   }
 
@@ -117,24 +126,44 @@ export function savePricingIntent(storage: Pick<PricingIntentStorage, "setItem">
   storage.setItem(PRICING_INTENT_STORAGE_KEY, JSON.stringify(intent));
 }
 
+export function trySavePricingIntent(
+  storage: Pick<PricingIntentStorage, "setItem">,
+  intent: PricingIntent,
+): boolean {
+  try {
+    savePricingIntent(storage, intent);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function clearPricingIntent(storage: Pick<PricingIntentStorage, "removeItem">): void {
   storage.removeItem(PRICING_INTENT_STORAGE_KEY);
 }
 
-export function restorePricingIntent(storage: PricingIntentStorage, now = Date.now()): PricingIntent | null {
-  const raw = storage.getItem(PRICING_INTENT_STORAGE_KEY);
-  if (!raw) {
-    return null;
-  }
-
+export function tryClearPricingIntent(storage: Pick<PricingIntentStorage, "removeItem">): boolean {
   try {
+    clearPricingIntent(storage);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function restorePricingIntent(storage: PricingIntentStorage, now = Date.now()): PricingIntent | null {
+  try {
+    const raw = storage.getItem(PRICING_INTENT_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
     const parsed = parsePricingIntent(JSON.parse(raw), now);
     if (!parsed) {
-      clearPricingIntent(storage);
+      tryClearPricingIntent(storage);
     }
     return parsed;
   } catch {
-    clearPricingIntent(storage);
+    tryClearPricingIntent(storage);
     return null;
   }
 }

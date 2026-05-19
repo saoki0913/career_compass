@@ -1,4 +1,5 @@
 import { serverEnv } from "@/env/server";
+import { resolveAppEnvironment } from "@/env/deployment";
 export {
   ANNUAL_PLAN_PRICES,
   getCreditLowThreshold,
@@ -108,12 +109,14 @@ function getStripePriceEnvLookup(): Record<string, string | undefined> {
 
 export function validateStripePriceConfig(): void {
   const allowTestStripeKeysInTestRuntime =
-    process.env.CI_ALLOW_TEST_STRIPE_KEYS === "1" &&
+    serverEnv.CI_ALLOW_TEST_STRIPE_KEYS === "1" &&
     process.env.NODE_ENV === "test" &&
     process.env.VITEST === "true";
+  const appEnv = resolveAppEnvironment();
   const isProduction =
-    process.env.VERCEL_ENV === "production" &&
+    appEnv === "production" &&
     !allowTestStripeKeysInTestRuntime;
+  const isStaging = appEnv === "staging";
 
   // --- Production hard gate: fatal errors that prevent server startup ---
   if (isProduction) {
@@ -130,6 +133,23 @@ export function validateStripePriceConfig(): void {
       throw new Error(
         "[Stripe] FATAL: STRIPE_WEBHOOK_SECRET is missing in production. " +
           "Webhook signature verification will fail for all incoming events.",
+      );
+    }
+
+    const portalConfigurationId = serverEnv.STRIPE_PORTAL_CONFIGURATION_ID ?? "";
+    if (!portalConfigurationId || !portalConfigurationId.startsWith("bpc_")) {
+      throw new Error(
+        "[Stripe] FATAL: STRIPE_PORTAL_CONFIGURATION_ID is missing or invalid in production. " +
+          "Customer portal creation will fail for paid users.",
+      );
+    }
+  }
+  if (isStaging) {
+    const secretKey = serverEnv.STRIPE_SECRET_KEY ?? "";
+    if (secretKey.startsWith("sk_live_")) {
+      throw new Error(
+        "[Stripe] FATAL: STRIPE_SECRET_KEY is a live key (sk_live_*) in staging. " +
+          "Set a test key (sk_test_*) for the staging environment.",
       );
     }
   }

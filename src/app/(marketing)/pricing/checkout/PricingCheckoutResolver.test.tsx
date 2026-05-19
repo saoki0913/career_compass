@@ -104,14 +104,14 @@ describe("PricingCheckoutResolver", () => {
     expect(selectPlanMock).not.toHaveBeenCalled();
   });
 
-  it("renders a recovery link when session storage access fails", async () => {
+  it("renders the expired-selection recovery link when session storage access fails", async () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("storage blocked");
     });
 
     render(<PricingCheckoutResolver />);
 
-    expect(await screen.findByText("ブラウザの保存領域を確認できませんでした。料金ページからもう一度選択してください。")).toBeDefined();
+    expect(await screen.findByText("プラン選択の有効期限が切れました。料金ページからもう一度選択してください。")).toBeDefined();
     expect(selectPlanMock).not.toHaveBeenCalled();
   });
 });

@@ -63,7 +63,7 @@ interface NotificationSettings {
 }
 
 export default function SettingsPage() {
-  const { isGuest, isLoading: isAuthLoading, userPlan, refreshPlan } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading, userPlan, refreshPlan } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -79,23 +79,50 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (portalReturnHandled.current) return;
+    if (!isAuthenticated) return;
     if (searchParams.get("portal") !== "return") return;
     if (!profile) return;
     portalReturnHandled.current = true;
 
     const previousPlan = userPlan?.plan ?? profile.plan;
     const previousHasActive = userPlan?.hasActiveSubscription ?? false;
-    refreshPlan().then((updatedPlan) => {
+    refreshPlan().then(async (updatedPlan) => {
+      let currentPlan = updatedPlan?.plan ?? previousPlan;
+      try {
+        const response = await fetch("/api/settings/profile", {
+          credentials: "include",
+        });
+        if (!response.ok) {
+          throw await parseApiErrorResponse(response, {
+            code: "SETTINGS_PROFILE_FETCH_FAILED",
+            userMessage: "請求管理後のプロフィール再取得に失敗しました。",
+          }, "SettingsPage:portalReturnProfileRefresh");
+        }
+        const data = await response.json();
+        setProfile(data.profile);
+        setName(data.profile.name || "");
+        setUniversity(data.profile.university || "");
+        setFaculty(data.profile.faculty || "");
+        setGraduationYear(data.profile.graduationYear?.toString() || "");
+        setSelectedIndustries(data.profile.targetIndustries || []);
+        setSelectedJobTypes(data.profile.targetJobTypes || []);
+        currentPlan = data.profile.plan ?? currentPlan;
+      } catch (profileRefreshError) {
+        setError(reportUserFacingError(profileRefreshError, {
+          code: "SETTINGS_PROFILE_FETCH_FAILED",
+          userMessage: "請求管理後のプロフィール再取得に失敗しました。",
+        }, "SettingsPage:portalReturnProfileRefresh"));
+      }
       notifyPortalReturnDetailed({
         previousPlan,
-        currentPlan: updatedPlan?.plan ?? previousPlan,
+        currentPlan,
         previousHasActiveSubscription: previousHasActive,
         currentHasActiveSubscription: updatedPlan?.hasActiveSubscription ?? previousHasActive,
       });
     });
 
     router.replace("/settings", { scroll: false });
-  }, [searchParams, profile, refreshPlan, router]);
+  }, [isAuthenticated, searchParams, profile, refreshPlan, router, userPlan]);
 
   // Form state
   const [name, setName] = useState("");
@@ -110,19 +137,32 @@ export default function SettingsPage() {
   const [isSavingNotifications, setIsSavingNotifications] = useState(false);
 
   useEffect(() => {
-    if (!isAuthLoading && isGuest) return;
+    if (isAuthLoading) return;
+    if (!isAuthenticated) {
+      setProfile(null);
+      setNotificationSettings(null);
+      setIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
 
     const fetchProfile = async () => {
       try {
+        setIsLoading(true);
         const response = await fetch("/api/settings/profile", {
           credentials: "include",
         });
 
         if (!response.ok) {
-          throw new Error("Failed to fetch profile");
+          throw await parseApiErrorResponse(response, {
+            code: "SETTINGS_PROFILE_FETCH_FAILED",
+            userMessage: "プロフィールの取得に失敗しました。",
+          }, "SettingsPage:fetchProfile");
         }
 
         const data = await response.json();
+        if (cancelled) return;
         setProfile(data.profile);
 
         // Initialize form state
@@ -133,12 +173,15 @@ export default function SettingsPage() {
         setSelectedIndustries(data.profile.targetIndustries || []);
         setSelectedJobTypes(data.profile.targetJobTypes || []);
       } catch (err) {
+        if (cancelled) return;
         setError(reportUserFacingError(err, {
           code: "SETTINGS_PROFILE_FETCH_FAILED",
           userMessage: "プロフィールの取得に失敗しました。",
         }, "SettingsPage:fetchProfile"));
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
@@ -149,24 +192,34 @@ export default function SettingsPage() {
         });
 
         if (!response.ok) {
-          throw new Error("Failed to fetch notification settings");
+          throw await parseApiErrorResponse(response, {
+            code: "SETTINGS_NOTIFICATIONS_FETCH_FAILED",
+            userMessage: "通知設定の取得に失敗しました。",
+          }, "SettingsPage:fetchNotifications");
         }
 
         const data = await response.json();
+        if (cancelled) return;
         setNotificationSettings({
           ...data.settings,
           dailySummaryHourJst: data.settings.dailySummaryHourJst ?? 9,
         });
       } catch (err) {
-        console.error("Failed to fetch notification settings:", err);
+        if (cancelled) return;
+        setError(reportUserFacingError(err, {
+          code: "SETTINGS_NOTIFICATIONS_FETCH_FAILED",
+          userMessage: "通知設定の取得に失敗しました。",
+        }, "SettingsPage:fetchNotifications"));
       }
     };
 
-    if (!isAuthLoading && !isGuest) {
-      fetchProfile();
-      fetchNotificationSettings();
-    }
-  }, [isAuthLoading, isGuest, router]);
+    fetchProfile();
+    fetchNotificationSettings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthLoading, isAuthenticated]);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -195,8 +248,10 @@ export default function SettingsPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update profile");
+        throw await parseApiErrorResponse(response, {
+          code: "SETTINGS_PROFILE_UPDATE_FAILED",
+          userMessage: "プロフィールを保存できませんでした。",
+        }, "SettingsPage:saveProfile");
       }
 
       const data = await response.json();
@@ -245,8 +300,10 @@ export default function SettingsPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to update notification settings");
+        throw await parseApiErrorResponse(response, {
+          code: "SETTINGS_NOTIFICATIONS_UPDATE_FAILED",
+          userMessage: "通知設定を保存できませんでした。",
+        }, "SettingsPage:saveNotifications");
       }
 
       const data = await response.json();
@@ -318,8 +375,10 @@ export default function SettingsPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to delete account");
+        throw await parseApiErrorResponse(response, {
+          code: "SETTINGS_ACCOUNT_DELETE_FAILED",
+          userMessage: "アカウント削除に失敗しました。",
+        }, "SettingsPage:deleteAccount");
       }
 
       // Redirect to login page after successful deletion
@@ -333,7 +392,7 @@ export default function SettingsPage() {
     }
   };
 
-  if (isAuthLoading || isLoading) {
+  if (isAuthLoading || (isAuthenticated && isLoading)) {
     return (
       <div className="min-h-screen bg-background">
         <main>
@@ -343,7 +402,7 @@ export default function SettingsPage() {
     );
   }
 
-  if (isGuest) {
+  if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-background">
         <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">

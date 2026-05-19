@@ -8,6 +8,20 @@
     "statementDescriptor": "SHUUKATU PASS",
     "statementDescriptorPrefix": "SHUPASS"
   },
+  "targets": {
+    "staging": {
+      "stripeMode": "test",
+      "appUrl": "https://stg.shupass.jp",
+      "webhookUrl": "https://stg.shupass.jp/api/webhooks/stripe",
+      "portalReturnUrl": "https://stg.shupass.jp/settings"
+    },
+    "production": {
+      "stripeMode": "live",
+      "appUrl": "https://www.shupass.jp",
+      "webhookUrl": "https://www.shupass.jp/api/webhooks/stripe",
+      "portalReturnUrl": "https://www.shupass.jp/settings"
+    }
+  },
   "products": [
     {
       "name": "就活Pass Standard",

@@ -137,6 +137,8 @@ describe("POST /api/stripe/portal", () => {
 
   it("rejects missing portal configuration in production before DB or Stripe calls", async () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", "https://www.shupass.jp,https://shupass.jp");
     getAppOriginMock.mockReturnValue("https://www.shupass.jp");
     getSessionMock.mockResolvedValue({
@@ -159,6 +161,34 @@ describe("POST /api/stripe/portal", () => {
     expect(payload.code).toBe("STRIPE_PORTAL_CONFIGURATION_REQUIRED");
     expect(dbLimitMock).not.toHaveBeenCalled();
     expect(stripePortalCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("does not require portal configuration in staging", async () => {
+    vi.stubEnv("APP_ENV", "staging");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "staging");
+    vi.stubEnv("BETTER_AUTH_TRUSTED_ORIGINS", "https://stg.shupass.jp");
+    getAppUrlMock.mockReturnValue("https://stg.shupass.jp");
+    getAppOriginMock.mockReturnValue("https://stg.shupass.jp");
+    getSessionMock.mockResolvedValue({
+      user: { id: "user_1", email: "user@example.com" },
+      session: {},
+    });
+    dbLimitMock.mockResolvedValue([]);
+    const { POST } = await import("./route");
+
+    const response = await POST(new NextRequest("https://stg.shupass.jp/api/stripe/portal", {
+      method: "POST",
+      headers: {
+        Origin: "https://stg.shupass.jp",
+        cookie: "csrf_token=test-csrf",
+        "x-csrf-token": "test-csrf",
+      },
+    }));
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.code).toBe("STRIPE_PORTAL_SUBSCRIPTION_REQUIRED");
+    expect(dbLimitMock).toHaveBeenCalledOnce();
   });
 
   it("rejects Stripe customer owner mismatch before creating a portal session", async () => {

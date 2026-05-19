@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { processedStripeEvents } from "@/lib/db/schema";
 import { cleanupExpiredReservations } from "@/lib/credits";
 import { logError } from "@/lib/logger";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,7 +63,12 @@ export async function GET(request: NextRequest) {
   try {
     const authHeader = request.headers.get("authorization");
     if (!verifyToken(authHeader, process.env.CRON_SECRET || "")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return createApiErrorResponse(request, {
+        status: 401,
+        code: "BILLING_MAINTENANCE_UNAUTHORIZED",
+        userMessage: "認証に失敗しました。",
+        developerMessage: "Invalid billing maintenance cron secret",
+      });
     }
 
     const reservationResult = await cleanupExpiredReservations(RESERVATION_TTL_MINUTES);
@@ -83,6 +89,12 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     logError("billing-maintenance-cron", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "BILLING_MAINTENANCE_FAILED",
+      userMessage: "請求メンテナンスを実行できませんでした。",
+      developerMessage: "Billing maintenance cron failed",
+      error,
+    });
   }
 }

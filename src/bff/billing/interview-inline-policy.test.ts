@@ -6,6 +6,10 @@ vi.mock("@/lib/credits", () => ({
   cancelReservation: vi.fn(),
 }));
 
+vi.mock("@/lib/logger", () => ({
+  logError: vi.fn(),
+}));
+
 describe("interviewInlinePolicy", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -71,6 +75,7 @@ describe("interviewInlinePolicy", () => {
 
   it("confirms reservations only for billable success", async () => {
     const credits = await import("@/lib/credits");
+    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: true });
     const { interviewInlinePolicy } = await import("./interview-inline-policy");
     const ctx = {
       userId: "user-1",
@@ -98,6 +103,31 @@ describe("interviewInlinePolicy", () => {
 
     expect(credits.confirmReservation).toHaveBeenCalledTimes(1);
     expect(credits.confirmReservation).toHaveBeenCalledWith("reservation-1");
+  });
+
+  it("logs when reservation confirmation is not applied after billable success", async () => {
+    const credits = await import("@/lib/credits");
+    const logger = await import("@/lib/logger");
+    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: false });
+    const { interviewInlinePolicy } = await import("./interview-inline-policy");
+
+    await interviewInlinePolicy.confirm(
+      {
+        userId: "user-1",
+        companyId: "company-1",
+        companyName: "テスト株式会社",
+        transactionType: "interview",
+        descriptionPrefix: "面接対策回答",
+      },
+      { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
+      "reservation-1",
+    );
+
+    expect(logger.logError).toHaveBeenCalledWith(
+      "interview-reservation-confirm-after-success-failed",
+      expect.any(Error),
+      expect.objectContaining({ reservationId: "reservation-1", userId: "user-1" }),
+    );
   });
 
   it("cancels existing reservations and ignores missing reservations", async () => {

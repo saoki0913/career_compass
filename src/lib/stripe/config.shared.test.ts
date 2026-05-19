@@ -40,6 +40,17 @@ describe("managed stripe config", () => {
     ]));
   });
 
+  it("keeps Stripe webhook targets on stable shupass domains", () => {
+    expect(managedConfig.targets.staging.stripeMode).toBe("test");
+    expect(managedConfig.targets.staging.webhookUrl).toBe("https://stg.shupass.jp/api/webhooks/stripe");
+    expect(managedConfig.targets.production.stripeMode).toBe("live");
+    expect(managedConfig.targets.production.webhookUrl).toBe("https://www.shupass.jp/api/webhooks/stripe");
+    for (const target of Object.values(managedConfig.targets)) {
+      expect(target.webhookUrl).not.toContain(".vercel.app");
+      expect(target.portalReturnUrl).not.toContain(".vercel.app");
+    }
+  });
+
   it("defines exactly 2 products with 2 prices each", () => {
     expect(managedConfig.products).toHaveLength(2);
     for (const product of managedConfig.products) {

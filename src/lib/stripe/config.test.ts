@@ -24,6 +24,7 @@ describe("stripe config (lazy getters)", () => {
     vi.stubEnv("STRIPE_PRICE_STANDARD_ANNUAL", "price_std_year");
     vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_month");
     vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
+    vi.stubEnv("STRIPE_PORTAL_CONFIGURATION_ID", "bpc_test");
 
     const { getPriceId } = await importConfig();
 
@@ -36,6 +37,7 @@ describe("stripe config (lazy getters)", () => {
     vi.stubEnv("STRIPE_PRICE_STANDARD_ANNUAL", "price_std_year");
     vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_month");
     vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
+    vi.stubEnv("STRIPE_PORTAL_CONFIGURATION_ID", "bpc_test");
 
     const { getBillingPeriodFromPriceId } = await importConfig();
 
@@ -89,7 +91,8 @@ describe("stripe config (lazy getters)", () => {
 
 describe("validateStripePriceConfig production hard gate", () => {
   it("throws when STRIPE_SECRET_KEY is a test key in production", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_abc");
     vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "price_std_month");
@@ -105,7 +108,8 @@ describe("validateStripePriceConfig production hard gate", () => {
   });
 
   it("throws when STRIPE_WEBHOOK_SECRET is missing in production", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_abc123");
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", "");
     vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "price_std_month");
@@ -121,9 +125,11 @@ describe("validateStripePriceConfig production hard gate", () => {
   });
 
   it("throws when price env vars are missing in production", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_abc123");
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_abc");
+    vi.stubEnv("STRIPE_PORTAL_CONFIGURATION_ID", "bpc_test");
     // All price vars are unset by default
 
     const { validateStripePriceConfig } = await importConfig();
@@ -134,7 +140,24 @@ describe("validateStripePriceConfig production hard gate", () => {
   });
 
   it("does not throw in production when all vars are correctly set", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_abc123");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_abc");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "price_std_month");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_ANNUAL", "price_std_year");
+    vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_month");
+    vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
+    vi.stubEnv("STRIPE_PORTAL_CONFIGURATION_ID", "bpc_test");
+
+    const { validateStripePriceConfig } = await importConfig();
+
+    expect(() => validateStripePriceConfig()).not.toThrow();
+  });
+
+  it("throws when portal configuration is missing in production", async () => {
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_abc123");
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_abc");
     vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "price_std_month");
@@ -144,11 +167,32 @@ describe("validateStripePriceConfig production hard gate", () => {
 
     const { validateStripePriceConfig } = await importConfig();
 
-    expect(() => validateStripePriceConfig()).not.toThrow();
+    expect(() => validateStripePriceConfig()).toThrow(
+      "STRIPE_PORTAL_CONFIGURATION_ID is missing or invalid",
+    );
+  });
+
+  it("throws when portal configuration has an invalid prefix in production", async () => {
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_abc123");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_abc");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_MONTHLY", "price_std_month");
+    vi.stubEnv("STRIPE_PRICE_STANDARD_ANNUAL", "price_std_year");
+    vi.stubEnv("STRIPE_PRICE_PRO_MONTHLY", "price_pro_month");
+    vi.stubEnv("STRIPE_PRICE_PRO_ANNUAL", "price_pro_year");
+    vi.stubEnv("STRIPE_PORTAL_CONFIGURATION_ID", "portal_abc");
+
+    const { validateStripePriceConfig } = await importConfig();
+
+    expect(() => validateStripePriceConfig()).toThrow(
+      "STRIPE_PORTAL_CONFIGURATION_ID is missing or invalid",
+    );
   });
 
   it("does not skip hard gate in production when only CI_ALLOW_TEST_STRIPE_KEYS is set", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("CI_ALLOW_TEST_STRIPE_KEYS", "1");
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
@@ -161,7 +205,8 @@ describe("validateStripePriceConfig production hard gate", () => {
   });
 
   it("skips hard gate only in test runtime when CI_ALLOW_TEST_STRIPE_KEYS is set", async () => {
-    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("CI_ALLOW_TEST_STRIPE_KEYS", "1");
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
@@ -174,7 +219,9 @@ describe("validateStripePriceConfig production hard gate", () => {
   });
 
   it("only warns (does not throw) for missing prices in non-production", async () => {
-    vi.stubEnv("VERCEL_ENV", "preview");
+    vi.stubEnv("APP_ENV", "staging");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "staging");
+    vi.stubEnv("VERCEL_ENV", "production");
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_abc123");
     // All price vars are unset by default
 
@@ -184,5 +231,18 @@ describe("validateStripePriceConfig production hard gate", () => {
     expect(() => validateStripePriceConfig()).not.toThrow();
     expect(spy).toHaveBeenCalledOnce();
     spy.mockRestore();
+  });
+
+  it("rejects live Stripe keys in staging", async () => {
+    vi.stubEnv("APP_ENV", "staging");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "staging");
+    vi.stubEnv("VERCEL_ENV", "production");
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_live_abc123");
+
+    const { validateStripePriceConfig } = await importConfig();
+
+    expect(() => validateStripePriceConfig()).toThrow(
+      "STRIPE_SECRET_KEY is a live key",
+    );
   });
 });

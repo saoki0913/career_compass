@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { SubscriptionStatusBadge } from "@/components/billing/SubscriptionStatusBadge";
 import { getSubscriptionStatusMessage } from "@/lib/billing/subscription-status-labels";
-import { isActiveSubscriptionStatus } from "@/lib/billing/subscription-status";
+import { canManageSubscriptionInPortal } from "@/lib/billing/subscription-status";
 
 export type BillingSectionProps = {
   profile: {
@@ -42,8 +42,7 @@ export function BillingSection({
         : "Free プラン";
 
   const isFreeUser = profile.plan === "free";
-  const isPaidActive =
-    !isFreeUser && isActiveSubscriptionStatus(profile.subscriptionStatus);
+  const canOpenPortal = canManageSubscriptionInPortal(profile.subscriptionStatus);
 
   const statusMessage = getSubscriptionStatusMessage(
     profile.subscriptionStatus,
@@ -122,7 +121,7 @@ export function BillingSection({
 
         {/* Actions */}
         <div className="flex justify-end">
-          {isFreeUser && (
+          {isFreeUser && !canOpenPortal && (
             <Button asChild>
               <Link href="/pricing?source=settings">
                 プランをアップグレード
@@ -130,7 +129,7 @@ export function BillingSection({
             </Button>
           )}
 
-          {isPaidActive && (
+          {canOpenPortal && (
             <Button
               variant="outline"
               onClick={onOpenBillingPortal}

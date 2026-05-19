@@ -3,16 +3,23 @@
  *
  * Semantics:
  * - Every turn consumes CONVERSATION_CREDITS_PER_TURN (1) credit.
- * - No reserve/confirm split — credits are consumed post-success after the FastAPI
- *   `complete` event and after the DB update committed.
+ * - Credits are reserved before the FastAPI stream starts, confirmed after the
+ *   `complete` event and DB update commit, or refunded on failure/cancel.
  * - Guests and anonymous users never reach this policy (motivation streaming requires login).
  */
 
-import { CONVERSATION_CREDITS_PER_TURN, consumeCredits, hasEnoughCredits } from "@/lib/credits";
+import {
+  CONVERSATION_CREDITS_PER_TURN,
+  cancelReservation,
+  confirmReservation,
+  reserveCredits,
+} from "@/lib/credits";
+import { logError } from "@/lib/logger";
 import type {
   BillingOutcome,
   BillingPolicy,
   BillingPrecheckResult,
+  BillingReserveResult,
 } from "./types";
 
 export interface MotivationStreamBillingContext {
@@ -27,39 +34,75 @@ export const motivationStreamPolicy: BillingPolicy<MotivationStreamBillingContex
       return { ok: true, freeQuotaAvailable: true };
     }
 
-    const canPay = await hasEnoughCredits(ctx.userId, CONVERSATION_CREDITS_PER_TURN);
-    if (!canPay) {
+    return { ok: true, freeQuotaAvailable: false };
+  },
+
+  async reserve(ctx: MotivationStreamBillingContext): Promise<BillingReserveResult> {
+    const reservation = await reserveCredits(
+      ctx.userId,
+      CONVERSATION_CREDITS_PER_TURN,
+      "motivation",
+      ctx.companyId,
+      `志望動機深掘り: ${ctx.companyId}`,
+    );
+    if (!reservation.success) {
       return {
-        ok: false,
-        freeQuotaAvailable: false,
+        reservationId: null,
         errorResponse: new Response(
-          JSON.stringify({ error: "クレジットが不足しています" }),
-          { status: 402, headers: { "Content-Type": "application/json" } },
+          JSON.stringify({
+            error:
+              reservation.errorCode === "BILLING_GATE_UNAVAILABLE"
+                ? {
+                    code: "BILLING_GATE_UNAVAILABLE",
+                    userMessage: "クレジットの確認に失敗しました。",
+                    action: "時間を置いて、もう一度お試しください。",
+                    retryable: true,
+                  }
+                : "クレジットが不足しています",
+          }),
+          {
+            status: reservation.errorCode === "BILLING_GATE_UNAVAILABLE" ? 503 : 402,
+            headers: { "Content-Type": "application/json" },
+          },
         ),
       };
     }
-    return { ok: true, freeQuotaAvailable: false };
+    return { reservationId: reservation.reservationId };
   },
 
   async confirm(
     ctx: MotivationStreamBillingContext,
     outcome: BillingOutcome,
+    reservationId: string | null,
   ): Promise<void> {
     if (outcome.kind !== "billable_success") {
       return;
     }
-    if (outcome.creditsConsumed <= 0) {
+    if (outcome.creditsConsumed <= 0 || !reservationId) {
       return;
     }
-    await consumeCredits(
-      ctx.userId,
-      outcome.creditsConsumed,
-      "motivation",
-      ctx.companyId,
-    );
+    const result = await confirmReservation(reservationId);
+    if (!result.confirmed) {
+      logError("motivation-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+        userId: ctx.userId,
+        companyId: ctx.companyId,
+        reservationId,
+        creditsConsumed: outcome.creditsConsumed,
+      });
+    }
   },
 
-  async cancel(): Promise<void> {
-    // No reservation exists for motivation streaming; cancel is a no-op.
+  async cancel(ctx, reservationId, reason): Promise<void> {
+    if (!reservationId) {
+      return;
+    }
+    await cancelReservation(reservationId).catch((error: unknown) => {
+      logError("motivation-reservation-cancel", error, {
+        userId: ctx.userId,
+        companyId: ctx.companyId,
+        reservationId,
+        reason,
+      });
+    });
   },
 };
