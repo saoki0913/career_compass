@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     app_name: str = "就活Pass API"
     environment: str = Field(
         default="development",
-        validation_alias=AliasChoices("ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME"),
+        validation_alias=AliasChoices("APP_ENV", "ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME"),
     )
     debug: bool = False
     live_es_review_capture_debug: bool = Field(
@@ -125,7 +125,11 @@ class Settings(BaseSettings):
     )
     sentry_dsn: str = Field(
         default="",
-        validation_alias=AliasChoices("SENTRY_DSN"),
+        validation_alias=AliasChoices(
+            "SENTRY_FASTAPI_DSN",
+            "BACKEND_SENTRY_DSN",
+            "SENTRY_DSN",
+        ),
     )
     sentry_environment: str = Field(
         default="",
@@ -179,6 +183,10 @@ class Settings(BaseSettings):
     # ===== キャッシュ =====
     # 環境変数: REDIS_URL
     redis_url: str = ""
+    redis_namespace: str = Field(
+        default="",
+        validation_alias=AliasChoices("REDIS_NAMESPACE"),
+    )
 
     # ===== LLM 実モデル設定 =====
     # 機能別設定では stable alias を使い、ここで実際の版付き model ID を管理する。
@@ -254,6 +262,19 @@ class Settings(BaseSettings):
         default="claude-sonnet",
         validation_alias=AliasChoices("MODEL_MOTIVATION_DRAFT"),
     )
+    # ===== ガクチカ チューニング =====
+    gakuchika_min_user_answers_for_es_draft_ready: int = Field(
+        default=4,
+        validation_alias=AliasChoices("GAKUCHIKA_MIN_USER_ANSWERS_FOR_ES_DRAFT_READY"),
+    )
+    gakuchika_force_draft_ready_after: int = Field(
+        default=0,
+        validation_alias=AliasChoices("GAKUCHIKA_FORCE_DRAFT_READY_AFTER"),
+    )
+    gakuchika_loop_similarity_threshold: float = Field(
+        default=0.55,
+        validation_alias=AliasChoices("GAKUCHIKA_LOOP_SIMILARITY_THRESHOLD"),
+    )
     # 選考スケジュール抽出は成功率優先で GPT-5.4 mini（gpt-mini）を既定にする。
     model_selection_schedule: str = "gpt-mini"       # MODEL_SELECTION_SCHEDULE
     model_company_info: str = "gpt-mini"             # MODEL_COMPANY_INFO
@@ -271,6 +292,14 @@ class Settings(BaseSettings):
     llm_usage_cost_debug_log: bool = Field(
         default=False,
         validation_alias=AliasChoices("LLM_USAGE_COST_DEBUG_LOG"),
+    )
+    llm_price_overrides_json: str = Field(
+        default="",
+        validation_alias=AliasChoices("LLM_PRICE_OVERRIDES_JSON"),
+    )
+    llm_call_budget_overrides_json: str = Field(
+        default="",
+        validation_alias=AliasChoices("LLM_CALL_BUDGET_OVERRIDES_JSON"),
     )
     # 以下は USD / 1M tokens。いずれか未設定の場合、est_usd はログに含めない。
     openai_price_gpt_5_4_mini_input_per_mtok_usd: float | None = Field(
@@ -330,6 +359,22 @@ class Settings(BaseSettings):
     rag_use_hyde: bool = True
     rag_use_mmr: bool = True
     rag_use_rerank: bool = True
+    reranker_variant: str = Field(
+        default="base",
+        validation_alias=AliasChoices("RERANKER_VARIANT"),
+    )
+    reranker_ab_tuned_ratio: float = Field(
+        default=0.5,
+        validation_alias=AliasChoices("RERANKER_AB_TUNED_RATIO"),
+    )
+    reranker_base_model: str = Field(
+        default="",
+        validation_alias=AliasChoices("RERANKER_BASE_MODEL"),
+    )
+    reranker_tuned_model_path: str = Field(
+        default="",
+        validation_alias=AliasChoices("RERANKER_TUNED_MODEL_PATH"),
+    )
     # D-2 / P2-1: 志望動機ドラフトで RAG グラウンディングを有効化するフラグ
     # false にすると従来動作 (has_rag=False, grounding_mode="none") に戻る
     motivation_rag_grounding: bool = Field(
@@ -364,11 +409,6 @@ class Settings(BaseSettings):
         default=1.5,
         validation_alias=AliasChoices("MOTIVATION_EMBEDDING_DEDUP_TIMEOUT_SECONDS"),
         description="P5-1: semantic duplicate embedding 判定の fail-open timeout seconds。",
-    )
-    reference_es_rag_enabled: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("REFERENCE_ES_RAG_ENABLED"),
-        description="P2-1: 匿名化済み参考ESのsemantic retrievalをES添削へ接続する。",
     )
     contextual_retrieval_enabled: bool = Field(
         default=False,
@@ -492,11 +532,23 @@ class Settings(BaseSettings):
         return self.is_production or self.is_staging
 
     @property
+    def logical_app_environment(self) -> str:
+        normalized = self.environment.strip().lower()
+        if normalized in {"production", "staging", "local"}:
+            return normalized
+        if self.is_production:
+            return "production"
+        if self.is_staging:
+            return "staging"
+        return "local"
+
+    @property
     def _deployment_environment_names(self) -> set[str]:
         return {
             value.strip().lower()
             for value in (
                 self.environment,
+                os.getenv("APP_ENV", ""),
                 os.getenv("ENVIRONMENT", ""),
                 os.getenv("RAILWAY_ENVIRONMENT_NAME", ""),
             )
@@ -514,7 +566,38 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def warn_deprecated_environment_aliases(self):
+        app_env = os.getenv("APP_ENV", "").strip()
+        if app_env:
+            return self
+
+        fallback_env = (
+            os.getenv("ENVIRONMENT", "").strip()
+            or os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip()
+        )
+        normalized = fallback_env.lower()
+        if normalized in {"staging", "production"}:
+            warnings.warn(
+                "APP_ENV 未設定。ENVIRONMENT/RAILWAY_ENVIRONMENT_NAME からの環境解決は"
+                f"将来撤去予定です。APP_ENV={normalized} を設定してください",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        return self
+
+    @model_validator(mode="after")
     def validate_deployed_requirements(self):
+        expected_redis_namespace = self.logical_app_environment
+        redis_namespace = self.redis_namespace.strip()
+        if (
+            not self.is_deployed
+            and redis_namespace
+            and redis_namespace != expected_redis_namespace
+        ):
+            raise ValueError(
+                f"REDIS_NAMESPACE は APP_ENV と同じ {expected_redis_namespace} を使用してください。"
+            )
+
         if not self.is_deployed:
             return self
 
@@ -545,6 +628,13 @@ class Settings(BaseSettings):
                 "LIVE_ES_REVIEW_CAPTURE_DEBUG はデプロイ環境では使用できません。"
             )
 
+        if not self.redis_url.strip():
+            errors.append("REDIS_URL はデプロイ環境では必須です。")
+        if redis_namespace and redis_namespace != expected_redis_namespace:
+            errors.append(
+                f"REDIS_NAMESPACE は APP_ENV と同じ {expected_redis_namespace} を使用してください。"
+            )
+
         if not self.cors_origins:
             errors.append("CORS_ORIGINS はデプロイ環境では必須です。")
         else:
@@ -561,6 +651,21 @@ class Settings(BaseSettings):
                     "デプロイ環境の CORS_ORIGINS に localhost / 127.0.0.1 / [::1] は使用できません。"
                 )
 
+        if not self.trusted_hosts:
+            errors.append("BACKEND_TRUSTED_HOSTS はデプロイ環境では必須です。")
+        elif "*" in self.trusted_hosts:
+            errors.append("デプロイ環境の BACKEND_TRUSTED_HOSTS に wildcard '*' は使用できません。")
+        else:
+            local_trusted_hosts = [
+                host
+                for host in self.trusted_hosts
+                if host.strip().lower() in {"localhost", "127.0.0.1", "[::1]"}
+            ]
+            if local_trusted_hosts:
+                errors.append(
+                    "デプロイ環境の BACKEND_TRUSTED_HOSTS に localhost / 127.0.0.1 / [::1] だけを使用できません。"
+                )
+
         if errors:
             raise ValueError("デプロイ環境の設定が不正です: " + " ".join(errors))
 
@@ -568,7 +673,8 @@ class Settings(BaseSettings):
             self.sentry_environment = self.environment
         if self.is_production and not self.sentry_dsn.strip():
             warnings.warn(
-                "本番環境で SENTRY_DSN が未設定です。エラー監視が無効になります。",
+                "本番環境で SENTRY_FASTAPI_DSN / BACKEND_SENTRY_DSN / "
+                "SENTRY_DSN が未設定です。エラー監視が無効になります。",
                 RuntimeWarning,
                 stacklevel=2,
             )

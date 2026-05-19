@@ -1,3 +1,5 @@
+import warnings
+
 import pytest
 
 from app.config import Settings
@@ -11,6 +13,9 @@ VALID_PRODUCTION_KWARGS = {
     "openai_api_key": "sk-test-valid-key",
     "anthropic_api_key": "sk-ant-test-valid-key",
     "cors_origins": ["https://www.shupass.jp", "https://shupass.jp"],
+    "trusted_hosts": ["shupass-backend-production.up.railway.app"],
+    "redis_url": "rediss://default:password@example.upstash.io:6379",
+    "redis_namespace": "production",
 }
 
 
@@ -70,11 +75,30 @@ def test_production_rejects_empty_cors() -> None:
         Settings(_env_file=None, **_production_kwargs(cors_origins=[]))
 
 
+def test_production_rejects_missing_redis_url() -> None:
+    with pytest.raises(ValueError, match="REDIS_URL"):
+        Settings(_env_file=None, **_production_kwargs(redis_url=""))
+
+
+def test_production_rejects_mismatched_redis_namespace() -> None:
+    with pytest.raises(ValueError, match="APP_ENV"):
+        Settings(_env_file=None, **_production_kwargs(redis_namespace="staging"))
+
+
+def test_production_rejects_localhost_trusted_hosts() -> None:
+    with pytest.raises(ValueError, match="BACKEND_TRUSTED_HOSTS"):
+        Settings(_env_file=None, **_production_kwargs(trusted_hosts=["localhost"]))
+
+
 def test_staging_also_rejects() -> None:
     with pytest.raises(ValueError, match="INTERNAL_API_JWT_SECRET"):
         Settings(
             _env_file=None,
-            **_production_kwargs(environment="staging", internal_api_jwt_secret=""),
+            **_production_kwargs(
+                environment="staging",
+                redis_namespace="staging",
+                internal_api_jwt_secret="",
+            ),
         )
 
 
@@ -123,7 +147,10 @@ def test_environment_properties(
     expected_deployed: bool,
 ) -> None:
     kwargs = (
-        _production_kwargs(environment=environment)
+        _production_kwargs(
+            environment=environment,
+            redis_namespace=environment,
+        )
         if environment in {"production", "staging"}
         else {"environment": environment}
     )
@@ -140,28 +167,73 @@ def test_railway_environment_still_marks_deployed_when_environment_is_developmen
 ) -> None:
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
 
-    with pytest.raises(ValueError, match="LIVE_ES_REVIEW_CAPTURE_DEBUG"):
-        Settings(
-            _env_file=None,
-            **_production_kwargs(
-                environment="development",
-                live_es_review_capture_debug=True,
-            ),
-        )
+    with pytest.warns(DeprecationWarning, match="APP_ENV 未設定"):
+        with pytest.raises(ValueError, match="LIVE_ES_REVIEW_CAPTURE_DEBUG"):
+            Settings(
+                _env_file=None,
+                **_production_kwargs(
+                    environment="development",
+                    redis_namespace="production",
+                    live_es_review_capture_debug=True,
+                ),
+            )
 
 
 def test_environment_alias_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ENVIRONMENT", "staging")
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
 
-    settings = Settings(
-        _env_file=None,
-        **_production_kwargs(environment=None),
-    )
+    with pytest.warns(DeprecationWarning, match="APP_ENV 未設定"):
+        settings = Settings(
+            _env_file=None,
+            **_production_kwargs(environment=None, redis_namespace="staging"),
+        )
 
     assert settings.environment == "staging"
     assert settings.is_staging is True
     assert settings.is_production is True
+
+
+def test_app_env_alias_is_supported(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("APP_ENV", "staging")
+    settings = Settings(
+        _env_file=None,
+        **_production_kwargs(environment=None, redis_namespace="staging"),
+    )
+
+    assert settings.environment == "staging"
+    assert settings.logical_app_environment == "staging"
+
+
+def test_environment_alias_emits_deprecation_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "staging")
+
+    with pytest.warns(DeprecationWarning, match="APP_ENV 未設定"):
+        settings = Settings(
+            _env_file=None,
+            **_production_kwargs(environment=None, redis_namespace="staging"),
+        )
+
+    assert settings.logical_app_environment == "staging"
+
+
+def test_app_env_alias_does_not_emit_deprecation_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_ENV", "staging")
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        settings = Settings(
+            _env_file=None,
+            **_production_kwargs(environment=None, redis_namespace="staging"),
+        )
+
+    assert settings.logical_app_environment == "staging"
+    assert not any(item.category is DeprecationWarning for item in recorded)
 
 
 def test_sentry_environment_fallback() -> None:
@@ -176,3 +248,37 @@ def test_sentry_environment_explicit_override(monkeypatch: pytest.MonkeyPatch) -
     settings = Settings(_env_file=None, **_production_kwargs(sentry_environment=None))
 
     assert settings.sentry_environment == "custom"
+
+
+def test_backend_sentry_dsn_env_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SENTRY_FASTAPI_DSN", "https://fastapi@sentry.io/1")
+    monkeypatch.setenv("BACKEND_SENTRY_DSN", "https://backend@sentry.io/1")
+    monkeypatch.setenv("SENTRY_DSN", "https://legacy@sentry.io/1")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.sentry_dsn == "https://fastapi@sentry.io/1"
+
+
+def test_backend_sentry_dsn_falls_back_to_backend_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SENTRY_FASTAPI_DSN", raising=False)
+    monkeypatch.setenv("BACKEND_SENTRY_DSN", "https://backend@sentry.io/1")
+    monkeypatch.setenv("SENTRY_DSN", "https://legacy@sentry.io/1")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.sentry_dsn == "https://backend@sentry.io/1"
+
+
+def test_backend_sentry_dsn_falls_back_to_legacy_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SENTRY_FASTAPI_DSN", raising=False)
+    monkeypatch.delenv("BACKEND_SENTRY_DSN", raising=False)
+    monkeypatch.setenv("SENTRY_DSN", "https://legacy@sentry.io/1")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.sentry_dsn == "https://legacy@sentry.io/1"
