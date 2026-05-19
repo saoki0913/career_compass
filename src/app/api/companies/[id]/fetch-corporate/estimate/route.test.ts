@@ -6,12 +6,25 @@ const {
   dbSelectMock,
   enforceRateLimitLayersMock,
   fetchFastApiInternalMock,
+  createCompanyRagIngestQuoteMock,
+  hashCompanyRagQuoteInputMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
   enforceRateLimitLayersMock: vi.fn(),
   fetchFastApiInternalMock: vi.fn(),
+  createCompanyRagIngestQuoteMock: vi.fn(),
+  hashCompanyRagQuoteInputMock: vi.fn(),
 }));
+
+function jsonMutationHeaders(): HeadersInit {
+  return {
+    "content-type": "application/json",
+    origin: "http://localhost:3000",
+    cookie: "csrf_token=test-csrf-token",
+    "x-csrf-token": "test-csrf-token",
+  };
+}
 
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers()),
@@ -33,6 +46,7 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/company-info/sources", () => ({
   detectContentTypeFromUrl: vi.fn(() => "corporate_site"),
+  parseCorporateInfoSources: vi.fn(() => []),
 }));
 
 vi.mock("@/lib/company-info/usage", () => ({
@@ -51,6 +65,11 @@ vi.mock("@/lib/company-info/source-compliance", () => ({
     warningResults: [],
     blockedResults: [],
   })),
+}));
+
+vi.mock("@/lib/company-info/rag-quotes", () => ({
+  createCompanyRagIngestQuote: createCompanyRagIngestQuoteMock,
+  hashCompanyRagQuoteInput: hashCompanyRagQuoteInputMock,
 }));
 
 vi.mock("@/lib/rate-limit-spike", () => ({
@@ -103,10 +122,17 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
     dbSelectMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
     fetchFastApiInternalMock.mockReset();
+    createCompanyRagIngestQuoteMock.mockReset();
+    hashCompanyRagQuoteInputMock.mockReset();
     vi.restoreAllMocks();
 
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     enforceRateLimitLayersMock.mockResolvedValue(null);
+    hashCompanyRagQuoteInputMock.mockReturnValue("quote-input-hash");
+    createCompanyRagIngestQuoteMock.mockResolvedValue({
+      quoteId: "quote-1",
+      expiresAt: new Date("2026-05-16T00:15:00.000Z"),
+    });
     dbSelectMock
       .mockReturnValueOnce(makeProfileQuery("free"))
       .mockReturnValueOnce(makeCompanyQuery());
@@ -130,6 +156,15 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
           requires_confirmation: false,
           errors: [],
           page_routing_summaries: {},
+          source_results: [
+            {
+              url: "https://example.com/company",
+              success: true,
+              kind: "html",
+              billable_units: 1,
+              page_routing_summary: null,
+            },
+          ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -142,9 +177,7 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
       body: JSON.stringify({
         urls: ["https://example.com/company"],
       }),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: jsonMutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -152,6 +185,7 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
 
     expect(response.status).toBe(200);
     expect(data.requiresConfirmation).toBe(false);
+    expect(data.quoteId).toBe("quote-1");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [, backendInit] = fetchSpy.mock.calls[0];
     const body = JSON.parse(String(backendInit?.body ?? "{}"));
@@ -167,15 +201,15 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate/estimate", {
       method: "POST",
       body: JSON.stringify({ urls: ["https://example.com/"] }),
-      headers: { "content-type": "application/json" },
+      headers: jsonMutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
     const data = await response.json();
 
     expect(response.status).toBe(401);
-    expect(data.error).toBe("この機能を利用するにはログインが必要です");
-    expect(data.errors).toEqual([data.error]);
+    expect(data.error.code).toBe("AUTH_REQUIRED");
+    expect(data.error.userMessage).toBe("ログインが必要です。");
   });
 
   it("returns error and errors fields on 400 when urls are missing", async () => {
@@ -183,7 +217,7 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate/estimate", {
       method: "POST",
       body: JSON.stringify({ urls: [] }),
-      headers: { "content-type": "application/json" },
+      headers: jsonMutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -216,7 +250,7 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate/estimate", {
       method: "POST",
       body: JSON.stringify({ urls: ["https://private.example/"] }),
-      headers: { "content-type": "application/json" },
+      headers: jsonMutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -249,7 +283,7 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate/estimate", {
       method: "POST",
       body: JSON.stringify({ urls: [warningResult.url] }),
-      headers: { "content-type": "application/json" },
+      headers: jsonMutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -277,7 +311,7 @@ describe("api/companies/[id]/fetch-corporate/estimate", () => {
     const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-corporate/estimate", {
       method: "POST",
       body: JSON.stringify({ urls: ["https://example.com/company"] }),
-      headers: { "content-type": "application/json" },
+      headers: jsonMutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });

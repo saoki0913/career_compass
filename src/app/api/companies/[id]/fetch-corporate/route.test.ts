@@ -8,6 +8,15 @@ type CorporateInfoSourceMock = {
   contentType: string;
 };
 
+function jsonMutationHeaders(): HeadersInit {
+  return {
+    "content-type": "application/json",
+    origin: "http://localhost:3000",
+    cookie: "csrf_token=test-csrf-token",
+    "x-csrf-token": "test-csrf-token",
+  };
+}
+
 const {
   getSessionMock,
   dbSelectMock,
@@ -19,6 +28,9 @@ const {
   checkPublicSourceComplianceMock,
   enforceRateLimitLayersMock,
   fetchFastApiInternalMock,
+  claimCompanyRagIngestQuoteMock,
+  completeCompanyRagIngestQuoteMock,
+  hashCompanyRagQuoteInputMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
@@ -36,6 +48,9 @@ const {
   })),
   enforceRateLimitLayersMock: vi.fn(),
   fetchFastApiInternalMock: vi.fn(),
+  claimCompanyRagIngestQuoteMock: vi.fn(),
+  completeCompanyRagIngestQuoteMock: vi.fn(),
+  hashCompanyRagQuoteInputMock: vi.fn(),
 }));
 
 vi.mock("next/headers", () => ({
@@ -97,6 +112,12 @@ vi.mock("@/lib/company-info/source-compliance", () => ({
   }),
 }));
 
+vi.mock("@/lib/company-info/rag-quotes", () => ({
+  claimCompanyRagIngestQuote: claimCompanyRagIngestQuoteMock,
+  completeCompanyRagIngestQuote: completeCompanyRagIngestQuoteMock,
+  hashCompanyRagQuoteInput: hashCompanyRagQuoteInputMock,
+}));
+
 vi.mock("@/lib/rate-limit-spike", () => ({
   enforceRateLimitLayers: enforceRateLimitLayersMock,
   CORPORATE_MUTATE_RATE_LAYERS: [],
@@ -155,6 +176,9 @@ describe("api/companies/[id]/fetch-corporate", () => {
     checkPublicSourceComplianceMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
     fetchFastApiInternalMock.mockReset();
+    claimCompanyRagIngestQuoteMock.mockReset();
+    completeCompanyRagIngestQuoteMock.mockReset();
+    hashCompanyRagQuoteInputMock.mockReset();
     vi.restoreAllMocks();
 
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -167,6 +191,19 @@ describe("api/companies/[id]/fetch-corporate", () => {
       policyVersion: "test",
     }));
     enforceRateLimitLayersMock.mockResolvedValue(null);
+    hashCompanyRagQuoteInputMock.mockReturnValue("quote-input-hash");
+    claimCompanyRagIngestQuoteMock.mockResolvedValue({
+      id: "quote-1",
+      sourceResults: [
+        {
+          url: "https://example.com/company",
+          success: true,
+          kind: "url",
+          billable_units: 1,
+        },
+      ],
+    });
+    completeCompanyRagIngestQuoteMock.mockResolvedValue(undefined);
     fetchFastApiInternalMock.mockImplementation((path: string, init?: RequestInit) =>
       fetch(`https://fastapi.test${path}`, init)
     );
@@ -212,10 +249,9 @@ describe("api/companies/[id]/fetch-corporate", () => {
       method: "POST",
       body: JSON.stringify({
         urls: ["https://example.com/company"],
+        quoteId: "quote-1",
       }),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: jsonMutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -232,7 +268,8 @@ describe("api/companies/[id]/fetch-corporate", () => {
     const [, fetchInit] = fetchSpy.mock.calls[0];
     const body = JSON.parse(String(fetchInit?.body ?? "{}"));
     expect(body.billing_plan).toBe("free");
-    expect(reserveCompanyRagUsageMock).not.toHaveBeenCalled();
+    expect(reserveCompanyRagUsageMock).toHaveBeenCalledTimes(1);
+    expect(cancelCompanyRagUsageMock).toHaveBeenCalledTimes(1);
     expect(dbUpdateMock).not.toHaveBeenCalled();
   });
 
@@ -248,6 +285,12 @@ describe("api/companies/[id]/fetch-corporate", () => {
           url_content_types: {
             "https://example.com/company": "corporate_site",
           },
+          source_results: [
+            {
+              url: "https://example.com/company",
+              success: true,
+            },
+          ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -269,10 +312,9 @@ describe("api/companies/[id]/fetch-corporate", () => {
       method: "POST",
       body: JSON.stringify({
         urls: ["https://example.com/company"],
+        quoteId: "quote-1",
       }),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: jsonMutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
@@ -297,9 +339,7 @@ describe("api/companies/[id]/fetch-corporate", () => {
       body: JSON.stringify({
         urls: ["https://example.com/mypage"],
       }),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: jsonMutationHeaders(),
     });
 
     const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
