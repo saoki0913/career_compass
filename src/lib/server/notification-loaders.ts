@@ -2,7 +2,7 @@ import { and, count, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
 import type { RequestIdentity } from "@/bff/identity/request-identity";
-import type { Notification } from "@/hooks/useNotifications";
+import type { Notification } from "@/lib/dto/notifications";
 
 export interface NotificationsPageData {
   notifications: Notification[];
@@ -48,8 +48,12 @@ export async function getNotificationsPageData(
 
   return {
     notifications: notificationRows.map((notification) => ({
-      ...notification,
+      id: notification.id,
       type: notification.type as Notification["type"],
+      title: notification.title,
+      message: notification.message,
+      data: notification.data as Notification["data"],
+      isRead: notification.isRead,
       createdAt: serializeDate(notification.createdAt) ?? new Date().toISOString(),
       expiresAt: serializeDate(notification.expiresAt),
     })),

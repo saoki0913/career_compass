@@ -9,6 +9,7 @@ import useSWR from "swr";
 import { parseApiErrorResponse, toAppUiError } from "@/lib/api-errors";
 import { notifySwrUserFacingFailure } from "@/lib/client-error-ui";
 import { buildAuthFetchHeaders, notificationsListUrl } from "@/lib/swr-fetcher";
+import type { Notification, NotificationType, NotificationsResponse } from "@/lib/dto/notifications";
 
 const NOTIFICATIONS_FETCH_FALLBACK = {
   code: "NOTIFICATIONS_FETCH_FAILED",
@@ -16,15 +17,6 @@ const NOTIFICATIONS_FETCH_FALLBACK = {
   action: "ページを再読み込みして、もう一度お試しください。",
   retryable: true,
 } as const;
-
-export type NotificationType =
-  | "deadline_reminder"
-  | "deadline_near"
-  | "company_fetch"
-  | "es_review"
-  | "daily_summary"
-  | "calendar_sync_failed"
-  | "billing_status";
 
 export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   deadline_reminder: "締切リマインド",
@@ -46,23 +38,7 @@ export const NOTIFICATION_TYPE_ICONS: Record<NotificationType, string> = {
   billing_status: "💳",
 };
 
-export interface Notification {
-  id: string;
-  userId: string | null;
-  guestId: string | null;
-  type: NotificationType;
-  title: string;
-  message: string;
-  data: Record<string, unknown> | null;
-  isRead: boolean;
-  createdAt: string;
-  expiresAt: string | null;
-}
-
-export interface NotificationsResponse {
-  notifications: Notification[];
-  unreadCount: number;
-}
+export type { Notification, NotificationType, NotificationsResponse };
 
 export interface UseNotificationsOptions {
   limit?: number;
@@ -83,6 +59,16 @@ async function fetchNotificationsList(url: string): Promise<NotificationsRespons
     notifications: data.notifications || [],
     unreadCount: data.unreadCount || 0,
   };
+}
+
+async function assertNotificationMutationOk(
+  response: Response,
+  fallback: typeof NOTIFICATIONS_FETCH_FALLBACK,
+  context: string,
+) {
+  if (!response.ok) {
+    throw await parseApiErrorResponse(response, fallback, context);
+  }
 }
 
 function cloneNotificationsResponse(response: NotificationsResponse): NotificationsResponse {
@@ -152,13 +138,15 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
           credentials: "include",
         });
 
-        if (!response.ok) {
-          throw new Error("Failed to mark notification as read");
-        }
+        await assertNotificationMutationOk(response, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.markAsRead");
 
         return true;
-      } catch {
+      } catch (err) {
         await mutate(current, { revalidate: false });
+        notifySwrUserFacingFailure(
+          toAppUiError(err, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.markAsRead"),
+          `/api/notifications/${notificationId}/read`,
+        );
         return false;
       }
     },
@@ -181,13 +169,15 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         credentials: "include",
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to mark all notifications as read");
-      }
+      await assertNotificationMutationOk(response, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.markAllAsRead");
 
       return true;
-    } catch {
+    } catch (err) {
       await mutate(current, { revalidate: false });
+      notifySwrUserFacingFailure(
+        toAppUiError(err, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.markAllAsRead"),
+        "/api/notifications/read-all",
+      );
       return false;
     }
   }, [data, mutate]);
@@ -213,13 +203,15 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
           credentials: "include",
         });
 
-        if (!response.ok) {
-          throw new Error("Failed to delete notification");
-        }
+        await assertNotificationMutationOk(response, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.deleteNotification");
 
         return true;
-      } catch {
+      } catch (err) {
         await mutate(current, { revalidate: false });
+        notifySwrUserFacingFailure(
+          toAppUiError(err, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.deleteNotification"),
+          `/api/notifications/${notificationId}`,
+        );
         return false;
       }
     },
@@ -243,13 +235,15 @@ export function useNotifications(options: UseNotificationsOptions = {}) {
         body: JSON.stringify({ all: true }),
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to delete all notifications");
-      }
+      await assertNotificationMutationOk(response, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.deleteAllNotifications");
 
       return true;
-    } catch {
+    } catch (err) {
       await mutate(current, { revalidate: false });
+      notifySwrUserFacingFailure(
+        toAppUiError(err, NOTIFICATIONS_FETCH_FALLBACK, "useNotifications.deleteAllNotifications"),
+        "/api/notifications/delete",
+      );
       return false;
     }
   }, [data, mutate]);

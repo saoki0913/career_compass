@@ -9,8 +9,6 @@ describe("buildNotificationPreviewData", () => {
         notifications: [
           {
             id: "n1",
-            userId: "user-1",
-            guestId: null,
             type: "daily_summary",
             title: "A",
             message: "A",
@@ -21,8 +19,6 @@ describe("buildNotificationPreviewData", () => {
           },
           {
             id: "n2",
-            userId: "user-1",
-            guestId: null,
             type: "daily_summary",
             title: "B",
             message: "B",
@@ -33,8 +29,6 @@ describe("buildNotificationPreviewData", () => {
           },
           {
             id: "n3",
-            userId: "user-1",
-            guestId: null,
             type: "daily_summary",
             title: "C",
             message: "C",

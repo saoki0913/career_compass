@@ -12,6 +12,32 @@ import { db } from "@/lib/db";
 import { notifications } from "@/lib/db/schema";
 import { eq, and, desc, count, type SQL } from "drizzle-orm";
 import { logError } from "@/lib/logger";
+import type { Notification } from "@/lib/dto/notifications";
+
+function parseNotificationLimit(value: string | null): number {
+  const parsed = value ? Number.parseInt(value, 10) : 10;
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return 10;
+  }
+  return Math.min(parsed, 50);
+}
+
+function serializeDate(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
+}
+
+function serializeNotification(row: typeof notifications.$inferSelect): Notification {
+  return {
+    id: row.id,
+    type: row.type as Notification["type"],
+    title: row.title,
+    message: row.message,
+    data: row.data as Notification["data"],
+    isRead: row.isRead,
+    createdAt: serializeDate(row.createdAt) ?? new Date().toISOString(),
+    expiresAt: serializeDate(row.expiresAt),
+  };
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -37,7 +63,7 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const limit = Math.min(parseInt(searchParams.get("limit") || "10"), 50);
+    const limit = parseNotificationLimit(searchParams.get("limit"));
     const unreadOnly = searchParams.get("unreadOnly") === "true";
 
     const conditions: SQL[] = [ownerCondition];
@@ -65,7 +91,7 @@ export async function GET(request: NextRequest) {
       );
 
     return NextResponse.json({
-      notifications: notificationList,
+      notifications: notificationList.map(serializeNotification),
       unreadCount: Number(unreadCountResult[0]?.unreadCount ?? 0),
     });
   } catch (error) {
@@ -152,7 +178,7 @@ export async function POST(request: NextRequest) {
       })
       .returning();
 
-    return NextResponse.json({ notification: newNotification[0] });
+    return NextResponse.json({ notification: serializeNotification(newNotification[0]) });
   } catch (error) {
     logError("notification-create", error);
     return createApiErrorResponse(request, {

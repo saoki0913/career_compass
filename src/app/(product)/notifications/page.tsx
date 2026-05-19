@@ -1,12 +1,13 @@
-import { headers } from "next/headers";
-import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getNotificationsPageData } from "@/lib/server/notification-loaders";
 import { NotificationsPageClient } from "@/components/notifications/NotificationsPageClient";
+import { resolvePageIdentity } from "@/lib/server/page-identity";
 
 export default async function NotificationsPage() {
-  const requestHeaders = await headers();
-  const identity = await getHeadersIdentity(requestHeaders);
-  const initialData = await getNotificationsPageData(identity, 50);
+  const identityResult = await resolvePageIdentity("notifications-page");
+  const initialData =
+    identityResult.status === "ready"
+      ? await getNotificationsPageData(identityResult.identity, 50)
+      : { notifications: [], unreadCount: 0 };
 
   return (
     <div className="min-h-screen bg-background">
