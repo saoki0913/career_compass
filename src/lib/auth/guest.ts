@@ -61,31 +61,27 @@ export async function getOrCreateGuestUser(deviceToken: string) {
   }
   const hashedToken = hashDeviceToken(deviceToken);
 
-  // Check if guest exists (search by hash, fall back to plaintext for migration)
-  let existing = (await db
+  // Prefer hashed rows, but claim and rewrite legacy plaintext rows so
+  // existing guest cookies keep their data after the secure-storage rollout.
+  const existing = (await db
     .select()
     .from(guestUsers)
-    .where(eq(guestUsers.deviceToken, hashedToken))
+    .where(or(
+      eq(guestUsers.deviceToken, hashedToken),
+      eq(guestUsers.deviceToken, deviceToken),
+    ))
     .limit(1))[0];
 
-  // Fallback: check for un-hashed token (existing guests before migration)
-  if (!existing) {
-    existing = (await db
-      .select()
-      .from(guestUsers)
-      .where(eq(guestUsers.deviceToken, deviceToken))
-      .limit(1))[0];
-
-    // Migrate to hashed token if found
-    if (existing) {
+  if (existing) {
+    if (existing.deviceToken !== hashedToken) {
       await db
         .update(guestUsers)
-        .set({ deviceToken: hashedToken, updatedAt: new Date() })
+        .set({
+          deviceToken: hashedToken,
+          updatedAt: new Date(),
+        })
         .where(eq(guestUsers.id, existing.id));
     }
-  }
-
-  if (existing) {
     // Check if expired
     if (existing.expiresAt < new Date()) {
       // Delete expired guest and create new one
@@ -136,24 +132,28 @@ export async function getGuestUser(deviceToken: string) {
     return null;
   }
   const hashedToken = hashDeviceToken(deviceToken);
-  let guest = (await db
+  const guest = (await db
     .select()
     .from(guestUsers)
-    .where(eq(guestUsers.deviceToken, hashedToken))
+    .where(or(
+      eq(guestUsers.deviceToken, hashedToken),
+      eq(guestUsers.deviceToken, deviceToken),
+    ))
     .limit(1))[0];
-
-  // Fallback for un-hashed tokens
-  if (!guest) {
-    guest = (await db
-      .select()
-      .from(guestUsers)
-      .where(eq(guestUsers.deviceToken, deviceToken))
-      .limit(1))[0];
-  }
 
   if (!guest) return null;
   if (guest.expiresAt < new Date()) return null;
   if (guest.migratedToUserId) return null;
+
+  if (guest.deviceToken !== hashedToken) {
+    await db
+      .update(guestUsers)
+      .set({
+        deviceToken: hashedToken,
+        updatedAt: new Date(),
+      })
+      .where(eq(guestUsers.id, guest.id));
+  }
 
   return guest;
 }
@@ -179,7 +179,10 @@ export async function migrateGuestToUser(deviceToken: string, userId: string) {
       })
       .where(
         and(
-          or(eq(guestUsers.deviceToken, hashedToken), eq(guestUsers.deviceToken, deviceToken)),
+          or(
+            eq(guestUsers.deviceToken, hashedToken),
+            eq(guestUsers.deviceToken, deviceToken),
+          ),
           isNull(guestUsers.migratedToUserId),
           gte(guestUsers.expiresAt, now),
         ),

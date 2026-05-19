@@ -24,12 +24,16 @@ const {
   updateWhereMock,
   updateReturningMock,
   refreshAccessTokenMock,
+  revokeGoogleOAuthTokenMock,
+  decryptMock,
 } = vi.hoisted(() => ({
   selectLimitMock: vi.fn(),
   updateValuesMock: vi.fn(),
   updateWhereMock: vi.fn(),
   updateReturningMock: vi.fn(),
   refreshAccessTokenMock: vi.fn(),
+  revokeGoogleOAuthTokenMock: vi.fn(),
+  decryptMock: vi.fn((value: string) => (value ? `dec:${value}` : value)),
 }));
 
 vi.mock("@/lib/db", () => ({
@@ -59,10 +63,11 @@ vi.mock("@/lib/db", () => ({
 
 vi.mock("@/lib/calendar/google", () => ({
   refreshAccessToken: refreshAccessTokenMock,
+  revokeGoogleOAuthToken: revokeGoogleOAuthTokenMock,
 }));
 
 vi.mock("@/lib/crypto", () => ({
-  decrypt: (value: string) => (value ? `dec:${value}` : value),
+  decrypt: decryptMock,
   encrypt: (value: string) => (value ? `enc:${value}` : value),
 }));
 
@@ -90,8 +95,12 @@ describe("calendar/connection helpers", () => {
     updateWhereMock.mockReset();
     updateReturningMock.mockReset();
     refreshAccessTokenMock.mockReset();
+    revokeGoogleOAuthTokenMock.mockReset();
+    decryptMock.mockReset();
 
     updateReturningMock.mockResolvedValue([]);
+    revokeGoogleOAuthTokenMock.mockResolvedValue(undefined);
+    decryptMock.mockImplementation((value: string) => (value ? `dec:${value}` : value));
   });
 
   afterEach(() => {
@@ -204,6 +213,131 @@ describe("calendar/connection helpers", () => {
       expect.objectContaining({ googleCalendarNeedsReconnect: true })
     );
     expect(refreshAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("does not use plaintext refresh tokens when encrypted token decrypt fails", async () => {
+    const now = new Date("2026-04-16T00:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    decryptMock.mockImplementation((value: string) => {
+      if (value === "legacy-plaintext") throw new Error("decrypt failed");
+      return `dec:${value}`;
+    });
+    const settings = baseSettings({
+      googleAccessToken: "enc:access",
+      googleRefreshToken: "legacy-plaintext",
+      googleTokenExpiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+    });
+    selectLimitMock
+      .mockResolvedValueOnce([settings])
+      .mockResolvedValueOnce([{ ...settings, googleCalendarNeedsReconnect: true }]);
+
+    const { getValidGoogleCalendarAccessToken } = await import("@/lib/calendar/connection");
+    const result = await getValidGoogleCalendarAccessToken("user-1");
+
+    expect(result.accessToken).toBeNull();
+    expect(updateValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ googleCalendarNeedsReconnect: true })
+    );
+    expect(refreshAccessTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("revokes the encrypted refresh token before clearing a Google Calendar connection", async () => {
+    const settings = baseSettings({ googleRefreshToken: "enc:refresh" });
+    selectLimitMock.mockResolvedValueOnce([settings]);
+
+    const { revokeAndClearGoogleCalendarConnection } = await import("@/lib/calendar/connection");
+    await revokeAndClearGoogleCalendarConnection("user-1");
+
+    expect(revokeGoogleOAuthTokenMock).toHaveBeenCalledWith("dec:enc:refresh");
+    expect(updateValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        googleAccessToken: null,
+        googleRefreshToken: null,
+      })
+    );
+  });
+
+  it("revokes an encrypted access token when no refresh token is stored", async () => {
+    const settings = baseSettings({
+      googleAccessToken: "enc:access",
+      googleRefreshToken: null,
+    });
+    selectLimitMock.mockResolvedValueOnce([settings]);
+
+    const { revokeAndClearGoogleCalendarConnection } = await import("@/lib/calendar/connection");
+    await revokeAndClearGoogleCalendarConnection("user-1");
+
+    expect(revokeGoogleOAuthTokenMock).toHaveBeenCalledWith("dec:enc:access");
+    expect(updateValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        googleAccessToken: null,
+        googleRefreshToken: null,
+      })
+    );
+  });
+
+  it("revokes a decryptable refresh token even if the stored access token cannot be decrypted", async () => {
+    decryptMock.mockImplementation((value: string) => {
+      if (value === "legacy-access") throw new Error("decrypt failed");
+      return `dec:${value}`;
+    });
+    const settings = baseSettings({
+      googleAccessToken: "legacy-access",
+      googleRefreshToken: "enc:refresh",
+    });
+    selectLimitMock.mockResolvedValueOnce([settings]);
+
+    const { revokeAndClearGoogleCalendarConnection } = await import("@/lib/calendar/connection");
+    await revokeAndClearGoogleCalendarConnection("user-1");
+
+    expect(revokeGoogleOAuthTokenMock).toHaveBeenCalledWith("dec:enc:refresh");
+    expect(updateValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        googleAccessToken: null,
+        googleRefreshToken: null,
+      })
+    );
+  });
+
+  it("clears local Google Calendar tokens when stored tokens cannot be decrypted", async () => {
+    decryptMock.mockImplementation(() => {
+      throw new Error("decrypt failed");
+    });
+    const settings = baseSettings({
+      googleAccessToken: "legacy-access",
+      googleRefreshToken: "legacy-refresh",
+    });
+    selectLimitMock.mockResolvedValueOnce([settings]);
+
+    const { revokeAndClearGoogleCalendarConnection } = await import("@/lib/calendar/connection");
+    await revokeAndClearGoogleCalendarConnection("user-1");
+
+    expect(revokeGoogleOAuthTokenMock).not.toHaveBeenCalled();
+    expect(updateValuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        googleAccessToken: null,
+        googleRefreshToken: null,
+        googleCalendarNeedsReconnect: false,
+      })
+    );
+  });
+
+  it("keeps local tokens when Google revoke fails", async () => {
+    const settings = baseSettings({ googleRefreshToken: "enc:refresh" });
+    selectLimitMock.mockResolvedValueOnce([settings]);
+    revokeGoogleOAuthTokenMock.mockRejectedValue(new Error("revoke failed"));
+
+    const { revokeAndClearGoogleCalendarConnection } = await import("@/lib/calendar/connection");
+    await expect(revokeAndClearGoogleCalendarConnection("user-1")).rejects.toThrow("revoke failed");
+
+    expect(updateValuesMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        googleAccessToken: null,
+        googleRefreshToken: null,
+      })
+    );
   });
 
   it("records googleRefreshTokenIssuedAt only when Google issues a new refresh token", async () => {

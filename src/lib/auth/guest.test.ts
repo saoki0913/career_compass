@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 const {
   dbSelectMock,
+  dbUpdateMock,
   dbTransactionMock,
   txSelectMock,
   txUpdateMock,
   txDeleteMock,
 } = vi.hoisted(() => ({
   dbSelectMock: vi.fn(),
+  dbUpdateMock: vi.fn(),
   dbTransactionMock: vi.fn(),
   txSelectMock: vi.fn(),
   txUpdateMock: vi.fn(),
@@ -56,6 +60,7 @@ vi.mock("@/lib/db/schema", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     select: dbSelectMock,
+    update: dbUpdateMock,
     transaction: dbTransactionMock,
   },
 }));
@@ -207,5 +212,52 @@ describe("migrateGuestToUser", () => {
     });
     expect(txDeleteMock).toHaveBeenCalledTimes(3);
     expect(txUpdateMock).toHaveBeenCalledTimes(14);
+  });
+});
+
+describe("guest token lookup", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    dbSelectMock.mockReset();
+    dbUpdateMock.mockReset();
+  });
+
+  it("claims and hashes plaintext legacy device tokens during lookup", async () => {
+    const legacyGuest = {
+      id: "guest-legacy",
+      deviceToken: "550e8400-e29b-41d4-a716-446655440000",
+      expiresAt: new Date("2099-01-01T00:00:00.000Z"),
+      migratedToUserId: null,
+    };
+    const limitMock = vi.fn().mockResolvedValue([legacyGuest]);
+    dbSelectMock.mockReturnValue({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: limitMock,
+        })),
+      })),
+    });
+    const whereMock = vi.fn().mockResolvedValue(undefined);
+    const setMock = vi.fn(() => ({ where: whereMock }));
+    dbUpdateMock.mockReturnValue({ set: setMock });
+
+    const { getGuestUser } = await import("@/lib/auth/guest");
+    const result = await getGuestUser("550e8400-e29b-41d4-a716-446655440000");
+
+    expect(result).toEqual(legacyGuest);
+    expect(dbSelectMock).toHaveBeenCalledTimes(1);
+    expect(limitMock).toHaveBeenCalledTimes(1);
+    expect(setMock).toHaveBeenCalledWith(expect.objectContaining({
+      deviceToken: expect.not.stringMatching(/^550e8400/),
+      updatedAt: expect.any(Date),
+    }));
+  });
+
+  it("hashes the raw guest device token when migration claims a legacy row", () => {
+    const source = readFileSync(path.resolve(process.cwd(), "src/lib/auth/guest.ts"), "utf8");
+
+    expect(source).toContain("eq(guestUsers.deviceToken, hashedToken)");
+    expect(source).toContain("eq(guestUsers.deviceToken, deviceToken)");
+    expect(source).toContain("deviceToken: hashedToken");
   });
 });

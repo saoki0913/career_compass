@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { calendarSettings } from "@/lib/db/schema";
-import { refreshAccessToken } from "@/lib/calendar/google";
+import { refreshAccessToken, revokeGoogleOAuthToken } from "@/lib/calendar/google";
 import { decrypt, encrypt } from "@/lib/crypto";
 
 export const GOOGLE_CALENDAR_SCOPES = [
@@ -34,7 +34,7 @@ function decryptStoredToken(value: string | null): string | null {
   try {
     return decrypt(value);
   } catch {
-    return value;
+    return null;
   }
 }
 
@@ -140,6 +140,16 @@ export async function getValidGoogleCalendarAccessToken(userId: string) {
   const status = buildCalendarConnectionStatus(settings);
   const refreshToken = decryptStoredToken(settings?.googleRefreshToken ?? null);
   const accessToken = decryptStoredToken(settings?.googleAccessToken ?? null);
+
+  if (settings?.googleRefreshToken && !refreshToken) {
+    await markCalendarReconnectNeeded(userId);
+    const latest = await getCalendarSettingsRecord(userId);
+    return {
+      accessToken: null,
+      settings: latest,
+      status: buildCalendarConnectionStatus(latest),
+    };
+  }
 
   if (!settings || !refreshToken || !status.connected) {
     return { accessToken: null, settings, status };
@@ -287,4 +297,17 @@ export async function clearGoogleCalendarConnection(userId: string) {
       updatedAt: new Date(),
     })
     .where(eq(calendarSettings.userId, userId));
+}
+
+export async function revokeAndClearGoogleCalendarConnection(userId: string) {
+  const settings = await getCalendarSettingsRecord(userId);
+  const refreshToken = decryptStoredToken(settings?.googleRefreshToken ?? null);
+  const accessToken = decryptStoredToken(settings?.googleAccessToken ?? null);
+
+  const tokenToRevoke = refreshToken ?? accessToken;
+  if (tokenToRevoke) {
+    await revokeGoogleOAuthToken(tokenToRevoke);
+  }
+
+  await clearGoogleCalendarConnection(userId);
 }
