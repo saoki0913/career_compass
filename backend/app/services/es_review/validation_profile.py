@@ -36,6 +36,7 @@ class ValidationProfile:
     style_unity: LlmAxisMode = "required"
     structure_clarity: LlmAxisMode = "required"
     fact_preservation: LlmAxisMode = "required"
+    answer_completeness: LlmAxisMode = "required"
     fact_guard_hard_block_codes: frozenset[str] = field(
         default_factory=lambda: frozenset(
             {
@@ -71,6 +72,7 @@ class ValidationProfile:
             "style_unity": self.style_unity,
             "structure_clarity": self.structure_clarity,
             "fact_preservation": self.fact_preservation,
+            "answer_completeness": self.answer_completeness,
         }
 
 

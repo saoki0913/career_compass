@@ -179,14 +179,19 @@ def _append_rewrite_attempt_trace(
 # ---------------------------------------------------------------------------
 
 _ANSWER_TRUNCATE_LEN = 500
-_CLAIM_TRUNCATE_LEN = 80
-_FACT_TRUNCATE_LEN = 120
 
 
 def _truncate(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
     return text[:max_len] + "... (truncated)"
+
+
+def _truncate_head_tail(text: str, *, head: int = 120, tail: int = 80) -> str:
+    if len(text) <= head + tail:
+        return text
+    omitted = len(text) - head - tail
+    return f"{text[:head]}…(中略 {omitted}字)…{text[-tail:]}"
 
 
 def _extract_host(url: str) -> str:
@@ -221,6 +226,23 @@ def _format_rewrite_attempt_input_block(
 ) -> str:
     lines: list[str] = []
     lines.append(f"=== ATTEMPT {attempt + 1}/{total_attempts} ({template_type}) ===")
+    target_window = (
+        f"{target_window_lower}-{target_window_upper}"
+        if target_window_lower is not None or target_window_upper is not None
+        else "-"
+    )
+    lines.append(
+        " | ".join(
+            [
+                f"grounding={grounding_mode}/{company_grounding}",
+                f"focus={focus_modes_serialized}",
+                f"target={target_window}",
+                f"char_min={char_min}",
+                f"char_max={char_max}",
+                f"safe_rewrite={use_safe_rewrite}",
+            ]
+        )
+    )
 
     if original_answer:
         lines.append("--- Original Answer ---")
@@ -234,37 +256,25 @@ def _format_rewrite_attempt_input_block(
     lines.append(f"length_control={retry_plan_length_control_mode}")
     tw_lower = retry_plan_shortfall_delta_band or "-"
     lines.append(f"delta_band={tw_lower}")
-    if target_window_lower is not None or target_window_upper is not None:
-        lines.append(f"target_window={target_window_lower}-{target_window_upper}")
 
-    lines.append("--- Length Constraints ---")
-    lines.append(f"char_min={char_min} char_max={char_max}")
-
-    lines.append("--- Grounding ---")
-    lines.append(f"grounding_mode={grounding_mode} company_grounding={company_grounding}")
-
-    lines.append("--- Focus Modes ---")
-    lines.append(f"[{focus_modes_serialized}]")
-    lines.append(f"safe_rewrite={use_safe_rewrite}")
-
-    lines.append(f"--- Evidence Cards ({len(selected_evidence_cards)} selected) ---")
-    if selected_evidence_cards:
-        for i, card in enumerate(selected_evidence_cards, 1):
-            theme = card.get("theme", "?")
-            claim = _truncate(card.get("claim", ""), _CLAIM_TRUNCATE_LEN)
-            host = _extract_host(card.get("source_url", ""))
-            lines.append(f"  {i}. theme={theme} | claim={claim} | host={host}")
-    else:
-        lines.append("  (none)")
-
-    lines.append(f"--- User Facts ({len(selected_user_facts)} selected) ---")
-    if selected_user_facts:
-        for i, fact in enumerate(selected_user_facts, 1):
-            source = fact.get("source", "?")
-            text = _truncate(fact.get("text", ""), _FACT_TRUNCATE_LEN)
-            lines.append(f"  {i}. [{source}] {text}")
-    else:
-        lines.append("  (none)")
+    evidence_hosts = sorted(
+        {
+            _extract_host(str(card.get("source_url") or ""))
+            for card in selected_evidence_cards
+            if str(card.get("source_url") or "").strip()
+        }
+    )
+    fact_sources = sorted(
+        {
+            str(fact.get("source") or "?")
+            for fact in selected_user_facts
+            if str(fact.get("source") or "").strip()
+        }
+    )
+    lines.append(
+        f"evidence_cards={len(selected_evidence_cards)} hosts={evidence_hosts[:5]}"
+    )
+    lines.append(f"user_facts={len(selected_user_facts)} sources={fact_sources[:5]}")
 
     lines.append(f"--- Retry Hints ({len(retry_hints)}) ---")
     if retry_hints:
@@ -291,14 +301,21 @@ def _format_rewrite_attempt_output_block(
     retry_code: str,
     failure_codes: list[str],
     focus_modes_serialized: str,
-    char_count: int,
+    gen_chars: int,
+    fit_chars: int,
+    target_lower: int | None,
+    target_upper: int | None,
     llm_failed_checks: list[str],
     llm_warned_checks: list[str],
     retry_reason: str,
 ) -> str:
     lines: list[str] = []
     lines.append(f"=== OUTPUT {attempt + 1}/{total_attempts} ({template_type}) ===")
-    lines.append(f"accepted={accepted} | chars={char_count} | mode={focus_modes_serialized}")
+    accepted_mark = "✓" if accepted else "✗"
+    lines.append(
+        f"accepted={accepted_mark} | gen_chars={gen_chars} | fit_chars={fit_chars} | "
+        f"target={target_lower}-{target_upper} | mode={focus_modes_serialized}"
+    )
     if retry_code or failure_codes:
         lines.append(f"retry_code={retry_code} | failure_codes={failure_codes}")
     if llm_failed_checks or llm_warned_checks:
@@ -306,7 +323,7 @@ def _format_rewrite_attempt_output_block(
     if not accepted and retry_reason:
         lines.append(f"retry_reason: {retry_reason}")
     lines.append("--- Candidate ---")
-    lines.append(candidate)
+    lines.append(_truncate_head_tail(candidate))
     return "\n".join(lines)
 
 
@@ -330,7 +347,7 @@ def _format_rewrite_loop_summary_block(
         lines.append(f"winner=attempt {accepted_attempt}")
     else:
         lines.append("winner=none (total failure)")
-    lines.append(f"chars={final_rewrite_chars}")
+    lines.append(f"chars(post-fit)={final_rewrite_chars}")
     if safe_rewrite_triggered:
         lines.append("safe_rewrite=True")
     return "\n".join(lines)

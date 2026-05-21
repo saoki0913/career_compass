@@ -326,11 +326,26 @@ def _build_hallucination_retry_hints(warnings: list[dict[str, str]]) -> list[str
     return hints
 
 
-def _rewrite_validation_degraded_hint(codes: list[str]) -> str:
+def _rewrite_validation_degraded_hint(
+    codes: list[str],
+    *,
+    over_max_excess: int | None = None,
+) -> str:
     """degraded 採用時に、未解決の主要コードに応じた修正点を明示する。"""
     intro = (
         "厳密な品質チェックをすべて満たせませんでしたが、最も近い改善案を表示しています。"
     )
+    if over_max_excess and over_max_excess > 0:
+        over_max_action = (
+            f"規定字数を{over_max_excess}字超過しています。提出前に手動で短縮してください。"
+        )
+    elif over_max_excess == 0:
+        # 圧縮で上限内に収まり字数超過は解消済み。手動短縮は促さない。
+        over_max_action = ""
+    else:
+        over_max_action = (
+            "提出前に、指定の最大字数を超えないよう、重複や冗長な表現を削ってください。"
+        )
     action_by_code: dict[str, str] = {
         ValidationFailureCode.STYLE: (
             "提出前に、です・ます調を使わずだ・である調にそろえてください。"
@@ -338,9 +353,7 @@ def _rewrite_validation_degraded_hint(codes: list[str]) -> str:
         ValidationFailureCode.UNDER_MIN: (
             "提出前に、指定の最小字数を満たすよう、本文を足すか構成を調整してください。"
         ),
-        ValidationFailureCode.OVER_MAX: (
-            "提出前に、指定の最大字数を超えないよう、重複や冗長な表現を削ってください。"
-        ),
+        ValidationFailureCode.OVER_MAX: over_max_action,
         ValidationFailureCode.ANSWER_FOCUS: (
             "提出前に、冒頭の1〜2文で設問の答えの核がすぐ伝わるよう書き直してください。"
         ),
@@ -374,6 +387,7 @@ def _rewrite_validation_degraded_hint(codes: list[str]) -> str:
         action_by_code.get(code, action_by_code[ValidationFailureCode.GENERIC])
         for code in _select_retry_codes(retry_code=codes[0], failure_codes=codes)
     ]
+    actions = [action for action in actions if action]
     return intro + " ".join(_dedupe_preserve_order(actions))
 
 
@@ -421,12 +435,12 @@ def _resolve_rewrite_length_control_mode(
     use_tight_length_control: bool,
     focus_mode: str,
 ) -> str:
+    if focus_mode == "length_focus_max":
+        return "tight_length"
     if not use_tight_length_control:
         return "default"
     if focus_mode == "length_focus_min":
         return "under_min_recovery"
-    if focus_mode == "length_focus_max":
-        return "tight_length"
     return "tight_length"
 
 
@@ -645,8 +659,9 @@ def _retry_hint_from_code(
         ValidationFailureCode.EMPTY: "改善案本文を必ず1件だけ返す",
         ValidationFailureCode.UNDER_MIN: f"内容を薄めず {target_hint} を狙う",
         ValidationFailureCode.OVER_MAX: (
-            f"冗長な背景説明・一般論・重複説明・修飾語の順に削り {target_hint} に収める。"
-            "新しい論点や事実は足さない"
+            f"字数超過のため冗長な背景説明・修飾・重複を削り {target_hint} に収める。"
+            "新しい論点や事実は足さない。収めるために結びを簡潔化・省略してもよいが、"
+            "回答として完結した印象を保つ"
         ),
         ValidationFailureCode.STYLE: "です・ます調を使わず、だ・である調に統一する",
         ValidationFailureCode.ANSWER_FOCUS: (

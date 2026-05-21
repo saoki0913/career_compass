@@ -1104,7 +1104,10 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
                     retry_code=retry_code,
                     failure_codes=failure_codes_for_trace,
                     focus_modes_serialized=_serialize_focus_modes(focus_modes),
-                    char_count=len(str(candidate)),
+                    gen_chars=len(_normalize_repaired_text(candidate)),
+                    fit_chars=int(retry_meta.get("char_count") or 0),
+                    target_lower=length_target_plan.generation_target_lower,
+                    target_upper=length_target_plan.generation_target_upper,
                     llm_failed_checks=llm_failed_checks_for_trace,
                     llm_warned_checks=llm_warned_checks_for_trace,
                     retry_reason=retry_reason,
@@ -1267,7 +1270,15 @@ async def execute_recovery_pipeline(
             loop_result.best_failure_codes
             or ([loop_result.best_retry_code] if loop_result.best_retry_code != "generic" else [])
         )
-        recovery.rewrite_validation_user_hint = _rewrite_validation_degraded_hint(recovery.rewrite_validation_codes)
+        over_max_excess = (
+            max(0, len(recovery.final_rewrite) - ctx.char_max)
+            if ctx.char_max
+            else None
+        )
+        recovery.rewrite_validation_user_hint = _rewrite_validation_degraded_hint(
+            recovery.rewrite_validation_codes,
+            over_max_excess=over_max_excess,
+        )
         recovery.accepted_hallucination_warnings = (
             loop_result.best_rejected_hallucination_warnings
         )

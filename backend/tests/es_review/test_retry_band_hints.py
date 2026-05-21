@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from app.services.es_review.retry import build_rewrite_retry_plan, _retry_hints_from_codes
+from app.services.es_review.retry import (
+    build_rewrite_retry_plan,
+    _retry_hints_from_codes,
+    _rewrite_validation_degraded_hint,
+)
 
 
 def test_small_shortfall_hint_uses_concrete_expansion_guidance() -> None:
@@ -33,6 +37,35 @@ def test_tiny_shortfall_hint_uses_concrete_expansion_guidance() -> None:
     assert len(hints) >= 1
     assert "修飾語" in hints[0]
     assert "数値" in hints[0] or "対象名" in hints[0] or "方法" in hints[0]
+
+
+def test_over_max_hint_keeps_completeness_while_reducing_length() -> None:
+    hints = _retry_hints_from_codes(
+        retry_code="over_max",
+        failure_codes=["over_max"],
+        char_min=390,
+        char_max=400,
+        current_length=430,
+        length_control_mode="tight_length",
+        template_type="gakuchika",
+    )
+
+    assert len(hints) >= 1
+    assert "字数超過" in hints[0]
+    assert "結びを簡潔化・省略してもよい" in hints[0]
+    assert "回答として完結した印象を保つ" in hints[0]
+
+
+def test_degraded_hint_omits_manual_trim_when_over_max_resolved() -> None:
+    # 圧縮で上限内に収まった degraded ケース(over_max_excess=0)では、
+    # 「手動で短縮」を促す over_max アクションを出さない。
+    resolved = _rewrite_validation_degraded_hint(["over_max"], over_max_excess=0)
+    assert "短縮" not in resolved
+    assert "削ってください" not in resolved
+
+    # 真に超過している場合は超過字数を明示する。
+    over = _rewrite_validation_degraded_hint(["over_max"], over_max_excess=12)
+    assert "12字超過" in over
 
 
 def test_under_min_retry_plan_carries_overshoot_target_and_guidance() -> None:

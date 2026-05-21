@@ -25,6 +25,7 @@ def _passing_validation_payload() -> dict[str, dict[str, object]]:
         "fact_preservation": {"pass": True, "reason": ""},
         "expression_diversity": {"pass": True, "reason": ""},
         "theme_focus": {"pass": True, "reason": ""},
+        "answer_completeness": {"pass": True, "reason": ""},
     }
 
 

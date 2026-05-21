@@ -308,108 +308,10 @@ def _apply_semantic_compression_rules(text: str, char_max: int) -> str:
     return compressed.strip()
 
 
-def _split_japanese_sentences(text: str) -> list[str]:
-    sentences = [s.strip() for s in re.split(r"(?<=[。！？])", text) if s.strip()]
-    return sentences or [text.strip()]
-
-
-def _sentence_priority(sentence: str, index: int, total: int) -> int:
-    score = 0
-    if index == 0:
-        score += 10
-    if index == total - 1:
-        score += 4
-    if re.search(r"志望|理由|魅力|選ぶ|選択", sentence):
-        score += 6
-    if re.search(r"研究|経験|インターン|開発|取り組|学ん", sentence):
-        score += 5
-    if re.search(r"活か|貢献|実現|価値|推進|将来|キャリア", sentence):
-        score += 5
-    if re.search(r"\d", sentence):
-        score += 3
-    if len(sentence) <= 14:
-        score -= 1
-    return score
-
-
-def _prune_low_priority_sentences(
-    text: str, char_max: int, *, char_min: int | None = None
-) -> str | None:
-    sentences = _split_japanese_sentences(text)
-    if len(sentences) < 3:
-        return None
-
-    working = sentences[:]
-    while len("".join(working)) > char_max and len(working) > 2:
-        candidates: list[tuple[int, int]] = []
-        for idx, sentence in enumerate(working):
-            if idx == 0:
-                continue
-            priority = _sentence_priority(sentence, idx, len(working))
-            candidates.append((priority, idx))
-        if not candidates:
-            break
-        _, remove_idx = min(candidates)
-        trial = working[:remove_idx] + working[remove_idx + 1 :]
-        trial_text = "".join(trial)
-        if trial_text == "".join(working):
-            break
-        # 文を丸ごと削ると char_min を下回るなら、過圧縮せず打ち切る。
-        if char_min is not None and len(trial_text) < char_min:
-            break
-        working = trial
-
-    result = "".join(working).strip()
-    if (
-        len(result) <= char_max
-        and result.endswith(("。", "！", "？"))
-        and not (char_min is not None and len(result) < char_min)
-    ):
-        return result
-    return None
-
-
-def _trim_to_safe_boundary(
-    text: str,
-    *,
-    char_min: int | None,
-    char_max: int,
-) -> str | None:
-    if len(text) <= char_max:
-        return text
-
-    boundary_candidates: list[int] = []
-    for token in ("。", "！", "？"):
-        index = text.rfind(token, 0, char_max + 1)
-        if index >= 0:
-            boundary_candidates.append(index + 1)
-    for token in ("、", "，", ","):
-        index = text.rfind(token, 0, char_max + 1)
-        if index >= 0:
-            boundary_candidates.append(index)
-
-    for cut_index in sorted(set(boundary_candidates), reverse=True):
-        trimmed = text[:cut_index].rstrip("、，, ")
-        if not trimmed:
-            continue
-        if not trimmed.endswith(("。", "！", "？")):
-            trimmed += "。"
-        if char_min and len(trimmed) < char_min:
-            continue
-        if len(trimmed) <= char_max:
-            return trimmed
-    return None
-
-
 def deterministic_compress_variant(
     variant: dict, char_max: int, *, char_min: int | None = None
 ) -> dict | None:
-    """Compress over-limit text with rule-based shortening, never hard-cutting.
-
-    When ``char_min`` is given, never return an under-min result: sentence
-    pruning and boundary trimming stay within ``[char_min, char_max]`` and the
-    function returns ``None`` rather than overshooting below the floor.
-    """
+    """Compress over-limit text with semantic replacements only."""
     text = variant.get("text", "").strip()
     if len(text) <= char_max:
         result = dict(variant)
@@ -417,15 +319,6 @@ def deterministic_compress_variant(
         return result
 
     compressed = _apply_semantic_compression_rules(text, char_max)
-    if len(compressed) > char_max:
-        pruned = _prune_low_priority_sentences(compressed, char_max, char_min=char_min)
-        if pruned:
-            compressed = pruned
-    if len(compressed) > char_max:
-        trimmed = _trim_to_safe_boundary(compressed, char_min=char_min, char_max=char_max)
-        if trimmed:
-            compressed = trimmed
-
     if len(compressed) > char_max or not compressed.endswith(("。", "！", "？")):
         return None
     if char_min is not None and len(compressed) < char_min:
@@ -472,20 +365,6 @@ def _fit_rewrite_text_deterministically(
             )
             if compressed_ok:
                 return compressed_text
-            normalized = compressed_text
-
-    if char_max and len(normalized) > char_max:
-        safely_trimmed = _trim_to_safe_boundary(
-            normalized,
-            char_min=char_min,
-            char_max=char_max,
-        )
-        if safely_trimmed:
-            trimmed_ok, _ = _is_within_char_limits(
-                safely_trimmed, char_min, char_max
-            )
-            if trimmed_ok:
-                return safely_trimmed
 
     return None
 
@@ -840,13 +719,15 @@ async def _validate_rewrite_combined(
         profile=_profile,
     )
     accepted, code, reason, meta = result
+    if accepted is None:
+        return result
     if not json_caller:
         return result
 
     axis_modes = _profile.axis_modes()
     axis_modes["theme_focus"] = "skip" if template_type == "gakuchika" else "required"
     llm_result = await _validate_rewrite_with_llm(
-        candidate,
+        accepted,
         template_type=template_type,
         question=question,
         user_answer=user_answer,
@@ -871,8 +752,6 @@ async def _validate_rewrite_combined(
         ValidationFailureCode.FACT_PRESERVATION.value in llm_result.warned_checks
         and any(term in llm_result.retry_hint for term in _HARD_FACT_WARNING_TERMS)
     )
-    if not accepted:
-        return accepted, code, reason, meta
     if hard_fact_warning_detected:
         return (
             None,
@@ -916,13 +795,9 @@ __all__ = [
     "_has_unfinished_tail",
     "_is_within_char_limits",
     "_normalize_repaired_text",
-    "_prune_low_priority_sentences",
-    "_sentence_priority",
     "_should_attempt_semantic_compression",
     "_soft_min_shortfall",
     "_split_candidate_sentences",
-    "_split_japanese_sentences",
-    "_trim_to_safe_boundary",
     "_uses_tight_length_control",
     "_validate_rewrite_combined",
     "_validate_rewrite_candidate",

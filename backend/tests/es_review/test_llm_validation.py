@@ -21,6 +21,7 @@ def _passing_payload() -> dict:
         "fact_preservation": {"pass": True, "reason": ""},
         "expression_diversity": {"pass": True, "reason": ""},
         "theme_focus": {"pass": True, "reason": ""},
+        "answer_completeness": {"pass": True, "reason": ""},
     }
 
 
@@ -40,6 +41,12 @@ def test_fact_preservation_still_blocks_fabrication() -> None:
 def test_validation_prompt_includes_expression_and_theme_axes() -> None:
     assert "expression_diversity" in _VALIDATION_SYSTEM_PROMPT
     assert "theme_focus" in _VALIDATION_SYSTEM_PROMPT
+    assert "answer_completeness" in _VALIDATION_SYSTEM_PROMPT
+
+
+def test_llm_validation_schema_has_answer_completeness() -> None:
+    assert "answer_completeness" in LLM_VALIDATION_SCHEMA["properties"]
+    assert "answer_completeness" in LLM_VALIDATION_SCHEMA["required"]
 
 
 def test_llm_validation_schema_has_quality_blueprint_alignment() -> None:
@@ -104,6 +111,31 @@ async def test_validate_rewrite_with_llm_collects_quality_blueprint_failure() ->
     assert result.passed is False
     assert result.failed_checks == ["quality_blueprint_alignment"]
     assert result.retry_hint == "根拠と貢献像が弱い"
+
+
+@pytest.mark.asyncio
+async def test_validate_rewrite_with_llm_collects_answer_completeness_failure() -> None:
+    async def fake_json_caller(**kwargs):
+        payload = _passing_payload()
+        payload["answer_completeness"] = {
+            "pass": False,
+            "reason": "結びが唐突",
+        }
+        return payload
+
+    result = await _validate_rewrite_with_llm(
+        "経験を生かし、貴社で",
+        template_type="company_motivation",
+        question="志望理由を教えてください。",
+        user_answer="経験を生かしたい。",
+        company_name="テスト社",
+        grounding_mode="required",
+        json_caller=fake_json_caller,
+    )
+
+    assert result.passed is False
+    assert result.failed_checks == ["answer_completeness"]
+    assert result.retry_hint == "結びが唐突"
 
 
 @pytest.mark.asyncio
@@ -394,3 +426,42 @@ async def test_quality_first_profile_rejects_final_llm_quality_failure() -> None
     assert code == "llm_quality"
     assert reason == "重複がある"
     assert meta["llm_failed_checks"] == ["structure_clarity"]
+
+
+@pytest.mark.asyncio
+async def test_validate_rewrite_combined_passes_fitted_text_to_llm_validation() -> None:
+    captured_user_message = ""
+
+    async def fake_json_caller(**kwargs):
+        nonlocal captured_user_message
+        captured_user_message = kwargs["user_message"]
+        return _passing_payload()
+
+    raw_candidate = (
+        "私は課題を解決することができる。"
+        "経験を活かすことができる。顧客価値を高めたい。"
+    )
+
+    accepted, code, reason, _meta = await _validate_rewrite_combined(
+        raw_candidate,
+        template_type="basic",
+        question="志望理由を教えてください。",
+        company_name=None,
+        char_min=25,
+        char_max=32,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+        user_answer=raw_candidate,
+        json_caller=fake_json_caller,
+    )
+
+    assert accepted is not None
+    assert code == "ok"
+    assert reason == "ok"
+    rewritten_block = captured_user_message.split("<rewritten_text>", 1)[1].split(
+        "</rewritten_text>",
+        1,
+    )[0]
+    assert accepted in rewritten_block
+    assert raw_candidate not in rewritten_block

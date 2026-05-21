@@ -114,9 +114,7 @@ class TestFormatRewriteAttemptInputBlock:
             grounding_mode="company_general",
             company_grounding="required",
         )
-        assert "企業理解" in result
-        assert "若手社員が主体的にプロジェクトをリード" in result
-        assert "成長機会" in result
+        assert "evidence_cards=2" in result
         assert "example.co.jp" in result
         assert "corp.example.com" in result
 
@@ -147,11 +145,11 @@ class TestFormatRewriteAttemptInputBlock:
             grounding_mode="none",
             company_grounding="assistive",
         )
+        assert "user_facts=2" in result
         assert "gakuchika_summary" in result
-        assert "統計分析の基礎を学んだ" in result
         assert "profile" in result
 
-    def test_empty_cards_and_facts_show_placeholder(self) -> None:
+    def test_empty_cards_and_facts_show_zero_counts(self) -> None:
         result = _format_rewrite_attempt_input_block(
             attempt=0,
             total_attempts=3,
@@ -174,7 +172,8 @@ class TestFormatRewriteAttemptInputBlock:
             grounding_mode="none",
             company_grounding="assistive",
         )
-        assert "(none)" in result
+        assert "evidence_cards=0" in result
+        assert "user_facts=0" in result
 
     def test_long_text_truncated(self) -> None:
         long_answer = "あ" * 600
@@ -240,13 +239,18 @@ class TestFormatRewriteAttemptOutputBlock:
             retry_code="",
             failure_codes=[],
             focus_modes_serialized="normal",
-            char_count=200,
+            gen_chars=205,
+            fit_chars=200,
+            target_lower=380,
+            target_upper=400,
             llm_failed_checks=[],
             llm_warned_checks=[],
             retry_reason="",
         )
         assert "OUTPUT" in result
-        assert "accepted=True" in result
+        assert "accepted=✓" in result
+        assert "gen_chars=205" in result
+        assert "fit_chars=200" in result
         assert "改善されたES回答テキスト" in result
         assert "company_motivation" in result
 
@@ -260,12 +264,15 @@ class TestFormatRewriteAttemptOutputBlock:
             retry_code="under_min",
             failure_codes=["under_min"],
             focus_modes_serialized="normal",
-            char_count=50,
+            gen_chars=50,
+            fit_chars=50,
+            target_lower=180,
+            target_upper=200,
             llm_failed_checks=["length_check"],
             llm_warned_checks=["style_check"],
             retry_reason="文字数制約を満たしていません。現在50字",
         )
-        assert "accepted=False" in result
+        assert "accepted=✗" in result
         assert "under_min" in result
         assert "length_check" in result
         assert "style_check" in result
@@ -281,13 +288,16 @@ class TestFormatRewriteAttemptOutputBlock:
             retry_code="",
             failure_codes=[],
             focus_modes_serialized="length_focus_max",
-            char_count=100,
+            gen_chars=100,
+            fit_chars=100,
+            target_lower=None,
+            target_upper=None,
             llm_failed_checks=[],
             llm_warned_checks=[],
             retry_reason="",
         )
         assert "OUTPUT" in result
-        assert "accepted=True" in result
+        assert "accepted=✓" in result
 
 
 class TestFormatRewriteLoopSummaryBlock:
@@ -304,7 +314,7 @@ class TestFormatRewriteLoopSummaryBlock:
         )
         assert "SUMMARY" in result
         assert "winner=attempt 1" in result
-        assert "chars=388" in result
+        assert "chars(post-fit)=388" in result
 
     def test_best_effort_summary(self) -> None:
         result = _format_rewrite_loop_summary_block(

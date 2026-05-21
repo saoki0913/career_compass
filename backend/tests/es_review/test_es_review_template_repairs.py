@@ -54,6 +54,7 @@ from app.services.es_review.validation_profile import QUALITY_FIRST_PROFILE
 from app.services.es_review.retry import (
     _best_effort_rewrite_admissible,
     _build_hallucination_retry_hints,
+    _resolve_rewrite_length_control_mode,
     _rewrite_max_tokens,
     _rewrite_validation_degraded_hint,
     _select_composite_retry_mode,
@@ -123,6 +124,7 @@ def _passing_validation_payload() -> dict[str, dict[str, object]]:
         "fact_preservation": {"pass": True, "reason": ""},
         "expression_diversity": {"pass": True, "reason": ""},
         "theme_focus": {"pass": True, "reason": ""},
+        "answer_completeness": {"pass": True, "reason": ""},
     }
 
 
@@ -165,25 +167,23 @@ def test_derive_char_min_uses_char_limit_minus_ten() -> None:
 def test_deterministic_compress_variant_shortens_semantically() -> None:
     variant = {
         "text": (
-            "私はデジタル企画を志望する。"
-            "具体的には、AI研究とインターンを通じて課題解決力を培った。"
-            "また、さらに、主体的に学び続けたい。"
-            "将来はこの経験を活かして顧客価値を高めたい。"
+            "私は課題を解決することができる。"
+            "経験を活かすことができる。顧客価値を高めたい。"
         ),
         "char_count": 0,
     }
 
-    compressed = deterministic_compress_variant(variant, 55)
+    compressed = deterministic_compress_variant(variant, 32)
 
     assert compressed is not None
-    assert compressed["char_count"] <= 55
-    assert "主体的に学び続けたい。" not in compressed["text"]
+    assert compressed["char_count"] <= 32
+    assert "することができる" not in compressed["text"]
+    assert "ことができる" not in compressed["text"]
+    assert "顧客価値を高めたい。" in compressed["text"]
     assert compressed["text"].endswith("。")
 
 
 def test_deterministic_compress_variant_never_returns_below_char_min() -> None:
-    # 中間文を丸ごと削ると char_min を下回るケース。char_min を渡したら
-    # 過圧縮（under_min）の結果を返さず、範囲内 or None を返す。
     head = "あ" * 250 + "。"  # 251字（先頭・保持）
     middle = "あ" * 30 + "。"  # 31字（最低優先・削除候補）
     tail = "あ" * 120 + "。"  # 121字（末尾）
@@ -194,12 +194,10 @@ def test_deterministic_compress_variant_never_returns_below_char_min() -> None:
 
     result = deterministic_compress_variant({"text": text}, char_max, char_min=char_min)
 
-    if result is not None:
-        assert char_min <= result["char_count"] <= char_max
+    assert result is None
 
 
-def test_deterministic_compress_variant_trims_small_overflow_into_band() -> None:
-    # 句点境界がない小超過は読点境界で範囲内へ収める（過圧縮しない）。
+def test_deterministic_compress_variant_returns_none_when_semantic_compression_cannot_fit() -> None:
     text = "あ" * 395 + "、" + "あ" * 8 + "。"
     char_max = 400
     char_min = 390
@@ -207,19 +205,35 @@ def test_deterministic_compress_variant_trims_small_overflow_into_band() -> None
 
     result = deterministic_compress_variant({"text": text}, char_max, char_min=char_min)
 
-    assert result is not None
-    assert char_min <= result["char_count"] <= char_max
-    assert result["text"].endswith("。")
+    assert result is None
 
 
 def test_fit_rewrite_text_deterministically_compresses_small_overflow_into_range() -> None:
-    # root-cause regression: 小超過（11字）が以前は過圧縮で under_min になり
-    # over_max のまま reject されていた。char_min-aware 圧縮で範囲内に収まる。
-    text = "あ" * 395 + "、" + "あ" * 14 + "。"
-    assert len(text) == 411
+    text = (
+        "私は課題を解決することができる。"
+        "経験を活かすことができる。顧客価値を高めたい。"
+    )
+    assert len(text) == 39
 
     fitted = _fit_rewrite_text_deterministically(
         text,
+        template_type="gakuchika",
+        char_min=25,
+        char_max=32,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+    )
+
+    assert fitted is not None
+    assert 25 <= len(fitted) <= 32
+    assert "することができる" not in fitted
+    assert fitted.endswith("。")
+
+
+def test_fit_rewrite_text_deterministically_returns_none_for_uncompressible_over_max() -> None:
+    fitted = _fit_rewrite_text_deterministically(
+        "あ" * 411 + "。",
         template_type="gakuchika",
         char_min=390,
         char_max=400,
@@ -228,8 +242,7 @@ def test_fit_rewrite_text_deterministically_compresses_small_overflow_into_range
         grounding_mode="none",
     )
 
-    assert fitted is not None
-    assert 390 <= len(fitted) <= 400
+    assert fitted is None
 
 
 def test_fit_rewrite_text_deterministically_does_not_expand_underflow() -> None:
@@ -390,6 +403,16 @@ def test_resolve_rewrite_focus_mode_tracks_latest_failure_code() -> None:
     assert _resolve_rewrite_focus_mode(retry_code="structure") == "structure_focus"
 
 
+def test_length_focus_max_forces_tight_length_control_even_without_template_setting() -> None:
+    assert (
+        _resolve_rewrite_length_control_mode(
+            use_tight_length_control=False,
+            focus_mode="length_focus_max",
+        )
+        == "tight_length"
+    )
+
+
 def test_append_rewrite_attempt_trace_disabled_without_debug_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -526,6 +549,13 @@ def test_hallucination_is_not_admissible_as_degraded_best_effort() -> None:
     hint = _rewrite_validation_degraded_hint(["hallucination"])
     assert "元回答" in hint
     assert "確認済みユーザー事実" in hint
+
+
+def test_degraded_hint_shows_over_max_excess_when_available() -> None:
+    hint = _rewrite_validation_degraded_hint(["over_max"], over_max_excess=12)
+
+    assert "規定字数を12字超過しています" in hint
+    assert "手動で短縮" in hint
 
 
 def test_quality_first_profile_hard_blocks_experience_fabrication() -> None:
@@ -767,7 +797,7 @@ def test_es_review_temperature_uses_provider_defaultish_setting_for_gemini() -> 
     ) == 1.0
 
 
-def test_fit_rewrite_text_deterministically_trims_small_overflow_to_safe_boundary() -> None:
+def test_fit_rewrite_text_deterministically_does_not_trim_small_overflow_to_safe_boundary() -> None:
     fitted = _fit_rewrite_text_deterministically(
         "私は貴社を志望する。研究で培った仮説検証力を事業に生かしたい。現場で学び続け、顧客価値を高めたい。その思いを強く持つ。最後に少しだけ長くなる一文を加える。",
         template_type="company_motivation",
@@ -778,9 +808,7 @@ def test_fit_rewrite_text_deterministically_trims_small_overflow_to_safe_boundar
         grounding_mode="company_general",
     )
 
-    assert fitted is not None
-    assert 65 <= len(fitted) <= 75
-    assert fitted.endswith("。")
+    assert fitted is None
 
 
 def test_build_company_evidence_cards_limits_sources() -> None:
@@ -1681,6 +1709,7 @@ async def test_review_section_with_template_skips_improvement_stage_and_returns_
                     "fact_preservation": {"pass": True, "reason": ""},
                     "expression_diversity": {"pass": True, "reason": ""},
                     "theme_focus": {"pass": True, "reason": ""},
+                    "answer_completeness": {"pass": True, "reason": ""},
                 }
             )
         json_calls += 1
@@ -1904,6 +1933,7 @@ async def test_review_section_with_template_combines_length_and_opening_focus_mo
                 "fact_preservation": {"pass": True, "reason": ""},
                 "expression_diversity": {"pass": True, "reason": ""},
                 "theme_focus": {"pass": True, "reason": ""},
+                "answer_completeness": {"pass": True, "reason": ""},
             }
         )
 
@@ -1966,6 +1996,7 @@ async def test_review_section_with_template_salvages_gemini_style_only_with_dete
                 "fact_preservation": {"pass": True, "reason": ""},
                 "expression_diversity": {"pass": True, "reason": ""},
                 "theme_focus": {"pass": True, "reason": ""},
+                "answer_completeness": {"pass": True, "reason": ""},
             }
         )
 
@@ -2027,6 +2058,7 @@ async def test_review_section_with_template_uses_length_focus_max_retry_on_over_
             "fact_preservation": {"pass": True, "reason": ""},
             "expression_diversity": {"pass": True, "reason": ""},
             "theme_focus": {"pass": True, "reason": ""},
+            "answer_completeness": {"pass": True, "reason": ""},
         }
 
     monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
