@@ -8,6 +8,10 @@ import {
   resolveIndustryForReview,
   requiresIndustrySelection,
 } from "@/lib/constants/es-review-role-catalog";
+import {
+  roleOptionsResponseSchema,
+  type RoleOptionsResponse,
+} from "@/shared/contracts/interview/role-options";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 
 export async function GET(
@@ -92,24 +96,56 @@ export async function GET(
       industryOverride,
     });
 
-    const roleGroups = resolvedIndustry
-      ? buildRoleGroups({
-          industry: resolvedIndustry,
-          companyName: company.name,
-          documentRole,
-          applicationRoles,
-        })
-      : [];
+    const { groups, isFallback, fallbackReason } = buildRoleGroups({
+      industry: resolvedIndustry,
+      companyName: company.name,
+      documentRole,
+      applicationRoles,
+    });
 
-    return NextResponse.json({
+    const payload: RoleOptionsResponse = {
       companyId: company.id,
       companyName: company.name,
       industry: resolvedIndustry,
       requiresIndustrySelection:
         !resolvedIndustry && requiresIndustrySelection(company.industry),
-      industryOptions: getSelectableIndustryOptions(company.industry),
-      roleGroups,
-    });
+      industryOptions: [...getSelectableIndustryOptions(company.industry)],
+      roleGroups: groups,
+      isFallback,
+      fallbackReason,
+    };
+
+    if (isFallback) {
+      console.warn(
+        JSON.stringify({
+          event: "es_role_options_fallback",
+          companyId: company.id,
+          companyIndustry: company.industry,
+          fallbackReason,
+        }),
+      );
+    }
+
+    const validated = roleOptionsResponseSchema.safeParse(payload);
+    if (!validated.success) {
+      if (process.env.NODE_ENV !== "production") {
+        console.error(
+          "ES review role options payload failed schema validation:",
+          validated.error.flatten(),
+        );
+        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+      }
+      console.warn(
+        JSON.stringify({
+          event: "es_role_options_schema_validation_failed",
+          companyId: company.id,
+          issues: validated.error.flatten(),
+        }),
+      );
+      return NextResponse.json(payload);
+    }
+
+    return NextResponse.json(validated.data);
   } catch (error) {
     console.error("Error building ES review role options:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

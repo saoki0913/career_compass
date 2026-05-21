@@ -58,6 +58,9 @@ contracts <- setup <- planning <- prompting <- generators <- endpoints
 |---|---|---|
 | Page | `src/app/(product)/companies/[id]/interview/page.tsx` | SSR + ドキュメント取得 |
 | Main UI | `src/components/interview/InterviewPageContent.tsx` | setup-first + 会話 + 講評 |
+| Role UI | `src/components/interview/RoleSelector.tsx` | 職種選択。「候補から選択 / 自由入力」タブ切替 + fallback 注記。`ROLE_SELECT_UNSET` には依存せずコールバックで選択・解除・自由入力を表現 |
+| Role Options 契約 | `src/shared/contracts/interview/role-options.ts` | 職種候補の型 SSOT（Zod）。ES添削 / 志望動機 / 面接で共有。`RoleOption` / `RoleGroup` / `RoleOptionSource` / `RoleSelectionSource` / `RoleOptionsResponse` / `RoleOptionsFallbackReason` を集約 |
+| BFF Role Options | `src/app/api/companies/[id]/es-role-options/route.ts` | 職種候補取得（3 機能共有）。業界不明でも汎用セットを返し、空の候補を構造的に防ぐ |
 | Drill UI | `src/components/interview/DrillPanel.tsx` | 4 ステップ Drill stepper |
 | Dashboard | `src/components/interview/dashboard/` | Heatmap / TrendChart / RecurringIssues |
 | Session | `src/lib/interview/session.ts` | setup 分類、turnState 初期化、stageStatus。`parseOptionalString` / `parseStringArray` は `src/lib/shared/` から import（旧 `normalizeOptionalString` / `normalizeStringArray`） |
@@ -468,6 +471,7 @@ evidence が空の軸は `confidence=low` 固定。`_enrich_feedback_defaults()`
 ```
 InterviewPageContent
 +-- setup-first card (業界/職種/方式/選考/段階/面接官/厳しさ)
+|   +-- RoleSelector (職種: 「候補から選択 / 自由入力」タブ + fallback 注記)
 +-- 会話表示 (useStreamingTextPlayback による文字送り)
 +-- 右カラム
 |   +-- 進捗カード (Badge + ConversationProgressBar + ConversationPhaseBar)
@@ -564,6 +568,46 @@ dashboard/ (~406 行)
 | `technical` | 技術・専門 |
 
 未知の値は原文をそのまま返す。`null` / `undefined` は `null` を返す。
+
+### 8.7 職種候補とフォールバック仕様（RoleSelector）
+
+職種候補は `/api/companies/[id]/es-role-options`（ES添削 / 志望動機 / 面接で共有）が返す。
+型は `src/shared/contracts/interview/role-options.ts` の Zod 契約 `RoleOptionsResponse` を SSOT とする。
+
+**候補の構築順（`buildRoleGroups` / `src/lib/constants/es-review-role-catalog.ts`）**
+
+1. 業界別 seed (`INDUSTRY_ROLE_SEEDS[industry]`, source `industry_default`)
+2. 企業別上乗せ (`COMPANY_ROLE_OVERRIDES[companyName]`, source `company_override`。業界一致時のみ)
+3. 応募中の職種 (`applications` 由来, source `application_job_type`)
+4. このESに紐づく職種 (`documentId` 由来, source `document_job_type`)
+
+**フォールバック（空候補の根絶）**
+
+`resolveIndustryForReview()` が業界を解決できない場合（`companies.industry` が null / `INDUSTRIES` 定数に無い値 / `"金融・保険"` のような粗い分類）でも、
+`buildRoleGroups({ industry: null })` は汎用セット `INDUSTRY_ROLE_SEEDS["その他"]` を seed に使い、**必ず非空の候補**を返す。
+これにより「職種候補が出てこない」状態は構造的に発生しない。
+
+| フィールド | 型 | 意味 |
+|---|---|---|
+| `roleGroups` | `RoleGroup[]` | 常に非空（業界別 or 汎用セット） |
+| `isFallback` | `boolean?` | 汎用セットに退避したか（optional・後方互換） |
+| `fallbackReason` | `"industry_unresolved" \| null?` | 退避理由。現状は業界未解決のみ |
+
+API ハンドラは payload を `roleOptionsResponseSchema.safeParse()` で検証する（dev は失敗時 500、prod は警告ログ + payload 返却）。
+`isFallback` 時は構造化ログ `es_role_options_fallback` を出力する。`isFallback` / `fallbackReason` は optional のため、
+志望動機・ES添削の既存消費者は未指定でも従来どおり動作する。
+
+**UI（`RoleSelector`）**
+
+- 「候補から選択」（shadcn `Select`）と「自由入力」（`Input`, 40 文字上限・先頭スペース抑制・内部スペース保持）をタブで切り替える
+- `isFallback` 時は注記「業界が未設定のため汎用職種を表示しています。…」を表示し、`fieldset` に `data-fallback-reason` を付与
+- `ROLE_SELECT_UNSET` sentinel には依存せず、選択 (`onSelectRole`) / 解除 (`onClearRole`) / 自由入力 (`onCustomRoleChange`) をコールバックで表現。sentinel への変換は `InterviewPageContent` の配線が担う
+- `useInterviewConversationController` には新責務を追加せず、fallback メタは `roleOptionsData` 経由で props として流す
+
+**回帰テスト**
+
+- 単体: `src/shared/contracts/interview/role-options.test.ts`, `src/lib/constants/es-review-role-catalog.test.ts`, `src/app/api/companies/[id]/es-role-options/route.test.ts`, `src/components/interview/RoleSelector.test.tsx`
+- E2E: `e2e/functional/interview-role-selection.spec.ts`（業界未設定の fallback / 業界別候補 / 自由入力 / 候補選択 / API エラー継続 / 応募職種マージ / ES職種マージ / ゲストのログイン要求）
 
 ---
 

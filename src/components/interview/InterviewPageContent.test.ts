@@ -75,6 +75,39 @@ describe("InterviewPageContent module", () => {
     expect(source).not.toContain("最終講評を生成しました");
   });
 
+  it("renders the role picker through the extracted RoleSelector component", async () => {
+    const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
+
+    expect(source).toContain("RoleSelector");
+    expect(source).toContain('from "@/components/interview/RoleSelector"');
+    // wiring: candidate select / clear / custom-input callbacks map to the controller actions
+    expect(source).toMatch(/onSelectRole=\{\(value\) => selectRole\(value, ROLE_SELECT_UNSET\)\}/);
+    expect(source).toMatch(/onClearRole=\{\(\) => selectRole\(ROLE_SELECT_UNSET, ROLE_SELECT_UNSET\)\}/);
+    expect(source).toContain("onCustomRoleChange={setCustomRoleName}");
+    // fallback metadata flows through from the response without new controller responsibilities
+    expect(source).toContain("isFallback={roleOptionsData?.isFallback}");
+    expect(source).toContain("fallbackReason={roleOptionsData?.fallbackReason}");
+  });
+
+  it("no longer hand-rolls the role Select/Input or its sentinel mapping inline", async () => {
+    const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
+
+    // the previous inline role picker referenced these; they must be gone from the page
+    expect(source).not.toContain("候補にない場合は自由入力");
+    expect(source).not.toMatch(/roleSelectionSource === "custom" \? ROLE_SELECT_UNSET/);
+  });
+
+  it("drops Input and grouped-Select imports that became dead after extraction", async () => {
+    const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
+
+    expect(source).not.toContain('import { Input } from "@/components/ui/input"');
+    expect(source).not.toContain("SelectGroup");
+    expect(source).not.toContain("SelectLabel");
+    // the other setup dropdowns still rely on these primitives
+    expect(source).toContain("SelectTrigger");
+    expect(source).toContain("SelectValue");
+  });
+
   it("keeps the started conversation branch free of non-chat panels", async () => {
     const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
     const startedBranchStart = source.indexOf("<div ref={conversationRef}");

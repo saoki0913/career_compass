@@ -21,7 +21,7 @@ export type {
   MotivationStageKey,
   PillStatus,
   RoleGroup,
-  RoleOptionItem,
+  RoleOption,
   RoleOptionSource,
   RoleOptionsResponse,
   RoleSelectionSource,

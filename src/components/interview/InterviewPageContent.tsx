@@ -14,6 +14,7 @@ import {
 import { ChatInput, ChatMessage, ThinkingIndicator } from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { DrillPanel } from "@/components/interview/DrillPanel";
+import { RoleSelector } from "@/components/interview/RoleSelector";
 import { SheetViewerDialog } from "@/components/interview/SheetViewerDialog";
 import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import { InterviewConversationSkeleton } from "@/components/skeletons/InterviewConversationSkeleton";
@@ -36,13 +37,10 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -251,7 +249,19 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
                 </CardHeader>
                 <CardContent className="space-y-5">
                   {setupState.requiresIndustrySelection ? (<div className="space-y-2"><p className="text-sm font-medium">業界</p><Select value={effectiveIndustry || INDUSTRY_SELECT_UNSET} onValueChange={(value) => setSetupState((prev) => ({ ...prev, selectedIndustry: value === INDUSTRY_SELECT_UNSET ? null : value }))}><SelectTrigger className="w-full"><SelectValue placeholder="業界を選択" /></SelectTrigger><SelectContent><SelectItem value={INDUSTRY_SELECT_UNSET}>業界を選択</SelectItem>{setupState.industryOptions.map((industry) => (<SelectItem key={industry} value={industry}>{industry}</SelectItem>))}</SelectContent></Select></div>) : (<div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">業界: {effectiveIndustry || "未設定"}</div>)}
-                  <div className="space-y-2"><p className="text-sm font-medium">職種</p><Select value={roleSelectionSource === "custom" ? ROLE_SELECT_UNSET : (selectedRoleName || ROLE_SELECT_UNSET)} onValueChange={(value) => { selectRole(value, ROLE_SELECT_UNSET); }}><SelectTrigger className="w-full"><SelectValue placeholder="候補から選択" /></SelectTrigger><SelectContent><SelectItem value={ROLE_SELECT_UNSET}>候補から選択</SelectItem>{roleOptionsData?.roleGroups.map((group) => (<SelectGroup key={group.id}><SelectLabel>{group.label}</SelectLabel>{group.options.map((option) => (<SelectItem key={`${group.id}-${option.value}`} value={option.value}>{option.label}</SelectItem>))}</SelectGroup>))}</SelectContent></Select><Input value={customRoleName} onChange={(event) => setCustomRoleName(event.target.value)} placeholder="候補にない場合は自由入力" /></div>
+                  <RoleSelector
+                    roleGroups={roleOptionsData?.roleGroups ?? []}
+                    selectedRoleName={selectedRoleName}
+                    customRoleName={customRoleName}
+                    roleSelectionSource={roleSelectionSource}
+                    onSelectRole={(value) => selectRole(value, ROLE_SELECT_UNSET)}
+                    onClearRole={() => selectRole(ROLE_SELECT_UNSET, ROLE_SELECT_UNSET)}
+                    onCustomRoleChange={setCustomRoleName}
+                    isFallback={roleOptionsData?.isFallback}
+                    fallbackReason={roleOptionsData?.fallbackReason}
+                    disabled={isInteractionBlocked || isBusy}
+                  />
+
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="space-y-2"><p className="text-sm font-medium">面接方式</p><Select value={setupState.interviewFormat} onValueChange={(value) => setSetupState((prev) => ({ ...prev, interviewFormat: value as InterviewFormat }))}><SelectTrigger className="w-full"><SelectValue placeholder="面接方式を選択" /></SelectTrigger><SelectContent>{INTERVIEW_FORMAT_OPTIONS.map((option) => (<SelectItem key={option} value={option}>{INTERVIEW_FORMAT_LABELS[option]}</SelectItem>))}</SelectContent></Select></div>
                     <div className="space-y-2"><p className="text-sm font-medium">選考種別</p><Select value={setupState.selectionType} onValueChange={(value) => setSetupState((prev) => ({ ...prev, selectionType: value as InterviewSelectionType }))}><SelectTrigger className="w-full"><SelectValue placeholder="選考種別を選択" /></SelectTrigger><SelectContent>{SELECTION_TYPE_OPTIONS.map((option) => (<SelectItem key={option} value={option}>{SELECTION_TYPE_LABELS[option]}</SelectItem>))}</SelectContent></Select></div>

@@ -20,34 +20,23 @@ export interface MotivationCompany {
   industry: string | null;
 }
 
-export type RoleOptionSource =
-  | "industry_default"
-  | "company_override"
-  | "application_job_type"
-  | "document_job_type";
+// SSOT からローカルに取り込み（findRoleOption の signature で RoleGroup を使うため）、
+// 同じシンボルを外部にも再公開する。
+import type {
+  RoleGroup,
+  RoleOption,
+  RoleOptionSource,
+  RoleOptionsResponse,
+  RoleSelectionSource,
+} from "@/shared/contracts/interview/role-options";
 
-export type RoleSelectionSource = RoleOptionSource | "custom";
-
-export interface RoleOptionItem {
-  value: string;
-  label: string;
-  source: RoleOptionSource;
-}
-
-export interface RoleGroup {
-  id: string;
-  label: string;
-  options: RoleOptionItem[];
-}
-
-export interface RoleOptionsResponse {
-  companyId: string;
-  companyName: string;
-  industry: string | null;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
-  roleGroups: RoleGroup[];
-}
+export type {
+  RoleGroup,
+  RoleOption,
+  RoleOptionSource,
+  RoleOptionsResponse,
+  RoleSelectionSource,
+};
 
 export type MotivationStageKey = MotivationStage;
 export type ConversationMode = NonNullable<MotivationConversationContext["conversationMode"]>;

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
 
 import type { InterviewStageStatus } from "@/lib/interview/session";
+import type {
+  RoleGroup as ContractRoleGroup,
+  RoleOption as ContractRoleOption,
+  RoleOptionSource as ContractRoleOptionSource,
+  RoleOptionsResponse as ContractRoleOptionsResponse,
+  RoleSelectionSource as ContractRoleSelectionSource,
+} from "@/shared/contracts/interview/role-options";
 
 import {
   buildInterviewTopicStages,
@@ -9,7 +17,58 @@ import {
   buildInterviewCoachingNarrative,
   labelWeakestQuestionType,
 } from "./ui";
+import type {
+  RoleGroup,
+  RoleOption,
+  RoleOptionSource,
+  RoleOptionsResponse,
+  RoleSelectionSource,
+} from "./ui";
 import { INTERVIEW_TOPIC_LABELS, labelInterviewTopic } from "./topic-labels";
+
+// ---------------------------------------------------------------------------
+// Role option types re-export the SSOT contract
+// ---------------------------------------------------------------------------
+
+describe("interview ui role option types", () => {
+  it("re-exports the SSOT contract types (compile-time identity)", () => {
+    const option: RoleOption = { value: "v", label: "l", source: "industry_default" };
+    const optionFromContract: ContractRoleOption = option;
+    const optionToInterview: RoleOption = optionFromContract;
+    expect(optionToInterview).toEqual(option);
+
+    const group: RoleGroup = { id: "g", label: "L", options: [option] };
+    const groupFromContract: ContractRoleGroup = group;
+    expect(groupFromContract.options[0]).toEqual(option);
+
+    const source: RoleOptionSource = "company_override";
+    const sourceFromContract: ContractRoleOptionSource = source;
+    expect(sourceFromContract).toBe("company_override");
+
+    const selectionSource: RoleSelectionSource = "custom";
+    const selectionFromContract: ContractRoleSelectionSource = selectionSource;
+    expect(selectionFromContract).toBe("custom");
+
+    const response: RoleOptionsResponse = {
+      companyId: "c",
+      companyName: "n",
+      industry: null,
+      requiresIndustrySelection: true,
+      industryOptions: [],
+      roleGroups: [group],
+    };
+    const responseFromContract: ContractRoleOptionsResponse = response;
+    expect(responseFromContract.roleGroups).toHaveLength(1);
+  });
+
+  it("no longer defines local role option types or RoleOptionItem", async () => {
+    const source = await readFile(new URL("./ui.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("RoleOptionItem");
+    expect(source).not.toContain("export type RoleOptionSource =");
+    expect(source).not.toContain("export type RoleGroup = {");
+    expect(source).toContain("@/shared/contracts/interview/role-options");
+  });
+});
 
 // ---------------------------------------------------------------------------
 // buildInterviewTopicStages

@@ -4,24 +4,17 @@ import {
   canonicalizeIndustry,
   type Industry,
 } from "@/lib/constants/industries";
+import type {
+  RoleGroup,
+  RoleOptionSource,
+  RoleOptionsFallbackReason,
+} from "@/shared/contracts/interview/role-options";
 
-export type RoleOptionSource =
-  | "industry_default"
-  | "company_override"
-  | "application_job_type"
-  | "document_job_type";
-
-export interface RoleOption {
-  value: string;
-  label: string;
-  source: RoleOptionSource;
-}
-
-export interface RoleGroup {
-  id: string;
-  label: string;
-  options: RoleOption[];
-}
+export type {
+  RoleGroup,
+  RoleOption,
+  RoleOptionSource,
+} from "@/shared/contracts/interview/role-options";
 
 export interface ResolvedMotivationRoleContext {
   resolvedIndustry: Industry | null;
@@ -554,14 +547,17 @@ export function resolveIndustryForReview(input: {
 }
 
 export function buildRoleGroups(input: {
-  industry: Industry;
+  industry: Industry | null;
   companyName?: string | null;
   documentRole?: string | null;
   applicationRoles?: string[];
-}): RoleGroup[] {
+}): { groups: RoleGroup[]; fallbackReason: RoleOptionsFallbackReason | null; isFallback: boolean } {
+  const isFallback = input.industry === null;
+  const effectiveIndustry: Industry = input.industry ?? "その他";
+
   const groups = new Map<string, RoleGroup>();
 
-  for (const seed of INDUSTRY_ROLE_SEEDS[input.industry] ?? []) {
+  for (const seed of INDUSTRY_ROLE_SEEDS[effectiveIndustry] ?? []) {
     mergeSeedGroup(groups, seed, "industry_default");
   }
 
@@ -604,7 +600,11 @@ export function buildRoleGroups(input: {
     );
   }
 
-  return [...groups.values()].filter((group) => group.options.length > 0);
+  return {
+    groups: [...groups.values()].filter((group) => group.options.length > 0),
+    fallbackReason: isFallback ? "industry_unresolved" : null,
+    isFallback,
+  };
 }
 
 export function flattenRoleCandidates(roleGroups: RoleGroup[]): string[] {
@@ -642,21 +642,19 @@ export function resolveMotivationRoleContext(input: {
         ? "company_field"
         : null;
 
-  const roleGroups = resolvedIndustry
-    ? buildRoleGroups({
-        industry: resolvedIndustry,
-        companyName: input.companyName,
-        documentRole: input.documentRole,
-        applicationRoles: input.applicationRoles,
-      })
-    : [];
+  const built = buildRoleGroups({
+    industry: resolvedIndustry,
+    companyName: input.companyName,
+    documentRole: input.documentRole,
+    applicationRoles: input.applicationRoles,
+  });
 
   return {
     resolvedIndustry,
     industrySource,
     requiresIndustrySelection: !resolvedIndustry && requiresSelection,
     industryOptions,
-    roleGroups,
-    roleCandidates: flattenRoleCandidates(roleGroups),
+    roleGroups: built.groups,
+    roleCandidates: flattenRoleCandidates(built.groups),
   };
 }

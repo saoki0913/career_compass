@@ -43,11 +43,6 @@ export const FINANCE_SUBINDUSTRIES = [
 
 export type FinanceSubindustry = (typeof FINANCE_SUBINDUSTRIES)[number];
 
-export const LEGACY_INDUSTRY_EXPANSIONS: Record<string, Industry[]> = {
-  "金融・保険": [...FINANCE_SUBINDUSTRIES],
-  "その他人気企業": ["その他"],
-};
-
 export const PROFILE_JOB_TYPES = [
   "総合職",
   "営業",

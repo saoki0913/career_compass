@@ -95,34 +95,13 @@ export type InterviewSessionState = {
   hasFeedback: boolean;
 };
 
-export type RoleOptionSource =
-  | "industry_default"
-  | "company_override"
-  | "application_job_type"
-  | "document_job_type";
-
-export type RoleSelectionSource = RoleOptionSource | "custom";
-
-export type RoleOptionItem = {
-  value: string;
-  label: string;
-  source: RoleOptionSource;
-};
-
-export type RoleGroup = {
-  id: string;
-  label: string;
-  options: RoleOptionItem[];
-};
-
-export type RoleOptionsResponse = {
-  companyId: string;
-  companyName: string;
-  industry: string | null;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
-  roleGroups: RoleGroup[];
-};
+export type {
+  RoleGroup,
+  RoleOption,
+  RoleOptionSource,
+  RoleOptionsResponse,
+  RoleSelectionSource,
+} from "@/shared/contracts/interview/role-options";
 
 export type SetupState = {
   selectedIndustry: string | null;

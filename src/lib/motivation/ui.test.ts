@@ -1,6 +1,20 @@
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
-import { deriveMotivationModeLabel } from "./ui";
+import type {
+  RoleGroup as ContractRoleGroup,
+  RoleOption as ContractRoleOption,
+  RoleOptionSource as ContractRoleOptionSource,
+  RoleOptionsResponse as ContractRoleOptionsResponse,
+  RoleSelectionSource as ContractRoleSelectionSource,
+} from "@/shared/contracts/interview/role-options";
+import { deriveMotivationModeLabel, findRoleOption } from "./ui";
+import type {
+  RoleGroup,
+  RoleOption,
+  RoleOptionSource,
+  RoleOptionsResponse,
+  RoleSelectionSource,
+} from "./ui";
 
 describe("deriveMotivationModeLabel", () => {
   it("returns initial message for slot_fill with low question count", () => {
@@ -61,5 +75,65 @@ describe("motivation ui lifecycle cleanup", () => {
     expect(source).not.toContain("getMotivationLifecyclePhase");
     expect(source).not.toContain("getMotivationPhaseStatus");
     expect(source).not.toContain("MotivationLifecyclePhase");
+  });
+});
+
+describe("motivation ui role option types", () => {
+  it("re-exports the SSOT contract types (compile-time identity)", () => {
+    const option: RoleOption = { value: "v", label: "l", source: "document_job_type" };
+    const optionFromContract: ContractRoleOption = option;
+    expect(optionFromContract).toEqual(option);
+
+    const group: RoleGroup = { id: "g", label: "L", options: [option] };
+    const groupFromContract: ContractRoleGroup = group;
+    expect(groupFromContract.options[0]).toEqual(option);
+
+    const source: RoleOptionSource = "application_job_type";
+    const sourceFromContract: ContractRoleOptionSource = source;
+    expect(sourceFromContract).toBe("application_job_type");
+
+    const selectionSource: RoleSelectionSource = "custom";
+    const selectionFromContract: ContractRoleSelectionSource = selectionSource;
+    expect(selectionFromContract).toBe("custom");
+
+    const response: RoleOptionsResponse = {
+      companyId: "c",
+      companyName: "n",
+      industry: "銀行",
+      requiresIndustrySelection: false,
+      industryOptions: ["銀行"],
+      roleGroups: [group],
+    };
+    const responseFromContract: ContractRoleOptionsResponse = response;
+    expect(responseFromContract.companyName).toBe("n");
+  });
+
+  it("findRoleOption locates an option across groups by value", () => {
+    const groups: RoleGroup[] = [
+      {
+        id: "course",
+        label: "採用コース",
+        options: [{ value: "総合職", label: "総合職", source: "industry_default" }],
+      },
+      {
+        id: "application",
+        label: "応募中の職種",
+        options: [{ value: "エンジニア", label: "エンジニア", source: "application_job_type" }],
+      },
+    ];
+    expect(findRoleOption(groups, "総合職")?.label).toBe("総合職");
+    // 後続グループまで横断して検索し、source 込みで返す
+    expect(findRoleOption(groups, "エンジニア")?.source).toBe("application_job_type");
+    expect(findRoleOption(groups, "missing")).toBeNull();
+    expect(findRoleOption(groups, null)).toBeNull();
+    expect(findRoleOption([], "総合職")).toBeNull();
+  });
+
+  it("no longer defines local role option types or RoleOptionItem", async () => {
+    const source = await readFile(new URL("./ui.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("RoleOptionItem");
+    expect(source).not.toContain("export type RoleOptionSource =");
+    expect(source).not.toContain("export interface RoleGroup");
+    expect(source).toContain("@/shared/contracts/interview/role-options");
   });
 });
