@@ -61,6 +61,10 @@ _DEFAULT_STAGE_KEY = "default"
 _RECOVERY_STAGE_KEY = "under_min_recovery"
 _TIGHT_STAGE_KEY = "tight_length"
 
+# over_max 再試行(attempt>=1)時に生成目標上限を char_max からこの分だけ下げ、
+# LLM が受理帯の下寄りを狙うようにする。char_min 未満にはクランプしない。
+_TIGHT_RETRY_UPPER_BUFFER = 15
+
 DELTA_BAND_LARGE = 70
 DELTA_BAND_MEDIUM = 35
 DELTA_BAND_SMALL = 15
@@ -179,6 +183,7 @@ def resolve_length_control_profile(
     original_len: int = 0,
     llm_model: Optional[str] = None,
     latest_failed_len: int = 0,
+    attempt_index: int = 0,
 ) -> LengthControlProfile:
     band = _length_band(char_max)
     provider_family = _model_provider_family(llm_model)
@@ -199,6 +204,14 @@ def resolve_length_control_profile(
     gap = max(0, min(span, gap))
     target_upper = char_max
     target_lower = max(char_min or 0, (char_max or 0) - gap) if char_max else char_min
+
+    # over_max 再試行では生成目標上限を下げ、受理帯の下寄りを狙わせる。
+    if stage_key == _TIGHT_STAGE_KEY and attempt_index >= 1 and char_max:
+        buffered_upper = max(char_min or 0, char_max - _TIGHT_RETRY_UPPER_BUFFER)
+        target_upper = buffered_upper
+        if target_lower is not None and target_lower > target_upper:
+            target_lower = target_upper
+
     profile_id = f"{provider_family}:{band}:{stage_key}"
     required_growth = max(0, (char_min or 0) - latest_failed_len) if char_min else 0
     return LengthControlProfile(
@@ -247,6 +260,7 @@ def resolve_length_target_plan(
     original_len: int = 0,
     llm_model: Optional[str] = None,
     latest_failed_len: int = 0,
+    attempt_index: int = 0,
 ) -> LengthTargetPlan:
     profile = resolve_length_control_profile(
         char_min,
@@ -255,6 +269,7 @@ def resolve_length_target_plan(
         original_len=original_len,
         llm_model=llm_model,
         latest_failed_len=latest_failed_len,
+        attempt_index=attempt_index,
     )
     target_lower = profile.target_lower
     target_upper = profile.target_upper

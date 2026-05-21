@@ -38,7 +38,7 @@ def test_all_templates_define_evaluation_axes() -> None:
             assert axis["rewrite_instruction"].strip()
 
 
-def test_rewrite_and_fallback_prompts_include_rubric() -> None:
+def test_rewrite_and_fallback_prompts_include_quality_blueprint_not_rubric() -> None:
     system_prompt, _ = es_templates.build_template_rewrite_prompt(
         template_type="gakuchika",
         company_name=None,
@@ -61,9 +61,11 @@ def test_rewrite_and_fallback_prompts_include_rubric() -> None:
         company_evidence_cards=[],
         has_rag=False,
     )
-    assert "<evaluation_rubric>" in system_prompt
-    assert "課題の明確さ" in system_prompt
-    assert "<evaluation_rubric>" in fallback_prompt
+    assert "<quality_blueprint" in system_prompt
+    assert "<evaluation_rubric>" not in system_prompt
+    assert "評価される核" in system_prompt
+    assert "<quality_blueprint" in fallback_prompt
+    assert "<evaluation_rubric>" not in fallback_prompt
 
 
 def test_review_response_model_dump_excludes_internal_meta_fields() -> None:
@@ -110,9 +112,8 @@ _COMMON_PARAMS = dict(
 )
 
 
-def test_fallback_strategy_excludes_template_focus_and_uses_safe_role() -> None:
-    """FALLBACK strategy omits <template_focus> and uses the generic safe role;
-    STANDARD strategy includes <template_focus> and uses the template-specific role.
+def test_fallback_strategy_uses_safe_role_and_standard_uses_template_role() -> None:
+    """FALLBACK uses the generic safe role; STANDARD uses the template-specific role.
     """
     fallback_system, _ = es_templates.build_template_fallback_rewrite_prompt(
         template_type="gakuchika", **_COMMON_PARAMS
@@ -130,10 +131,8 @@ def test_fallback_strategy_excludes_template_focus_and_uses_safe_role() -> None:
         "FALLBACK should declare '日本語のES編集者' as the role"
     )
 
-    # Standard MUST include template focus block
-    assert "<template_focus>" in standard_system, (
-        "STANDARD should include <template_focus> but it was not found"
-    )
+    assert "<quality_blueprint" in standard_system
+    assert "<template_focus>" not in standard_system
     # Standard must NOT use the safe fallback role
     assert "日本語のES編集者" not in standard_system, (
         "STANDARD should use the template-specific role, not '日本語のES編集者'"

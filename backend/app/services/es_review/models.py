@@ -122,6 +122,7 @@ class QualityInfo(BaseModel):
     llm_quality_failed_checks: list[str] = Field(default_factory=list)
     llm_quality_warned_checks: list[str] = Field(default_factory=list)
     llm_quality_lenient_pass: bool = False
+    llm_quality_validation_unavailable: bool = False
     llm_quality_failure_count: int = 0
     validation_profile_name: str = "strict"
 
@@ -231,6 +232,7 @@ class ReviewMeta(BaseModel):
     llm_quality_failed_checks: list[str] = Field(default_factory=list)
     llm_quality_warned_checks: list[str] = Field(default_factory=list)
     llm_quality_lenient_pass: bool = False
+    llm_quality_validation_unavailable: bool = False
     llm_quality_failure_count: int = 0
     fallback_triggered: bool = False
     fallback_reason: Optional[str] = None

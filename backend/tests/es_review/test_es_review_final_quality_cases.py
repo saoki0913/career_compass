@@ -15,12 +15,36 @@ def _repeat_sentence(sentence: str, count: int) -> str:
     return sentence * count
 
 
+def _passing_validation_payload() -> dict[str, dict[str, object]]:
+    return {
+        "conclusion_first": {"pass": True, "reason": ""},
+        "company_grounding": {"pass": True, "reason": ""},
+        "style_unity": {"pass": True, "reason": ""},
+        "structure_clarity": {"pass": True, "reason": ""},
+        "quality_blueprint_alignment": {"pass": True, "reason": ""},
+        "fact_preservation": {"pass": True, "reason": ""},
+        "expression_diversity": {"pass": True, "reason": ""},
+        "theme_focus": {"pass": True, "reason": ""},
+    }
+
+
+def _json_result_for_feature(kwargs: dict[str, object], payload: dict[str, object] | None = None) -> FakeJsonResult:
+    if kwargs.get("feature") == "es_review_validation":
+        return FakeJsonResult(_passing_validation_payload())
+    return FakeJsonResult(payload if payload is not None else success_false_payload())
+
+
+def success_false_payload() -> dict[str, object]:
+    return {"top3": []}
+
+
 @pytest.mark.asyncio
 async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_prompts: list[str] = []
 
     async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_result_for_feature(
+            kwargs,
             {
                 "top3": [
                     {
@@ -29,7 +53,7 @@ async def test_final_quality_company_motivation_strong_evidence(monkeypatch: pyt
                         "suggestion": "事業理解と自分の経験の接点を冒頭で示す",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_text_caller(*args, **kwargs):
@@ -99,7 +123,8 @@ async def test_final_quality_company_motivation_weak_evidence_safe_generalizatio
     captured_prompts: list[str] = []
 
     async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_result_for_feature(
+            kwargs,
             {
                 "top3": [
                     {
@@ -108,7 +133,7 @@ async def test_final_quality_company_motivation_weak_evidence_safe_generalizatio
                         "suggestion": "企業理解を一軸に絞って接続する",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_text_caller(*args, **kwargs):
@@ -164,6 +189,8 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
     captured_prompts: list[str] = []
 
     async def fake_json_caller(*args, **kwargs):
+        if kwargs.get("feature") == "es_review_validation":
+            return FakeJsonResult(_passing_validation_payload())
         return FakeJsonResult(success=False)
 
     async def fake_text_caller(*args, **kwargs):
@@ -223,7 +250,8 @@ async def test_final_quality_gakuchika_uses_assistive_company_grounding(monkeypa
 @pytest.mark.asyncio
 async def test_final_quality_intern_reason_short_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_result_for_feature(
+            kwargs,
             {
                 "top3": [
                     {
@@ -232,7 +260,7 @@ async def test_final_quality_intern_reason_short_answer(monkeypatch: pytest.Monk
                         "suggestion": "経験との接点を一文で示す",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_text_caller(*args, **kwargs):
@@ -284,6 +312,8 @@ async def test_final_quality_over_max_retry_recovers_without_422(monkeypatch: py
     calls = 0
 
     async def fake_json_caller(*args, **kwargs):
+        if kwargs.get("feature") == "es_review_validation":
+            return FakeJsonResult(_passing_validation_payload())
         return FakeJsonResult(
             {
                 "top3": [
@@ -363,7 +393,8 @@ async def test_final_quality_self_pr_uses_assistive_company_fit(monkeypatch: pyt
     captured_prompts: list[str] = []
 
     async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_result_for_feature(
+            kwargs,
             {
                 "top3": [
                     {
@@ -372,7 +403,7 @@ async def test_final_quality_self_pr_uses_assistive_company_fit(monkeypatch: pyt
                         "suggestion": "価値観との接点を1文だけ補う",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_text_caller(*args, **kwargs):
@@ -428,7 +459,8 @@ async def test_final_quality_role_course_reason_uses_role_and_company_axes(
     captured_prompts: list[str] = []
 
     async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_result_for_feature(
+            kwargs,
             {
                 "top3": [
                     {
@@ -437,7 +469,7 @@ async def test_final_quality_role_course_reason_uses_role_and_company_axes(
                         "suggestion": "デジタル企画で価値を出したい理由を、企業の方向性と一文でつなぐ。",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_text_caller(*args, **kwargs):
@@ -506,7 +538,8 @@ async def test_final_quality_intern_goals_anchors_program_and_growth(
     captured_prompts: list[str] = []
 
     async def fake_json_caller(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_result_for_feature(
+            kwargs,
             {
                 "top3": [
                     {
@@ -515,7 +548,7 @@ async def test_final_quality_intern_goals_anchors_program_and_growth(
                         "suggestion": "インターンで得たい視点と、今の経験との接点を明示する。",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_text_caller(*args, **kwargs):

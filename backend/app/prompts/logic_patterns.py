@@ -78,6 +78,15 @@ def _validate_schema(data: dict) -> bool:
                 return False
             if not all(isinstance(item, str) and item.strip() for item in value):
                 return False
+    enumeration = data.get("enumeration_phrasing")
+    if enumeration is not None:
+        if not isinstance(enumeration, dict) or not enumeration:
+            return False
+        for items in enumeration.values():
+            if not isinstance(items, list) or not items:
+                return False
+            if not all(isinstance(item, str) and item.strip() for item in items):
+                return False
     return True
 
 
@@ -97,6 +106,11 @@ def _iter_pattern_texts(data: dict) -> list[str]:
         value = data.get(list_key)
         if isinstance(value, list):
             texts.extend(str(item) for item in value if isinstance(item, str))
+    enumeration = data.get("enumeration_phrasing")
+    if isinstance(enumeration, dict):
+        for items in enumeration.values():
+            if isinstance(items, list):
+                texts.extend(str(item) for item in items if isinstance(item, str))
     return texts
 
 

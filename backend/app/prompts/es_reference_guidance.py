@@ -100,6 +100,20 @@ def char_band_label(band: CharBand) -> str:
     return _BAND_LABELS.get(band, _BAND_LABELS[DEFAULT_CHAR_BAND])
 
 
+def _enumeration_for_long_bands(text: str) -> dict[str, list[str]]:
+    """200字以上の4帯に同一の列挙テンプレ例を割り当てる（理由/目標の N 点分割型）。
+
+    100字以下・100〜200字は理由/目標を2点に分けると窮屈になるため除外する。
+    """
+
+    return {
+        CharBand.B_200_300.value: [text],
+        CharBand.B_300_400.value: [text],
+        CharBand.B_400_500.value: [text],
+        CharBand.GE_500.value: [text],
+    }
+
+
 class SentenceFlow(TypedDict, total=False):
     sentence_1_role: str
     sentence_2_role: str
@@ -136,6 +150,9 @@ class LogicPatternsPayload(TypedDict):
     closing_pattern: NotRequired[StructureBlock]
     quality_markers: NotRequired[list[str]]
     common_weaknesses: NotRequired[list[str]]
+    # 文字数帯(CharBand値)ごとの列挙テンプレ例。各列挙要素は句点で独立完結させ、
+    # 読点で連結しない。enumeration が窮屈になる短帯や、列挙が不要な設問では省く。
+    enumeration_phrasing: NotRequired[dict[str, list[str]]]
 
 
 class QuestionTypeGuidance(TypedDict, total=False):
@@ -377,6 +394,11 @@ QUESTION_TYPE_GUIDANCE: dict[str, QuestionTypeGuidance] = {
                 "「理念に共感した」「社会に影響を与えている」等の褒め言葉に終始している",
                 "企業説明の羅列が長く、自分の経験との接点が薄い",
             ],
+            "enumeration_phrasing": _enumeration_for_long_bands(
+                "志望理由を複数に分ける場合は「貴社を志望する理由は2点ある。第一に〇〇。第二に□□。」"
+                "または「1つ目は〇〇。2つ目は□□。」のように各理由を句点で独立させる。"
+                "軸が1つなら無理に分割しない"
+            ),
         },
     },
     "post_join_goals": {
@@ -497,6 +519,11 @@ QUESTION_TYPE_GUIDANCE: dict[str, QuestionTypeGuidance] = {
                 "「幅広い業務を経験し成長したい」等、やりたいことが具体化されていない",
                 "自己成長の話に終始し、会社にどう価値を返すかがない",
             ],
+            "enumeration_phrasing": _enumeration_for_long_bands(
+                "実現したいことを複数に分ける場合は「入社後に実現したいことは二つある。"
+                "1つ目は〇〇。2つ目は□□。」または「第一に〇〇。第二に□□。」のように"
+                "各項目を句点で独立させる。軸が1つなら無理に分割しない"
+            ),
         },
     },
     "intern_reason": {
@@ -616,6 +643,11 @@ QUESTION_TYPE_GUIDANCE: dict[str, QuestionTypeGuidance] = {
                 "「貴社理解を深めたい」「自己成長したい」等の抽象表現で終わっている",
                 "会社志望理由に寄りすぎて、インターン固有の体験に触れていない",
             ],
+            "enumeration_phrasing": _enumeration_for_long_bands(
+                "志望動機を複数に分ける場合は「本インターンを志望する理由は2つある。"
+                "1つ目は〇〇。2つ目は□□。」または「第一に〇〇。第二に□□。」のように"
+                "各理由を句点で独立させる。軸が1つなら無理に分割しない"
+            ),
         },
     },
     "gakuchika": {
@@ -744,6 +776,20 @@ QUESTION_TYPE_GUIDANCE: dict[str, QuestionTypeGuidance] = {
                 "活動の規模や華やかさだけを語り、自分の判断や行動が薄い",
                 "学びが「協調性を学んだ」等の薄い一般語で終わっている",
             ],
+            "enumeration_phrasing": {
+                CharBand.B_200_300.value: [
+                    "施策は「第一に〇〇を行った。第二に□□を実施した。」または「①〇〇に取り組んだ。②□□を実施した。」のように、各施策を句点で独立させて2点に整理する",
+                ],
+                CharBand.B_300_400.value: [
+                    "施策は「第一に〇〇を行った。第二に□□を実施した。」または「①〇〇に取り組んだ。②□□を実施した。」のように、各施策を句点で独立させて2点に整理する",
+                ],
+                CharBand.B_400_500.value: [
+                    "施策は「第一に〇〇を行った。第二に□□を実施した。さらに△△にも取り組んだ。」のように、各施策を句点で独立させて2〜3点に整理する",
+                ],
+                CharBand.GE_500.value: [
+                    "施策は段落ごとに「第一に〇〇を行った。」「第二に□□を実施した。」と分け、各施策を句点で独立した文として述べる",
+                ],
+            },
         },
     },
     "role_course_reason": {
@@ -864,6 +910,11 @@ QUESTION_TYPE_GUIDANCE: dict[str, QuestionTypeGuidance] = {
                 "「成長できそう」等の漠然とした魅力で終わっている",
                 "職種の役割説明が一般論で、自分の経験と接続していない",
             ],
+            "enumeration_phrasing": _enumeration_for_long_bands(
+                "志望理由を複数に分ける場合は「この職種を志望する理由は二点ある。"
+                "第一に〇〇。第二に□□。」または「1つ目は〇〇。2つ目は□□。」のように"
+                "各理由を句点で独立させる。軸が1つなら無理に分割しない"
+            ),
         },
     },
     "self_pr": {
@@ -1107,6 +1158,11 @@ QUESTION_TYPE_GUIDANCE: dict[str, QuestionTypeGuidance] = {
                 "「多くのことを学びたい」「刺激を受けたい」等の抽象表現で終わっている",
                 "学びたいことの羅列で、対象が絞られていない",
             ],
+            "enumeration_phrasing": _enumeration_for_long_bands(
+                "達成したい目標を複数に分ける場合は「本インターンで達成したい目標は2つある。"
+                "1つ目は〇〇。2つ目は□□。」または「第一に〇〇。第二に□□。」のように"
+                "各目標を句点で独立させる。目標が1つなら無理に分割しない"
+            ),
         },
     },
     "work_values": {
@@ -1330,4 +1386,12 @@ def validate_guidance_entry(entry: object) -> bool:
         for opt_block in ("opening_pattern", "closing_pattern"):
             if opt_block in lp and not isinstance(lp[opt_block], dict):
                 return False
+        if "enumeration_phrasing" in lp:
+            phrasing = lp["enumeration_phrasing"]
+            if not isinstance(phrasing, dict) or not phrasing:
+                return False
+            valid_band_keys = {band.value for band in CharBand}
+            for band_key, items in phrasing.items():
+                if band_key not in valid_band_keys or not _is_str_list(items) or not items:
+                    return False
     return True

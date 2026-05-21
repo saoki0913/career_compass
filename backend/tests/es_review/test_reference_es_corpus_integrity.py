@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -14,5 +15,12 @@ def test_reference_es_runtime_corpus_files_are_removed() -> None:
 
 
 def test_reference_es_offline_source_markdown_is_not_committed() -> None:
-    assert not (DOCS_REFERENCE_DIR / _PRIVATE_SOURCE_MARKDOWN).exists()
+    tracked = subprocess.run(
+        ["git", "ls-files", str(DOCS_REFERENCE_DIR / _PRIVATE_SOURCE_MARKDOWN)],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert tracked.stdout.strip() == ""
     assert (DOCS_REFERENCE_DIR / "README.md").exists()

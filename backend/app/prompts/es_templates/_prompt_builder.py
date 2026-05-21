@@ -24,6 +24,11 @@ from ._length_control import (
     _format_length_policy_block,
     _format_target_char_window,
 )
+from ._quality_blueprint import (
+    build_quality_blueprint,
+    format_quality_blueprint_instruction,
+    summarize_quality_blueprint,
+)
 from .basic import TEMPLATE_DEF as BASIC_TEMPLATE_DEF
 from .company_motivation import TEMPLATE_DEF as COMPANY_MOTIVATION_TEMPLATE_DEF
 from .gakuchika import TEMPLATE_DEF as GAKUCHIKA_TEMPLATE_DEF
@@ -285,7 +290,7 @@ def _format_gakuchika_fact_and_pii_rules(template_type: str) -> str:
     if template_type != "gakuchika":
         return ""
     return (
-        "## 事実保全と個人情報の取り扱い\n"
+        "## ハードファクト境界と個人情報の取り扱い\n"
         "- 会話にない事実は足さない\n"
         "- 推測で補わない\n"
         "- ドラフト内で実在の個人名を使用しないこと。「Aさん」「先輩」等で代替する\n"
@@ -293,17 +298,14 @@ def _format_gakuchika_fact_and_pii_rules(template_type: str) -> str:
     )
 
 
-def _format_fact_preservation_rules() -> str:
+def _format_fact_boundary_rules() -> str:
     return "\n".join(
         [
-            "- 元回答・使えるユーザー事実・企業根拠カードにない数値、役職、経験の種類、企業施策を追加しない",
-            "- 企業根拠カードにない企業施策・数値・組織・制度・事業内容を追加しない",
-            "- 元回答・使えるユーザー事実にない数値、役職、経験の種類、実在固有名詞は追加しない",
-            "- ユーザー事実は、元事実から合理的に読める成果・強み・学び・貢献像の再解釈まで許容する",
-            "- 文字数不足でも新事実で埋めず、企業情報やユーザーの未経験事実を足さず、既存事実の目的・対象・結果・学び・接続で調整する",
-            "- 前回不合格案に含まれる事実でも、正本入力から合理的に読めないものは削除する",
-            "- 企業根拠カードは方向性の補助に使い、未確認の固有施策・社内体制・数値として断定しない",
-            "- 構造改善（文の順序変更、論理接続の補強、行動の具体化、能力の抽象化、貢献像、キャリア接続）は、元回答の事実から論理的に導ける範囲で行う。禁止するのは元にない数値・固有名詞・未経験の出来事の追加である",
+            "- 高品質なESへの改善を主目的とする。元回答を弱い表現のまま保存しない",
+            "- 新しく作ってはいけないもの: 数値、役職、受賞、成果、固有名詞、未経験の出来事、企業カード外の固有施策・制度・事業内容",
+            "- 積極的に改善してよいもの: 文の順序、論理接続、行動の目的・対象・工夫、経験の意味づけ、強み・学びの抽象化、貢献像、キャリア接続",
+            "- 情報が不足する場合は、未確認の固有事実を足さず、一般化した表現で自然につなぐ",
+            "- 数値・固有名詞・役職・期間などのハードファクトは、元回答または使えるユーザー事実にある場合だけ使う",
         ]
     )
 
@@ -894,6 +896,70 @@ def _format_style_section(
     return f"\n<style>\n{content}\n</style>"
 
 
+def _format_length_style_section(
+    *,
+    template_type: str,
+    char_min: int | None,
+    char_max: int | None,
+    stage: str,
+    original_len: int,
+    llm_model: str | None,
+    latest_failed_length: int,
+    length_control_mode: str,
+    length_shortfall: int | None,
+) -> str:
+    target_window = _format_target_char_window(
+        char_min,
+        char_max,
+        stage=stage,
+        original_len=original_len,
+        llm_model=llm_model,
+    )
+    if char_min and char_max:
+        strict_band = f"{char_min}字〜{char_max}字"
+    elif char_max:
+        strict_band = f"{char_max}字以内"
+    elif char_min:
+        strict_band = f"{char_min}字以上"
+    else:
+        strict_band = "指定なし"
+    lines = [
+        f"- strict受理帯: {strict_band}",
+        f"- 生成目標帯: {target_window}",
+        "- 不足時は一般論ではなく、元回答にある目的・対象・行動・結果・学び・接続を具体化する",
+        "- 超過時は重複説明、一般論、補助論点を削る",
+        "- だ・である調、1段落、文末の単調な反復を避ける",
+        "- AI臭い定型句や過剰に抽象的な表現を避ける",
+    ]
+    compact_guidance = _format_short_answer_guidance(
+        template_type,
+        char_min,
+        char_max,
+        stage=stage,
+        original_len=original_len,
+        llm_model=llm_model,
+    ) or _format_midrange_length_guidance(
+        template_type,
+        char_min,
+        char_max,
+        length_control_mode=length_control_mode,
+        length_shortfall=length_shortfall,
+        original_len=original_len,
+        llm_model=llm_model,
+    )
+    if latest_failed_length and char_min and latest_failed_length < char_min:
+        lines.append(
+            f"- 前回出力は{latest_failed_length}字。新事実ではなく既存事実の説明密度で不足分を補う"
+        )
+    elif latest_failed_length and char_max and latest_failed_length > char_max:
+        lines.append(
+            f"- 前回出力は{latest_failed_length}字。重複説明と補助論点を削って上限内に収める"
+        )
+    if compact_guidance:
+        lines.append(_unwrap_section(compact_guidance, "length").strip())
+    return "\n".join(line for line in lines if line.strip())
+
+
 def _format_template_section(
     *,
     template_def: TemplateDef,
@@ -928,6 +994,39 @@ def _format_template_section(
     if not content.strip():
         return ""
     return f"\n<template>\n{content}\n</template>"
+
+
+def _format_template_special_cases(
+    *,
+    template_type: str,
+    question: str,
+    template_def: TemplateDef,
+    char_min: int | None,
+    char_max: int | None,
+    student_expressions: list[str] | None = None,
+) -> str:
+    parts: list[tuple[str, int]] = [
+        (_format_gakuchika_allocation_guide(template_type, char_min, char_max), 2),
+        (_format_gakuchika_student_expressions(template_type, student_expressions), 1),
+        (_format_gakuchika_fact_and_pii_rules(template_type), 5),
+        (_format_question_specific_guidance(template_type, question), 4),
+        (_format_negative_reframe_guidance(template_type), 4),
+        (_format_rewrite_closing_guidance(template_def), 1),
+    ]
+    compact: list[str] = []
+    for part, part_limit in parts:
+        added_from_part = 0
+        for line in (part or "").splitlines():
+            value = line.strip()
+            if not value:
+                continue
+            compact.append(value)
+            added_from_part += 1
+            if added_from_part >= part_limit or len(compact) >= 12:
+                break
+        if len(compact) >= 12:
+            break
+    return "\n".join(compact)
 
 
 def _format_company_section(
@@ -1051,13 +1150,10 @@ def _resolve_strategy_config(
     if strategy == RewriteStrategy.FALLBACK:
         return _StrategyConfig(
             role="日本語のES編集者",
-            task="元回答の事実を保ったまま、提出できる本文に安全に整える。",
-            absolute_preamble=(
-                "- 具体的事実は元回答とユーザー事実の範囲から出す\n"
-                "- 足りない情報は創作せず、一般化してつなぐ"
-            ),
+            task="ハードファクト境界を守りながら、設問タイプに合う提出品質のES本文へ再構成する。",
+            absolute_preamble="",
             core_closing="",
-            user_prompt_suffix="元の具体的事実を極力保ちつつ、構成だけを整えた安全な改善案本文を1件だけ返してください。",
+            user_prompt_suffix="この回答を、設問タイプに合う高品質な改善案本文に書き直してください。改善案本文のみを返してください。",
             include_template_focus=False,
             pass_focus_mode_context=False,
             company_abstraction_fallback="固有施策、社内体制、数値、成果を新しく断定しない",
@@ -1065,11 +1161,11 @@ def _resolve_strategy_config(
         )
     return _StrategyConfig(
         role=template_role,
-        task="提出できる改善案本文を1件だけ作る。",
-        absolute_preamble=(
-            "- 元回答の具体的事実は保ち、構成と伝わり方を改善する\n"
-            "- ユーザー事実にない経験・役割・成果・数字を足さない"
+        task=(
+            "元回答を、設問タイプに合う高品質な提出ESへ再構成する。\n"
+            "単なる事実の保存ではなく、評価される構成・論理・表現への改善を主目的とする。"
         ),
+        absolute_preamble="",
         core_closing="- 最終文は具体的な行動や貢献で締め、抽象的な意気込みの羅列にしない",
         user_prompt_suffix="この回答を、提出できる改善案に書き直してください。改善案本文のみを返してください。",
         include_template_focus=True,
@@ -1436,6 +1532,7 @@ def build_template_rewrite_prompt(
     grounding_mode: str = "none",
     retry_hint: Optional[str] = None,
     retry_hints: Optional[list[str]] = None,
+    reference_quality_profile: dict[str, Any] | None = None,
     reference_quality_block: str = "",
     generic_role_mode: bool = False,
     evidence_coverage_level: str = "none",
@@ -1508,6 +1605,13 @@ def build_template_rewrite_prompt(
     target_stage = "under_min_recovery" if length_control_mode == "under_min_recovery" else "default"
 
     core_closing_line = f"\n{config.core_closing}" if config.core_closing else ""
+    quality_blueprint = build_quality_blueprint(
+        template_type=template_type,
+        template_def=template_def,
+        reference_quality_profile=reference_quality_profile,
+        char_min=char_min,
+        char_max=char_max,
+    )
 
     focus_mode_context_arg = focus_mode_context if config.pass_focus_mode_context else None
     selected_focus_modes = _dedupe_text_items(focus_modes or ([focus_mode] if focus_mode else []))
@@ -1594,14 +1698,6 @@ def build_template_rewrite_prompt(
                 phase=phase,
             ),
             _instruction(
-                InstructionId.FACT_NO_FABRICATION,
-                priority=Priority.ABSOLUTE,
-                section=PromptSection.ABSOLUTE,
-                text=_format_fact_preservation_rules(),
-                source="fact.preservation",
-                phase=phase,
-            ),
-            _instruction(
                 InstructionId.REFERENCE_COPY_SAFETY,
                 priority=Priority.ABSOLUTE,
                 section=PromptSection.ABSOLUTE,
@@ -1610,41 +1706,33 @@ def build_template_rewrite_prompt(
                 phase=phase,
             ),
             _instruction(
-                InstructionId.ANSWER_DIRECTLY,
+                InstructionId.QUALITY_BLUEPRINT,
+                section=PromptSection.QUALITY,
+                text=format_quality_blueprint_instruction(
+                    quality_blueprint,
+                    compact=is_retry_phase,
+                ),
+                source="quality.blueprint",
                 priority=Priority.CORE,
-                section=PromptSection.CORE,
-                text="設問に正面から答える",
-                source="core.answer_directly",
-                render_on_retry=False,
                 phase=phase,
             ),
             _instruction(
-                InstructionId.CONCLUSION_FIRST,
-                priority=Priority.CORE,
-                section=PromptSection.CORE,
-                text="1文目で設問への答えの核を言い切る",
-                source="core.conclusion_first",
-                render_on_retry=False,
-                phase=phase,
-            ),
-            _raw_instruction(
-                section=PromptSection.CORE,
-                text=f"{core_closing_line}\n- 冗長な接続詞で文字数を浪費しない\n- role_name があっても別職種や別コースを仮定しない{_format_rewrite_closing_guidance(template_def)}",
-                source="core.misc",
-                priority=Priority.CORE,
-                render_on_retry=False,
+                InstructionId.FACT_BOUNDARY,
+                priority=Priority.TARGET,
+                section=PromptSection.FACT_BOUNDARY,
+                text=_format_fact_boundary_rules(),
+                source="fact.boundary",
                 phase=phase,
             ),
             _instruction(
                 InstructionId.COMPANY_GROUNDING_POLICY,
                 priority=Priority.TARGET,
-                section=PromptSection.TARGET,
+                section=PromptSection.COMPANY,
                 text=(
                     "企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う\n"
                     f"{company_specificity_rule}\n{company_abstraction_rule}\n- {company_mention_rule}"
                 ),
-                source="target.company_policy",
-                render_on_retry=False,
+                source="company.policy",
                 phase=phase,
             ),
         ]
@@ -1662,63 +1750,39 @@ def build_template_rewrite_prompt(
         )
 
     plan.add(
-        _raw_instruction(
-            section=PromptSection.LENGTH,
-            text=_unwrap_section(_format_length_section(
-    template_type=template_type,
-    char_min=char_min,
-    char_max=char_max,
-    stage=target_stage,
-    original_len=original_len,
-    llm_model=llm_model,
-    latest_failed_length=latest_failed_length,
-    length_control_mode=length_control_mode,
-    length_shortfall=length_shortfall,
-), "length"),
-            source="section.length",
+        _instruction(
+            InstructionId.LENGTH_STYLE_COMPACT,
+            section=PromptSection.LENGTH_STYLE,
+            text=_format_length_style_section(
+                template_type=template_type,
+                char_min=char_min,
+                char_max=char_max,
+                stage=target_stage,
+                original_len=original_len,
+                llm_model=llm_model,
+                latest_failed_length=latest_failed_length,
+                length_control_mode=length_control_mode,
+                length_shortfall=length_shortfall,
+            ),
+            source="length_style.compact",
             priority=Priority.ABSOLUTE,
             phase=phase,
         )
     )
     plan.add(
-        _raw_instruction(
-            section=PromptSection.STYLE,
-            text=_unwrap_section(_format_style_section(
-    template_type=template_type,
-    char_max=char_max,
-    grounding_mode=grounding_mode,
-), "style"),
-            source="section.style",
-            priority=Priority.ADVISORY,
-            render_on_retry=False,
-            phase=phase,
-        )
-    )
-    plan.add(
-        _raw_instruction(
-            section=PromptSection.TEMPLATE,
-            text="\n".join(
-                part
-                for part in [
-                    _unwrap_section(_format_template_section(
-                        template_def=template_def,
-                        template_type=template_type,
-                        char_min=char_min,
-                        char_max=char_max,
-                        honorific=honorific,
-                        role_name=role_name,
-                        intern_name=intern_name,
-                        original_len=original_len,
-                        llm_model=llm_model,
-                        include_template_focus=config.include_template_focus,
-                    ), "template"),
-                    _format_question_specific_guidance(template_type, question),
-                    _format_negative_reframe_guidance(template_type),
-                ]
-                if part.strip()
+        _instruction(
+            InstructionId.TEMPLATE_SPECIAL_CASES,
+            section=PromptSection.TEMPLATE_SPECIAL_CASES,
+            text=_format_template_special_cases(
+                template_type=template_type,
+                question=question,
+                template_def=template_def,
+                char_min=char_min,
+                char_max=char_max,
             ),
-            source="section.template",
+            source="template.special_cases",
             priority=Priority.TARGET,
+            render_on_retry=False,
             phase=phase,
         )
     )
@@ -1739,7 +1803,7 @@ def build_template_rewrite_prompt(
     intern_name=intern_name,
     role_name=role_name,
 ), "company"),
-            source="section.company",
+            source="company.context",
             priority=Priority.TARGET,
             phase=phase,
         )
@@ -1748,12 +1812,12 @@ def build_template_rewrite_prompt(
         _raw_instruction(
             section=PromptSection.CONTEXT,
             text=_unwrap_section(_format_context_section(
-    reference_quality_block=reference_quality_block,
+    reference_quality_block="",
     allowed_user_facts=allowed_user_facts,
     template_type=template_type,
     char_max=char_max,
 ), "context"),
-            source="section.context",
+            source="context.user_facts",
             priority=Priority.TARGET,
             phase=phase,
         )
@@ -1769,7 +1833,7 @@ def build_template_rewrite_prompt(
     question=question,
     retry_items=retry_section_items,
 ), "retry"),
-            source="section.retry",
+            source="retry.delta",
             priority=Priority.RETRY,
             phase=phase,
         )
@@ -1780,6 +1844,27 @@ def build_template_rewrite_prompt(
     )
 
     return rendered.system_prompt, rendered.user_prompt
+
+
+def build_template_quality_blueprint_summary(
+    template_type: str,
+    *,
+    template_spec_override: TemplateDef | None = None,
+    reference_quality_profile: dict[str, Any] | None = None,
+    char_min: int | None = None,
+    char_max: int | None = None,
+) -> str:
+    template_def = template_spec_override or TEMPLATE_DEFS.get(template_type)
+    if not template_def:
+        raise ValueError(f"Unknown template type: {template_type}")
+    blueprint = build_quality_blueprint(
+        template_type=template_type,
+        template_def=template_def,
+        reference_quality_profile=reference_quality_profile,
+        char_min=char_min,
+        char_max=char_max,
+    )
+    return summarize_quality_blueprint(blueprint)
 
 
 def build_template_fallback_rewrite_prompt(
@@ -1798,6 +1883,7 @@ def build_template_fallback_rewrite_prompt(
     grounding_mode: str = "none",
     retry_hint: Optional[str] = None,
     retry_hints: Optional[list[str]] = None,
+    reference_quality_profile: dict[str, Any] | None = None,
     reference_quality_block: str = "",
     generic_role_mode: bool = False,
     evidence_coverage_level: str = "none",
@@ -1827,6 +1913,7 @@ def build_template_fallback_rewrite_prompt(
         grounding_mode=grounding_mode,
         retry_hint=retry_hint,
         retry_hints=retry_hints,
+        reference_quality_profile=reference_quality_profile,
         reference_quality_block=reference_quality_block,
         generic_role_mode=generic_role_mode,
         evidence_coverage_level=evidence_coverage_level,

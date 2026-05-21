@@ -50,6 +50,7 @@ from app.routers.es_review import (
     review_section_with_template,
 )
 from app.services.es_review.orchestrator import _should_use_safe_rewrite
+from app.services.es_review.validation_profile import QUALITY_FIRST_PROFILE
 from app.services.es_review.retry import (
     _best_effort_rewrite_admissible,
     _build_hallucination_retry_hints,
@@ -112,6 +113,32 @@ def _make_self_pr_pad(length: int, *, negative: bool = False) -> str:
     return head + "あ" * (length - len(head) - 1) + "。"
 
 
+def _passing_validation_payload() -> dict[str, dict[str, object]]:
+    return {
+        "conclusion_first": {"pass": True, "reason": ""},
+        "company_grounding": {"pass": True, "reason": ""},
+        "style_unity": {"pass": True, "reason": ""},
+        "structure_clarity": {"pass": True, "reason": ""},
+        "quality_blueprint_alignment": {"pass": True, "reason": ""},
+        "fact_preservation": {"pass": True, "reason": ""},
+        "expression_diversity": {"pass": True, "reason": ""},
+        "theme_focus": {"pass": True, "reason": ""},
+    }
+
+
+def _json_or_validation_result(
+    kwargs: dict[str, object],
+    payload: dict[str, object] | None = None,
+    *,
+    success: bool = True,
+) -> FakeJsonResult:
+    if kwargs.get("feature") == "es_review_validation":
+        return FakeJsonResult(_passing_validation_payload())
+    if payload is None:
+        return FakeJsonResult(success=success)
+    return FakeJsonResult(payload)
+
+
 def test_coerce_degraded_rewrite_dearu_strips_polite_auxiliaries() -> None:
     raw = "社会課題に向き合いながら事業を動かす仕事を志望しています。"
     out = _coerce_degraded_rewrite_dearu_style(raw)
@@ -152,6 +179,57 @@ def test_deterministic_compress_variant_shortens_semantically() -> None:
     assert compressed["char_count"] <= 55
     assert "主体的に学び続けたい。" not in compressed["text"]
     assert compressed["text"].endswith("。")
+
+
+def test_deterministic_compress_variant_never_returns_below_char_min() -> None:
+    # 中間文を丸ごと削ると char_min を下回るケース。char_min を渡したら
+    # 過圧縮（under_min）の結果を返さず、範囲内 or None を返す。
+    head = "あ" * 250 + "。"  # 251字（先頭・保持）
+    middle = "あ" * 30 + "。"  # 31字（最低優先・削除候補）
+    tail = "あ" * 120 + "。"  # 121字（末尾）
+    text = head + middle + tail  # 403字
+    char_max = 400
+    char_min = 390
+    assert len(text) > char_max
+
+    result = deterministic_compress_variant({"text": text}, char_max, char_min=char_min)
+
+    if result is not None:
+        assert char_min <= result["char_count"] <= char_max
+
+
+def test_deterministic_compress_variant_trims_small_overflow_into_band() -> None:
+    # 句点境界がない小超過は読点境界で範囲内へ収める（過圧縮しない）。
+    text = "あ" * 395 + "、" + "あ" * 8 + "。"
+    char_max = 400
+    char_min = 390
+    assert len(text) > char_max
+
+    result = deterministic_compress_variant({"text": text}, char_max, char_min=char_min)
+
+    assert result is not None
+    assert char_min <= result["char_count"] <= char_max
+    assert result["text"].endswith("。")
+
+
+def test_fit_rewrite_text_deterministically_compresses_small_overflow_into_range() -> None:
+    # root-cause regression: 小超過（11字）が以前は過圧縮で under_min になり
+    # over_max のまま reject されていた。char_min-aware 圧縮で範囲内に収まる。
+    text = "あ" * 395 + "、" + "あ" * 14 + "。"
+    assert len(text) == 411
+
+    fitted = _fit_rewrite_text_deterministically(
+        text,
+        template_type="gakuchika",
+        char_min=390,
+        char_max=400,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+    )
+
+    assert fitted is not None
+    assert 390 <= len(fitted) <= 400
 
 
 def test_fit_rewrite_text_deterministically_does_not_expand_underflow() -> None:
@@ -448,6 +526,42 @@ def test_hallucination_is_not_admissible_as_degraded_best_effort() -> None:
     hint = _rewrite_validation_degraded_hint(["hallucination"])
     assert "元回答" in hint
     assert "確認済みユーザー事実" in hint
+
+
+def test_quality_first_profile_hard_blocks_experience_fabrication() -> None:
+    accepted, code, reason, meta = _validate_rewrite_candidate(
+        "学園祭運営の改善に加え、海外留学で多様な価値観を学んだ。",
+        template_type="gakuchika",
+        question="学生時代に力を入れたことを教えてください。",
+        company_name=None,
+        char_min=10,
+        char_max=120,
+        issues=[],
+        role_name=None,
+        grounding_mode="none",
+        user_answer="学園祭運営の改善に取り組んだ。",
+        profile=QUALITY_FIRST_PROFILE,
+    )
+
+    assert accepted is None
+    assert code == "hallucination"
+    assert "元回答の事実" in reason
+    assert any(
+        warning["code"] == "experience_fabrication"
+        for warning in meta["hallucination_warnings"]
+    )
+
+
+def test_llm_quality_is_not_admissible_as_quality_first_degraded_best_effort() -> None:
+    assert not _best_effort_rewrite_admissible(
+        "設問タイプの構成に沿っていない候補。",
+        template_type="company_motivation",
+        company_name="テスト株式会社",
+        char_max=220,
+        primary_failure_code="llm_quality",
+        failure_codes=["llm_quality"],
+        degraded_block_codes=QUALITY_FIRST_PROFILE.degraded_block_codes,
+    )
 
 
 @pytest.mark.parametrize(
@@ -1556,6 +1670,19 @@ async def test_review_section_with_template_skips_improvement_stage_and_returns_
 
     async def fake_call_llm_with_error(*args, **kwargs):
         nonlocal json_calls
+        if kwargs.get("feature") == "es_review_validation":
+            return FakeJsonResult(
+                {
+                    "conclusion_first": {"pass": True, "reason": ""},
+                    "company_grounding": {"pass": True, "reason": ""},
+                    "style_unity": {"pass": True, "reason": ""},
+                    "structure_clarity": {"pass": True, "reason": ""},
+                    "quality_blueprint_alignment": {"pass": True, "reason": ""},
+                    "fact_preservation": {"pass": True, "reason": ""},
+                    "expression_diversity": {"pass": True, "reason": ""},
+                    "theme_focus": {"pass": True, "reason": ""},
+                }
+            )
         json_calls += 1
         return FakeJsonResult(success=False)
 
@@ -1597,7 +1724,7 @@ async def test_review_section_with_template_skips_improvement_stage_and_returns_
         progress_queue=None,
     )
 
-    assert json_calls == 1
+    assert json_calls == 0
     assert result.rewrites == ["研究で培った仮説検証力を生かし、貴社の事業理解を深めながら価値創出につなげたい。"]
     assert not hasattr(result, "top3")
     assert result.review_meta is not None
@@ -1614,7 +1741,8 @@ async def test_review_section_with_template_uses_soft_length_rescue_after_focuse
     rewrite_calls = 0
 
     async def fake_call_llm_with_error(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_or_validation_result(
+            kwargs,
             {
                 "top3": [
                     {
@@ -1623,14 +1751,14 @@ async def test_review_section_with_template_uses_soft_length_rescue_after_focuse
                         "suggestion": "経験との接点を明示する",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_call_llm_text_with_error(*args, **kwargs):
         nonlocal rewrite_calls
         rewrite_calls += 1
         system_prompt = kwargs.get("system_prompt", "") or (args[0] if args else "")
-        if "元回答の事実を保ったまま" in system_prompt:
+        if "ハードファクト境界を守りながら" in system_prompt:
             return FakeTextResult(_make_role_course_pad(394))
         return FakeTextResult(_make_role_course_pad(370))
 
@@ -1681,6 +1809,8 @@ async def test_review_section_with_template_uses_length_focus_retry_for_non_clau
     seen_prompts: list[str] = []
 
     async def fake_call_llm_with_error(*args, **kwargs):
+        if kwargs.get("feature") == "es_review_validation":
+            return FakeJsonResult(_passing_validation_payload())
         return FakeJsonResult(
             {
                 "top3": [
@@ -1770,7 +1900,10 @@ async def test_review_section_with_template_combines_length_and_opening_focus_mo
                 "company_grounding": {"pass": True, "reason": ""},
                 "style_unity": {"pass": True, "reason": ""},
                 "structure_clarity": {"pass": True, "reason": ""},
+                "quality_blueprint_alignment": {"pass": True, "reason": ""},
                 "fact_preservation": {"pass": True, "reason": ""},
+                "expression_diversity": {"pass": True, "reason": ""},
+                "theme_focus": {"pass": True, "reason": ""},
             }
         )
 
@@ -1829,7 +1962,10 @@ async def test_review_section_with_template_salvages_gemini_style_only_with_dete
                 "company_grounding": {"pass": True, "reason": ""},
                 "style_unity": {"pass": True, "reason": ""},
                 "structure_clarity": {"pass": True, "reason": ""},
+                "quality_blueprint_alignment": {"pass": True, "reason": ""},
                 "fact_preservation": {"pass": True, "reason": ""},
+                "expression_diversity": {"pass": True, "reason": ""},
+                "theme_focus": {"pass": True, "reason": ""},
             }
         )
 
@@ -1887,7 +2023,10 @@ async def test_review_section_with_template_uses_length_focus_max_retry_on_over_
             "company_grounding": {"pass": True, "reason": ""},
             "style_unity": {"pass": True, "reason": ""},
             "structure_clarity": {"pass": True, "reason": ""},
+            "quality_blueprint_alignment": {"pass": True, "reason": ""},
             "fact_preservation": {"pass": True, "reason": ""},
+            "expression_diversity": {"pass": True, "reason": ""},
+            "theme_focus": {"pass": True, "reason": ""},
         }
 
     monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
@@ -1953,6 +2092,8 @@ async def test_review_section_with_template_deterministically_expands_best_non_c
     ])
 
     async def fake_call_llm_with_error(*args, **kwargs):
+        if kwargs.get("feature") == "es_review_validation":
+            return FakeJsonResult(_passing_validation_payload())
         return FakeJsonResult(
             {
                 "top3": [
@@ -2006,6 +2147,8 @@ async def test_review_section_with_template_propagates_enrichment_meta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_call_llm_with_error(*args, **kwargs):
+        if kwargs.get("feature") == "es_review_validation":
+            return FakeJsonResult(_passing_validation_payload())
         return FakeJsonResult(
             {
                 "top3": [
@@ -2066,7 +2209,8 @@ async def test_review_section_with_template_logs_rewrite_and_sources(
     monkeypatch.setattr(settings, "live_es_review_capture_debug", False)
 
     async def fake_call_llm_with_error(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_or_validation_result(
+            kwargs,
             {
                 "top3": [
                     {
@@ -2075,7 +2219,7 @@ async def test_review_section_with_template_logs_rewrite_and_sources(
                         "suggestion": "事業との接点を1点示す",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_call_llm_text_with_error(*args, **kwargs):
@@ -2137,6 +2281,8 @@ async def test_review_section_with_template_keeps_token_usage_internal_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_call_llm_with_error(*args, **kwargs):
+        if kwargs.get("feature") == "es_review_validation":
+            return FakeJsonResult(_passing_validation_payload())
         return FakeJsonResult(
             {
                 "top3": [
@@ -2220,7 +2366,7 @@ async def test_review_section_with_template_uses_assistive_company_grounding_for
     captured_prompts: list[str] = []
 
     async def fake_call_llm_with_error(*args, **kwargs):
-        return FakeJsonResult(success=False)
+        return _json_or_validation_result(kwargs, success=False)
 
     async def fake_call_llm_text_with_error(*args, **kwargs):
         captured_prompts.append(kwargs.get("system_prompt", "") or (args[0] if args else ""))
@@ -2274,7 +2420,8 @@ async def test_review_section_with_template_uses_generalized_company_guidance_wh
     captured_prompts: list[str] = []
 
     async def fake_call_llm_with_error(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_or_validation_result(
+            kwargs,
             {
                 "top3": [
                     {
@@ -2283,7 +2430,7 @@ async def test_review_section_with_template_uses_generalized_company_guidance_wh
                         "suggestion": "企業理解を一軸に絞って接続する",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_call_llm_text_with_error(*args, **kwargs):
@@ -2337,7 +2484,8 @@ async def test_review_section_with_template_never_adds_fifth_fallback_call(
     rewrite_calls = 0
 
     async def fake_call_llm_with_error(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_or_validation_result(
+            kwargs,
             {
                 "top3": [
                     {
@@ -2346,7 +2494,7 @@ async def test_review_section_with_template_never_adds_fifth_fallback_call(
                         "suggestion": "冒頭で結論を言い切る",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_call_llm_text_with_error(*args, **kwargs):
@@ -2395,7 +2543,8 @@ async def test_review_section_with_template_records_safe_rewrite_when_rewrite_re
     rewrite_calls = 0
 
     async def fake_call_llm_with_error(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_or_validation_result(
+            kwargs,
             {
                 "top3": [
                     {
@@ -2404,7 +2553,7 @@ async def test_review_section_with_template_records_safe_rewrite_when_rewrite_re
                         "suggestion": "主張を一つに絞る",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_call_llm_text_with_error(*args, **kwargs):
@@ -2453,7 +2602,8 @@ async def test_review_section_with_template_allows_safe_rewrite_after_noncritica
     saw_safe_rewrite_prompt = False
 
     async def fake_call_llm_with_error(*args, **kwargs):
-        return FakeJsonResult(
+        return _json_or_validation_result(
+            kwargs,
             {
                 "top3": [
                     {
@@ -2462,7 +2612,7 @@ async def test_review_section_with_template_allows_safe_rewrite_after_noncritica
                         "suggestion": "強みを肯定的に述べる",
                     }
                 ]
-            }
+            },
         )
 
     async def fake_call_llm_text_with_error(*args, **kwargs):
@@ -2514,7 +2664,7 @@ async def test_review_section_with_template_skips_improvement_generation_when_js
 
     async def fake_call_llm_with_error(*args, **kwargs):
         captured_kwargs.update(kwargs)
-        return FakeJsonResult(success=False)
+        return _json_or_validation_result(kwargs, success=False)
 
     async def fake_call_llm_text_with_error(*args, **kwargs):
         return FakeTextResult(_make_text(394))
@@ -2930,7 +3080,7 @@ async def test_under_min_plus_companyless_reference_composite_retry(
 
     async def fake_call_llm_with_error(*args, **kwargs):
         # No improvement payload; deterministic validation alone drives failure codes.
-        return FakeJsonResult(success=False)
+        return _json_or_validation_result(kwargs, success=False)
 
     monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
     monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)
@@ -2995,7 +3145,7 @@ async def test_over_max_plus_bulletish_composite_retry(
         return FakeTextResult(valid_text)
 
     async def fake_call_llm_with_error(*args, **kwargs):
-        return FakeJsonResult(success=False)
+        return _json_or_validation_result(kwargs, success=False)
 
     monkeypatch.setattr("app.routers.es_review.call_llm_with_error", fake_call_llm_with_error)
     monkeypatch.setattr("app.routers.es_review.call_llm_text_with_error", fake_call_llm_text_with_error)

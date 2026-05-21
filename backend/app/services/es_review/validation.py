@@ -14,6 +14,7 @@ from typing import Any, Callable, Optional
 from app.prompts.es_templates import get_company_honorific
 from app.services.es_review.llm_validation import _validate_rewrite_with_llm
 from app.services.es_review.fact_guard import (
+    _HARD_FACT_WARNING_TERMS,
     _compute_hallucination_score,
     _detect_fact_hallucination_warnings,
 )
@@ -274,7 +275,7 @@ def _should_attempt_semantic_compression(current_len: int, char_max: Optional[in
     if not char_max or current_len <= char_max:
         return False
     excess = current_len - char_max
-    return excess <= max(90, int(char_max * 0.30))
+    return excess <= max(90, int(char_max * 0.40))
 
 
 def _select_compression_tiers(excess: int) -> list[list[tuple[str, str]]]:
@@ -331,7 +332,9 @@ def _sentence_priority(sentence: str, index: int, total: int) -> int:
     return score
 
 
-def _prune_low_priority_sentences(text: str, char_max: int) -> str | None:
+def _prune_low_priority_sentences(
+    text: str, char_max: int, *, char_min: int | None = None
+) -> str | None:
     sentences = _split_japanese_sentences(text)
     if len(sentences) < 3:
         return None
@@ -351,10 +354,17 @@ def _prune_low_priority_sentences(text: str, char_max: int) -> str | None:
         trial_text = "".join(trial)
         if trial_text == "".join(working):
             break
+        # 文を丸ごと削ると char_min を下回るなら、過圧縮せず打ち切る。
+        if char_min is not None and len(trial_text) < char_min:
+            break
         working = trial
 
     result = "".join(working).strip()
-    if len(result) <= char_max and result.endswith(("。", "！", "？")):
+    if (
+        len(result) <= char_max
+        and result.endswith(("。", "！", "？"))
+        and not (char_min is not None and len(result) < char_min)
+    ):
         return result
     return None
 
@@ -391,8 +401,15 @@ def _trim_to_safe_boundary(
     return None
 
 
-def deterministic_compress_variant(variant: dict, char_max: int) -> dict | None:
-    """Compress over-limit text with rule-based shortening, never hard-cutting."""
+def deterministic_compress_variant(
+    variant: dict, char_max: int, *, char_min: int | None = None
+) -> dict | None:
+    """Compress over-limit text with rule-based shortening, never hard-cutting.
+
+    When ``char_min`` is given, never return an under-min result: sentence
+    pruning and boundary trimming stay within ``[char_min, char_max]`` and the
+    function returns ``None`` rather than overshooting below the floor.
+    """
     text = variant.get("text", "").strip()
     if len(text) <= char_max:
         result = dict(variant)
@@ -401,15 +418,17 @@ def deterministic_compress_variant(variant: dict, char_max: int) -> dict | None:
 
     compressed = _apply_semantic_compression_rules(text, char_max)
     if len(compressed) > char_max:
-        pruned = _prune_low_priority_sentences(compressed, char_max)
+        pruned = _prune_low_priority_sentences(compressed, char_max, char_min=char_min)
         if pruned:
             compressed = pruned
     if len(compressed) > char_max:
-        trimmed = _trim_to_safe_boundary(compressed, char_min=None, char_max=char_max)
+        trimmed = _trim_to_safe_boundary(compressed, char_min=char_min, char_max=char_max)
         if trimmed:
             compressed = trimmed
 
     if len(compressed) > char_max or not compressed.endswith(("。", "！", "？")):
+        return None
+    if char_min is not None and len(compressed) < char_min:
         return None
 
     result = dict(variant)
@@ -444,7 +463,7 @@ def _fit_rewrite_text_deterministically(
         and _should_attempt_semantic_compression(len(normalized), char_max)
     ):
         compressed_variant = deterministic_compress_variant(
-            {"text": normalized}, char_max
+            {"text": normalized}, char_max, char_min=char_min
         )
         if compressed_variant:
             compressed_text = str(compressed_variant.get("text") or "").strip()
@@ -589,6 +608,7 @@ def _validate_rewrite_candidate(
     soft_validation_mode: str = "strict",
     allow_soft_min: bool | None = None,
     user_answer: str = "",
+    allowed_fact_text: str = "",
     profile: ValidationProfile | None = None,
 ) -> tuple[str | None, str, str, dict[str, Any]]:
     _ = review_variant
@@ -655,6 +675,7 @@ def _validate_rewrite_candidate(
     _hallucination_warnings = _detect_fact_hallucination_warnings(
         fitted, user_answer,
         template_type=template_type, char_max=char_max,
+        allowed_fact_text=allowed_fact_text,
     )
     length_meta["hallucination_warnings"] = _hallucination_warnings
     _hallucination_result = _compute_hallucination_score(
@@ -788,9 +809,11 @@ async def _validate_rewrite_combined(
     soft_validation_mode: str = "strict",
     allow_soft_min: bool | None = None,
     user_answer: str = "",
+    allowed_fact_text: str = "",
     json_caller: Callable[..., Any] | None = None,
     is_final_attempt: bool = False,
     profile: ValidationProfile | None = None,
+    quality_blueprint_summary: str | None = None,
 ) -> tuple[str | None, str, str, dict[str, Any]]:
     """Run mechanical validation plus LLM quality validation."""
     _profile = profile or STRICT_PROFILE
@@ -813,6 +836,7 @@ async def _validate_rewrite_combined(
         soft_validation_mode=soft_validation_mode,
         allow_soft_min=allow_soft_min,
         user_answer=user_answer,
+        allowed_fact_text=allowed_fact_text,
         profile=_profile,
     )
     accepted, code, reason, meta = result
@@ -830,6 +854,8 @@ async def _validate_rewrite_combined(
         grounding_mode=grounding_mode,
         json_caller=json_caller,
         axis_modes=axis_modes,
+        quality_blueprint_summary=quality_blueprint_summary,
+        fail_open_on_error=False,
     )
 
     if llm_result.failed_checks:
@@ -838,13 +864,37 @@ async def _validate_rewrite_combined(
         meta["llm_warned_checks"] = llm_result.warned_checks
     if llm_result.retry_hint:
         meta["llm_retry_hint"] = llm_result.retry_hint
+    if llm_result.validation_unavailable:
+        meta["llm_validation_unavailable"] = True
 
+    hard_fact_warning_detected = (
+        ValidationFailureCode.FACT_PRESERVATION.value in llm_result.warned_checks
+        and any(term in llm_result.retry_hint for term in _HARD_FACT_WARNING_TERMS)
+    )
     if not accepted:
         return accepted, code, reason, meta
+    if hard_fact_warning_detected:
+        return (
+            None,
+            ValidationFailureCode.HALLUCINATION.value,
+            llm_result.retry_hint or "ハードファクト境界に反しています。",
+            meta,
+        )
 
     if not llm_result.passed:
-        if ValidationFailureCode.FACT_PRESERVATION in llm_result.failed_checks:
+        if llm_result.validation_unavailable:
+            return (
+                None,
+                ValidationFailureCode.LLM_QUALITY.value,
+                llm_result.retry_hint or "品質検証を完了できませんでした。",
+                meta,
+            )
+        if ValidationFailureCode.FACT_PRESERVATION.value in llm_result.failed_checks:
             return None, ValidationFailureCode.FACT_PRESERVATION.value, llm_result.retry_hint, meta
+        if "quality_blueprint_alignment" in llm_result.failed_checks:
+            return None, ValidationFailureCode.LLM_QUALITY.value, llm_result.retry_hint or "QualityBlueprint に沿っていません。", meta
+        if _profile.name == "quality_first":
+            return None, ValidationFailureCode.LLM_QUALITY.value, llm_result.retry_hint or "品質検証で再調整が必要です。", meta
         if is_final_attempt:
             meta["llm_lenient_pass"] = True
             return accepted, code, reason, meta

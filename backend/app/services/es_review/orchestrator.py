@@ -32,7 +32,7 @@ from app.services.es_review.ai_smell import (
     detect_ai_smell_patterns,
 )
 from app.services.es_review.validation_profile import (
-    STRICT_PROFILE,
+    QUALITY_FIRST_PROFILE,
     apply_information_tier_adjustments,
     compute_information_density,
 )
@@ -67,6 +67,7 @@ from app.services.es_review.validation import (
     _validate_rewrite_combined,
     _char_limit_distance,
     _uses_tight_length_control,
+    deterministic_compress_variant,
     evaluate_deep_grounding_meta,
 )
 
@@ -125,6 +126,7 @@ from app.prompts.es_templates import (
     TEMPLATE_DEFS,
     build_template_rewrite_prompt,
     build_template_fallback_rewrite_prompt,
+    build_template_quality_blueprint_summary,
     get_template_company_grounding_policy,
     get_template_default_grounding_level,
     grounding_level_to_policy,
@@ -729,7 +731,7 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
 
     template_request = ctx.template_request
     density = compute_information_density(template_request.answer)
-    profile = apply_information_tier_adjustments(STRICT_PROFILE, density.tier)
+    profile = apply_information_tier_adjustments(QUALITY_FIRST_PROFILE, density.tier)
     ctx.validation_profile = profile
     ctx.information_density = {
         "char_count": density.char_count,
@@ -781,6 +783,7 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
             latest_failed_length=latest_failed_length,
             llm_model=ctx.llm_model,
             template_type=ctx.template_type,
+            attempt_index=attempt,
         )
         length_control_mode = retry_plan.length_control_mode
         retry_hints = list(retry_plan.guidance_items)
@@ -859,6 +862,7 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
                 role_name=ctx.effective_role_name,
                 grounding_mode=ctx.effective_grounding_mode,
                 retry_hints=retry_hints,
+                reference_quality_profile=ctx.reference_quality_profile,
                 reference_quality_block=attempt_context["reference_quality_block"],
                 generic_role_mode=ctx.generic_role_mode,
                 evidence_coverage_level=ctx.evidence_coverage_level,
@@ -888,6 +892,7 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
                 role_name=ctx.effective_role_name,
                 grounding_mode=ctx.effective_grounding_mode,
                 retry_hints=retry_hints,
+                reference_quality_profile=ctx.reference_quality_profile,
                 reference_quality_block=attempt_context["reference_quality_block"],
                 generic_role_mode=ctx.generic_role_mode,
                 evidence_coverage_level=ctx.evidence_coverage_level,
@@ -902,6 +907,13 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
                 focus_mode_context=focus_mode_context,
                 template_spec_override=getattr(ctx.effective_template_ctx, "merged_spec", None),
             )
+        quality_blueprint_summary = build_template_quality_blueprint_summary(
+            ctx.template_type,
+            template_spec_override=getattr(ctx.effective_template_ctx, "merged_spec", None),
+            reference_quality_profile=ctx.reference_quality_profile,
+            char_min=ctx.char_min,
+            char_max=ctx.char_max,
+        )
 
         if _capture_rewrite_debug_enabled():
             logger.info(
@@ -941,7 +953,7 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
             step="rewrite",
             progress=52 if attempt == 0 else min(76, 52 + attempt * 5),
             label="改善案を作成中..." if focus_mode == "normal" else "失敗理由に合わせて再調整中...",
-            sub_label="事実を保ちながら提出用の本文に整えています",
+            sub_label="設問に合う提出品質へ本文を整えています",
         )
 
         rewrite_result = await ctx.text_caller(
@@ -988,6 +1000,19 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
             industry=template_request.industry,
             grounding_mode=ctx.effective_grounding_mode,
         )
+        allowed_fact_text = "\n".join(
+            str(item.get("text") or "")
+            for item in attempt_context["prompt_user_facts"]
+            if str(item.get("text") or "").strip()
+        )
+        company_fact_text = "\n".join(
+            " / ".join(
+                str(card.get(key) or "").strip()
+                for key in ("theme", "normalized_axis", "normalized_summary", "claim")
+                if str(card.get(key) or "").strip()
+            )
+            for card in attempt_context["company_evidence_cards"]
+        )
         validated_candidate, retry_code, retry_reason, retry_meta = await _validate_rewrite_combined(
             candidate,
             template_type=ctx.template_type,
@@ -1006,9 +1031,21 @@ async def execute_rewrite_loop(ctx: ReviewContext) -> RewriteLoopResult:
             review_variant=ctx.review_variant,
             soft_validation_mode="strict",
             user_answer=template_request.answer,
+            allowed_fact_text="\n".join(
+                item
+                for item in [
+                    allowed_fact_text,
+                    company_fact_text,
+                    template_request.company_name or "",
+                    ctx.effective_role_name or "",
+                    template_request.intern_name or "",
+                ]
+                if item
+            ),
             json_caller=ctx.json_caller,
             is_final_attempt=attempt == total_attempts - 1,
             profile=profile,
+            quality_blueprint_summary=quality_blueprint_summary,
         )
         failure_codes_for_trace = list(
             retry_meta.get("failure_codes")
@@ -1211,7 +1248,20 @@ async def execute_recovery_pipeline(
             else None
         ),
     ):
-        recovery.final_rewrite = _coerce_degraded_rewrite_dearu_style(loop_result.best_rejected_candidate)
+        # 文体変換は文字数を変えるため、coerce の「後」に over_max を最終救済する。
+        # char_min-aware 圧縮なので、範囲内に収まらなければ素通しする（過圧縮しない）。
+        best_effort_text = _coerce_degraded_rewrite_dearu_style(loop_result.best_rejected_candidate)
+        compressed_via_fallback = False
+        if ctx.char_max and len(best_effort_text) > ctx.char_max:
+            compressed_variant = deterministic_compress_variant(
+                {"text": best_effort_text},
+                ctx.char_max,
+                char_min=ctx.char_min,
+            )
+            if compressed_variant:
+                best_effort_text = str(compressed_variant.get("text") or best_effort_text)
+                compressed_via_fallback = True
+        recovery.final_rewrite = best_effort_text
         recovery.rewrite_validation_status = "degraded"
         recovery.rewrite_validation_codes = list(
             loop_result.best_failure_codes
@@ -1251,9 +1301,11 @@ async def execute_recovery_pipeline(
             generated_by_llm=False,
         )
         logger.warning(
-            "[ES添削/テンプレート] rewrite %s ベストエフォート採用: codes=%s",
+            "[ES添削/テンプレート] rewrite %s ベストエフォート採用: codes=%s chars=%s compressed_via_fallback=%s",
             ctx.template_type,
             recovery.rewrite_validation_codes,
+            len(recovery.final_rewrite),
+            compressed_via_fallback,
         )
         if _capture_rewrite_debug_enabled():
             logger.info(
@@ -1491,7 +1543,7 @@ async def assemble_review_response(
             rewrite_attempt_count=accepted_attempt,
             reference_es_count=int((ctx.reference_quality_profile or {}).get("reference_count") or 0),
             reference_es_mode=ctx.reference_es_mode,
-            reference_quality_profile_used=bool(ctx.reference_quality_block),
+            reference_quality_profile_used=bool(ctx.reference_quality_profile),
             reference_outline_used=ctx.reference_outline_used,
             reference_hint_count=len((ctx.reference_quality_profile or {}).get("quality_hints") or []),
             reference_profile_variance=(ctx.reference_quality_profile or {}).get("variance_band"),
@@ -1526,6 +1578,9 @@ async def assemble_review_response(
             llm_quality_failed_checks=accepted_llm_failed_checks,
             llm_quality_warned_checks=accepted_llm_warned_checks,
             llm_quality_lenient_pass=accepted_llm_lenient_pass,
+            llm_quality_validation_unavailable=(
+                "validation_unavailable" in accepted_llm_failed_checks
+            ),
             llm_quality_failure_count=llm_quality_failure_count,
             classification_confidence=ctx.classification_confidence,
             classification_secondary_candidates=ctx.classification_secondary_candidates,

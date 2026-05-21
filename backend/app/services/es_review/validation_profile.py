@@ -38,7 +38,14 @@ class ValidationProfile:
     fact_preservation: LlmAxisMode = "required"
     fact_guard_hard_block_codes: frozenset[str] = field(
         default_factory=lambda: frozenset(
-            {"number_mutation", "role_title_mutation", "metric_fabrication"}
+            {
+                "number_mutation",
+                "role_title_mutation",
+                "metric_fabrication",
+                "experience_fabrication",
+                "award_fabrication",
+                "proper_noun_fabrication",
+            }
         )
     )
     hallucination_tier2_threshold: float = 3.0
@@ -68,6 +75,34 @@ class ValidationProfile:
 
 
 STRICT_PROFILE = ValidationProfile(name="strict")
+
+QUALITY_FIRST_PROFILE = ValidationProfile(
+    name="quality_first",
+    fact_preservation="warn",
+    fact_guard_hard_block_codes=frozenset(
+        {
+            "number_mutation",
+            "role_title_mutation",
+            "metric_fabrication",
+            "experience_fabrication",
+            "award_fabrication",
+            "proper_noun_fabrication",
+        }
+    ),
+    degraded_block_codes=frozenset(
+        {
+            ValidationFailureCode.EMPTY.value,
+            ValidationFailureCode.FRAGMENT.value,
+            ValidationFailureCode.NEGATIVE_SELF_EVAL.value,
+            ValidationFailureCode.COMPANY_REFERENCE_IN_COMPANYLESS.value,
+            ValidationFailureCode.HALLUCINATION.value,
+            ValidationFailureCode.FACT_PRESERVATION.value,
+            ValidationFailureCode.LLM_QUALITY.value,
+        }
+    ),
+    best_effort_enabled=True,
+    max_retry=3,
+)
 
 LENIENT_PROFILE = ValidationProfile(
     name="lenient",
@@ -124,6 +159,8 @@ def apply_information_tier_adjustments(
     profile: ValidationProfile,
     tier: InformationTier,
 ) -> ValidationProfile:
+    if profile.name == "quality_first":
+        return profile
     if profile.name != "strict":
         return profile
     if tier in ("sufficient", "moderate"):
@@ -162,6 +199,8 @@ def apply_information_tier_adjustments(
 
 
 def resolve_profile(feature: str) -> ValidationProfile:
+    if feature == "es_review":
+        return QUALITY_FIRST_PROFILE
     if feature in ("gakuchika", "motivation"):
         return LENIENT_PROFILE
     return STRICT_PROFILE
@@ -172,6 +211,7 @@ __all__ = [
     "InformationTier",
     "LENIENT_PROFILE",
     "LlmAxisMode",
+    "QUALITY_FIRST_PROFILE",
     "STRICT_PROFILE",
     "ValidationProfile",
     "apply_information_tier_adjustments",

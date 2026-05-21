@@ -121,3 +121,41 @@ def test_length_target_plan_handles_one_sided_limits() -> None:
     assert format_generation_target(max_only) == "188字〜200字"
     assert format_acceptance_band(min_only) == "120字以上"
     assert format_generation_target(min_only) == "120字以上"
+
+
+def test_tight_length_retry_lowers_generation_upper_with_buffer_narrow_band() -> None:
+    base = resolve_length_target_plan(
+        390, 400, stage="tight_length", llm_model="claude-sonnet-4-6", attempt_index=0
+    )
+    retry = resolve_length_target_plan(
+        390, 400, stage="tight_length", llm_model="claude-sonnet-4-6", attempt_index=1
+    )
+
+    # 受理帯は再試行でも不変。
+    assert base.acceptance_band == LengthBand(390, 400)
+    assert retry.acceptance_band == LengthBand(390, 400)
+    # 初回は char_max まで生成許容。
+    assert base.generation_target_upper == 400
+    # 再試行(attempt>=1)は buffer 分下げる。狭帯は char_min にクランプ。
+    assert retry.generation_target_upper == 390
+
+
+def test_tight_length_retry_lowers_generation_upper_with_buffer_wide_band() -> None:
+    retry = resolve_length_target_plan(
+        200, 400, stage="tight_length", llm_model="claude-sonnet-4-6", attempt_index=1
+    )
+
+    assert retry.acceptance_band == LengthBand(200, 400)
+    assert retry.generation_target_upper == 385  # char_max - 15
+
+
+def test_default_stage_ignores_attempt_index_buffer() -> None:
+    base = resolve_length_target_plan(
+        390, 400, stage="default", llm_model="claude-sonnet-4-6", attempt_index=0
+    )
+    retry = resolve_length_target_plan(
+        390, 400, stage="default", llm_model="claude-sonnet-4-6", attempt_index=1
+    )
+
+    assert base.generation_target_upper == 400
+    assert retry.generation_target_upper == 400

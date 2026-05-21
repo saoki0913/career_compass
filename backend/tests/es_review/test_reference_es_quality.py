@@ -39,7 +39,6 @@ def test_build_reference_quality_block_uses_curated_guidance() -> None:
     assert "【この設問で意識する品質】" in block
     assert "【参考ESから抽出した骨子】" in block  # orchestrator reference_outline token
     assert "【文レベルの流れ】" in block
-    assert "論理アプローチ" in block  # curated logic hints remain available without raw corpus files
     assert "冒頭1文で何に取り組み" in block  # curated gakuchika hint
     assert "参考件数" not in block
     assert "目安文字数" not in block

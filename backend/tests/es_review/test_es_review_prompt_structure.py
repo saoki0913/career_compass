@@ -11,7 +11,7 @@ from app.prompts.es_templates import (
     build_template_fallback_rewrite_prompt,
     build_template_rewrite_prompt,
 )
-from app.prompts.es_templates._prompt_builder import _format_fact_preservation_rules
+from app.prompts.es_templates._prompt_builder import _format_fact_boundary_rules
 from app.prompts.es_templates._types import (
     InstructionId,
     Priority,
@@ -104,8 +104,8 @@ def test_initial_rewrite_prompt_uses_compact_anti_ai_instruction_only() -> None:
     )
 
     assert "<anti_ai_phrase>" not in system_prompt
-    assert "<anti_ai_compact>" in system_prompt
-    assert "多角的" in system_prompt
+    assert "<length_style>" in system_prompt
+    assert "AI臭い定型句" in system_prompt
 
 
 def test_normal_rewrite_prompt_omits_retry_section_until_failure_context_exists() -> None:
@@ -153,17 +153,17 @@ def test_retry_rewrite_prompt_renders_diff_without_initial_advisory_blocks() -> 
 
     assert "<output_contract>" in system_prompt
     assert '<constraints priority="absolute">' in system_prompt
-    assert "<length>" in system_prompt
+    assert "<length_style>" in system_prompt
     assert "strict受理帯" in system_prompt
     assert "<retry>" in system_prompt
     assert "前回は冒頭が設問への答えになっていない" in system_prompt
     assert '<constraints priority="core">' not in system_prompt
     assert '<constraints priority="target">' not in system_prompt
     assert "<style>" not in system_prompt
-    assert "<template>" in system_prompt
+    assert "<quality_blueprint" in system_prompt
     assert "<company>" in system_prompt
     assert "<context>" in system_prompt
-    assert "【requiredテンプレの型】" in system_prompt
+    assert "評価される核" in system_prompt
     assert "【企業根拠カード】" in system_prompt
     assert "【使えるユーザー事実】" in system_prompt
 
@@ -209,10 +209,9 @@ def test_rewrite_prompt_renders_required_elements_and_anti_patterns_from_templat
         grounding_mode="company_general",
     )
 
-    assert "【設問で落としてはいけない要素】" in system_prompt
-    assert "- 検証用必須要素" in system_prompt
-    assert "【避けるパターン】" in system_prompt
-    assert "- 検証用禁止表現" in system_prompt
+    assert "<quality_blueprint" in system_prompt
+    assert "検証用必須要素" in system_prompt
+    assert "検証用禁止表現" in system_prompt
 
 
 def test_rewrite_prompt_always_includes_reference_copy_safety_rules() -> None:
@@ -292,11 +291,11 @@ def test_required_medium_long_rewrite_prompt_includes_structure_and_examples(
     )
 
     assert "<role_task>" in system_prompt
-    assert "<length_policy>" in system_prompt
-    assert "【requiredテンプレの型】" in system_prompt
-    assert "4文前後" in system_prompt
-    assert "【書き出し例】" in system_prompt
-    assert "【避ける例】" in system_prompt
+    assert "<quality_blueprint" in system_prompt
+    assert "<length_style>" in system_prompt
+    assert "評価される核" in system_prompt
+    assert "構成:" in system_prompt
+    assert "避ける点:" in system_prompt
     assert "結論" in system_prompt
     assert "【改善ポイント】" not in system_prompt
     assert "研究" in user_prompt
@@ -354,10 +353,10 @@ def test_required_medium_long_fallback_prompt_includes_same_structure(
     )
 
     assert "<role_task>" in system_prompt
-    assert "<length_policy>" in system_prompt
-    assert "【requiredテンプレの型】" in system_prompt
-    assert "【書き出し例】" in system_prompt
-    assert "【避ける例】" in system_prompt
+    assert "<quality_blueprint" in system_prompt
+    assert "<length_style>" in system_prompt
+    assert "評価される核" in system_prompt
+    assert "避ける点:" in system_prompt
     assert "【最低限反映する改善点】" not in user_prompt
     assert "研究" in user_prompt
 
@@ -546,9 +545,9 @@ def test_rewrite_prompt_keeps_core_constraints_when_structural_patterns_v2_are_p
     )
 
     assert '<constraints priority="absolute">' in system_prompt
-    assert "<length_policy>" in system_prompt
-    assert "【参考ESから抽出した構成パターン】" in system_prompt
-    assert "【設問で落としてはいけない要素】" in system_prompt
+    assert "<quality_blueprint" in system_prompt
+    assert "<fact_boundary>" in system_prompt
+    assert "【参考ESから抽出した構成パターン】" not in system_prompt
 
 
 def test_rewrite_prompt_includes_logic_patterns_on_first_attempt() -> None:
@@ -580,7 +579,8 @@ def test_rewrite_prompt_includes_logic_patterns_on_first_attempt() -> None:
         reference_quality_block=attempt_context["reference_quality_block"],
     )
 
-    assert "主な論理アプローチ" in system_prompt
+    assert "主な論理アプローチ" not in system_prompt
+    assert "<quality_blueprint" in system_prompt
 
 
 def test_rewrite_prompt_excludes_logic_patterns_on_retry() -> None:
@@ -692,9 +692,9 @@ def test_required_short_prompt_includes_required_playbook_and_min_guard() -> Non
         grounding_mode="company_general",
     )
 
-    assert "【requiredテンプレの型】" in system_prompt
+    assert "<quality_blueprint" in system_prompt
     assert "120字未満で終えない" in system_prompt
-    assert "1文目で貴社を志望する理由の核を言い切る" in system_prompt
+    assert "評価される核" in system_prompt
 
 
 def test_rewrite_prompt_uses_400_char_target_window() -> None:
@@ -722,7 +722,7 @@ def test_rewrite_prompt_uses_400_char_target_window() -> None:
         original_len=len(answer),
     )
     assert "strict受理帯: 390字〜400字" in system_prompt
-    assert f"今回の生成目標帯: {expected_window}" in system_prompt
+    assert f"生成目標帯: {expected_window}" in system_prompt
 
 
 def test_rewrite_prompt_uses_overshoot_target_on_under_min_recovery() -> None:
@@ -748,7 +748,7 @@ def test_rewrite_prompt_uses_overshoot_target_on_under_min_recovery() -> None:
     )
 
     assert "strict受理帯: 390字〜400字" in system_prompt
-    assert "今回の生成目標帯: 400字〜" in system_prompt
+    assert "生成目標帯: 400字〜" in system_prompt
 
 
 def test_target_window_biases_openai_mini_higher_for_short_answers() -> None:
@@ -824,8 +824,9 @@ def test_rewrite_prompt_includes_common_fact_preservation_rules(template_type: s
         grounding_mode="company_general",
     )
 
-    assert "元回答・使えるユーザー事実・企業根拠カードにない数値" in system_prompt
-    assert "文字数不足でも新事実で埋めず" in system_prompt
+    assert "<fact_boundary>" in system_prompt
+    assert "積極的に改善してよいもの" in system_prompt
+    assert "ハードファクト" in system_prompt
 
 
 def test_short_answer_guidance_covers_self_pr_structure() -> None:
@@ -897,9 +898,8 @@ def test_contextual_rules_gakuchika_excludes_company_rules() -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "ゼミで進行改善に取り組んだ。"}],
         grounding_mode="none",
     )
-    # core_style block should exist
-    assert "<core_style>" in system_prompt
-    assert "結論ファースト" in system_prompt
+    assert "<quality_blueprint" in system_prompt
+    assert "評価される核" in system_prompt
 
 
 def test_contextual_rules_short_band_includes_short_rule() -> None:
@@ -917,7 +917,8 @@ def test_contextual_rules_short_band_includes_short_rule() -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
         grounding_mode="company_general",
     )
-    assert "短い字数制限" in system_prompt or "凝縮" in system_prompt
+    assert "<length_style>" in system_prompt
+    assert "strict受理帯" in system_prompt
 
 
 def test_contextual_rules_basic_medium_excludes_short_rule() -> None:
@@ -936,7 +937,7 @@ def test_contextual_rules_basic_medium_excludes_short_rule() -> None:
         grounding_mode="company_general",
     )
     # Should have mid_long rules but NOT short_only
-    assert "要約しすぎず" in system_prompt
+    assert "具体化" in system_prompt
     assert "短い字数制限" not in system_prompt
 
 
@@ -955,7 +956,8 @@ def test_prose_style_present_for_long_answer() -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "事業を動かす仕事がしたい。"}],
         grounding_mode="company_general",
     )
-    assert "<prose_style>" in system_prompt
+    assert "<length_style>" in system_prompt
+    assert "文末の単調な反復" in system_prompt
 
 
 def test_prose_style_absent_for_short_answer() -> None:
@@ -1010,7 +1012,7 @@ def test_constraints_ending_variety() -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
         grounding_mode="company_general",
     )
-    assert "連続しないよう" in system_prompt
+    assert "文末の単調な反復" in system_prompt
 
 
 def test_style_rules_include_key_guidance() -> None:
@@ -1039,7 +1041,8 @@ def test_constraints_require_conclusion_first(builder_fn) -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "研究で仮説検証を重ねた。"}],
         grounding_mode="company_general",
     )
-    assert "結論ファースト" in system_prompt or "結論" in system_prompt
+    assert "<quality_blueprint" in system_prompt
+    assert "評価される核" in system_prompt
     assert "20〜45字" not in system_prompt
 
 
@@ -1134,8 +1137,8 @@ def test_template_specific_quantify_rules_are_only_in_self_pr_and_work_values(
         allowed_user_facts=[{"source": "current_answer", "text": "周囲を巻き込みながら改善を進めた。"}],
         grounding_mode="none",
     )
-    assert "行動の対象・範囲・頻度・比較を具体化" in system_prompt
-    assert "元回答にない数字は作らない" in system_prompt
+    assert "<quality_blueprint" in system_prompt
+    assert "積極的に改善してよいもの" in system_prompt
 
 
 def test_basic_prompt_does_not_include_quantify_rule() -> None:
@@ -1169,8 +1172,8 @@ def test_gakuchika_prompt_includes_structure_rule_and_playbook() -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "学園祭運営の改善に取り組んだ。"}],
         grounding_mode="none",
     )
-    assert "①②" in system_prompt or "①では" in system_prompt
-    assert "【requiredテンプレの型】" in system_prompt
+    assert "取り組みの核" in system_prompt
+    assert "<quality_blueprint" in system_prompt
 
 
 def test_retry_policy_has_quantify_and_structure_entries() -> None:
@@ -1199,9 +1202,7 @@ def test_self_count_instruction_present() -> None:
         allowed_user_facts=[{"source": "current_answer", "text": "事業に関心がある。"}],
         grounding_mode="company_general",
     )
-    assert "文字数" in system_prompt and (
-        "セルフチェック" in system_prompt or "数え" in system_prompt
-    )
+    assert "strict受理帯" in system_prompt and "生成目標帯" in system_prompt
 
 
 def test_self_count_absent_without_limits() -> None:
@@ -1240,20 +1241,155 @@ def test_gemini_sentence_allocation() -> None:
         grounding_mode="company_general",
         llm_model="gemini-2.0-flash",
     )
-    assert "文量配分" in system_prompt
+    assert "生成目標帯" in system_prompt
 
 
 def test_fact_preservation_rules_include_structural_exception() -> None:
-    rules = _format_fact_preservation_rules()
-    assert "構造改善" in rules
-    assert "論理的に導ける" in rules
-    assert "数値・固有名詞・未経験の出来事" in rules
+    rules = _format_fact_boundary_rules()
+    assert "積極的に改善してよいもの" in rules
+    assert "論理接続" in rules
+    assert "数値、役職、受賞、成果、固有名詞、未経験の出来事" in rules
+
+
+def test_quality_blueprint_precedes_fact_boundary() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="self_pr",
+        company_name=None,
+        industry=None,
+        question="自己PRを教えてください。",
+        answer="研究で課題を整理し改善した。",
+        char_min=200,
+        char_max=300,
+        company_evidence_cards=[],
+        has_rag=False,
+    )
+
+    assert system_prompt.index("<quality_blueprint") < system_prompt.index("<fact_boundary>")
+
+
+def test_fact_boundary_is_not_absolute_constraint() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name=None,
+        industry=None,
+        question="設問に答えてください。",
+        answer="研究で課題を整理した。",
+        char_min=200,
+        char_max=300,
+        company_evidence_cards=[],
+        has_rag=False,
+    )
+    absolute = system_prompt.split('<constraints priority="absolute">', 1)[1].split("</constraints>", 1)[0]
+
+    assert "事実保全" not in absolute
+    assert "元回答の具体的事実は保ち" not in absolute
+    assert "<fact_boundary>" in system_prompt
+
+
+def test_prompt_uses_single_quality_blueprint_without_reference_long_block() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="ゼミで改善した。",
+        char_min=300,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+        reference_quality_block="【参考ESから抽出した骨子】\n- 主な論理アプローチ: 課題起点型",
+    )
+
+    assert system_prompt.count("<quality_blueprint") == 1
+    assert "【参考ESから抽出した骨子】" not in system_prompt
+    assert "<evaluation_rubric>" not in system_prompt
+
+
+def test_quality_blueprint_compresses_logic_patterns() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="ゼミで改善した。",
+        char_min=300,
+        char_max=400,
+        company_evidence_cards=[],
+        has_rag=False,
+    )
+    blueprint = system_prompt.split("<quality_blueprint", 1)[1].split("</quality_blueprint>", 1)[0]
+
+    assert "経験の核と自分の役割を一文で言い切る" in blueprint
+    assert "概要→課題（定量）→原因分析" in blueprint
+    assert "主な論理アプローチ" not in system_prompt
+
+
+def test_template_special_cases_are_tagged_between_quality_and_fact_boundary() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="gakuchika",
+        company_name=None,
+        industry=None,
+        question="学生時代に力を入れたことを教えてください。",
+        answer="学園祭運営を改善した。",
+        char_min=180,
+        char_max=260,
+        company_evidence_cards=[],
+        has_rag=False,
+    )
+
+    assert system_prompt.index("</quality_blueprint>") < system_prompt.index("<template_special_cases>")
+    assert system_prompt.index("</template_special_cases>") < system_prompt.index("<fact_boundary>")
+    special_cases = system_prompt.split("<template_special_cases>", 1)[1].split(
+        "</template_special_cases>",
+        1,
+    )[0]
+    assert "ハードファクト境界と個人情報の取り扱い" in special_cases
+    assert "推測で補わない" in special_cases
+    assert "実在の個人名を使用しない" in special_cases
+    assert "学校名・企業名" in special_cases
+
+
+def test_fallback_prompt_keeps_quality_blueprint() -> None:
+    system_prompt, _ = build_template_fallback_rewrite_prompt(
+        template_type="basic",
+        company_name=None,
+        industry=None,
+        question="設問に答えてください。",
+        answer="研究で課題を整理した。",
+        char_min=200,
+        char_max=300,
+        company_evidence_cards=[],
+        has_rag=False,
+    )
+
+    assert "<quality_blueprint" in system_prompt
+    assert "構成だけを整えた安全な改善案" not in system_prompt
+
+
+def test_fact_boundary_allows_quality_improvement() -> None:
+    system_prompt, _ = build_template_rewrite_prompt(
+        template_type="basic",
+        company_name=None,
+        industry=None,
+        question="設問に答えてください。",
+        answer="研究で課題を整理した。",
+        char_min=200,
+        char_max=300,
+        company_evidence_cards=[],
+        has_rag=False,
+    )
+
+    assert "積極的に改善してよいもの" in system_prompt
+    assert "文の順序" in system_prompt
+    assert "論理接続" in system_prompt
+    assert "強み・学びの抽象化" in system_prompt
+    assert "貢献像" in system_prompt
 
 
 @pytest.mark.parametrize(
     "template_type,expected_phrase",
     [
-        ("gakuchika", "培った"),
+        ("gakuchika", "取り組みの核"),
         ("post_join_goals", "キャリア像"),
         ("role_course_reason", "貢献像"),
         ("company_motivation", "貢献像"),
@@ -1281,7 +1417,7 @@ def test_rewrite_prompt_includes_closing_guidance(
 @pytest.mark.parametrize(
     "template_type,expected_phrase",
     [
-        ("gakuchika", "培った"),
+        ("gakuchika", "取り組みの核"),
         ("post_join_goals", "キャリア像"),
     ],
 )

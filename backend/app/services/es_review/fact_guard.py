@@ -83,15 +83,73 @@ _NUMERIC_PATTERN = re.compile(
 )
 _ROLE_PATTERN = re.compile("|".join(re.escape(role) for role in _ROLE_TITLES))
 _EXPERIENCE_PATTERNS = [
+    re.compile(r"研究経験"),
+    re.compile(r"(?:大会|コンテスト|プロジェクト|留学|ボランティア|インターン|アルバイト)経験"),
+    re.compile(r"(?:インターン|アルバイト)で"),
     re.compile(
-        r"[\u4e00-\u9fffぁ-んァ-ヶー]{2,}"
+        r"[A-Za-z0-9Ａ-Ｚａ-ｚ０-９\u4e00-\u9fffぁ-んァ-ヶー]{2,}"
         r"(?:大会|コンテスト|プロジェクト|留学|ボランティア|インターン|アルバイト|研究)"
     ),
     re.compile(r"(?:海外|国内|全国|地方)(?:大会|遠征|研修|留学)"),
 ]
+_EXPERIENCE_CATEGORY_TERMS = (
+    "大会",
+    "コンテスト",
+    "プロジェクト",
+    "留学",
+    "ボランティア",
+    "インターン",
+    "アルバイト",
+    "研究",
+)
+_SAFE_RESEARCH_GENERALIZATION_TERMS = frozenset({"研究", "研究経験"})
+_AWARD_PATTERN = re.compile(
+    r"[A-Za-z0-9Ａ-Ｚａ-ｚ０-９\u4e00-\u9fffぁ-んァ-ヶー]{2,}"
+    r"(?:賞|受賞|優勝|入賞|表彰)"
+    r"|(?:受賞|優勝|入賞|表彰)"
+)
+_PROPER_NOUN_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])[A-Z][A-Za-z0-9+#.\-]{1,}(?![A-Za-z0-9])"
+    r"|[Ａ-Ｚ][Ａ-Ｚａ-ｚ０-９+#．ー-]{1,}"
+    r"|[\u4e00-\u9fffぁ-んァ-ヶー]{2,}(?:大学|高校|株式会社|銀行|商事|商社|研究所)"
+)
+_COMMON_ALLOWED_LATIN_TOKENS = frozenset(
+    {
+        "ES",
+        "PDCA",
+        "DX",
+        "IT",
+        "AI",
+        "SNS",
+        "Web",
+        "WEB",
+    }
+)
+_AWARD_FALSE_POSITIVE_TERMS = ("賞賛", "称賛")
+_HARD_FACT_WARNING_TERMS = (
+    "数値",
+    "役職",
+    "受賞",
+    "成果",
+    "固有名詞",
+    "ツール",
+    "未経験",
+    "出来事",
+    "企業カード外",
+    "施策",
+    "制度",
+    "事業内容",
+)
 
 HARD_BLOCK_HALLUCINATION_CODES = frozenset(
-    {"number_mutation", "role_title_mutation", "metric_fabrication"}
+    {
+        "number_mutation",
+        "role_title_mutation",
+        "metric_fabrication",
+        "experience_fabrication",
+        "award_fabrication",
+        "proper_noun_fabrication",
+    }
 )
 
 _HALLUCINATION_PENALTIES: dict[str, float] = {
@@ -99,6 +157,8 @@ _HALLUCINATION_PENALTIES: dict[str, float] = {
     "role_title_mutation": 3.5,
     "metric_fabrication": 2.5,
     "experience_fabrication": 2.0,
+    "award_fabrication": 3.0,
+    "proper_noun_fabrication": 2.5,
 }
 _HALLUCINATION_TIER2_THRESHOLD = 3.0
 
@@ -294,6 +354,10 @@ def _extract_experience_terms(text: str) -> list[str]:
             term = match.group(0)
             if len(term) < 4:
                 continue
+            if term.endswith("研究") and term not in _SAFE_RESEARCH_GENERALIZATION_TERMS:
+                prefix = term.removesuffix("研究")
+                if len(prefix) > 12 or re.search(r"[のにをがではへと]|惹かれ|生かし|活かし|培", prefix):
+                    continue
             sentence = _sentence_context(text, match.start(), match.end())
             if re.search(r"(ではない|でない|じゃない|しない|なかった|なく)", sentence):
                 continue
@@ -304,19 +368,59 @@ def _extract_experience_terms(text: str) -> list[str]:
     return terms
 
 
+def _extract_award_terms(text: str) -> list[str]:
+    if not text:
+        return []
+    terms: list[str] = []
+    for match in _AWARD_PATTERN.finditer(text):
+        term = match.group(0)
+        surrounding = text[match.start() : min(len(text), match.end() + 2)]
+        if any(false_positive in surrounding for false_positive in _AWARD_FALSE_POSITIVE_TERMS):
+            continue
+        if term.endswith("賞") and len(term) < 3 and term != "受賞":
+            continue
+        if term not in terms:
+            terms.append(term)
+    return terms
+
+
+def _extract_latin_proper_nouns(text: str) -> list[str]:
+    if not text:
+        return []
+    terms: list[str] = []
+    for match in _PROPER_NOUN_PATTERN.finditer(text):
+        term = _normalize_fullwidth_digits(match.group(0))
+        if term in _COMMON_ALLOWED_LATIN_TOKENS:
+            continue
+        if len(term) < 2:
+            continue
+        if term not in terms:
+            terms.append(term)
+    return terms
+
+
+def _experience_category(term: str) -> str | None:
+    for category in _EXPERIENCE_CATEGORY_TERMS:
+        if category in term:
+            return category
+    return None
+
+
 def _detect_fact_hallucination_warnings(
     text: str,
     user_answer: str,
     *,
     template_type: str,
     char_max: int | None,
+    allowed_fact_text: str = "",
 ) -> list[dict[str, str]]:
     _ = (template_type, char_max)
     warnings: list[dict[str, str]] = []
-    if not text or not user_answer:
+    if not text or not (user_answer or allowed_fact_text):
         return warnings
+    source_text = "\n".join(item for item in [user_answer, allowed_fact_text] if item)
 
-    user_numeric = _extract_numeric_expressions(user_answer)
+    user_numeric = _extract_numeric_expressions(source_text)
     text_numeric = _extract_numeric_expressions(text)
 
     for text_expr in text_numeric:
@@ -348,13 +452,21 @@ def _detect_fact_hallucination_warnings(
                 }
             )
 
-    user_mentions = _extract_role_mentions(user_answer)
+    user_mentions = _extract_role_mentions(source_text)
     text_mentions = _extract_role_mentions(text)
     user_roles = {item["role"] for item in user_mentions}
     text_roles = {item["role"] for item in text_mentions}
     if not text_roles.issubset(user_roles):
         for text_mention in text_mentions:
             if text_mention["role"] in user_roles:
+                continue
+            if not user_mentions:
+                warnings.append(
+                    {
+                        "code": "role_title_mutation",
+                        "detail": f"元回答にない役職「{text_mention['role']}」が追加されています",
+                    }
+                )
                 continue
             for user_mention in user_mentions:
                 if user_mention["role"] in text_roles:
@@ -374,14 +486,43 @@ def _detect_fact_hallucination_warnings(
                 )
                 break
 
-    user_experiences = set(_extract_experience_terms(user_answer))
+    user_experiences = set(_extract_experience_terms(source_text))
     for term in _extract_experience_terms(text):
         if term in user_experiences:
+            continue
+        category = _experience_category(term)
+        if (
+            category == "研究"
+            and category in source_text
+            and term in _SAFE_RESEARCH_GENERALIZATION_TERMS
+        ):
             continue
         warnings.append(
             {
                 "code": "experience_fabrication",
                 "detail": f"元回答にない「{term}」が追加されています",
+            }
+        )
+
+    user_awards = set(_extract_award_terms(source_text))
+    for term in _extract_award_terms(text):
+        if term in user_awards:
+            continue
+        warnings.append(
+            {
+                "code": "award_fabrication",
+                "detail": f"元回答にない受賞・表彰「{term}」が追加されています",
+            }
+        )
+
+    source_latin = set(_extract_latin_proper_nouns(source_text))
+    for term in _extract_latin_proper_nouns(text):
+        if term in source_latin:
+            continue
+        warnings.append(
+            {
+                "code": "proper_noun_fabrication",
+                "detail": f"元回答にない固有名詞・ツール名「{term}」が追加されています",
             }
         )
 

@@ -122,6 +122,39 @@ def test_get_quality_stats_is_removed() -> None:
     assert not hasattr(g, "get_quality_stats")
 
 
+_ENUMERATION_TYPES = (
+    "gakuchika",
+    "company_motivation",
+    "intern_reason",
+    "role_course_reason",
+    "intern_goals",
+    "post_join_goals",
+)
+
+
+@pytest.mark.parametrize("question_type", _ENUMERATION_TYPES)
+def test_enumeration_phrasing_is_band_keyed_and_type_safe(question_type: str) -> None:
+    payload = g.QUESTION_TYPE_GUIDANCE[question_type]["logic_patterns"]
+    phrasing = payload.get("enumeration_phrasing")
+    assert isinstance(phrasing, dict) and phrasing, question_type
+    for band_key, items in phrasing.items():
+        assert band_key in _BAND_KEYS, f"{question_type}/{band_key}"
+        assert isinstance(items, list) and items
+        assert all(isinstance(item, str) and item.strip() for item in items)
+        # 列挙要素は句点で独立完結させ、読点で連結しない。
+        for item in items:
+            assert "、②" not in item
+            assert "、第二" not in item
+    # 全エントリは validate_guidance_entry を通る。
+    assert g.validate_guidance_entry(g.QUESTION_TYPE_GUIDANCE[question_type]) is True
+
+
+@pytest.mark.parametrize("question_type", ("self_pr", "work_values"))
+def test_enumeration_phrasing_absent_for_non_enumeration_types(question_type: str) -> None:
+    payload = g.QUESTION_TYPE_GUIDANCE[question_type]["logic_patterns"]
+    assert "enumeration_phrasing" not in payload
+
+
 @pytest.mark.parametrize("question_type", _TYPES)
 def test_logic_patterns_block_within_budget_single(question_type: str) -> None:
     """Regression guard: every curated type's logic block stays within budget

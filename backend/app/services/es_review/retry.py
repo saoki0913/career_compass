@@ -92,6 +92,7 @@ def build_rewrite_retry_plan(
     latest_failed_length: int,
     llm_model: str | None,
     template_type: str,
+    attempt_index: int = 0,
 ) -> RetryPlan:
     """Build one typed retry plan shared by prompts, validation trace, and meta."""
     selected_codes = _select_retry_codes(
@@ -113,6 +114,7 @@ def build_rewrite_retry_plan(
         original_len=original_len,
         llm_model=llm_model,
         latest_failed_len=latest_failed_length,
+        attempt_index=attempt_index,
     )
     guidance_items = _retry_hints_from_codes(
         retry_code=retry_code,
@@ -642,7 +644,10 @@ def _retry_hint_from_code(
     mapping = {
         ValidationFailureCode.EMPTY: "改善案本文を必ず1件だけ返す",
         ValidationFailureCode.UNDER_MIN: f"内容を薄めず {target_hint} を狙う",
-        ValidationFailureCode.OVER_MAX: f"冗長語を削り {target_hint} に収める",
+        ValidationFailureCode.OVER_MAX: (
+            f"冗長な背景説明・一般論・重複説明・修飾語の順に削り {target_hint} に収める。"
+            "新しい論点や事実は足さない"
+        ),
         ValidationFailureCode.STYLE: "です・ます調を使わず、だ・である調に統一する",
         ValidationFailureCode.ANSWER_FOCUS: (
             "1文目で設問への答えを短く言い切る（インターンなら参加・学びの核、"

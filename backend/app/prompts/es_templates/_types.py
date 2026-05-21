@@ -59,7 +59,13 @@ class InstructionId(StrEnum):
     ANSWER_DIRECTLY = "task.answer_directly"
     CONCLUSION_FIRST = "task.conclusion_first"
     NO_VERBOSE_OPENING = "task.no_verbose_opening"
-    FACT_NO_FABRICATION = "fact.no_fabrication"
+    QUALITY_BLUEPRINT = "quality.blueprint"
+    FACT_BOUNDARY = "fact.boundary"
+    LENGTH_STYLE_COMPACT = "length_style.compact"
+    TEMPLATE_SPECIAL_CASES = "template.special_cases"
+    USER_FACTS = "context.user_facts"
+    COMPANY_CONTEXT = "company.context"
+    RETRY_DELTA = "retry.delta"
     REFERENCE_COPY_SAFETY = "reference.copy_safety"
     COMPANY_GROUNDING_POLICY = "company.grounding_policy"
     RAW_BLOCK = "raw.block"
@@ -77,6 +83,10 @@ class PromptSection(StrEnum):
     ROLE_TASK = "role_task"
     OUTPUT_CONTRACT = "output_contract"
     ABSOLUTE = "absolute"
+    QUALITY = "quality"
+    TEMPLATE_SPECIAL_CASES = "template_special_cases"
+    FACT_BOUNDARY = "fact_boundary"
+    LENGTH_STYLE = "length_style"
     CORE = "core"
     TARGET = "target"
     LENGTH = "length"
@@ -170,6 +180,10 @@ class PromptRenderer:
         PromptSection.ROLE_TASK,
         PromptSection.OUTPUT_CONTRACT,
         PromptSection.ABSOLUTE,
+        PromptSection.QUALITY,
+        PromptSection.TEMPLATE_SPECIAL_CASES,
+        PromptSection.FACT_BOUNDARY,
+        PromptSection.LENGTH_STYLE,
         PromptSection.CORE,
         PromptSection.TARGET,
         PromptSection.LENGTH,
@@ -205,6 +219,8 @@ class PromptRenderer:
         if not section_instructions:
             return ""
         body = "\n".join(self._render_instruction(instruction) for instruction in section_instructions)
+        if section == PromptSection.QUALITY and body.lstrip().startswith("<quality_blueprint"):
+            return body
         tag = self._tag_for_section(section)
         if section in {PromptSection.ROLE_TASK, PromptSection.OUTPUT_CONTRACT}:
             return f"<{tag}>\n{body}\n</{tag}>"
@@ -226,6 +242,14 @@ class PromptRenderer:
                 return "output_contract"
             case PromptSection.ABSOLUTE:
                 return "absolute"
+            case PromptSection.QUALITY:
+                return "quality"
+            case PromptSection.TEMPLATE_SPECIAL_CASES:
+                return "template_special_cases"
+            case PromptSection.FACT_BOUNDARY:
+                return "fact_boundary"
+            case PromptSection.LENGTH_STYLE:
+                return "length_style"
             case PromptSection.CORE:
                 return "core"
             case PromptSection.TARGET:
