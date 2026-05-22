@@ -360,7 +360,7 @@ function manualSupabaseInstructions(pending) {
   return [
     "Supabase CLI migration に未適用があります。release runner での自動適用は行いません。",
     "行うべき作業:",
-    "1. docs/release/ops/DB_MIGRATION.md Phase 3 の Supabase CLI マイグレーション手順を確認する。",
+    "1. docs/operations/production/DB_MIGRATION.md Phase 3 の Supabase CLI マイグレーション手順を確認する。",
     "2. 対象 SQL をレビューし、manual-risky / manual-contract の影響を確認する。",
     "3. Supabase CLI の dry-run または migration list で remote 履歴を確認する。",
     "4. 承認後に手動で Supabase migration を適用し、再度 deploy を実行する。",

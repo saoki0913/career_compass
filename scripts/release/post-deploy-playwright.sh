@@ -63,7 +63,17 @@ load_ci_e2e_auth_secret_if_available() {
     return 0
   fi
 
-  local github_actions_file="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass/github-actions.env"
+  local github_actions_file
+  if [[ -n "${CAREER_COMPASS_SECRETS_DIR:-}" ]]; then
+    github_actions_file="${CAREER_COMPASS_SECRETS_DIR}/ci/github-actions.env"
+    [[ -f "$github_actions_file" ]] || github_actions_file="${CAREER_COMPASS_SECRETS_DIR}/github-actions.env"
+  elif [[ -f "${repo_root}/.secrets/ci/github-actions.env" ]]; then
+    github_actions_file="${repo_root}/.secrets/ci/github-actions.env"
+  elif [[ -f "${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass/ci/github-actions.env" ]]; then
+    github_actions_file="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass/ci/github-actions.env"
+  else
+    github_actions_file="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass/github-actions.env"
+  fi
   [[ -f "$github_actions_file" ]] || return 0
 
   local secret

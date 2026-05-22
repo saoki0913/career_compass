@@ -15,11 +15,17 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "$0")/.." && pwd)"
 source "${script_dir}/common.sh"
 source "${script_dir}/career-compass-secrets-root.sh"
+source "${script_dir}/lib/release-topology.sh"
 
 # Argument parsing
 plan_target=""
 cli_secret_dir=""
-vercel_env_scope="production"
+vercel_env_scope="$TOPOLOGY_VERCEL_ENV_SCOPE"
+SHARED_RUNTIME_KEYS=(
+  INTERNAL_API_JWT_SECRET
+  CAREER_PRINCIPAL_HMAC_SECRET
+  TENANT_KEY_SECRET
+)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,7 +42,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$plan_target" ]] || release_die "--target is required"
-[[ "$vercel_env_scope" == "production" ]] || release_die "Invalid --vercel-env: ${vercel_env_scope}. Expected production."
+[[ "$vercel_env_scope" == "$TOPOLOGY_VERCEL_ENV_SCOPE" ]] || release_die "Invalid --vercel-env: ${vercel_env_scope}. Expected ${TOPOLOGY_VERCEL_ENV_SCOPE}."
+topology_is_known_target "$plan_target" || release_die "Unknown target: ${plan_target}"
 
 # Secret dir resolution (mirrors sync-career-compass-secrets.sh)
 if [[ -n "$cli_secret_dir" ]]; then
@@ -134,12 +141,10 @@ resolve_bundle_file() {
       ;;
     supabase-staging)
       merge_env_files "$tmp" \
-        "${secret_dir}/staging/shared.env" \
         "${secret_dir}/staging/supabase.env"
       ;;
     supabase-production|supabase)
       merge_env_files "$tmp" \
-        "${secret_dir}/production/shared.env" \
         "${secret_dir}/production/supabase.env"
       ;;
     google-oauth)
@@ -155,31 +160,259 @@ iter_env_keys() {
   sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=.*$/\2/p' "$1"
 }
 
+require_file() {
+  [[ -f "$1" ]] || release_die "Missing required file: $1"
+}
+
+get_env_value() {
+  local file="$1"
+  local key="$2"
+  local value=""
+
+  value="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?(${key})[[:space:]]*=(.*)$/\\3/p" "$file" | tail -n 1)" || return 1
+  [[ -n "$value" ]] || return 1
+
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+
+  if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+    value="${value:1:${#value}-2}"
+  elif [[ "$value" == \'*\' && "$value" == *\' ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+
+  print -r -- "$value"
+}
+
 is_meta_key() {
   [[ "$1" == VERCEL_* || "$1" == RAILWAY_* || "$1" == GITHUB_* || "$1" == TARGET_* \
     || "$1" == SUPABASE_STAGING_PROJECT_REF || "$1" == SUPABASE_PRODUCTION_PROJECT_REF || "$1" == SUPABASE_ACCESS_TOKEN \
     || "$1" == SUPABASE_ORG_ID ]]
 }
 
+is_placeholder_value() {
+  local value=""
+  value="$(print -r -- "${1:-}" | tr '[:upper:]' '[:lower:]')"
+  [[ -z "$value" ]] && return 0
+  [[ "$value" == "replace_me" || "$value" == "replace-me" ]] && return 0
+  [[ "$value" == "changeme" || "$value" == "change-me" ]] && return 0
+  [[ "$value" == "dummy" || "$value" == "dev" || "$value" == "test" ]] && return 0
+  [[ "$value" == "todo" || "$value" == "placeholder" ]] && return 0
+  [[ "$value" == *xxxx* || "$value" == xxx* ]] && return 0
+  return 1
+}
+
+validate_env_file() {
+  local file="$1"
+  local key="" value=""
+
+  require_file "$file"
+  while IFS= read -r key || [[ -n "$key" ]]; do
+    [[ -n "$key" ]] || continue
+    is_meta_key "$key" && continue
+    value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
+    is_placeholder_value "$value" && release_die "${key} missing or placeholder value in $(basename "$file")"
+  done < <(iter_env_keys "$file")
+}
+
+validate_env_keys() {
+  local file="$1"
+  shift
+  local key="" value=""
+
+  require_file "$file"
+  for key in "$@"; do
+    value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
+    is_placeholder_value "$value" && release_die "${key} missing or placeholder value in $(basename "$file")"
+  done
+}
+
 bundle_keys_sorted() {
   local file="$1"
+  shift || true
   local key
   while IFS= read -r key || [[ -n "$key" ]]; do
     [[ -n "$key" ]] || continue
     is_meta_key "$key" && continue
     print -r -- "$key"
   done < <(iter_env_keys "$file" | sort -u)
+  for key in "$@"; do
+    [[ -n "$key" ]] || continue
+    print -r -- "$key"
+  done
+}
+
+assert_no_forbidden_keys_in_list() {
+  local label="$1"
+  local keys="$2"
+  shift 2
+  local forbidden=""
+
+  for forbidden in "$@"; do
+    if print -r -- "$keys" | grep -Fxq "$forbidden"; then
+      release_die "${label} must not contain ${forbidden}"
+    fi
+  done
+}
+
+env_key_exists() {
+  local file="$1"
+  local key="$2"
+  [[ -f "$file" ]] || return 1
+  iter_env_keys "$file" | grep -Fxq "$key"
+}
+
+validate_shared_env_consistency() {
+  [[ "$SECRET_LAYOUT" == "subdir" ]] || return 0
+  local env_name=""
+  for env_name in staging production; do
+    local shared_file="${secret_dir}/${env_name}/shared.env"
+    local nextjs_file="${secret_dir}/${env_name}/nextjs.env"
+    local fastapi_file="${secret_dir}/${env_name}/fastapi.env"
+    if [[ ! -f "$shared_file" ]]; then
+      if [[ -f "$nextjs_file" || -f "$fastapi_file" ]]; then
+        release_die "${env_name}: shared.env が必要です。共有変数は shared.env だけに定義してください"
+      fi
+      continue
+    fi
+    local required_shared_key=""
+    for required_shared_key in "${SHARED_RUNTIME_KEYS[@]}"; do
+      if ! env_key_exists "$shared_file" "$required_shared_key"; then
+        release_die "${env_name}: ${required_shared_key} は shared.env に定義してください"
+      fi
+      if env_key_exists "$nextjs_file" "$required_shared_key" || env_key_exists "$fastapi_file" "$required_shared_key"; then
+        release_die "${env_name}: ${required_shared_key} は shared.env だけに定義してください。nextjs.env / fastapi.env への重複定義は禁止です"
+      fi
+    done
+    local shared_key=""
+    while IFS= read -r shared_key || [[ -n "$shared_key" ]]; do
+      [[ -n "$shared_key" ]] || continue
+      if env_key_exists "$nextjs_file" "$shared_key" || env_key_exists "$fastapi_file" "$shared_key"; then
+        release_die "${env_name}: ${shared_key} は shared.env だけに定義してください。nextjs.env / fastapi.env への重複定義は禁止です"
+      fi
+    done < <(iter_env_keys "$shared_file")
+  done
 }
 
 require_env_value() {
-  local file="$1" key="$2" value
-  value="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?(${key})[[:space:]]*=(.*)$/\3/p" "$file" | tail -n 1)" || return 1
-  value="${value#"${value%%[![:space:]]*}"}"
-  value="${value%"${value##*[![:space:]]}"}"
-  if [[ "$value" == \"*\" && "$value" == *\" ]]; then value="${value:1:${#value}-2}"; fi
-  if [[ "$value" == \'*\' && "$value" == *\' ]]; then value="${value:1:${#value}-2}"; fi
+  local file="$1"
+  local key="$2"
+  local value=""
+  value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
   [[ -n "$value" ]] || release_die "${key} missing in $(basename "$file")"
   print -r -- "$value"
+}
+
+require_env_keys() {
+  local file="$1"
+  shift
+  local key=""
+  require_file "$file"
+  for key in "$@"; do
+    require_env_value "$file" "$key" >/dev/null
+  done
+}
+
+require_env_key_value() {
+  local file="$1"
+  local key="$2"
+  local expected="$3"
+  local actual=""
+
+  actual="$(require_env_value "$file" "$key")"
+  if [[ "$actual" != "$expected" ]]; then
+    release_die "${key} must be ${expected} in $(basename "$file")"
+  fi
+}
+
+require_env_key_prefix() {
+  local file="$1"
+  local key="$2"
+  local prefix="$3"
+  local actual=""
+
+  actual="$(get_env_value "$file" "$key" 2>/dev/null || true)"
+  is_placeholder_value "$actual" && release_die "${key} missing or placeholder value in $(basename "$file")"
+  if [[ "$actual" != ${prefix}* ]]; then
+    release_die "${key} must start with ${prefix} in $(basename "$file")"
+  fi
+}
+
+require_distinct_env_key_values() {
+  local left_file="$1"
+  local left_key="$2"
+  local right_file="$3"
+  local right_key="$4"
+  local label="$5"
+  local left_value="" right_value=""
+
+  [[ -f "$left_file" && -f "$right_file" ]] || return 0
+  left_value="$(get_env_value "$left_file" "$left_key" 2>/dev/null || true)"
+  right_value="$(get_env_value "$right_file" "$right_key" 2>/dev/null || true)"
+  [[ -n "$left_value" && -n "$right_value" ]] || return 0
+  if [[ "$left_value" == "$right_value" ]]; then
+    release_die "${label} must use separate staging and production projects"
+  fi
+}
+
+validate_provider_project_separation() {
+  local vercel_staging vercel_production railway_staging railway_production supabase_staging supabase_production
+
+  vercel_staging="$(resolve_bundle_file vercel-staging)"
+  vercel_production="$(resolve_bundle_file vercel-production)"
+  require_distinct_env_key_values "$vercel_staging" VERCEL_PROJECT_ID "$vercel_production" VERCEL_PROJECT_ID "Vercel"
+
+  railway_staging="$(resolve_bundle_file railway-staging)"
+  railway_production="$(resolve_bundle_file railway-production)"
+  require_distinct_env_key_values "$railway_staging" RAILWAY_PROJECT_ID "$railway_production" RAILWAY_PROJECT_ID "Railway"
+
+  supabase_staging="$(resolve_bundle_file supabase-staging)"
+  supabase_production="$(resolve_bundle_file supabase-production)"
+  require_distinct_env_key_values "$supabase_staging" SUPABASE_STAGING_PROJECT_REF "$supabase_production" SUPABASE_PRODUCTION_PROJECT_REF "Supabase"
+}
+
+validate_target_runtime_contract() {
+  local target_name="$1"
+  local file="$2"
+  local github_file=""
+
+  case "$target_name" in
+    vercel-staging)
+      github_file="$(resolve_bundle_file github)"
+      validate_env_file "$file"
+      validate_env_keys "$github_file" "CI_E2E_AUTH_SECRET" "CI_E2E_AUTH_ENABLED" "PLAYWRIGHT_BASE_URL"
+      require_env_key_value "$file" "APP_ENV" "staging"
+      require_env_key_value "$file" "NEXT_PUBLIC_APP_ENV" "staging"
+      require_env_keys "$file" "UPSTASH_REDIS_REST_URL" "UPSTASH_REDIS_REST_TOKEN"
+      require_env_key_value "$file" "UPSTASH_REDIS_NAMESPACE" "staging"
+      require_env_key_prefix "$file" "STRIPE_SECRET_KEY" "sk_test_"
+      ;;
+    vercel-production)
+      validate_env_file "$file"
+      require_env_key_value "$file" "APP_ENV" "production"
+      require_env_key_value "$file" "NEXT_PUBLIC_APP_ENV" "production"
+      require_env_keys "$file" "UPSTASH_REDIS_REST_URL" "UPSTASH_REDIS_REST_TOKEN"
+      require_env_key_value "$file" "UPSTASH_REDIS_NAMESPACE" "production"
+      require_env_key_prefix "$file" "STRIPE_SECRET_KEY" "sk_live_"
+      ;;
+    railway-staging)
+      validate_env_file "$file"
+      require_env_key_value "$file" "APP_ENV" "staging"
+      require_env_key_value "$file" "RAILWAY_ENVIRONMENT_NAME" "$(topology_railway_environment_name_for_target railway-staging)"
+      require_env_keys "$file" "REDIS_URL"
+      require_env_key_value "$file" "REDIS_NAMESPACE" "staging"
+      ;;
+    railway-production)
+      validate_env_file "$file"
+      require_env_key_value "$file" "APP_ENV" "production"
+      require_env_key_value "$file" "RAILWAY_ENVIRONMENT_NAME" "$(topology_railway_environment_name_for_target railway-production)"
+      require_env_keys "$file" "REDIS_URL"
+      require_env_key_value "$file" "REDIS_NAMESPACE" "production"
+      ;;
+    github|supabase-staging|supabase-production|supabase|google-oauth)
+      validate_env_file "$file"
+      ;;
+  esac
 }
 
 # Provider key fetchers (key names only — no secret values)
@@ -285,7 +518,7 @@ compute_plan() {
 
 # Main dispatch
 if [[ "$plan_target" == "all" ]]; then
-  targets=(vercel-staging vercel-production railway-staging railway-production github supabase-staging supabase-production)
+  targets=("${TOPOLOGY_TARGETS_ALL[@]}")
   first=1
   printf '['
   for child_target in "${targets[@]}"; do
@@ -296,18 +529,29 @@ if [[ "$plan_target" == "all" ]]; then
   exit 0
 fi
 
+validate_shared_env_consistency
+
 bundle_file="$(resolve_bundle_file "$plan_target")"
 [[ -f "$bundle_file" ]] || release_die "Bundle file not found for target: ${plan_target}"
-bundle_keys="$(bundle_keys_sorted "$bundle_file")"
+validate_target_runtime_contract "$plan_target" "$bundle_file"
 
 case "$plan_target" in
-  vercel-staging|vercel-production)
+  vercel-staging)
+    bundle_keys="$(bundle_keys_sorted "$bundle_file" "CI_E2E_AUTH_SECRET" "CI_E2E_AUTH_ENABLED" "PLAYWRIGHT_BASE_URL")"
+    project_id="$(require_env_value "$bundle_file" "VERCEL_PROJECT_ID")"
+    team_id="$(require_env_value "$bundle_file" "VERCEL_TEAM_ID")"
+    provider_keys="$(vercel_provider_keys_plan "$vercel_env_scope" "$project_id" "$team_id")"
+    compute_plan "$bundle_keys" "$provider_keys" "$plan_target"
+    ;;
+  vercel-production)
+    bundle_keys="$(bundle_keys_sorted "$bundle_file")"
     project_id="$(require_env_value "$bundle_file" "VERCEL_PROJECT_ID")"
     team_id="$(require_env_value "$bundle_file" "VERCEL_TEAM_ID")"
     provider_keys="$(vercel_provider_keys_plan "$vercel_env_scope" "$project_id" "$team_id")"
     compute_plan "$bundle_keys" "$provider_keys" "$plan_target"
     ;;
   railway-staging|railway-production)
+    bundle_keys="$(bundle_keys_sorted "$bundle_file")"
     project_id="$(require_env_value "$bundle_file" "RAILWAY_PROJECT_ID")"
     service_name="$(require_env_value "$bundle_file" "RAILWAY_SERVICE_NAME")"
     env_name="$(require_env_value "$bundle_file" "RAILWAY_ENVIRONMENT_NAME")"
@@ -315,20 +559,28 @@ case "$plan_target" in
     compute_plan "$bundle_keys" "$provider_keys" "$plan_target"
     ;;
   github)
+    bundle_keys="$(bundle_keys_sorted "$bundle_file")"
     provider_keys="$(github_provider_keys_plan)"
     compute_plan "$bundle_keys" "$provider_keys" "$plan_target"
     ;;
   supabase-staging)
+    bundle_keys="$(bundle_keys_sorted "$bundle_file")"
+    assert_no_forbidden_keys_in_list "Supabase staging bundle" "$bundle_keys" "${SHARED_RUNTIME_KEYS[@]}"
     project_ref="$(require_env_value "$bundle_file" "SUPABASE_STAGING_PROJECT_REF")"
     provider_keys="$(supabase_provider_keys_plan "$project_ref")"
+    assert_no_forbidden_keys_in_list "Supabase provider secrets" "$provider_keys" "${SHARED_RUNTIME_KEYS[@]}"
     compute_plan "$bundle_keys" "$provider_keys" "$plan_target"
     ;;
   supabase-production|supabase)
+    bundle_keys="$(bundle_keys_sorted "$bundle_file")"
+    assert_no_forbidden_keys_in_list "Supabase production bundle" "$bundle_keys" "${SHARED_RUNTIME_KEYS[@]}"
     project_ref="$(require_env_value "$bundle_file" "SUPABASE_PRODUCTION_PROJECT_REF")"
     provider_keys="$(supabase_provider_keys_plan "$project_ref")"
+    assert_no_forbidden_keys_in_list "Supabase provider secrets" "$provider_keys" "${SHARED_RUNTIME_KEYS[@]}"
     compute_plan "$bundle_keys" "$provider_keys" "$plan_target"
     ;;
   google-oauth)
+    bundle_keys="$(bundle_keys_sorted "$bundle_file")"
     # No provider-side key list API — all bundle keys are reported as added
     compute_plan "$bundle_keys" "" "$plan_target"
     ;;

@@ -58,19 +58,19 @@ check_production_secrets() {
 }
 
 verify_migrations_applied() {
-  release_log "Verifying shared DB migration state before production promotion"
+  release_log "Verifying production DB migration state before production promotion"
   local result
   if ! result="$(node "${repo_root}/scripts/release/run-migrations.mjs" --env production --dry-run --json 2>&1)"; then
     print -r -- "$result" | redact_output
-    release_die "Shared DB migration verification failed. Run make deploy-staging or follow docs/release/ops/DB_MIGRATION.md."
+    release_die "Production DB migration verification failed. Follow docs/operations/production/DB_MIGRATION.md."
   fi
 
   local pending
   pending="$(print -r -- "$result" | node -e "const fs=require('fs'); const j=JSON.parse(fs.readFileSync(0,'utf8')); process.stdout.write(String(j.pending || 0));")"
   if [[ "$pending" != "0" ]]; then
-    release_die "Shared DB has ${pending} pending Drizzle migration(s). Run make deploy-staging first."
+    release_die "Production DB has ${pending} pending Drizzle migration(s). Follow docs/operations/production/DB_MIGRATION.md."
   fi
-  release_log "Shared DB migration state is current"
+  release_log "Production DB migration state is current"
 }
 
 assert_production_readonly_prerequisites() {

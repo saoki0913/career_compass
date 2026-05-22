@@ -4,11 +4,21 @@ set -euo pipefail
 
 script_path="${BASH_SOURCE[0]:-$0}"
 script_dir="$(cd "$(dirname "$script_path")" && pwd)"
+repo_root="$(cd "${script_dir}/../.." && pwd)"
 
 # shellcheck source=../release/career-compass-secrets-root.sh
 source "${script_dir}/../release/career-compass-secrets-root.sh"
 
-github_actions_file="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass/github-actions.env"
+if [[ -n "${CAREER_COMPASS_SECRETS_DIR:-}" ]]; then
+  github_actions_file="${CAREER_COMPASS_SECRETS_DIR}/ci/github-actions.env"
+  [[ -f "$github_actions_file" ]] || github_actions_file="${CAREER_COMPASS_SECRETS_DIR}/github-actions.env"
+elif [[ -f "${repo_root}/.secrets/ci/github-actions.env" ]]; then
+  github_actions_file="${repo_root}/.secrets/ci/github-actions.env"
+elif [[ -f "${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass/ci/github-actions.env" ]]; then
+  github_actions_file="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass/ci/github-actions.env"
+else
+  github_actions_file="${CAREER_COMPASS_SECRETS_ROOT_EFFECTIVE}/career_compass/github-actions.env"
+fi
 prefer_bundle="${CI_SECRETS_PREFER_BUNDLE:-0}"
 
 if [[ ! -f "$github_actions_file" ]]; then

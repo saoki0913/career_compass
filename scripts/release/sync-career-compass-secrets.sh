@@ -15,10 +15,12 @@ repo_root="$(cd "${script_dir}/../.." && pwd)"
 source "${script_dir}/common.sh"
 # shellcheck source=career-compass-secrets-root.sh
 source "${script_dir}/career-compass-secrets-root.sh"
+# shellcheck source=lib/release-topology.sh
+source "${script_dir}/lib/release-topology.sh"
 
 mode="check"
 target="all"
-vercel_env_scope="production"
+vercel_env_scope="$TOPOLOGY_VERCEL_ENV_SCOPE"
 cli_secret_dir=""
 repo_slug="saoki0913/career_compass"
 check_provider_drift=1
@@ -77,18 +79,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$vercel_env_scope" in
-  production) ;;
-  *) release_die "Invalid --vercel-env: ${vercel_env_scope}. Expected production." ;;
+  "$TOPOLOGY_VERCEL_ENV_SCOPE") ;;
+  *) release_die "Invalid --vercel-env: ${vercel_env_scope}. Expected ${TOPOLOGY_VERCEL_ENV_SCOPE}." ;;
 esac
-
-# --check --json: delegate to secret-plan.sh which outputs structured JSON to stdout.
-# All existing --check behavior is preserved when --json is not set.
-if [[ "$mode" == "check" && "$output_json" == "1" ]]; then
-  plan_args=(--target "$target")
-  [[ -n "$cli_secret_dir" ]] && plan_args+=(--secret-dir "$cli_secret_dir")
-  plan_args+=(--vercel-env "$vercel_env_scope")
-  exec zsh "${script_dir}/lib/secret-plan.sh" "${plan_args[@]}"
+topology_is_known_target "$target" || release_die "Unknown target: ${target}"
+if [[ "$mode" == "apply" && "$target" == "supabase" ]]; then
+  release_die "Use --target supabase-production or --target supabase-staging for apply. Legacy --target supabase is check-only."
 fi
+
 if [[ -n "$cli_secret_dir" ]]; then
   secret_dir="$cli_secret_dir"
 elif [[ -n "${CAREER_COMPASS_SECRETS_DIR:-}" ]]; then
@@ -131,6 +129,11 @@ merge_env_files() {
 # For flat layout: returns the existing flat file path.
 # For subdir layout: merges component files into a temp file and returns it.
 TEMP_BUNDLE_FILES=()
+SHARED_RUNTIME_KEYS=(
+  INTERNAL_API_JWT_SECRET
+  CAREER_PRINCIPAL_HMAC_SECRET
+  TENANT_KEY_SECRET
+)
 
 resolve_bundle_file() {
   local tgt="$1"
@@ -181,12 +184,10 @@ resolve_bundle_file() {
       ;;
     supabase-staging)
       merge_env_files "$temp_file" \
-        "${secret_dir}/staging/shared.env" \
         "${secret_dir}/staging/supabase.env"
       ;;
     supabase-production|supabase)
       merge_env_files "$temp_file" \
-        "${secret_dir}/production/shared.env" \
         "${secret_dir}/production/supabase.env"
       ;;
     google-oauth)
@@ -198,25 +199,41 @@ resolve_bundle_file() {
   print -r -- "$temp_file"
 }
 
-# Validate that cross-service variables (shared.env) have identical values
-# in nextjs.env and fastapi.env for the same environment.
+# Validate that cross-service variables are defined only in shared.env.
+env_key_exists() {
+  local file="$1"
+  local key="$2"
+  [[ -f "$file" ]] || return 1
+  iter_env_keys "$file" | grep -Fxq "$key"
+}
+
 validate_shared_env_consistency() {
   [[ "$SECRET_LAYOUT" == "subdir" ]] || return 0
-  local env_name
+  local env_name=""
   for env_name in staging production; do
     local shared_file="${secret_dir}/${env_name}/shared.env"
     local nextjs_file="${secret_dir}/${env_name}/nextjs.env"
     local fastapi_file="${secret_dir}/${env_name}/fastapi.env"
-    [[ -f "$shared_file" ]] || continue
-    local shared_key
+    if [[ ! -f "$shared_file" ]]; then
+      if [[ -f "$nextjs_file" || -f "$fastapi_file" ]]; then
+        release_die "${env_name}: shared.env が必要です。共有変数は shared.env だけに定義してください"
+      fi
+      continue
+    fi
+    local required_shared_key=""
+    for required_shared_key in "${SHARED_RUNTIME_KEYS[@]}"; do
+      if ! env_key_exists "$shared_file" "$required_shared_key"; then
+        release_die "${env_name}: ${required_shared_key} は shared.env に定義してください"
+      fi
+      if env_key_exists "$nextjs_file" "$required_shared_key" || env_key_exists "$fastapi_file" "$required_shared_key"; then
+        release_die "${env_name}: ${required_shared_key} は shared.env だけに定義してください。nextjs.env / fastapi.env への重複定義は禁止です"
+      fi
+    done
+    local shared_key=""
     while IFS= read -r shared_key || [[ -n "$shared_key" ]]; do
       [[ -n "$shared_key" ]] || continue
-      local nextjs_val fastapi_val
-      nextjs_val="$(get_env_value "$nextjs_file" "$shared_key" 2>/dev/null || true)"
-      fastapi_val="$(get_env_value "$fastapi_file" "$shared_key" 2>/dev/null || true)"
-      [[ -z "$nextjs_val" || -z "$fastapi_val" ]] && continue
-      if [[ "$nextjs_val" != "$fastapi_val" ]]; then
-        release_die "${env_name}: ${shared_key} の値が nextjs.env と fastapi.env で不一致です。shared.env で統一してください"
+      if env_key_exists "$nextjs_file" "$shared_key" || env_key_exists "$fastapi_file" "$shared_key"; then
+        release_die "${env_name}: ${shared_key} は shared.env だけに定義してください。nextjs.env / fastapi.env への重複定義は禁止です"
       fi
     done < <(iter_env_keys "$shared_file")
   done
@@ -296,7 +313,7 @@ is_placeholder_value() {
   [[ "$value" == "changeme" || "$value" == "change-me" ]] && return 0
   [[ "$value" == "dummy" || "$value" == "dev" || "$value" == "test" ]] && return 0
   [[ "$value" == "todo" || "$value" == "placeholder" ]] && return 0
-  [[ "$value" == xxx* ]] && return 0
+  [[ "$value" == *xxxx* || "$value" == xxx* ]] && return 0
   return 1
 }
 
@@ -348,6 +365,27 @@ report_key_drift() {
   fi
 
   release_log "Checked ${label} provider key drift"
+}
+
+assert_no_forbidden_keys_in_list() {
+  local label="$1"
+  local keys="$2"
+  shift 2
+  local forbidden=""
+
+  for forbidden in "$@"; do
+    if print -r -- "$keys" | grep -Fxq "$forbidden"; then
+      release_die "${label} must not contain ${forbidden}"
+    fi
+  done
+}
+
+assert_no_forbidden_keys_in_file() {
+  local file="$1"
+  local label="$2"
+  shift 2
+  require_file "$file"
+  assert_no_forbidden_keys_in_list "$label" "$(iter_env_keys "$file" | sort -u)" "$@"
 }
 
 vercel_provider_keys() {
@@ -437,7 +475,11 @@ supabase_provider_keys() {
 check_supabase_key_drift() {
   local file="$1"
   local project_ref="$2"
-  report_key_drift "Supabase" "$(bundle_keys_for_file "$file")" "$(supabase_provider_keys "$project_ref")"
+  local provider_keys
+
+  provider_keys="$(supabase_provider_keys "$project_ref")"
+  assert_no_forbidden_keys_in_list "Supabase provider secrets" "$provider_keys" "${SHARED_RUNTIME_KEYS[@]}"
+  report_key_drift "Supabase" "$(bundle_keys_for_file "$file")" "$provider_keys"
 }
 
 validate_env_file() {
@@ -452,6 +494,174 @@ validate_env_file() {
     value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
     is_placeholder_value "$value" && release_die "${key} missing or placeholder value in $(basename "$file")"
   done < <(iter_env_keys "$file")
+}
+
+validate_env_keys() {
+  local file="$1"
+  shift
+  local key="" value=""
+
+  require_file "$file"
+  for key in "$@"; do
+    value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
+    is_placeholder_value "$value" && release_die "${key} missing or placeholder value in $(basename "$file")"
+  done
+}
+
+require_env_keys() {
+  local file="$1"
+  shift
+  local key
+  require_file "$file"
+  for key in "$@"; do
+    require_env_value "$file" "$key" >/dev/null
+  done
+}
+
+require_env_key_value() {
+  local file="$1"
+  local key="$2"
+  local expected="$3"
+  local actual
+
+  actual="$(require_env_value "$file" "$key")"
+  if [[ "$actual" != "$expected" ]]; then
+    release_die "${key} must be ${expected} in $(basename "$file")"
+  fi
+}
+
+warn_if_env_key_exists() {
+  local file="$1"
+  local key="$2"
+  local label="$3"
+  if env_key_exists "$file" "$key"; then
+    release_warn "${label}: ${key} is retired and should be removed from provider secrets"
+  fi
+}
+
+require_env_key_prefix() {
+  local file="$1"
+  local key="$2"
+  local prefix="$3"
+  local actual
+
+  actual="$(require_env_value "$file" "$key")"
+  if [[ "$actual" != ${prefix}* ]]; then
+    release_die "${key} must start with ${prefix} in $(basename "$file")"
+  fi
+}
+
+require_distinct_env_key_values() {
+  local left_file="$1"
+  local left_key="$2"
+  local right_file="$3"
+  local right_key="$4"
+  local label="$5"
+  local left_value right_value
+
+  [[ -f "$left_file" && -f "$right_file" ]] || return 0
+  left_value="$(get_env_value "$left_file" "$left_key" 2>/dev/null || true)"
+  right_value="$(get_env_value "$right_file" "$right_key" 2>/dev/null || true)"
+  [[ -n "$left_value" && -n "$right_value" ]] || return 0
+  if [[ "$left_value" == "$right_value" ]]; then
+    release_die "${label} must use separate staging and production projects"
+  fi
+}
+
+validate_provider_project_separation() {
+  local vercel_staging vercel_production railway_staging railway_production supabase_staging supabase_production
+
+  if should_run_target "vercel-staging" || should_run_target "vercel-production"; then
+    vercel_staging="$(resolve_bundle_file vercel-staging)"
+    vercel_production="$(resolve_bundle_file vercel-production)"
+    require_distinct_env_key_values "$vercel_staging" VERCEL_PROJECT_ID "$vercel_production" VERCEL_PROJECT_ID "Vercel"
+  fi
+
+  if should_run_target "railway-staging" || should_run_target "railway-production"; then
+    railway_staging="$(resolve_bundle_file railway-staging)"
+    railway_production="$(resolve_bundle_file railway-production)"
+    require_distinct_env_key_values "$railway_staging" RAILWAY_PROJECT_ID "$railway_production" RAILWAY_PROJECT_ID "Railway"
+  fi
+
+  if should_run_target "supabase-staging" || should_run_target "supabase-production"; then
+    supabase_staging="$(resolve_bundle_file supabase-staging)"
+    supabase_production="$(resolve_bundle_file supabase-production)"
+    require_distinct_env_key_values "$supabase_staging" SUPABASE_STAGING_PROJECT_REF "$supabase_production" SUPABASE_PRODUCTION_PROJECT_REF "Supabase"
+  fi
+}
+
+validate_target_runtime_contracts() {
+  local file github_file
+
+  if should_run_target "vercel-staging"; then
+    file="$(resolve_bundle_file vercel-staging)"
+    github_file="$(resolve_bundle_file github)"
+    validate_env_file "$file"
+    validate_env_keys "$github_file" "CI_E2E_AUTH_SECRET" "CI_E2E_AUTH_ENABLED" "PLAYWRIGHT_BASE_URL"
+    require_env_key_value "$file" "APP_ENV" "staging"
+    require_env_key_value "$file" "NEXT_PUBLIC_APP_ENV" "staging"
+    require_env_keys "$file" "UPSTASH_REDIS_REST_URL" "UPSTASH_REDIS_REST_TOKEN"
+    require_env_key_value "$file" "UPSTASH_REDIS_NAMESPACE" "staging"
+    require_env_key_prefix "$file" "STRIPE_SECRET_KEY" "sk_test_"
+    warn_if_env_key_exists "$file" "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY" "Vercel staging"
+    warn_if_env_key_exists "$file" "NEXT_PUBLIC_LOGO_DEV_TOKEN" "Vercel staging"
+    warn_if_env_key_exists "$file" "NEXT_PUBLIC_BRANDFETCH_CLIENT_ID" "Vercel staging"
+  fi
+
+  if should_run_target "vercel-production"; then
+    file="$(resolve_bundle_file vercel-production)"
+    validate_env_file "$file"
+    require_env_key_value "$file" "APP_ENV" "production"
+    require_env_key_value "$file" "NEXT_PUBLIC_APP_ENV" "production"
+    require_env_keys "$file" "UPSTASH_REDIS_REST_URL" "UPSTASH_REDIS_REST_TOKEN"
+    require_env_key_value "$file" "UPSTASH_REDIS_NAMESPACE" "production"
+    require_env_key_prefix "$file" "STRIPE_SECRET_KEY" "sk_live_"
+    warn_if_env_key_exists "$file" "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY" "Vercel production"
+    warn_if_env_key_exists "$file" "NEXT_PUBLIC_LOGO_DEV_TOKEN" "Vercel production"
+    warn_if_env_key_exists "$file" "NEXT_PUBLIC_BRANDFETCH_CLIENT_ID" "Vercel production"
+  fi
+
+  if should_run_target "railway-staging"; then
+    file="$(resolve_bundle_file railway-staging)"
+    validate_env_file "$file"
+    require_env_key_value "$file" "APP_ENV" "staging"
+    require_env_key_value "$file" "RAILWAY_ENVIRONMENT_NAME" "$(topology_railway_environment_name_for_target railway-staging)"
+    require_env_keys "$file" "REDIS_URL"
+    require_env_key_value "$file" "REDIS_NAMESPACE" "staging"
+  fi
+
+  if should_run_target "railway-production"; then
+    file="$(resolve_bundle_file railway-production)"
+    validate_env_file "$file"
+    require_env_key_value "$file" "APP_ENV" "production"
+    require_env_key_value "$file" "RAILWAY_ENVIRONMENT_NAME" "$(topology_railway_environment_name_for_target railway-production)"
+    require_env_keys "$file" "REDIS_URL"
+    require_env_key_value "$file" "REDIS_NAMESPACE" "production"
+  fi
+
+  if should_run_target "github"; then
+    file="$(resolve_bundle_file github)"
+    validate_env_file "$file"
+  fi
+
+  if should_run_target "supabase-staging"; then
+    file="$(resolve_bundle_file supabase-staging)"
+    validate_env_file "$file"
+    assert_no_forbidden_keys_in_file "$file" "Supabase staging bundle" "${SHARED_RUNTIME_KEYS[@]}"
+  fi
+
+  if should_run_target "supabase-production"; then
+    file="$(resolve_bundle_file supabase-production)"
+    validate_env_file "$file"
+    assert_no_forbidden_keys_in_file "$file" "Supabase production bundle" "${SHARED_RUNTIME_KEYS[@]}"
+  fi
+
+  if should_run_target "google-oauth"; then
+    file="$(resolve_bundle_file google-oauth)"
+    validate_env_file "$file"
+  fi
+
+  validate_provider_project_separation
 }
 
 vercel_upsert_env_file() {
@@ -469,8 +679,8 @@ vercel_upsert_env_file() {
     sens_flag="$(sensitive_flag_for_key "$key")"
     VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
       run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
-    VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-      run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
+    print -rn -- "$value" | VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+      run_real vercel env add "$key" "$env_target" --force ${sens_flag} --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
   done < <(iter_env_keys "$file")
 }
 
@@ -486,12 +696,12 @@ vercel_upsert_selected_keys_from_file() {
 
   for key in "$@"; do
     value="$(get_env_value "$file" "$key" 2>/dev/null || true)"
-    [[ -n "$value" ]] || continue
+    [[ -n "$value" ]] || release_die "${key} missing in $(basename "$file")"
     sens_flag="$(sensitive_flag_for_key "$key")"
     VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
       run_real vercel env rm "$key" "$env_target" -y --cwd "$repo_root" --scope "$team_id" >/dev/null 2>&1 </dev/null || true
-    VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
-      run_real vercel env add "$key" "$env_target" --force ${sens_flag} --value "$value" --yes --cwd "$repo_root" --scope "$team_id" >/dev/null </dev/null
+    print -rn -- "$value" | VERCEL_PROJECT_ID="$project_id" VERCEL_ORG_ID="$team_id" \
+      run_real vercel env add "$key" "$env_target" --force ${sens_flag} --yes --cwd "$repo_root" --scope "$team_id" >/dev/null
   done
 }
 
@@ -520,25 +730,38 @@ railway_apply_env_file() {
 apply_supabase_bundle() {
   local file="$1"
   local project_ref="$2"
-  local pairs=()
-  local key value
+  local key value temp_file supabase_bin key_count rc
 
   validate_env_file "$file"
+  assert_no_forbidden_keys_in_file "$file" "Supabase bundle" "${SHARED_RUNTIME_KEYS[@]}"
+  temp_file="$(mktemp /tmp/career-compass-supabase-secrets.XXXXXX)"
+  chmod 600 "$temp_file"
+  key_count=0
   while IFS= read -r key || [[ -n "$key" ]]; do
     [[ -n "$key" ]] || continue
     is_meta_key "$key" && continue
     value="$(get_env_value "$file" "$key")"
-    pairs+=("${key}=${value}")
+    printf '%s=%s\n' "$key" "$value" >> "$temp_file"
+    (( key_count += 1 ))
   done < <(iter_env_keys "$file")
 
-  if (( ${#pairs[@]} == 0 )); then
+  if (( key_count == 0 )); then
+    rm -f "$temp_file"
     release_log "No Supabase runtime secrets to apply"
     return 0
   fi
-  release_log "exec: supabase secrets set --project-ref ${project_ref} [REDACTED ${#pairs[@]} keys]"
+  release_log "exec: supabase secrets set --project-ref ${project_ref} --env-file [REDACTED ${key_count} keys]"
   supabase_bin="$(find_real_binary supabase)"
-  [[ -n "$supabase_bin" ]] || release_die "Missing command: supabase"
-  "$supabase_bin" secrets set --project-ref "$project_ref" "${pairs[@]}" >/dev/null
+  if [[ -z "$supabase_bin" ]]; then
+    rm -f "$temp_file"
+    release_die "Missing command: supabase"
+  fi
+  set +e
+  "$supabase_bin" secrets set --project-ref "$project_ref" --env-file "$temp_file" >/dev/null
+  rc=$?
+  set -e
+  rm -f "$temp_file"
+  return "$rc"
 }
 
 apply_google_oauth_env() {
@@ -546,6 +769,14 @@ apply_google_oauth_env() {
   run_real zsh "${repo_root}/scripts/auth/import-google-oauth-to-vercel.sh"
 }
 
+validate_target_runtime_contracts
+
+# --check --json: delegate to secret-plan.sh which outputs structured JSON to stdout
+# after local bundle invariants have been checked.
+if [[ "$mode" == "check" && "$output_json" == "1" ]]; then
+  plan_args=(--target "$target" --secret-dir "$secret_dir" --vercel-env "$vercel_env_scope")
+  exec zsh "${script_dir}/lib/secret-plan.sh" "${plan_args[@]}"
+fi
 
 if should_run_target "vercel-staging"; then
   staging_file="$(resolve_bundle_file vercel-staging)"
@@ -553,23 +784,22 @@ if should_run_target "vercel-staging"; then
   staging_project_id="$(require_env_value "$staging_file" "VERCEL_PROJECT_ID")"
   staging_team_id="$(require_env_value "$staging_file" "VERCEL_TEAM_ID")"
   validate_env_file "$staging_file"
+  require_env_keys "$staging_file" "APP_ENV" "NEXT_PUBLIC_APP_ENV"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Vercel staging env"
     if should_run_vercel_env "production"; then
       vercel_upsert_env_file "$staging_file" production "$staging_project_id" "$staging_team_id"
     fi
-    if [[ -f "$github_file" ]]; then
-      release_log "Overlaying staging test-auth env from github-actions bundle"
-      if should_run_vercel_env "production"; then
-        vercel_upsert_selected_keys_from_file \
-          "$github_file" \
-          production \
-          "$staging_project_id" \
-          "$staging_team_id" \
-          "CI_E2E_AUTH_SECRET" \
-          "CI_E2E_AUTH_ENABLED" \
-          "PLAYWRIGHT_BASE_URL"
-      fi
+    release_log "Overlaying staging test-auth env from github-actions bundle"
+    if should_run_vercel_env "production"; then
+      vercel_upsert_selected_keys_from_file \
+        "$github_file" \
+        production \
+        "$staging_project_id" \
+        "$staging_team_id" \
+        "CI_E2E_AUTH_SECRET" \
+        "CI_E2E_AUTH_ENABLED" \
+        "PLAYWRIGHT_BASE_URL"
     fi
   else
     release_log "Checked Vercel staging env"
@@ -587,6 +817,7 @@ if should_run_target "vercel-production"; then
   production_project_id="$(require_env_value "$production_file" "VERCEL_PROJECT_ID")"
   production_team_id="$(require_env_value "$production_file" "VERCEL_TEAM_ID")"
   validate_env_file "$production_file"
+  require_env_keys "$production_file" "APP_ENV" "NEXT_PUBLIC_APP_ENV"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Vercel production env"
     if should_run_vercel_env "production"; then
@@ -608,6 +839,7 @@ if should_run_target "railway-staging"; then
   railway_staging_service_name="$(require_env_value "$railway_staging_file" "RAILWAY_SERVICE_NAME")"
   railway_staging_environment_name="$(require_env_value "$railway_staging_file" "RAILWAY_ENVIRONMENT_NAME")"
   validate_env_file "$railway_staging_file"
+  require_env_keys "$railway_staging_file" "APP_ENV"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Railway staging env"
     railway_apply_env_file "$railway_staging_file" "$railway_staging_project_id" "$railway_staging_service_name" "$railway_staging_environment_name"
@@ -625,6 +857,7 @@ if should_run_target "railway-production"; then
   railway_production_service_name="$(require_env_value "$railway_production_file" "RAILWAY_SERVICE_NAME")"
   railway_production_environment_name="$(require_env_value "$railway_production_file" "RAILWAY_ENVIRONMENT_NAME")"
   validate_env_file "$railway_production_file"
+  require_env_keys "$railway_production_file" "APP_ENV"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Railway production env"
     railway_apply_env_file "$railway_production_file" "$railway_production_project_id" "$railway_production_service_name" "$railway_production_environment_name"
@@ -662,6 +895,7 @@ if should_run_target "supabase-staging"; then
   supabase_staging_file="$(resolve_bundle_file supabase-staging)"
   supabase_staging_project_ref="$(require_env_value "$supabase_staging_file" "SUPABASE_STAGING_PROJECT_REF")"
   validate_env_file "$supabase_staging_file"
+  assert_no_forbidden_keys_in_file "$supabase_staging_file" "Supabase staging bundle" "${SHARED_RUNTIME_KEYS[@]}"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Supabase staging secrets"
     apply_supabase_bundle "$supabase_staging_file" "$supabase_staging_project_ref"
@@ -677,6 +911,7 @@ if should_run_target "supabase-production" || should_run_target "supabase"; then
   supabase_file="$(resolve_bundle_file supabase-production)"
   supabase_production_project_ref="$(require_env_value "$supabase_file" "SUPABASE_PRODUCTION_PROJECT_REF")"
   validate_env_file "$supabase_file"
+  assert_no_forbidden_keys_in_file "$supabase_file" "Supabase production bundle" "${SHARED_RUNTIME_KEYS[@]}"
   if [[ "$mode" == "apply" ]]; then
     release_log "Applying Supabase production secrets"
     apply_supabase_bundle "$supabase_file" "$supabase_production_project_ref"
