@@ -7,6 +7,13 @@ const {
   authGetSessionMock,
   dbSelectMock,
   dbUpdateMock,
+  dbInsertMock,
+  dbDeleteMock,
+  dbTransactionMock,
+  txSelectMock,
+  txUpdateMock,
+  txInsertMock,
+  txDeleteMock,
   getGuestUserMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
@@ -14,6 +21,13 @@ const {
   authGetSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
+  dbInsertMock: vi.fn(),
+  dbDeleteMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
+  txSelectMock: vi.fn(),
+  txUpdateMock: vi.fn(),
+  txInsertMock: vi.fn(),
+  txDeleteMock: vi.fn(),
   getGuestUserMock: vi.fn(),
 }));
 
@@ -45,6 +59,9 @@ vi.mock("@/lib/db", () => ({
   db: {
     select: dbSelectMock,
     update: dbUpdateMock,
+    insert: dbInsertMock,
+    delete: dbDeleteMock,
+    transaction: dbTransactionMock,
   },
 }));
 
@@ -58,6 +75,18 @@ function makeDocumentQuery(result: unknown[]) {
   };
 }
 
+function makeSelectForUpdateQuery(result: unknown[]) {
+  return {
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        limit: vi.fn(() => ({
+          for: vi.fn().mockResolvedValue(result),
+        })),
+      })),
+    })),
+  };
+}
+
 describe("api/documents/[id]", () => {
   beforeEach(() => {
     getRequestIdentityMock.mockReset();
@@ -65,7 +94,22 @@ describe("api/documents/[id]", () => {
     authGetSessionMock.mockReset();
     dbSelectMock.mockReset();
     dbUpdateMock.mockReset();
+    dbInsertMock.mockReset();
+    dbDeleteMock.mockReset();
+    dbTransactionMock.mockReset();
+    txSelectMock.mockReset();
+    txUpdateMock.mockReset();
+    txInsertMock.mockReset();
+    txDeleteMock.mockReset();
     getGuestUserMock.mockReset();
+    dbTransactionMock.mockImplementation(async (callback) =>
+      callback({
+        select: txSelectMock,
+        update: txUpdateMock,
+        insert: txInsertMock,
+        delete: txDeleteMock,
+      }),
+    );
   });
 
   it("returns 401 when the request has no valid identity", async () => {
@@ -166,5 +210,47 @@ describe("api/documents/[id]", () => {
 
     expect(response.status).toBe(404);
     expect(data.error.code).toBe("DOCUMENT_APPLICATION_NOT_FOUND");
+  });
+
+  it("does not write document versions when the owned update lock is lost", async () => {
+    const { PUT } = await import("@/app/api/documents/[id]/route");
+    const document = {
+      id: "doc-1",
+      userId: "user-1",
+      guestId: null,
+      companyId: null,
+      applicationId: null,
+      title: "Alpha ES",
+      content: JSON.stringify([{ text: "old" }]),
+      status: "draft",
+      type: "es",
+      esCategory: "entry_sheet",
+      createdAt: new Date("2026-03-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-03-01T00:00:00.000Z"),
+      deletedAt: null,
+      jobTypeId: null,
+    };
+
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    dbSelectMock.mockReturnValueOnce(makeDocumentQuery([document]));
+    txSelectMock.mockReturnValueOnce(makeSelectForUpdateQuery([]));
+
+    const response = await PUT(new NextRequest("http://localhost:3000/api/documents/doc-1", {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        content: [{ text: "new" }],
+      }),
+    }), {
+      params: Promise.resolve({ id: "doc-1" }),
+    });
+    const data = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(data.error.code).toBe("DOCUMENT_UPDATE_NOT_FOUND");
+    expect(txInsertMock).not.toHaveBeenCalled();
+    expect(txUpdateMock).not.toHaveBeenCalled();
   });
 });

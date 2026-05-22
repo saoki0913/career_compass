@@ -199,10 +199,7 @@ describe("buildInterviewContext", () => {
       normalized!,
     );
     const payload = await response.json();
-    expect(payload.error.extra).toMatchObject({
-      missingTables: [],
-      missingColumns: ["interview_conversations.role_track"],
-    });
+    expect(payload.error.extra).toBeUndefined();
   });
 
   it("detects bare Postgres missing-column errors for interview persistence", async () => {

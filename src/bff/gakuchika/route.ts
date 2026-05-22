@@ -14,21 +14,20 @@ import {
 } from "@/bff/identity/owner-access";
 import { db } from "@/lib/db";
 import { gakuchikaContents, userProfiles } from "@/lib/db/schema";
-import { eq, desc, asc, count, sql } from "drizzle-orm";
+import { eq, desc, asc, count } from "drizzle-orm";
 import { PLAN_METADATA, type PlanTypeWithGuest } from "@/lib/billing/plan-metadata";
 import {
   getGakuchikaSummaryKind,
   getGakuchikaSummaryPreview,
 } from "@/lib/gakuchika/summary";
 import { safeParseConversationState } from "@/bff/gakuchika";
+import {
+  loadLatestGakuchikaConversationsForOwnedContentIds,
+  type LatestOwnedGakuchikaConversation,
+} from "@/bff/gakuchika/latest-conversations";
 
 export type GakuchikaListConversationStatus = "in_progress" | "completed" | null;
-type LatestGakuchikaConversation = {
-  gakuchikaId: string;
-  status: string | null;
-  starScores: unknown;
-  questionCount: number;
-};
+type LatestGakuchikaConversation = LatestOwnedGakuchikaConversation;
 
 type GakuchikaResponseDto = {
   id: string;
@@ -97,34 +96,6 @@ export function normalizeGakuchikaListConversationStatus(
   return null;
 }
 
-async function loadLatestGakuchikaConversations(contentIds: string[]): Promise<LatestGakuchikaConversation[]> {
-  if (contentIds.length === 0) {
-    return [];
-  }
-
-  const rows = await db.execute(sql`
-    select gakuchika_id, status, star_scores, question_count
-    from (
-      select
-        gakuchika_id,
-        status,
-        star_scores,
-        question_count,
-        row_number() over (partition by gakuchika_id order by updated_at desc, created_at desc, id desc) as rn
-      from gakuchika_conversations
-      where gakuchika_id = any(${contentIds}::text[])
-    ) ranked
-    where rn = 1
-  `);
-
-  return Array.from(rows as Iterable<Record<string, unknown>>).map((row) => ({
-    gakuchikaId: String(row.gakuchika_id),
-    status: typeof row.status === "string" ? row.status : null,
-    starScores: row.star_scores,
-    questionCount: Number(row.question_count ?? 0),
-  }));
-}
-
 export async function GET(request: NextRequest) {
   try {
     const identityResult = await requireRequestIdentity(request, {
@@ -176,7 +147,7 @@ export async function GET(request: NextRequest) {
       .orderBy(asc(gakuchikaContents.sortOrder), desc(gakuchikaContents.updatedAt));
 
     const contentIds = contents.map((row) => row.id);
-    const convRows = await loadLatestGakuchikaConversations(contentIds);
+    const convRows = await loadLatestGakuchikaConversationsForOwnedContentIds(contentIds);
     const latestConvByGakuchikaId = new Map(convRows.map((row) => [row.gakuchikaId, row]));
     const gakuchikasWithConversation = contents.map((gakuchika) =>
       toGakuchikaListDto(gakuchika, latestConvByGakuchikaId.get(gakuchika.id)),

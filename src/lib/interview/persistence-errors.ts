@@ -11,7 +11,10 @@ const INTERVIEW_PERSISTENCE_TABLES = [
 ] as const;
 
 const INTERVIEW_PERSISTENCE_REQUIRED_COLUMNS = {
-  interview_conversations: [
+  interview_conversations_read: [
+    "selected_industry",
+    "selected_role",
+    "selected_role_source",
     "role_track",
     "interview_format",
     "selection_type",
@@ -22,9 +25,11 @@ const INTERVIEW_PERSISTENCE_REQUIRED_COLUMNS = {
     "turn_state_json",
     "turn_meta_json",
     "active_feedback_draft",
+  ],
+  interview_conversations_write: [
     "current_feedback_id",
   ],
-  interview_feedback_histories: [
+  interview_feedback_histories_read: [
     "consistency_risks",
     "weakest_question_type",
     "weakest_turn_id",
@@ -34,7 +39,16 @@ const INTERVIEW_PERSISTENCE_REQUIRED_COLUMNS = {
     "score_evidence_by_axis",
     "score_rationale_by_axis",
     "confidence_by_axis",
+    "source_question_count",
+  ],
+  interview_feedback_histories_write: [
     "source_messages_snapshot",
+    "prompt_version",
+    "followup_policy_version",
+    "case_seed_version",
+    "sheet_data_json",
+    "sheet_content",
+    "sheet_generated_at",
   ],
   interview_turn_events: [
     "turn_id",
@@ -43,6 +57,17 @@ const INTERVIEW_PERSISTENCE_REQUIRED_COLUMNS = {
     "format_phase",
   ],
 } as const;
+
+const INTERVIEW_PERSISTENCE_COLUMN_TABLES: Record<
+  keyof typeof INTERVIEW_PERSISTENCE_REQUIRED_COLUMNS,
+  (typeof INTERVIEW_PERSISTENCE_TABLES)[number]
+> = {
+  interview_conversations_read: "interview_conversations",
+  interview_conversations_write: "interview_conversations",
+  interview_feedback_histories_read: "interview_feedback_histories",
+  interview_feedback_histories_write: "interview_feedback_histories",
+  interview_turn_events: "interview_turn_events",
+};
 
 function getErrorDiagnosticText(error: unknown): string {
   const parts: string[] = [];
@@ -110,7 +135,10 @@ function getMissingInterviewPersistenceColumns(error: unknown): string[] {
   }
 
   const missing: string[] = [];
-  for (const [tableName, columns] of Object.entries(INTERVIEW_PERSISTENCE_REQUIRED_COLUMNS)) {
+  for (const [columnGroup, columns] of Object.entries(INTERVIEW_PERSISTENCE_REQUIRED_COLUMNS) as Array<
+    [keyof typeof INTERVIEW_PERSISTENCE_REQUIRED_COLUMNS, readonly string[]]
+  >) {
+    const tableName = INTERVIEW_PERSISTENCE_COLUMN_TABLES[columnGroup];
     for (const columnName of columns) {
       const patterns = [
         new RegExp(`column ["']?${columnName}["']? of relation ["']?${tableName}["']? does not exist`),
@@ -200,11 +228,5 @@ export function createInterviewPersistenceUnavailableResponse(
     developerMessage: `Interview persistence unavailable during ${error.operation}: tables=${error.missingTables.join(",") || "none"}; columns=${error.missingColumns.join(",") || "none"}`,
     details: `companyId=${error.companyId}; operation=${error.operation}; tables=${error.missingTables.join(",") || "none"}; columns=${error.missingColumns.join(",") || "none"}`,
     logContext: error.operation,
-    extra: {
-      companyId: error.companyId,
-      operation: error.operation,
-      missingTables: error.missingTables,
-      missingColumns: error.missingColumns,
-    },
   });
 }

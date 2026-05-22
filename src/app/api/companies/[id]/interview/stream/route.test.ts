@@ -12,6 +12,7 @@ const {
   createInterviewUpstreamStreamMock,
   normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponseMock,
+  guardDailyTokenLimitMock,
   reserveCreditsMock,
   confirmReservationMock,
   cancelReservationMock,
@@ -26,6 +27,7 @@ const {
   createInterviewUpstreamStreamMock: vi.fn(),
   normalizeInterviewPersistenceErrorMock: vi.fn(),
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
+  guardDailyTokenLimitMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
   confirmReservationMock: vi.fn(),
   cancelReservationMock: vi.fn(),
@@ -35,7 +37,7 @@ vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
 }));
 vi.mock("@/bff/identity/llm-cost-guard", () => ({
-  guardDailyTokenLimit: vi.fn(async () => null),
+  guardDailyTokenLimit: guardDailyTokenLimitMock,
 }));
 
 vi.mock("..", () => ({
@@ -77,12 +79,15 @@ describe("api/companies/[id]/interview/stream", () => {
     createInterviewUpstreamStreamMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
+    guardDailyTokenLimitMock.mockReset();
     reserveCreditsMock.mockReset();
     confirmReservationMock.mockReset();
     cancelReservationMock.mockReset();
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-turn-1" });
+    confirmReservationMock.mockResolvedValue({ confirmed: true });
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
+    guardDailyTokenLimitMock.mockResolvedValue(null);
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
@@ -212,6 +217,40 @@ describe("api/companies/[id]/interview/stream", () => {
     expect(data.error.userMessage).toBe("ログインが必要です。");
     expect(data.error.action).toBe("ログインしてから、もう一度お試しください。");
     expect(buildInterviewContextMock).not.toHaveBeenCalled();
+  });
+
+  it("stops before context loading and credit reservation when token limit service is unavailable", async () => {
+    const { POST } = await import("./route");
+    guardDailyTokenLimitMock.mockResolvedValueOnce(
+      Response.json(
+        {
+          error: {
+            code: "TOKEN_LIMIT_SERVICE_UNAVAILABLE",
+            userMessage: "現在、AI機能を一時的に利用できません。",
+          },
+        },
+        { status: 503 },
+      ),
+    );
+
+    const response = await POST(
+      new NextRequest("http://localhost/api/companies/company-1/interview/stream", {
+        method: "POST",
+        body: JSON.stringify({ answer: "A2" }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ id: "company-1" }) },
+    );
+
+    expect(response.status).toBe(503);
+    expect(guardDailyTokenLimitMock).toHaveBeenCalledWith(
+      { userId: "user-1", guestId: null },
+      expect.any(NextRequest),
+      { feature: "interview_stream" },
+    );
+    expect(buildInterviewContextMock).not.toHaveBeenCalled();
+    expect(reserveCreditsMock).not.toHaveBeenCalled();
+    expect(createInterviewUpstreamStreamMock).not.toHaveBeenCalled();
   });
 
   it("rejects completed sessions before reserving turn credits", async () => {

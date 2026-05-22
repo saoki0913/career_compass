@@ -10,6 +10,11 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
+vi.mock("@/bff/identity/request-identity", () => ({
+  getRequestIdentity: vi.fn(),
+  RequestIdentitySessionError: class RequestIdentitySessionError extends Error {},
+}));
+
 describe("owner-access", () => {
   beforeEach(() => {
     vi.resetAllMocks();

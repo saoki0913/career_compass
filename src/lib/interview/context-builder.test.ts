@@ -6,8 +6,9 @@ import { extractTextFromContent } from "@/lib/search/utils";
 // Hoisted mock state so vi.mock closures and tests share the same references.
 // ---------------------------------------------------------------------------
 
-const { selectResultsByIndex } = vi.hoisted(() => ({
+const { selectResultsByIndex, selectErrorsByIndex } = vi.hoisted(() => ({
   selectResultsByIndex: { value: new Map<number, unknown[]>() },
+  selectErrorsByIndex: { value: new Map<number, unknown>() },
 }));
 
 vi.mock("@/lib/db", () => {
@@ -18,6 +19,7 @@ vi.mock("@/lib/db", () => {
     c.limit = vi.fn(() => terminal());
     c.orderBy = vi.fn(() => c);
     c.leftJoin = vi.fn(() => c);
+    c.then = vi.fn((onFulfilled, onRejected) => terminal().then(onFulfilled, onRejected));
     return c;
   }
 
@@ -27,7 +29,9 @@ vi.mock("@/lib/db", () => {
       select: vi.fn(() => {
         selectCallIndex++;
         return chainWithTerminal(() =>
-          Promise.resolve(selectResultsByIndex.value.get(selectCallIndex) ?? [])
+          selectErrorsByIndex.value.has(selectCallIndex)
+            ? Promise.reject(selectErrorsByIndex.value.get(selectCallIndex))
+            : Promise.resolve(selectResultsByIndex.value.get(selectCallIndex) ?? [])
         );
       }),
     },
@@ -68,8 +72,56 @@ vi.mock("@/lib/db/schema", () => ({
     selectedRoleSource: "selectedRoleSource",
     desiredWork: "desiredWork",
   },
-  interviewConversations: { companyId: "companyId", userId: "userId", guestId: "guestId" },
-  interviewFeedbackHistories: { companyId: "companyId", userId: "userId", guestId: "guestId", createdAt: "createdAt" },
+  interviewConversations: {
+    id: "id",
+    companyId: "companyId",
+    userId: "userId",
+    guestId: "guestId",
+    status: "status",
+    messages: "messages",
+    currentStage: "currentStage",
+    questionCount: "questionCount",
+    completedStages: "completedStages",
+    lastQuestionFocus: "lastQuestionFocus",
+    questionFlowCompleted: "questionFlowCompleted",
+    selectedIndustry: "selectedIndustry",
+    selectedRole: "selectedRole",
+    selectedRoleSource: "selectedRoleSource",
+    roleTrack: "roleTrack",
+    interviewFormat: "interviewFormat",
+    selectionType: "selectionType",
+    interviewStage: "interviewStage",
+    interviewerType: "interviewerType",
+    strictnessMode: "strictnessMode",
+    interviewPlanJson: "interviewPlanJson",
+    turnStateJson: "turnStateJson",
+    turnMetaJson: "turnMetaJson",
+    activeFeedbackDraft: "activeFeedbackDraft",
+  },
+  interviewFeedbackHistories: {
+    id: "id",
+    companyId: "companyId",
+    userId: "userId",
+    guestId: "guestId",
+    overallComment: "overallComment",
+    scores: "scores",
+    strengths: "strengths",
+    improvements: "improvements",
+    consistencyRisks: "consistencyRisks",
+    weakestQuestionType: "weakestQuestionType",
+    weakestTurnId: "weakestTurnId",
+    weakestQuestionSnapshot: "weakestQuestionSnapshot",
+    weakestAnswerSnapshot: "weakestAnswerSnapshot",
+    improvedAnswer: "improvedAnswer",
+    preparationPoints: "preparationPoints",
+    premiseConsistency: "premiseConsistency",
+    satisfactionScore: "satisfactionScore",
+    scoreEvidenceByAxis: "scoreEvidenceByAxis",
+    scoreRationaleByAxis: "scoreRationaleByAxis",
+    confidenceByAxis: "confidenceByAxis",
+    sourceQuestionCount: "sourceQuestionCount",
+    createdAt: "createdAt",
+  },
   jobTypes: { applicationId: "applicationId", name: "name" },
 }));
 
@@ -94,6 +146,7 @@ describe("buildInterviewContext", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     selectResultsByIndex.value = new Map();
+    selectErrorsByIndex.value = new Map();
     const db = await import("@/lib/db");
     (db as unknown as { __resetSelectIndex: () => void }).__resetSelectIndex();
   });
@@ -244,6 +297,30 @@ describe("buildInterviewContext", () => {
     expect(result?.esSummary).toContain("学生時代は地域イベントの運営に注力しました。");
     expect(result?.esSummary).toContain("来場者導線の改善も担当しました。");
     expect(result?.esSummary).not.toContain(leakedUuid);
+  });
+
+  it("fails context building instead of continuing with empty materials when hydration queries fail", async () => {
+    selectResultsByIndex.value.set(1, [
+      {
+        id: "company-1",
+        name: "Test Corp",
+        industry: "IT",
+        status: "interview_1",
+        notes: null,
+        recruitmentUrl: null,
+        corporateUrl: null,
+      },
+    ]);
+    selectErrorsByIndex.value.set(3, new Error("gakuchika query failed"));
+
+    const { buildInterviewContext } = await import("./context-builder");
+
+    await expect(
+      buildInterviewContext("company-1", {
+        userId: "user-1",
+        guestId: null,
+      }),
+    ).rejects.toThrow("gakuchika query failed");
   });
 });
 

@@ -267,9 +267,21 @@ export async function DELETE(
       });
     }
 
+    const deleteCondition = buildOwnedRowCondition(eq(tasks.id, taskId), tasks, identity);
+    if (!deleteCondition) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "TASK_DELETE_NOT_FOUND",
+        userMessage: "削除対象のタスクが見つかりませんでした。",
+        action: "一覧に戻って、対象のタスクを選び直してください。",
+        developerMessage: "Task owner condition could not be built",
+        logContext: "task-delete-not-found",
+      });
+    }
+
     const deleted = await db
       .delete(tasks)
-      .where(buildOwnedRowCondition(eq(tasks.id, taskId), tasks, identity)!)
+      .where(deleteCondition)
       .returning({ id: tasks.id });
 
     if (!deleted[0]) {

@@ -25,6 +25,11 @@ import {
   type StageStatus,
 } from "@/features/motivation/domain/ui";
 import type { MotivationConversationPayload } from "@/lib/motivation/conversation-payload";
+import {
+  isMotivationSetupReady,
+  selectIndustryStateFromRoleOptions,
+  toRequestIndustry,
+} from "@/lib/motivation/industry-resolution";
 import { notifyError, notifyInfo, notifyMotivationDraftReady } from "@/lib/notifications";
 import { useConversationRuntime } from "@/hooks/conversation";
 import { resolveRoleSelection } from "@/hooks/conversation/role-selection";
@@ -447,10 +452,15 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     if (isStartingConversation || isSending || isLocked) return;
 
     const trimmedRole = selectedRoleName.trim();
-    const requiresIndustrySelection = Boolean(roleOptionsData?.requiresIndustrySelection);
-    const resolvedIndustry = selectedIndustry || roleOptionsData?.industry || setupSnapshot?.resolvedIndustry || "";
+    const industryState = selectIndustryStateFromRoleOptions({
+      companyName: company?.name ?? roleOptionsData?.companyName ?? null,
+      companyIndustry: company?.industry ?? null,
+      roleOptionsData,
+      setupSnapshot,
+      userSelectedIndustry: selectedIndustry,
+    });
 
-    if (!trimmedRole || (requiresIndustrySelection && !resolvedIndustry)) {
+    if (!isMotivationSetupReady(industryState, trimmedRole)) {
       notifyError({ title: "先に業界と職種の設定を完了してください" });
       return;
     }
@@ -464,12 +474,10 @@ export function useMotivationConversationController({ companyId }: { companyId: 
 
     try {
       const response = await startMotivationConversation(companyId, {
-        selectedIndustry: requiresIndustrySelection ? resolvedIndustry : null,
+        selectedIndustry: toRequestIndustry(industryState),
+        selectedIndustrySource: industryState.kind === "resolved" ? industryState.source : null,
         selectedRole: trimmedRole,
-        roleSelectionSource:
-          roleSelectionSource === "custom"
-            ? "user_free_text"
-            : roleSelectionSource,
+        roleSelectionSource,
       });
 
       if (!response.ok) {
@@ -506,6 +514,8 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     acquireLock,
     activeOperationLabel,
     applyConversationPayload,
+    company?.industry,
+    company?.name,
     companyId,
     isLocked,
     isSending,
@@ -515,7 +525,7 @@ export function useMotivationConversationController({ companyId }: { companyId: 
     roleSelectionSource,
     selectedIndustry,
     selectedRoleName,
-    setupSnapshot?.resolvedIndustry,
+    setupSnapshot,
   ]);
 
   const handleSend = useCallback(async () => {

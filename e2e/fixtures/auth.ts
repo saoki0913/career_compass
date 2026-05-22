@@ -263,6 +263,8 @@ export async function mockCredits(
     monthlySelectionScheduleLimit?: number;
     monthlyFreeCompanyRagRemaining?: number;
     monthlyFreeCompanyRagLimit?: number;
+    monthlyFreeCompanyRagPdfRemaining?: number;
+    monthlyFreeCompanyRagPdfLimit?: number;
   },
 ): Promise<void> {
   const selectionRemaining =
@@ -280,9 +282,13 @@ export async function mockCredits(
         monthlyAllocation: payload.monthlyAllocation ?? payload.balance,
         nextResetAt: payload.nextResetAt ?? null,
         monthlyFree: {
-          companyRagPages: {
+          companyRagHtmlPages: {
             remaining: payload.monthlyFreeCompanyRagRemaining ?? 10,
             limit: payload.monthlyFreeCompanyRagLimit ?? 10,
+          },
+          companyRagPdfPages: {
+            remaining: payload.monthlyFreeCompanyRagPdfRemaining ?? 0,
+            limit: payload.monthlyFreeCompanyRagPdfLimit ?? 0,
           },
           selectionSchedule: {
             remaining: selectionRemaining,

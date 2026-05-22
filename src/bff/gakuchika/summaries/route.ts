@@ -5,43 +5,14 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { createApiErrorResponse } from "@/bff/api/error-response";
 import { getRequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
 import { gakuchikaContents } from "@/lib/db/schema";
-import { eq, desc, isNull, sql } from "drizzle-orm";
+import { eq, desc, isNull } from "drizzle-orm";
 import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
-import { logError } from "@/lib/logger";
 import { isInterviewReady, safeParseConversationState } from "@/bff/gakuchika";
-
-async function loadLatestConversationState(contentIds: string[]) {
-  if (contentIds.length === 0) {
-    return new Map<string, { status: string | null; starScores: unknown }>();
-  }
-
-  const rows = await db.execute(sql`
-    select gakuchika_id, status, star_scores
-    from (
-      select
-        gakuchika_id,
-        status,
-        star_scores,
-        row_number() over (partition by gakuchika_id order by updated_at desc) as rn
-      from gakuchika_conversations
-      where gakuchika_id = any(${contentIds}::text[])
-    ) ranked
-    where rn = 1
-  `);
-
-  return new Map(
-    Array.from(rows as Iterable<Record<string, unknown>>).map((row) => [
-      String(row.gakuchika_id),
-      {
-        status: typeof row.status === "string" ? row.status : null,
-        starScores: row.star_scores,
-      },
-    ]),
-  );
-}
+import { loadLatestGakuchikaConversationsForOwnedContentIds } from "@/bff/gakuchika/latest-conversations";
 
 export async function GET(request: NextRequest) {
   try {
@@ -74,7 +45,12 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(desc(gakuchikaContents.updatedAt));
 
-    const latestConversationByContentId = await loadLatestConversationState(contents.map((content) => content.id));
+    const latestConversationByContentId = new Map(
+      (await loadLatestGakuchikaConversationsForOwnedContentIds(contents.map((content) => content.id))).map((row) => [
+        row.gakuchikaId,
+        row,
+      ]),
+    );
     const summaries = contents.map((content) => {
       const latestConversation = latestConversationByContentId.get(content.id);
       const parsedSummary = parseGakuchikaSummary(content.summary);
@@ -99,12 +75,18 @@ export async function GET(request: NextRequest) {
       summaries: completedSummaries,
     });
   } catch (error) {
-    logError("gakuchika-summaries:consume-credits", error, {
-      feature: "gakuchika_summaries",
+    return createApiErrorResponse(request, {
+      status: 500,
+      code: "GAKUCHIKA_SUMMARIES_FETCH_FAILED",
+      userMessage: "ガクチカの要約を読み込めませんでした。",
+      action: "時間を置いて、もう一度お試しください。",
+      retryable: true,
+      error,
+      developerMessage: "Internal server error",
+      logContext: "gakuchika-summaries:list",
+      extra: {
+        feature: "gakuchika_summaries",
+      },
     });
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
   }
 }

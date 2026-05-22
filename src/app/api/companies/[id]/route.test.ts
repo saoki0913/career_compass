@@ -5,6 +5,7 @@ const {
   getRequestIdentityMock,
   getCompanyDetailPageDataMock,
   hasOwnedCompanyMock,
+  buildOwnedRowConditionMock,
   dbSelectMock,
   dbUpdateMock,
   dbDeleteMock,
@@ -13,6 +14,7 @@ const {
   getRequestIdentityMock: vi.fn(),
   getCompanyDetailPageDataMock: vi.fn(),
   hasOwnedCompanyMock: vi.fn(),
+  buildOwnedRowConditionMock: vi.fn(),
   dbSelectMock: vi.fn(),
   dbUpdateMock: vi.fn(),
   dbDeleteMock: vi.fn(),
@@ -24,7 +26,7 @@ vi.mock("@/bff/identity/request-identity", () => ({
 }));
 
 vi.mock("@/bff/identity/owner-access", () => ({
-  buildOwnedRowCondition: vi.fn(() => ({ owner: "condition" })),
+  buildOwnedRowCondition: buildOwnedRowConditionMock,
   hasOwnedCompany: hasOwnedCompanyMock,
 }));
 
@@ -94,11 +96,13 @@ describe("api/companies/[id]", () => {
     getRequestIdentityMock.mockReset();
     getCompanyDetailPageDataMock.mockReset();
     hasOwnedCompanyMock.mockReset();
+    buildOwnedRowConditionMock.mockReset();
     dbSelectMock.mockReset();
     dbUpdateMock.mockReset();
     dbDeleteMock.mockReset();
     encryptMock.mockReset();
     encryptMock.mockImplementation((value: string) => `encrypted:${value}`);
+    buildOwnedRowConditionMock.mockReturnValue({ owner: "condition" });
   });
 
   it("returns 401 when the request has no valid identity", async () => {
@@ -205,6 +209,25 @@ describe("api/companies/[id]", () => {
     expect(data.company?.hasCredentials).toBe(true);
     expect(data.company?.mypageLoginId).toBeUndefined();
     expect(data.company?.mypagePassword).toBeUndefined();
+  });
+
+  it("PUT does not mutate when the owner condition cannot be built", async () => {
+    const { PUT } = await import("@/app/api/companies/[id]/route");
+    getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: "guest-1" });
+    hasOwnedCompanyMock.mockResolvedValue(true);
+    buildOwnedRowConditionMock.mockReturnValue(null);
+
+    const req = new NextRequest("http://localhost:3000/api/companies/c1", {
+      method: "PUT",
+      body: JSON.stringify({ name: "Acme" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await PUT(req, { params: Promise.resolve({ id: "c1" }) });
+    const data = await res.json();
+
+    expect(res.status).toBe(404);
+    expect(data.error.code).toBe("COMPANY_UPDATE_NOT_FOUND");
+    expect(dbUpdateMock).not.toHaveBeenCalled();
   });
 
   it("PUT clears stored mypage credentials when null or empty values are sent", async () => {
@@ -405,5 +428,21 @@ describe("api/companies/[id]", () => {
 
     expect(res.status).toBe(200);
     expect(data.message).toBe("Company deleted successfully");
+  });
+
+  it("DELETE does not mutate when the owner condition cannot be built", async () => {
+    const { DELETE } = await import("@/app/api/companies/[id]/route");
+    getRequestIdentityMock.mockResolvedValue({ userId: "u1", guestId: "g1" });
+    hasOwnedCompanyMock.mockResolvedValue(true);
+    buildOwnedRowConditionMock.mockReturnValue(null);
+
+    const res = await DELETE(new NextRequest("http://localhost:3000/api/companies/c1"), {
+      params: Promise.resolve({ id: "c1" }),
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(404);
+    expect(data.error.code).toBe("COMPANY_DELETE_NOT_FOUND");
+    expect(dbDeleteMock).not.toHaveBeenCalled();
   });
 });

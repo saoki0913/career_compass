@@ -406,7 +406,7 @@ export async function POST(
     const mergedConversationContext = resolvedInputs.conversationContext;
     const setupComplete = isMotivationSetupComplete(
       mergedConversationContext,
-      resolvedInputs.requiresIndustrySelection,
+      resolvedInputs.industryState,
     );
 
     const payload = buildMotivationConversationPayload({
@@ -428,8 +428,7 @@ export async function POST(
       nextAdvanceCondition: nextAdvanceCondition ?? undefined,
       progress: progress ?? undefined,
       causalGaps,
-      resolvedIndustry: resolvedInputs.company.industry,
-      requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
+      industryState: resolvedInputs.industryState,
       isSetupComplete: setupComplete,
     });
 

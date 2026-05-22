@@ -35,7 +35,7 @@ export async function POST(
     });
   }
 
-  const limitResponse = await guardDailyTokenLimit(identity, request);
+  const limitResponse = await guardDailyTokenLimit(identity, request, { feature: "interview_stream" });
   if (limitResponse) return limitResponse;
 
   let context;

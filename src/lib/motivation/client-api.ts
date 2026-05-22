@@ -1,5 +1,9 @@
 import type { JsonValue } from "@/lib/shared";
 import { buildJsonHeaders, postJson, withQuery } from "@/lib/shared";
+import type {
+  MotivationDraftDirectRequestPayload,
+  MotivationSetupRequestPayload,
+} from "@/shared/contracts/motivation/setup-request";
 
 async function request(
   path: string,
@@ -40,9 +44,10 @@ export async function fetchMotivationRoleOptions(companyId: string, industryOver
 
 export async function startMotivationConversation(
   companyId: string,
-  payload: Record<string, JsonValue>,
+  payload: MotivationSetupRequestPayload,
 ) {
-  return postJson(`/api/motivation/${companyId}/conversation/start`, payload);
+  const jsonPayload: Record<string, JsonValue | undefined> = { ...payload };
+  return postJson(`/api/motivation/${companyId}/conversation/start`, jsonPayload);
 }
 
 export async function streamMotivationConversation(
@@ -62,9 +67,10 @@ export async function generateMotivationDraft(
 
 export async function generateMotivationDraftDirect(
   companyId: string,
-  payload: Record<string, JsonValue>,
+  payload: MotivationDraftDirectRequestPayload,
 ) {
-  return postJson(`/api/motivation/${companyId}/generate-draft-direct`, payload);
+  const jsonPayload: Record<string, JsonValue | undefined> = { ...payload };
+  return postJson(`/api/motivation/${companyId}/generate-draft-direct`, jsonPayload);
 }
 
 export async function saveMotivationDraft(companyId: string) {

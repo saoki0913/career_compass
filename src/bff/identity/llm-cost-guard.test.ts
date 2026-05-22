@@ -10,6 +10,10 @@ vi.mock("@/lib/credits/shared", () => ({
   getUserPlan: vi.fn(),
 }));
 
+vi.mock("@/lib/logger", () => ({
+  logError: vi.fn(),
+}));
+
 describe("guardDailyTokenLimit", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -32,7 +36,14 @@ describe("guardDailyTokenLimit", () => {
 
     expect(result).toBeNull();
     expect(credits.getUserPlan).toHaveBeenCalledWith("user-1");
-    expect(limits.checkDailyTokenLimit).toHaveBeenCalledWith(identity, "standard");
+    expect(limits.checkDailyTokenLimit).toHaveBeenCalledWith(
+      identity,
+      "standard",
+      expect.objectContaining({
+        identityKind: "user",
+        plan: "standard",
+      }),
+    );
   });
 
   it("uses guest plan without looking up user plan", async () => {
@@ -50,7 +61,14 @@ describe("guardDailyTokenLimit", () => {
 
     expect(result).toBeNull();
     expect(credits.getUserPlan).not.toHaveBeenCalled();
-    expect(limits.checkDailyTokenLimit).toHaveBeenCalledWith(identity, "guest");
+    expect(limits.checkDailyTokenLimit).toHaveBeenCalledWith(
+      identity,
+      "guest",
+      expect.objectContaining({
+        identityKind: "guest",
+        plan: "guest",
+      }),
+    );
   });
 
   it("passes through bypassed results", async () => {
@@ -132,5 +150,38 @@ describe("guardDailyTokenLimit", () => {
     });
     expect(body.code).toBeUndefined();
     expect(body.userMessage).toBeUndefined();
+  });
+
+  it("returns 503 before checking Redis when plan lookup fails", async () => {
+    const limits = await import("@/lib/llm-cost-limit");
+    const credits = await import("@/lib/credits/shared");
+    const logger = await import("@/lib/logger");
+    const { NextRequest } = await import("next/server");
+    vi.mocked(credits.getUserPlan).mockRejectedValue(new Error("plan db unavailable"));
+    const { guardDailyTokenLimit } = await import("./llm-cost-guard");
+    const request = new NextRequest("https://example.com/api/test", {
+      headers: { "x-request-id": "req-plan-fail" },
+    });
+
+    const result = await guardDailyTokenLimit(
+      { userId: "user-1", guestId: null },
+      request,
+      { feature: "interview_start" },
+    );
+    const body = await result?.json();
+
+    expect(result?.status).toBe(503);
+    expect(body.error.code).toBe("TOKEN_LIMIT_SERVICE_UNAVAILABLE");
+    expect(limits.checkDailyTokenLimit).not.toHaveBeenCalled();
+    expect(logger.logError).toHaveBeenCalledWith(
+      "daily_token_limit_plan_lookup_error",
+      expect.any(Error),
+      expect.objectContaining({
+        requestId: "req-plan-fail",
+        feature: "interview_start",
+        identityKind: "user",
+        decision: "blocked",
+      }),
+    );
   });
 });

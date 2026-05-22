@@ -92,7 +92,7 @@ export async function GET(
     const conversationContext = resolvedInputs.conversationContext;
     const setupComplete = isMotivationSetupComplete(
       conversationContext,
-      resolvedInputs.requiresIndustrySelection,
+      resolvedInputs.industryState,
     );
     const payload = buildMotivationConversationPayload({
       messages,
@@ -106,8 +106,7 @@ export async function GET(
       evidenceCards: evidenceCardsFromDb,
       coachingFocus: null,
       riskFlags: [],
-      resolvedIndustry: resolvedInputs.company.industry,
-      requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
+      industryState: resolvedInputs.industryState,
       isSetupComplete: setupComplete,
     });
 

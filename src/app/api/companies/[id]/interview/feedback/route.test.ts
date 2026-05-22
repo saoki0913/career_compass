@@ -94,6 +94,7 @@ describe("api/companies/[id]/interview/feedback", () => {
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
+    confirmReservationMock.mockResolvedValue({ confirmed: true });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );

@@ -161,6 +161,7 @@ describe("api/companies/[id]/interview/continue", () => {
     buildInterviewContextMock.mockResolvedValue(BASE_CONTEXT);
     normalizeInterviewPlanValueMock.mockImplementation((value: unknown) => value);
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-continue-1" });
+    confirmReservationMock.mockResolvedValue({ confirmed: true });
     createInterviewUpstreamStreamMock.mockReturnValue(
       new Response("data: ok\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }),
     );

@@ -33,10 +33,20 @@ describe("motivation client-api", () => {
   });
 
   it("startMotivationConversation sends POST with body", async () => {
-    await startMotivationConversation("c1", { key: "value" });
+    await startMotivationConversation("c1", {
+      selectedIndustry: "IT・通信",
+      selectedIndustrySource: "company_field",
+      selectedRole: "企画職",
+      roleSelectionSource: "industry_default",
+    });
     const opts = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(opts.method).toBe("POST");
-    expect(opts.body).toBe(JSON.stringify({ key: "value" }));
+    expect(opts.body).toBe(JSON.stringify({
+      selectedIndustry: "IT・通信",
+      selectedIndustrySource: "company_field",
+      selectedRole: "企画職",
+      roleSelectionSource: "industry_default",
+    }));
   });
 
   it("streamMotivationConversation passes signal", async () => {
@@ -53,7 +63,12 @@ describe("motivation client-api", () => {
   });
 
   it("generateMotivationDraftDirect sends POST", async () => {
-    await generateMotivationDraftDirect("c1", { direct: true });
+    await generateMotivationDraftDirect("c1", {
+      charLimit: 400,
+      selectedIndustry: "IT・通信",
+      selectedRole: "企画職",
+      roleSelectionSource: "custom",
+    });
     const opts = (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(opts.method).toBe("POST");
   });

@@ -14,6 +14,7 @@ import type { RequestIdentity } from "@/bff/identity/request-identity";
 import type { InternalCostTelemetry } from "@/lib/ai/cost-summary-log";
 import { getJstDateKey, startOfJstDayAsUtc } from "@/lib/datetime/jst";
 import { getRedis, redisKey } from "@/lib/redis";
+import { logError } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -97,6 +98,13 @@ export type DailyTokenLimitResult =
   | { status: "service_unavailable"; resetAtUtc: Date }
   | { status: "bypassed" };
 
+export type DailyTokenLimitLogContext = {
+  requestId?: string;
+  feature?: string;
+  identityKind?: "user" | "guest" | "anonymous";
+  plan?: string;
+};
+
 /**
  * Helper to check if a DailyTokenLimitResult permits proceeding.
  */
@@ -116,6 +124,7 @@ export function isTokenLimitOk(result: DailyTokenLimitResult): boolean {
 export async function checkDailyTokenLimit(
   identity: RequestIdentity,
   plan: string,
+  logContext: DailyTokenLimitLogContext = {},
 ): Promise<DailyTokenLimitResult> {
   const resetAtUtc = getNextJstMidnightUtc();
 
@@ -167,13 +176,15 @@ export async function checkDailyTokenLimit(
       resetAtUtc,
     };
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "daily_token_limit_check_error",
-        error: error instanceof Error ? error.message : String(error),
-      }),
-    );
-    if (!isStrictTokenLimitEnvironment()) {
+    const strict = isStrictTokenLimitEnvironment();
+    logError("daily_token_limit_check_error", error, {
+      requestId: logContext.requestId,
+      feature: logContext.feature,
+      identityKind: logContext.identityKind,
+      plan: logContext.plan ?? plan,
+      decision: strict ? "blocked" : "memory_fallback",
+    });
+    if (!strict) {
       const key = buildDailyTokenKey(id);
       const current = readMemoryTokenCount(key);
       const limit = DAILY_TOKEN_LIMITS[plan] ?? DAILY_TOKEN_LIMITS.free;

@@ -7,7 +7,6 @@
 
 import useSWR from "swr";
 import { parseApiErrorResponse, toAppUiError, toUserFacingError } from "@/lib/api-errors";
-import { notifySwrUserFacingFailure } from "@/lib/client-error-ui";
 import { buildAuthFetchHeaders } from "@/lib/swr-fetcher";
 
 const CREDITS_FETCH_FALLBACK = {
@@ -130,9 +129,8 @@ export function useCredits(opts: UseCreditsOptions = {}) {
       revalidateOnFocus: true,
       dedupingInterval: 3000,
       revalidateOnMount: !initialData,
-      onError(err, key) {
-        const ui = toAppUiError(err, CREDITS_FETCH_FALLBACK, "useCredits.swr");
-        notifySwrUserFacingFailure(ui, JSON.stringify(key));
+      onError(err) {
+        toAppUiError(err, CREDITS_FETCH_FALLBACK, "useCredits.swr");
       },
     }
   );

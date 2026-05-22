@@ -35,6 +35,12 @@ describe("useCredits auth gating", () => {
     expect(source).not.toContain("revalidateOnFocus: false");
   });
 
+  it("does not show global snackbars for shared credit fetch failures", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./useCredits.ts", import.meta.url), "utf8");
+    expect(source).not.toContain("notifySwrUserFacingFailure");
+  });
+
   it("uses server-provided initial data without waiting for a fetch", () => {
     const initialData = {
       type: "user" as const,

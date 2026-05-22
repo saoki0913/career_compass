@@ -104,8 +104,12 @@ describe("motivation conversation payload helpers", () => {
         },
       ],
       generatedDraft: null,
-      resolvedIndustry: "IT・通信",
-      requiresIndustrySelection: false,
+      industryState: {
+        kind: "resolved",
+        industry: "IT・通信",
+        source: "company_field",
+        industryOptions: ["IT・通信"],
+      },
     });
 
     expect(payload.nextQuestion).toBe("株式会社テストのどこに魅力を感じますか？");

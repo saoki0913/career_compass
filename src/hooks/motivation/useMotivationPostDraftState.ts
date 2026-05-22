@@ -18,6 +18,11 @@ import type {
 } from "@/features/motivation/domain/ui";
 import type { MotivationConversationPayload } from "@/lib/motivation/conversation-payload";
 import {
+  isMotivationSetupReady,
+  selectIndustryStateFromRoleOptions,
+  toRequestIndustry,
+} from "@/lib/motivation/industry-resolution";
+import {
   notifyError,
   notifyInfo,
   notifyMotivationDraftGenerated,
@@ -75,21 +80,25 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
       let response: Response;
       if (shouldUseDirectRegeneration) {
         const trimmedRole = deps.selectedRoleName.trim();
-        const requiresIndustrySelection = Boolean(deps.roleOptionsData?.requiresIndustrySelection);
-        const resolvedIndustry =
-          deps.selectedIndustry || deps.roleOptionsData?.industry || deps.setupSnapshot?.resolvedIndustry || "";
+        const industryState = selectIndustryStateFromRoleOptions({
+          companyName: deps.roleOptionsData?.companyName ?? null,
+          companyIndustry: null,
+          roleOptionsData: deps.roleOptionsData,
+          setupSnapshot: deps.setupSnapshot,
+          userSelectedIndustry: deps.selectedIndustry,
+        });
 
-        if (!trimmedRole || (requiresIndustrySelection && !resolvedIndustry)) {
+        if (!isMotivationSetupReady(industryState, trimmedRole)) {
           notifyError({ title: "先に業界と職種の設定を完了してください" });
           return;
         }
 
         response = await generateMotivationDraftDirect(deps.companyId, {
           charLimit,
-          selectedIndustry: requiresIndustrySelection ? resolvedIndustry : null,
+          selectedIndustry: toRequestIndustry(industryState),
+          selectedIndustrySource: industryState.kind === "resolved" ? industryState.source : null,
           selectedRole: trimmedRole,
-          roleSelectionSource:
-            deps.roleSelectionSource === "custom" ? "user_free_text" : deps.roleSelectionSource,
+          roleSelectionSource: deps.roleSelectionSource,
         });
       } else {
         response = await generateMotivationDraft(deps.companyId, { charLimit });
@@ -156,11 +165,15 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
     if (isGeneratingDraft || deps.isStartingConversation || deps.isSending || deps.isLocked) return;
 
     const trimmedRole = deps.selectedRoleName.trim();
-    const requiresIndustrySelection = Boolean(deps.roleOptionsData?.requiresIndustrySelection);
-    const resolvedIndustry =
-      deps.selectedIndustry || deps.roleOptionsData?.industry || deps.setupSnapshot?.resolvedIndustry || "";
+    const industryState = selectIndustryStateFromRoleOptions({
+      companyName: deps.roleOptionsData?.companyName ?? null,
+      companyIndustry: null,
+      roleOptionsData: deps.roleOptionsData,
+      setupSnapshot: deps.setupSnapshot,
+      userSelectedIndustry: deps.selectedIndustry,
+    });
 
-    if (!trimmedRole || (requiresIndustrySelection && !resolvedIndustry)) {
+    if (!isMotivationSetupReady(industryState, trimmedRole)) {
       notifyError({ title: "先に業界と職種の設定を完了してください" });
       return;
     }
@@ -175,10 +188,10 @@ export function useMotivationPostDraftState(deps: PostDraftDeps) {
     try {
       const response = await generateMotivationDraftDirect(deps.companyId, {
         charLimit,
-        selectedIndustry: requiresIndustrySelection ? resolvedIndustry : null,
+        selectedIndustry: toRequestIndustry(industryState),
+        selectedIndustrySource: industryState.kind === "resolved" ? industryState.source : null,
         selectedRole: trimmedRole,
-        roleSelectionSource:
-          deps.roleSelectionSource === "custom" ? "user_free_text" : deps.roleSelectionSource,
+        roleSelectionSource: deps.roleSelectionSource,
       });
 
       if (!response.ok) {

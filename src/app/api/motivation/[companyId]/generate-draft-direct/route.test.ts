@@ -184,7 +184,12 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
     ]);
     fetchMotivationApplicationJobCandidatesMock.mockResolvedValue(["企画職"]);
     resolveMotivationInputsMock.mockReturnValue({
-      requiresIndustrySelection: false,
+      industryState: {
+        kind: "resolved",
+        industry: "IT",
+        source: "company_field",
+        industryOptions: ["IT"],
+      },
       company: { industry: "IT" },
       conversationContext: { selectedIndustrySource: "company_field" },
       companyRoleCandidates: ["企画職"],
@@ -219,7 +224,7 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
     const response = await POST(
       new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft-direct", {
         method: "POST",
-        body: JSON.stringify({ charLimit: 400, selectedRole: "企画職" }),
+        body: JSON.stringify({ charLimit: 400, selectedIndustry: null, selectedRole: "企画職" }),
         headers: { "content-type": "application/json" },
       }),
       { params: Promise.resolve({ companyId: "company-1" }) },
@@ -284,7 +289,7 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
     const response = await POST(
       new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft-direct", {
         method: "POST",
-        body: JSON.stringify({ charLimit: 400, selectedRole: "企画職" }),
+        body: JSON.stringify({ charLimit: 400, selectedIndustry: null, selectedRole: "企画職" }),
         headers: { "content-type": "application/json" },
       }),
       { params: Promise.resolve({ companyId: "company-1" }) },
@@ -305,7 +310,7 @@ describe("api/motivation/[companyId]/generate-draft-direct", () => {
     const response = await POST(
       new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft-direct", {
         method: "POST",
-        body: JSON.stringify({ charLimit: 400, selectedRole: "企画職" }),
+        body: JSON.stringify({ charLimit: 400, selectedIndustry: null, selectedRole: "企画職" }),
         headers: { "content-type": "application/json" },
       }),
       { params: Promise.resolve({ companyId: "company-1" }) },

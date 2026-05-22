@@ -275,6 +275,161 @@ test.describe("Motivation page (mock authenticated)", () => {
     await expect(page.getByText("企業志望理由を整理中").first()).toBeVisible();
   });
 
+  test("sends resolved selected industry when broad company industry requires selection", async ({ page }) => {
+    let startBody: Record<string, unknown> | null = null;
+
+    await page.unroute(`**/api/companies/${COMPANY_ID}`);
+    await page.route(`**/api/companies/${COMPANY_ID}`, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          company: {
+            id: COMPANY_ID,
+            name: "株式会社テスト銀行",
+            industry: "金融・保険",
+          },
+        }),
+      });
+    });
+
+    await page.unroute(`**/api/companies/${COMPANY_ID}/es-role-options**`);
+    await page.route(`**/api/companies/${COMPANY_ID}/es-role-options**`, async (route) => {
+      const url = new URL(route.request().url());
+      const selectedIndustry = url.searchParams.get("industry");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companyId: COMPANY_ID,
+          companyName: "株式会社テスト銀行",
+          industry: selectedIndustry === "銀行" ? "銀行" : null,
+          requiresIndustrySelection: selectedIndustry !== "銀行",
+          industryOptions: ["銀行", "証券"],
+          roleGroups:
+            selectedIndustry === "銀行"
+              ? [
+                  {
+                    id: "default",
+                    label: "職種候補",
+                    options: [
+                      {
+                        value: "企画職",
+                        label: "企画職",
+                        source: "industry_default",
+                      },
+                    ],
+                  },
+                ]
+              : [],
+        }),
+      });
+    });
+
+    await page.unroute(`**/api/motivation/${COMPANY_ID}/conversation`);
+    await page.route(`**/api/motivation/${COMPANY_ID}/conversation`, async (route) => {
+      if (route.request().method() !== "GET") {
+        return route.continue();
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          messages: [],
+          nextQuestion: null,
+          questionCount: 0,
+          isDraftReady: false,
+          generatedDraft: null,
+          scores: null,
+          conversationMode: "slot_fill",
+          progress: null,
+          currentSlot: null,
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          causalGaps: [],
+          evidenceSummary: null,
+          evidenceCards: [],
+          questionStage: "industry_reason",
+          stageStatus: null,
+          coachingFocus: null,
+          conversationContext: {},
+          setup: {
+            selectedIndustry: null,
+            selectedRole: null,
+            selectedRoleSource: null,
+            requiresIndustrySelection: true,
+            resolvedIndustry: null,
+            isComplete: false,
+            requiresRestart: false,
+            hasSavedConversation: false,
+          },
+        }),
+      });
+    });
+
+    await page.route(`**/api/motivation/${COMPANY_ID}/conversation/start`, async (route) => {
+      startBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          messages: [
+            {
+              id: "assistant-1",
+              role: "assistant",
+              content: "銀行業界を志望する理由を教えてください。",
+            },
+          ],
+          nextQuestion: "銀行業界を志望する理由を教えてください。",
+          questionCount: 0,
+          isDraftReady: false,
+          generatedDraft: null,
+          scores: null,
+          conversationMode: "slot_fill",
+          progress: null,
+          currentSlot: "industry_reason",
+          currentIntent: null,
+          nextAdvanceCondition: null,
+          causalGaps: [],
+          evidenceSummary: null,
+          evidenceCards: [],
+          questionStage: "industry_reason",
+          stageStatus: null,
+          coachingFocus: null,
+          conversationContext: {
+            selectedIndustry: "銀行",
+            selectedRole: "企画職",
+            selectedRoleSource: "industry_default",
+          },
+          setup: {
+            selectedIndustry: "銀行",
+            selectedRole: "企画職",
+            selectedRoleSource: "industry_default",
+            requiresIndustrySelection: false,
+            resolvedIndustry: "銀行",
+            isComplete: true,
+            requiresRestart: false,
+            hasSavedConversation: true,
+          },
+        }),
+      });
+    });
+
+    await page.goto(`/companies/${COMPANY_ID}/motivation`);
+    await page.getByRole("combobox").first().click();
+    await page.getByRole("option", { name: "銀行" }).click();
+    await page.getByRole("combobox").nth(1).click();
+    await page.getByRole("option", { name: "企画職" }).click();
+    await page.getByRole("button", { name: "質問を始める" }).click();
+
+    await expect.poll(() => startBody).toMatchObject({
+      selectedIndustry: "銀行",
+      selectedIndustrySource: "user_selected",
+      selectedRole: "企画職",
+      roleSelectionSource: "industry_default",
+    });
+  });
+
   test("refetches conversation after stream failure instead of restoring stale state", async ({
     page,
   }) => {

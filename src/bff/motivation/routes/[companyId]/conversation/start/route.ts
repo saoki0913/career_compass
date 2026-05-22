@@ -48,6 +48,11 @@ import {
   type MotivationEvidenceCard as EvidenceCard,
 } from "@/lib/motivation/motivation-input-resolver";
 import { buildMotivationConversationPayload } from "@/lib/motivation/conversation-payload";
+import type { ResolvedIndustryState } from "@/lib/motivation/industry-resolution";
+import {
+  motivationSetupRequestSchema,
+  toMotivationRoleContextSource,
+} from "@/shared/contracts/motivation/setup-request";
 import { logError } from "@/lib/logger";
 
 function resolveSafeMotivationStartError(raw: string | null | undefined): {
@@ -146,8 +151,7 @@ async function getQuestionFromFastAPI(
   profileContext: ProfileContext | null,
   applicationJobCandidates: string[],
   companyRoleCandidates: string[],
-  requiresIndustrySelection: boolean,
-  industryOptions: string[],
+  industryState: ResolvedIndustryState,
   principal: CreateCareerPrincipalInput,
 ): Promise<{
   question: string | null;
@@ -196,8 +200,8 @@ async function getQuestionFromFastAPI(
         application_job_candidates: applicationJobCandidates.length > 0 ? applicationJobCandidates : null,
         company_role_candidates: companyRoleCandidates.length > 0 ? companyRoleCandidates : null,
         company_work_candidates: conversationContext.companyWorkCandidates.length > 0 ? conversationContext.companyWorkCandidates : null,
-        requires_industry_selection: requiresIndustrySelection,
-        industry_options: industryOptions.length > 0 ? industryOptions : null,
+        requires_industry_selection: industryState.kind === "requires_selection",
+        industry_options: industryState.industryOptions.length > 0 ? industryState.industryOptions : null,
       }),
       signal: controller.signal,
     });
@@ -317,9 +321,17 @@ export async function POST(
     }
 
     const body = await request.json().catch(() => null);
-    const selectedIndustry = typeof body?.selectedIndustry === "string" ? body.selectedIndustry.trim() : "";
-    const selectedRole = typeof body?.selectedRole === "string" ? body.selectedRole.trim() : "";
-    const roleSelectionSource = typeof body?.roleSelectionSource === "string" ? body.roleSelectionSource.trim() : null;
+    const parsedBody = motivationSetupRequestSchema.safeParse(body);
+    if (!parsedBody.success) {
+      return NextResponse.json({ error: "入力内容を確認してください" }, { status: 400 });
+    }
+    const {
+      selectedIndustry,
+      selectedIndustrySource,
+      selectedRole,
+      roleSelectionSource,
+    } = parsedBody.data;
+    const roleContextSource = toMotivationRoleContextSource(roleSelectionSource);
 
     if (!selectedRole) {
       return NextResponse.json({ error: "志望職種を選択してください" }, { status: 400 });
@@ -347,10 +359,10 @@ export async function POST(
     const existingContext = parseConversationContext(conversation.conversationContext);
     const setupContext: MotivationConversationContext = {
       ...existingContext,
-      selectedIndustry: selectedIndustry || existingContext.selectedIndustry,
+      selectedIndustry: selectedIndustry ?? existingContext.selectedIndustry,
       selectedIndustrySource:
         selectedIndustry
-          ? "user_selected"
+          ? selectedIndustrySource ?? "user_selected"
           : existingContext.selectedIndustrySource,
       selectedRole,
       selectedRoleSource: existingContext.selectedRoleSource,
@@ -367,10 +379,10 @@ export async function POST(
       profileContext,
       applicationJobCandidates,
       resolvedInputs.companyRoleCandidates,
-      roleSelectionSource,
+      roleContextSource,
     );
 
-    if (!isMotivationSetupComplete(resolvedInputs.conversationContext, resolvedInputs.requiresIndustrySelection)) {
+    if (!isMotivationSetupComplete(resolvedInputs.conversationContext, resolvedInputs.industryState)) {
       return NextResponse.json({ error: "先に業界・職種の設定を完了してください" }, { status: 400 });
     }
 
@@ -384,8 +396,7 @@ export async function POST(
       profileContext,
       applicationJobCandidates,
       resolvedInputs.companyRoleCandidates,
-      resolvedInputs.requiresIndustrySelection,
-      resolvedInputs.industryOptions,
+      resolvedInputs.industryState,
       {
         scope: "ai-stream",
         actor: userId ? { kind: "user", id: userId } : { kind: "guest", id: guestId! },
@@ -492,8 +503,7 @@ export async function POST(
       nextAdvanceCondition: result.nextAdvanceCondition,
       progress: result.progress,
       causalGaps: result.causalGaps,
-      resolvedIndustry: resolvedInputs.company.industry,
-      requiresIndustrySelection: resolvedInputs.requiresIndustrySelection,
+      industryState: resolvedInputs.industryState,
       isSetupComplete: true,
     });
 

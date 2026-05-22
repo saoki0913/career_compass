@@ -167,31 +167,6 @@ export async function PUT(
     }
 
     if (content !== undefined) {
-      // Save version before updating (if content changed significantly)
-      const oldContent = docRow.content;
-      if (oldContent && oldContent !== JSON.stringify(content)) {
-        await db.insert(documentVersions).values({
-          id: crypto.randomUUID(),
-          documentId,
-          content: oldContent,
-          createdAt: new Date(),
-        });
-
-        // Keep only last 5 versions
-        const versions = await db
-          .select()
-          .from(documentVersions)
-          .where(eq(documentVersions.documentId, documentId))
-          .orderBy(documentVersions.createdAt);
-
-        if (versions.length > 5) {
-          const toDelete = versions.slice(0, versions.length - 5);
-          for (const v of toDelete) {
-            await db.delete(documentVersions).where(eq(documentVersions.id, v.id));
-          }
-        }
-      }
-
       updateData.content = JSON.stringify(content);
     }
 
@@ -289,13 +264,65 @@ export async function PUT(
       updateData.esCategory = parsed.data;
     }
 
-    const updated = await db
-      .update(documents)
-      .set(updateData)
-      .where(buildOwnedRowCondition(eq(documents.id, documentId), documents, identity)!)
-      .returning();
+    const updateCondition = buildOwnedRowCondition(eq(documents.id, documentId), documents, identity);
+    if (!updateCondition) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DOCUMENT_UPDATE_NOT_FOUND",
+        userMessage: "更新対象のドキュメントが見つかりませんでした。",
+        action: "一覧に戻って、対象のドキュメントを選び直してください。",
+        developerMessage: "Document owner condition could not be built",
+        logContext: "document-update-not-found",
+      });
+    }
 
-    if (!updated[0]) {
+    const updatedDoc = await db.transaction(async (tx) => {
+      const [lockedDoc] = await tx
+        .select()
+        .from(documents)
+        .where(updateCondition)
+        .limit(1)
+        .for("update");
+
+      if (!lockedDoc) {
+        return null;
+      }
+
+      if (content !== undefined) {
+        const oldContent = lockedDoc.content;
+        if (oldContent && oldContent !== updateData.content) {
+          await tx.insert(documentVersions).values({
+            id: crypto.randomUUID(),
+            documentId,
+            content: oldContent,
+            createdAt: new Date(),
+          });
+
+          const versions = await tx
+            .select()
+            .from(documentVersions)
+            .where(eq(documentVersions.documentId, documentId))
+            .orderBy(documentVersions.createdAt);
+
+          if (versions.length > 5) {
+            const toDelete = versions.slice(0, versions.length - 5);
+            for (const v of toDelete) {
+              await tx.delete(documentVersions).where(eq(documentVersions.id, v.id));
+            }
+          }
+        }
+      }
+
+      const updated = await tx
+        .update(documents)
+        .set(updateData)
+        .where(updateCondition)
+        .returning();
+
+      return updated[0] ?? null;
+    });
+
+    if (!updatedDoc) {
       return createApiErrorResponse(request, {
         status: 404,
         code: "DOCUMENT_UPDATE_NOT_FOUND",
@@ -307,7 +334,7 @@ export async function PUT(
     }
 
     return NextResponse.json({
-      document: await buildDocumentResponse(updated[0], identity),
+      document: await buildDocumentResponse(updatedDoc, identity),
     });
   } catch (error) {
     return createApiErrorResponse(request, {
@@ -356,6 +383,18 @@ export async function DELETE(
     }
 
     // Soft delete - move to trash
+    const deleteCondition = buildOwnedRowCondition(eq(documents.id, documentId), documents, identity);
+    if (!deleteCondition) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DOCUMENT_DELETE_NOT_FOUND",
+        userMessage: "削除対象のドキュメントが見つかりませんでした。",
+        action: "一覧に戻って、対象のドキュメントを選び直してください。",
+        developerMessage: "Document owner condition could not be built",
+        logContext: "document-delete-not-found",
+      });
+    }
+
     const deleted = await db
       .update(documents)
       .set({
@@ -363,7 +402,7 @@ export async function DELETE(
         deletedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(buildOwnedRowCondition(eq(documents.id, documentId), documents, identity)!)
+      .where(deleteCondition)
       .returning({ id: documents.id });
 
     if (!deleted[0]) {

@@ -26,6 +26,54 @@ import type {
   InterviewSetupState,
 } from "@/lib/interview/types";
 
+export type InterviewContextFeedbackHistoryRow = Pick<
+  typeof interviewFeedbackHistories.$inferSelect,
+  | "id"
+  | "overallComment"
+  | "scores"
+  | "strengths"
+  | "improvements"
+  | "consistencyRisks"
+  | "weakestQuestionType"
+  | "weakestTurnId"
+  | "weakestQuestionSnapshot"
+  | "weakestAnswerSnapshot"
+  | "improvedAnswer"
+  | "preparationPoints"
+  | "premiseConsistency"
+  | "satisfactionScore"
+  | "scoreEvidenceByAxis"
+  | "scoreRationaleByAxis"
+  | "confidenceByAxis"
+  | "sourceQuestionCount"
+  | "createdAt"
+>;
+
+export type InterviewContextConversationRow = Pick<
+  typeof interviewConversations.$inferSelect,
+  | "id"
+  | "status"
+  | "messages"
+  | "currentStage"
+  | "questionCount"
+  | "completedStages"
+  | "lastQuestionFocus"
+  | "questionFlowCompleted"
+  | "selectedIndustry"
+  | "selectedRole"
+  | "selectedRoleSource"
+  | "roleTrack"
+  | "interviewFormat"
+  | "selectionType"
+  | "interviewStage"
+  | "interviewerType"
+  | "strictnessMode"
+  | "interviewPlanJson"
+  | "turnStateJson"
+  | "turnMetaJson"
+  | "activeFeedbackDraft"
+>;
+
 function parseStringArrayMap(value: unknown): Record<string, string[]> {
   if (!value || typeof value !== "object") return {};
   const result: Record<string, string[]> = {};
@@ -49,7 +97,7 @@ function parseStringMap(value: unknown): Record<string, string> {
 }
 
 export function toFeedbackHistoryItem(
-  row: typeof interviewFeedbackHistories.$inferSelect,
+  row: InterviewContextFeedbackHistoryRow,
 ): InterviewFeedbackHistoryItem {
   return {
     id: row.id,
@@ -75,7 +123,7 @@ export function toFeedbackHistoryItem(
 }
 
 export function hydrateInterviewConversation(
-  activeConversation: typeof interviewConversations.$inferSelect | null,
+  activeConversation: InterviewContextConversationRow | null,
   setup: InterviewSetupState,
 ): HydratedInterviewConversation | null {
   if (!activeConversation) return null;

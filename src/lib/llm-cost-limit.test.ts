@@ -20,6 +20,10 @@ vi.mock("@upstash/redis", () => ({
   },
 }));
 
+vi.mock("@/lib/logger", () => ({
+  logError: vi.fn(),
+}));
+
 vi.mock("@/lib/redis", async () => {
   const { Redis } = await import("@upstash/redis");
   let _redis: InstanceType<typeof Redis> | null = null;
@@ -209,10 +213,26 @@ describe("llm-cost-limit", () => {
     process.env.APP_ENV = "production";
     process.env.NEXT_PUBLIC_APP_ENV = "production";
     getMock.mockRejectedValue(new Error("connection refused"));
+    const logger = await import("@/lib/logger");
     const { checkDailyTokenLimit, isTokenLimitOk } = await import("@/lib/llm-cost-limit");
-    const result = await checkDailyTokenLimit({ userId: "u1", guestId: null }, "free");
+    const result = await checkDailyTokenLimit(
+      { userId: "u1", guestId: null },
+      "free",
+      { requestId: "req-redis", feature: "interview_start", identityKind: "user", plan: "free" },
+    );
     expect(result.status).toBe("service_unavailable");
     expect(isTokenLimitOk(result)).toBe(false);
+    expect(logger.logError).toHaveBeenCalledWith(
+      "daily_token_limit_check_error",
+      expect.any(Error),
+      expect.objectContaining({
+        requestId: "req-redis",
+        feature: "interview_start",
+        identityKind: "user",
+        plan: "free",
+        decision: "blocked",
+      }),
+    );
   });
 
   // -----------------------------------------------------------------------

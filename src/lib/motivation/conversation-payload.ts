@@ -10,6 +10,10 @@ import {
   type MotivationStage,
   type StageStatus,
 } from "./conversation";
+import {
+  isMotivationSetupReady,
+  type ResolvedIndustryState,
+} from "./industry-resolution";
 
 export type MotivationConversationMode = NonNullable<MotivationConversationContext["conversationMode"]>;
 
@@ -172,28 +176,26 @@ export function buildMotivationUserEvidenceCards(
 
 export function buildMotivationSetupSnapshot(args: {
   conversationContext: MotivationConversationContext;
-  resolvedIndustry: string | null;
-  requiresIndustrySelection: boolean;
+  industryState: ResolvedIndustryState;
   isDraftReady: boolean;
   messages: Message[];
   questionCount: number;
   isComplete?: boolean;
   requiresRestart?: boolean;
 }): MotivationSetupSnapshot {
-  const hasIndustry = Boolean(
-    args.conversationContext.selectedIndustry || args.resolvedIndustry,
-  );
-  const hasRole = Boolean(args.conversationContext.selectedRole);
+  const resolvedIndustry =
+    args.industryState.kind === "resolved" ? args.industryState.industry : null;
+  const requiresIndustrySelection = args.industryState.kind === "requires_selection";
 
   return {
-    selectedIndustry: args.conversationContext.selectedIndustry || args.resolvedIndustry,
+    selectedIndustry: args.conversationContext.selectedIndustry || resolvedIndustry,
     selectedRole: args.conversationContext.selectedRole || null,
     selectedRoleSource: args.conversationContext.selectedRoleSource || null,
-    requiresIndustrySelection: args.requiresIndustrySelection,
-    resolvedIndustry: args.resolvedIndustry,
+    requiresIndustrySelection,
+    resolvedIndustry,
     isComplete:
       args.isComplete ??
-      (hasRole && (!args.requiresIndustrySelection || hasIndustry)),
+      isMotivationSetupReady(args.industryState, args.conversationContext.selectedRole),
     requiresRestart: args.requiresRestart ?? false,
     hasSavedConversation:
       args.questionCount > 0 || args.messages.length > 0 || args.isDraftReady,
@@ -220,8 +222,7 @@ export function buildMotivationConversationPayload(args: {
   nextAdvanceCondition?: string | null;
   progress?: MotivationProgress | null;
   causalGaps?: CausalGap[];
-  resolvedIndustry: string | null;
-  requiresIndustrySelection: boolean;
+  industryState: ResolvedIndustryState;
   isSetupComplete?: boolean;
   nextQuestion?: string | null;
   error?: string | null;
@@ -275,17 +276,13 @@ export function buildMotivationConversationPayload(args: {
     conversationContext: args.conversationContext,
     setup: buildMotivationSetupSnapshot({
       conversationContext: args.conversationContext,
-      resolvedIndustry: args.resolvedIndustry,
-        requiresIndustrySelection: args.requiresIndustrySelection,
-        isDraftReady: args.isDraftReady,
-        messages: args.messages,
-        questionCount: args.questionCount,
-        isComplete:
-          args.isSetupComplete ??
-          Boolean(
-            args.conversationContext.selectedRole &&
-              (!args.requiresIndustrySelection || args.conversationContext.selectedIndustry || args.resolvedIndustry),
-          ),
+      industryState: args.industryState,
+      isDraftReady: args.isDraftReady,
+      messages: args.messages,
+      questionCount: args.questionCount,
+      isComplete:
+        args.isSetupComplete ??
+        isMotivationSetupReady(args.industryState, args.conversationContext.selectedRole),
     }),
     error: args.error ?? null,
   };

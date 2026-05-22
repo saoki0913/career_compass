@@ -431,6 +431,16 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       });
     }
 
+    const deadlineCondition = buildOwnedDeadlineCondition(deadlineId, identity);
+    if (!deadlineCondition) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "DEADLINE_NOT_FOUND",
+        userMessage: "締切が見つかりませんでした。",
+        logContext: "deadline-delete-not-found",
+      });
+    }
+
     let calendarSync: ImmediateSyncResult | undefined;
     if (identity.userId) {
       calendarSync = await syncDeadlineDeleteImmediately(identity.userId, deadlineId);
@@ -449,7 +459,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const deleted = await db
       .delete(deadlines)
-      .where(buildOwnedDeadlineCondition(deadlineId, identity)!)
+      .where(deadlineCondition)
       .returning({ id: deadlines.id });
 
     if (!deleted[0]) {

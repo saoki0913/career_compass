@@ -201,7 +201,12 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     safeParseScoresMock.mockReturnValue(null);
     resolveDraftReadyStateMock.mockReturnValue({ isDraftReady: true, unlockedAt: null });
     resolveMotivationInputsMock.mockReturnValue({
-      requiresIndustrySelection: false,
+      industryState: {
+        kind: "resolved",
+        industry: "IT",
+        source: "company_field",
+        industryOptions: ["IT"],
+      },
       company: { industry: "IT" },
       conversationContext: {
         selectedIndustrySource: "company_field",
@@ -237,7 +242,7 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
         selectedRole: null,
         selectedRoleSource: null,
         requiresIndustrySelection: false,
-        resolvedIndustry: args?.resolvedIndustry ?? null,
+        resolvedIndustry: args?.industryState?.kind === "resolved" ? args.industryState.industry : null,
         isComplete: args?.isSetupComplete ?? false,
         hasSavedConversation: true,
         requiresRestart: false,

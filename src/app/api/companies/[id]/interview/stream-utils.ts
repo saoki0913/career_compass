@@ -16,6 +16,7 @@ import type {
 } from "./stream-shared";
 import { computeTotalTokens, incrementDailyTokenCount } from "@/lib/llm-cost-limit";
 import { getViewerPlan } from "@/lib/server/loader-helpers";
+import { logError } from "@/lib/logger";
 import {
   INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,
   normalizeInterviewPersistenceError,
@@ -27,6 +28,14 @@ export {
   type InterviewClientCompleteData,
   type UpstreamCompleteData,
 } from "./stream-shared";
+
+function getSafeUpstreamErrorSummary(data: unknown): string | undefined {
+  if (!data || typeof data !== "object") return undefined;
+  const detail = (data as { detail?: unknown }).detail;
+  if (typeof detail !== "string") return undefined;
+  const trimmed = detail.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 300) : undefined;
+}
 
 export async function createInterviewUpstreamStream(options: {
   request: NextRequest;
@@ -80,13 +89,19 @@ export async function createInterviewUpstreamStream(options: {
     clearUpstreamTimeout();
     await options.onError?.();
     const data = await upstreamResponse.json().catch(() => null);
+    const requestId = options.request.headers.get("x-request-id") ?? "";
+    logError("interview-upstream-failed", new Error("Interview upstream returned a non-2xx response"), {
+      requestId,
+      feature: "interview",
+      companyId: options.companyId,
+      upstreamPath: options.upstreamPath,
+      upstreamStatus: upstreamResponse.status,
+      upstreamDetail: getSafeUpstreamErrorSummary(data),
+    });
     return createApiErrorResponse(options.request, {
       status: upstreamResponse.status,
       code: "INTERVIEW_UPSTREAM_FAILED",
-      userMessage:
-        typeof data?.detail === "string"
-          ? data.detail
-          : "面接対策の応答生成に失敗しました。",
+      userMessage: "面接対策の応答生成に失敗しました。",
       action: "時間をおいて、もう一度お試しください。",
     });
   }

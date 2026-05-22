@@ -386,8 +386,8 @@ BFF (`src/bff/motivation/`) は以下の責務を持つ:
 
 ### 7.1 setup -> start -> stream -> generate-draft
 
-1. **setup**: ページ遷移時に業界・職種を確定。setup は `MotivationSetupPanel` でチャット面に直接表示する
-2. **start**: `POST /api/motivation/[companyId]/conversation/start` で setup を保存し、初回質問を生成・保存
+1. **setup**: ページ遷移時に業界・職種を確定。業界解決は `src/lib/motivation/industry-resolution.ts` の `ResolvedIndustryState` を単一の真実にし、`MotivationSetupPanel` でチャット面に直接表示する
+2. **start**: `POST /api/motivation/[companyId]/conversation/start` で setup を保存し、初回質問を生成・保存。フロントは `toRequestIndustry()` で解決済み業界を必ず送る。職種の選択元は UI source と保存用 source を分け、API 境界で保存用 source に変換する
 3. **stream**: `POST /api/motivation/[companyId]/conversation/stream` で回答送信。FastAPI SSE を consume-and-re-emit し、保存とクレジット消費をここで行う
 4. **generate-draft**: `POST /api/motivation/[companyId]/generate-draft` で 300/400/500 字の ES 下書きを生成。`documents` に draft ES を作成し、`draftDocumentId` に保持する
 
@@ -405,6 +405,7 @@ BFF (`src/bff/motivation/`) は以下の責務を持つ:
 |---|---|---|
 | BFF | 未認証 / ゲスト | 401 |
 | BFF | クレジット不足 | 402 |
+| BFF | 業界・職種 setup 未完了 | 400 |
 | BFF | rate limit 超過 | 429 |
 | Backend | 企業名未指定 | SSE error |
 | Backend | LLM 呼び出し失敗 (provider) | 503 + `question_provider_failure` |
@@ -482,7 +483,9 @@ ES 生成成功後のフロー:
 |---|---|---|
 | `conversationMode` | `"slot_fill"` / `"deepdive"` | 現在の会話モード |
 | `selectedIndustry` | string / null | 確定業界 |
+| `selectedIndustrySource` | `"company_field"` / `"company_override"` / `"user_selected"` / null | 確定業界の解決元。BFF の `ResolvedIndustryState` から設定する |
 | `selectedRole` | string / null | 確定職種 |
+| `selectedRoleSource` | `"profile"` / `"company_doc"` / `"application_job_type"` / `"user_free_text"` / null | 保存用の職種解決元。`industry_default` などの UI source は API 境界で変換する |
 | `industryReason` | string / null | 業界志望理由テキスト |
 | `companyReason` | string / null | 企業志望理由テキスト |
 | `selfConnection` | string / null | 自分との接続テキスト |

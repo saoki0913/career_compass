@@ -8,4 +8,15 @@ describe("bff/motivation/conversation/start/route", () => {
     expect(source).toContain('logError("motivation-conversation:consume-credits"');
     expect(source).not.toMatch(/console\.error\(/);
   });
+
+  it("uses the motivation setup contract and industryState for setup readiness", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./route.ts", import.meta.url), "utf8");
+
+    expect(source).toContain("motivationSetupRequestSchema.safeParse");
+    expect(source).toContain("resolvedInputs.industryState");
+    expect(source).toContain('selectedIndustrySource ?? "user_selected"');
+    expect(source).not.toContain("resolvedInputs.requiresIndustrySelection");
+    expect(source).not.toContain("resolvedInputs.industryOptions");
+  });
 });

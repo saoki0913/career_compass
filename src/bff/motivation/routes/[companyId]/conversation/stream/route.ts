@@ -101,7 +101,7 @@ export const POST = createConversationStreamHandler<MotivationStreamContext>({
     if (
       !isMotivationSetupComplete(
         resolvedInputs.conversationContext,
-        resolvedInputs.requiresIndustrySelection,
+        resolvedInputs.industryState,
       )
     ) {
       return createApiErrorResponse(request, {

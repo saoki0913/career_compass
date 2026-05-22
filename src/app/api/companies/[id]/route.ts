@@ -202,10 +202,22 @@ export async function PUT(
     if (sortOrder !== undefined) updateData.sortOrder = sortOrder;
     if (isPinned !== undefined) updateData.isPinned = isPinned;
 
+    const updateCondition = buildOwnedRowCondition(eq(companies.id, id), companies, identity);
+    if (!updateCondition) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_UPDATE_NOT_FOUND",
+        userMessage: "更新対象の企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company owner condition could not be built",
+        logContext: "update-company-not-found",
+      });
+    }
+
     const updated = await db
       .update(companies)
       .set(updateData)
-      .where(buildOwnedRowCondition(eq(companies.id, id), companies, identity)!)
+      .where(updateCondition)
       .returning();
 
     if (!updated[0]) {
@@ -272,9 +284,21 @@ export async function DELETE(
     }
 
     // Delete company (deadlines will cascade delete due to schema)
+    const deleteCondition = buildOwnedRowCondition(eq(companies.id, id), companies, identity);
+    if (!deleteCondition) {
+      return createApiErrorResponse(request, {
+        status: 404,
+        code: "COMPANY_DELETE_NOT_FOUND",
+        userMessage: "削除対象の企業が見つかりませんでした。",
+        action: "一覧に戻って、対象の企業を選び直してください。",
+        developerMessage: "Company owner condition could not be built",
+        logContext: "delete-company-not-found",
+      });
+    }
+
     const deleted = await db
       .delete(companies)
-      .where(buildOwnedRowCondition(eq(companies.id, id), companies, identity)!)
+      .where(deleteCondition)
       .returning({ id: companies.id });
 
     if (!deleted[0]) {

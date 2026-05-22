@@ -12,6 +12,10 @@ import {
   jobTypes,
   motivationConversations,
 } from "@/lib/db/schema";
+import type {
+  InterviewContextConversationRow,
+  InterviewContextFeedbackHistoryRow,
+} from "@/lib/interview/context-builder-hydration";
 import { normalizeInterviewPersistenceError } from "@/lib/interview/persistence-errors";
 
 export type InterviewApplicationContext = {
@@ -20,8 +24,8 @@ export type InterviewApplicationContext = {
 };
 
 export type InterviewPersistenceRows = {
-  activeConversation: typeof interviewConversations.$inferSelect | null;
-  feedbackRows: Array<typeof interviewFeedbackHistories.$inferSelect>;
+  activeConversation: InterviewContextConversationRow | null;
+  feedbackRows: InterviewContextFeedbackHistoryRow[];
 };
 
 export type InterviewContextData = {
@@ -83,7 +87,29 @@ async function loadInterviewPersistence(
 ): Promise<InterviewPersistenceRows> {
   const [conversation, feedbackRows] = await Promise.all([
     db
-      .select()
+      .select({
+        id: interviewConversations.id,
+        status: interviewConversations.status,
+        messages: interviewConversations.messages,
+        currentStage: interviewConversations.currentStage,
+        questionCount: interviewConversations.questionCount,
+        completedStages: interviewConversations.completedStages,
+        lastQuestionFocus: interviewConversations.lastQuestionFocus,
+        questionFlowCompleted: interviewConversations.questionFlowCompleted,
+        selectedIndustry: interviewConversations.selectedIndustry,
+        selectedRole: interviewConversations.selectedRole,
+        selectedRoleSource: interviewConversations.selectedRoleSource,
+        roleTrack: interviewConversations.roleTrack,
+        interviewFormat: interviewConversations.interviewFormat,
+        selectionType: interviewConversations.selectionType,
+        interviewStage: interviewConversations.interviewStage,
+        interviewerType: interviewConversations.interviewerType,
+        strictnessMode: interviewConversations.strictnessMode,
+        interviewPlanJson: interviewConversations.interviewPlanJson,
+        turnStateJson: interviewConversations.turnStateJson,
+        turnMetaJson: interviewConversations.turnMetaJson,
+        activeFeedbackDraft: interviewConversations.activeFeedbackDraft,
+      })
       .from(interviewConversations)
       .where(
         identity.userId
@@ -92,7 +118,27 @@ async function loadInterviewPersistence(
       )
       .limit(1),
     db
-      .select()
+      .select({
+        id: interviewFeedbackHistories.id,
+        overallComment: interviewFeedbackHistories.overallComment,
+        scores: interviewFeedbackHistories.scores,
+        strengths: interviewFeedbackHistories.strengths,
+        improvements: interviewFeedbackHistories.improvements,
+        consistencyRisks: interviewFeedbackHistories.consistencyRisks,
+        weakestQuestionType: interviewFeedbackHistories.weakestQuestionType,
+        weakestTurnId: interviewFeedbackHistories.weakestTurnId,
+        weakestQuestionSnapshot: interviewFeedbackHistories.weakestQuestionSnapshot,
+        weakestAnswerSnapshot: interviewFeedbackHistories.weakestAnswerSnapshot,
+        improvedAnswer: interviewFeedbackHistories.improvedAnswer,
+        preparationPoints: interviewFeedbackHistories.preparationPoints,
+        premiseConsistency: interviewFeedbackHistories.premiseConsistency,
+        satisfactionScore: interviewFeedbackHistories.satisfactionScore,
+        scoreEvidenceByAxis: interviewFeedbackHistories.scoreEvidenceByAxis,
+        scoreRationaleByAxis: interviewFeedbackHistories.scoreRationaleByAxis,
+        confidenceByAxis: interviewFeedbackHistories.confidenceByAxis,
+        sourceQuestionCount: interviewFeedbackHistories.sourceQuestionCount,
+        createdAt: interviewFeedbackHistories.createdAt,
+      })
       .from(interviewFeedbackHistories)
       .where(
         identity.userId
@@ -183,7 +229,7 @@ export async function fetchInterviewContextData(
 
   if (rejectedResults.length > 0) {
     console.warn(
-      `[buildInterviewContext] partial hydration failed: ${rejectedResults.length}/${hydrationResults.length} queries rejected`,
+      `[buildInterviewContext] hydration failed: ${rejectedResults.length}/${hydrationResults.length} queries rejected`,
       {
         companyId,
         operation: "interview:build-context",
@@ -194,6 +240,7 @@ export async function fetchInterviewContextData(
         ),
       },
     );
+    throw rejectedResults[0].reason;
   }
 
   const [motivationResult, gakuchikaResult, documentResult, persistenceResult, applicationResult] =

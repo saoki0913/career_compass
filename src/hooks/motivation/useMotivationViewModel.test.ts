@@ -36,7 +36,7 @@ const baseInput: MotivationViewModelInput = {
 };
 
 describe("useMotivationViewModel derivations", () => {
-  it("requires industry only when role options ask for it", () => {
+  it("requires explicit industry selection when role options ask for it", () => {
     const vm = useMotivationViewModel({
       ...baseInput,
       roleOptionsData: {
@@ -51,7 +51,28 @@ describe("useMotivationViewModel derivations", () => {
     });
 
     expect(vm.requiresIndustrySelection).toBe(true);
-    expect(vm.effectiveIndustry).toBe("IT");
+    expect(vm.effectiveIndustry).toBe("");
+    expect(vm.isSetupComplete).toBe(false);
+  });
+
+  it("keeps setup complete after a selected industry refetch resolves role options", () => {
+    const vm = useMotivationViewModel({
+      ...baseInput,
+      company: { id: "company-1", name: "テスト企業", industry: "金融・保険" },
+      roleOptionsData: {
+        companyId: "company-1",
+        companyName: "テスト企業",
+        industry: "銀行",
+        requiresIndustrySelection: false,
+        industryOptions: ["銀行", "証券"],
+        roleGroups: [],
+      },
+      selectedIndustry: "銀行",
+      selectedRoleName: "企画職",
+    });
+
+    expect(vm.requiresIndustrySelection).toBe(false);
+    expect(vm.effectiveIndustry).toBe("銀行");
     expect(vm.isSetupComplete).toBe(true);
   });
 

@@ -220,6 +220,7 @@ describe("questionStage outward contract", () => {
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-contract-1" });
+    confirmReservationMock.mockResolvedValue({ confirmed: true });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
@@ -396,6 +397,7 @@ describe("stage_status synthesis from route when backend returns null", () => {
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-contract-1" });
+    confirmReservationMock.mockResolvedValue({ confirmed: true });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
@@ -580,6 +582,7 @@ describe("fallback: backend 500 converts to error response", () => {
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-contract-1" });
+    confirmReservationMock.mockResolvedValue({ confirmed: true });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );

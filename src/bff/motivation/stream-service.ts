@@ -79,8 +79,10 @@ export function buildMotivationStreamPayload(args: {
     company_work_candidates: args.resolvedInputs.conversationContext.companyWorkCandidates.length > 0
       ? args.resolvedInputs.conversationContext.companyWorkCandidates
       : null,
-    requires_industry_selection: args.resolvedInputs.requiresIndustrySelection,
-    industry_options: args.resolvedInputs.industryOptions.length > 0 ? args.resolvedInputs.industryOptions : null,
+    requires_industry_selection: args.resolvedInputs.industryState.kind === "requires_selection",
+    industry_options: args.resolvedInputs.industryState.industryOptions.length > 0
+      ? args.resolvedInputs.industryState.industryOptions
+      : null,
   };
 }
 
@@ -214,8 +216,7 @@ export async function completeMotivationStreamTurn(args: {
     nextAdvanceCondition: args.fastApiData.next_advance_condition || null,
     progress: args.fastApiData.progress || null,
     causalGaps: Array.isArray(args.fastApiData.causal_gaps) ? args.fastApiData.causal_gaps : [],
-    resolvedIndustry: args.resolvedInputs.company.industry,
-    requiresIndustrySelection: args.resolvedInputs.requiresIndustrySelection,
+    industryState: args.resolvedInputs.industryState,
     isSetupComplete: true,
   });
 

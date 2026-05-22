@@ -46,6 +46,10 @@ import {
   resolveMotivationInputs,
   resolveMotivationRoleSelectionSource,
 } from "@/lib/motivation/motivation-input-resolver";
+import {
+  motivationDraftDirectRequestSchema,
+  toMotivationRoleContextSource,
+} from "@/shared/contracts/motivation/setup-request";
 
 interface FastAPIDraftResponse {
   draft: string;
@@ -166,11 +170,18 @@ export async function POST(
   if (rateLimited) return rateLimited;
 
   const body = await request.json().catch(() => null);
-  const charLimit = typeof body?.charLimit === "number" ? body.charLimit : 400;
-  const selectedIndustry = typeof body?.selectedIndustry === "string" ? body.selectedIndustry.trim() : "";
-  const selectedRole = typeof body?.selectedRole === "string" ? body.selectedRole.trim() : "";
-  const roleSelectionSourceBody =
-    typeof body?.roleSelectionSource === "string" ? body.roleSelectionSource.trim() : null;
+  const parsedBody = motivationDraftDirectRequestSchema.safeParse(body);
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "入力内容を確認してください" }, { status: 400 });
+  }
+  const {
+    charLimit = 400,
+    selectedIndustry,
+    selectedIndustrySource,
+    selectedRole,
+    roleSelectionSource: roleSelectionSourceBody,
+  } = parsedBody.data;
+  const roleContextSource = toMotivationRoleContextSource(roleSelectionSourceBody);
 
   if (![300, 400, 500].includes(charLimit)) {
     return NextResponse.json({ error: "文字数は300, 400, 500のいずれかを指定してください" }, { status: 400 });
@@ -210,14 +221,14 @@ export async function POST(
     company,
     {
       ...safeParseConversationContext(conversation.conversationContext ?? null),
-      selectedIndustry: selectedIndustry || undefined,
+      selectedIndustry: selectedIndustry ?? undefined,
+      selectedIndustrySource: selectedIndustrySource ?? undefined,
     },
     applicationJobCandidates,
   );
-  const requiresIndustrySelection = resolvedInputs.requiresIndustrySelection;
   const effectiveIndustry =
-    selectedIndustry || resolvedInputs.company.industry || company.industry || "";
-  if (requiresIndustrySelection && !effectiveIndustry) {
+    resolvedInputs.industryState.kind === "resolved" ? resolvedInputs.industryState.industry : "";
+  if (!effectiveIndustry) {
     return NextResponse.json({ error: "先に業界を選択してください" }, { status: 400 });
   }
 
@@ -237,7 +248,7 @@ export async function POST(
     profileContext,
     applicationJobCandidates,
     resolvedInputs.companyRoleCandidates,
-    roleSelectionSourceBody,
+    roleContextSource,
   );
 
   let reservationId: string | null = null;
@@ -343,9 +354,9 @@ export async function POST(
 
     const prevCtx = safeParseConversationContext(conversation.conversationContext ?? null);
     const industrySource: MotivationConversationContext["selectedIndustrySource"] =
-      selectedIndustry
-        ? "user_selected"
-        : (resolvedInputs.conversationContext.selectedIndustrySource ?? prevCtx.selectedIndustrySource ?? "company_field");
+      resolvedInputs.industryState.kind === "resolved"
+        ? resolvedInputs.industryState.source
+        : (prevCtx.selectedIndustrySource ?? "company_field");
 
     const baseCtx: MotivationConversationContext = {
       ...DEFAULT_MOTIVATION_CONTEXT,

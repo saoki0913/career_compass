@@ -14,6 +14,11 @@ import {
   type MotivationConversationContext as BaseMotivationConversationContext,
 } from "@/lib/motivation/conversation";
 import { getMotivationConversationByCondition } from "@/lib/motivation/conversation-store";
+import {
+  type ResolvedIndustryState,
+  isMotivationSetupReady,
+  resolveIndustryState,
+} from "@/lib/motivation/industry-resolution";
 
 export type MotivationConversationContext = BaseMotivationConversationContext;
 
@@ -35,8 +40,7 @@ export interface MotivationEvidenceCard {
 export interface MotivationResolvedInputs {
   company: MotivationCompanyData;
   conversationContext: MotivationConversationContext;
-  requiresIndustrySelection: boolean;
-  industryOptions: string[];
+  industryState: ResolvedIndustryState;
   companyRoleCandidates: string[];
 }
 
@@ -161,20 +165,25 @@ export function resolveMotivationInputs(
   conversationContext: MotivationConversationContext,
   applicationJobCandidates: string[],
 ): MotivationResolvedInputs {
-  const resolution = resolveMotivationRoleContext({
+  const industryState = resolveIndustryState({
     companyName: company.name,
     companyIndustry: company.industry,
     selectedIndustry: conversationContext.selectedIndustry,
+    selectedIndustrySource: conversationContext.selectedIndustrySource,
+  });
+  const resolvedIndustry = industryState.kind === "resolved" ? industryState.industry : null;
+  const resolution = resolveMotivationRoleContext({
+    companyName: company.name,
+    companyIndustry: company.industry,
+    selectedIndustry: resolvedIndustry,
     applicationRoles: applicationJobCandidates,
   });
 
   const nextContext: MotivationConversationContext = {
     ...conversationContext,
-    selectedIndustry: conversationContext.selectedIndustry || resolution.resolvedIndustry || undefined,
+    selectedIndustry: resolvedIndustry || undefined,
     selectedIndustrySource:
-      conversationContext.selectedIndustrySource ||
-      resolution.industrySource ||
-      undefined,
+      industryState.kind === "resolved" ? industryState.source : undefined,
     companyRoleCandidates: uniqueStrings([
       ...(conversationContext.companyRoleCandidates ?? []),
       ...resolution.roleCandidates,
@@ -184,21 +193,19 @@ export function resolveMotivationInputs(
   return {
     company: {
       ...company,
-      industry: resolution.resolvedIndustry ?? company.industry,
+      industry: resolvedIndustry ?? company.industry,
     },
     conversationContext: nextContext,
-    requiresIndustrySelection: Boolean(resolution.requiresIndustrySelection),
-    industryOptions: [...(resolution.industryOptions ?? [])],
+    industryState,
     companyRoleCandidates: resolution.roleCandidates ?? [],
   };
 }
 
 export function isMotivationSetupComplete(
   conversationContext: MotivationConversationContext,
-  requiresIndustrySelection: boolean,
+  industryState: ResolvedIndustryState,
 ): boolean {
-  const hasIndustry = !requiresIndustrySelection || Boolean(conversationContext.selectedIndustry);
-  return hasIndustry && Boolean(conversationContext.selectedRole);
+  return isMotivationSetupReady(industryState, conversationContext.selectedRole);
 }
 
 export function resolveMotivationRoleSelectionSource(

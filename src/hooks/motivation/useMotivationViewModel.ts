@@ -15,6 +15,11 @@ import {
   type MotivationProgress,
   type CausalGap,
 } from "@/features/motivation/domain/ui";
+import {
+  isMotivationSetupReady,
+  selectIndustryStateFromRoleOptions,
+  type ResolvedIndustryState,
+} from "@/lib/motivation/industry-resolution";
 
 // ---------------------------------------------------------------------------
 // Input: subset of controller state consumed by business derivations
@@ -62,6 +67,8 @@ export interface MotivationViewModel {
   hasStartedConversation: boolean;
   /** Whether the role-options API says industry must be chosen */
   requiresIndustrySelection: boolean;
+  /** Type-safe industry resolution state used by setup and requests */
+  industryState: ResolvedIndustryState;
   /** Best-available industry value (selected > roleOptions > snapshot > company) */
   effectiveIndustry: string;
   /** Whether role + industry (if required) are both set */
@@ -139,18 +146,18 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
   const hasStartedConversation = messages.length > 0 || Boolean(generatedDraft);
 
   // --- Setup state ---
-  const requiresIndustrySelection = Boolean(roleOptionsData?.requiresIndustrySelection);
-
-  const effectiveIndustry =
-    selectedIndustry ||
-    roleOptionsData?.industry ||
-    setupSnapshot?.resolvedIndustry ||
-    company?.industry ||
-    "";
+  const industryState = selectIndustryStateFromRoleOptions({
+    companyName: company?.name ?? roleOptionsData?.companyName ?? null,
+    companyIndustry: company?.industry ?? null,
+    roleOptionsData,
+    setupSnapshot,
+    userSelectedIndustry: selectedIndustry,
+  });
+  const requiresIndustrySelection = industryState.kind === "requires_selection";
+  const effectiveIndustry = industryState.kind === "resolved" ? industryState.industry : "";
 
   const isSetupComplete =
-    Boolean(selectedRoleName.trim()) &&
-    (!requiresIndustrySelection || Boolean(effectiveIndustry));
+    isMotivationSetupReady(industryState, selectedRoleName);
 
   const showSetupScreen = !hasStartedConversation;
   const disableSetupEditing = hasStartedConversation;
@@ -207,6 +214,7 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
     hasSavedConversation,
     hasStartedConversation,
     requiresIndustrySelection,
+    industryState,
     effectiveIndustry,
     isSetupComplete,
     showSetupScreen,
