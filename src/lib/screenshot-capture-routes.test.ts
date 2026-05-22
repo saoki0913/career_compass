@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { screenshotCaptureRoutes } from "./screenshot-capture-routes";
+import { screenshotCaptureScenarios } from "../../e2e/tooling/screenshot-capture-scenarios";
 
 const repoRoot = process.cwd();
 const appRoot = path.join(repoRoot, "src/app");
@@ -79,5 +80,22 @@ describe("screenshotCaptureRoutes", () => {
     expect(screenshotCaptureRoutes.find((route) => route.pathTemplate === "/waitlist")).toMatchObject({
       expectedFinalPath: "/login",
     });
+  });
+});
+
+describe("screenshotCaptureScenarios", () => {
+  it("keeps ids and output folders unique across state captures", () => {
+    const ids = screenshotCaptureScenarios.map((route) => route.id);
+    const outputFolders = screenshotCaptureScenarios.map((route) => `${route.outputGroup}/${route.id}`);
+
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(new Set(outputFolders).size).toBe(outputFolders.length);
+  });
+
+  it("keeps marketing group captures isolated by output group", () => {
+    const marketingScenarios = screenshotCaptureScenarios.filter((route) => route.outputGroup === "marketing");
+
+    expect(marketingScenarios).toHaveLength(23);
+    expect(marketingScenarios.every((route) => route.id.startsWith("marketing."))).toBe(true);
   });
 });
