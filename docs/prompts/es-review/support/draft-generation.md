@@ -21,11 +21,34 @@ Key runtime rules:
 - ユーザーが提供した材料の範囲で ES 下書きを作る
 - 元情報にない経験・役割・成果・数字・企業施策を追加しない
 - 設問に正面から答える
-- 目標字数に合わせて本文のみを返す
+- 目標字数に合わせて JSON を返す
 - だ・である調を基本にする
 ```
 
 For `gakuchika`, runtime may append character-limit few-shot allocation from `backend/app/prompts/gakuchika_prompts.py`.
+
+## Output Contract
+
+Draft generation is JSON output, not plain text-only rewrite.
+
+For `gakuchika`:
+
+```json
+{
+  "draft": "ES本文",
+  "followup_suggestion": "追加で確認したい観点"
+}
+```
+
+For `motivation`:
+
+```json
+{
+  "draft": "ES本文",
+  "key_points": ["要点"],
+  "company_keywords": ["企業接続に使ったキーワード"]
+}
+```
 
 ## User Message
 
@@ -40,12 +63,11 @@ The user prompt contains:
 
 - Motivation draft can run quality retry and multipass refinement.
 - Gakuchika draft can run one quality retry with AI-smell / ownership / length hints.
-- Reference quality profile may be included as statistical guidance, never as copy source.
+- Reference quality block may be included in draft generation context, never as copy source.
 
 ## Review Criteria
 
 - Draft must preserve user-provided facts and student voice.
 - Draft must not convert sparse material into polished but fabricated achievements.
 - Company specificity must be grounded in supplied company context.
-- Output must be a single ES draft body, not analysis.
-
+- Output must follow the JSON contract for the draft kind.

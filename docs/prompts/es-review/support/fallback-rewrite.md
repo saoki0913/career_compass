@@ -5,42 +5,65 @@
 ## Runtime Source
 
 - Builder: `backend/app/prompts/es_templates/_prompt_builder.py` `build_template_fallback_rewrite_prompt`
+- Renderer: `backend/app/prompts/es_templates/_types.py` `PromptRenderer`
 - Caller: `backend/app/services/es_review/orchestrator.py`
 - Feature: `es_review`
 - Output mode: text-only rewrite
 
 ## System Prompt
 
+Fallback is not a "quality abandoned" mode. It keeps `QualityBlueprint` and rewrites within the hard fact boundary.
+
 ```text
 あなたは日本語のES編集者である。
 
-<task>
-元回答の事実を保ったまま、提出できる本文に安全に整える。
-</task>
+<role_task>
+ハードファクト境界を守りながら、設問タイプに合う提出品質のES本文へ再構成する。
+</role_task>
 
 <output_contract>
-- 出力は本文のみ
-- だ・である調
+- 出力は改善案本文のみ。1文字目から本文を書き始める
+- 説明、前置き、後書き、箇条書き、引用符、JSON、コードブロックは禁止
+- だ・である調で統一
+- 改行・空行を入れず、1段落の連続した文章として出力する
 - {_format_char_condition(char_min, char_max)}
 </output_contract>
 
-<constraints>
-- 具体的事実は元回答とユーザー事実の範囲から出す
-- 足りない情報は創作せず、一般化してつなぐ
-- 元回答・使えるユーザー事実・企業根拠カードにない数値、役職、経験、成果、企業施策を追加しない
-- 文字数不足でも新事実で埋めず、既存事実の説明密度、接続、語尾、構成だけで調整する
-- 前回不合格案に含まれる事実でも、正本入力にないものは削除する
-- 企業根拠カードは方向性の補助に使い、未確認の固有施策・社内体制・数値として断定しない
-- 企業情報は設問タイプに応じて使い、required でない設問では補助的にだけ使う
-- 固有施策、社内体制、数値、成果を新しく断定しない
-- 本文で企業に言及するときは企業名ではなく「{honorific}」を使う
-- 設問の冒頭表現をそのまま繰り返して始めない
-- 末尾で同じ文末表現を2文連続で使わない
-- 最終文は具体的な行動や貢献で締める
+<constraints priority="absolute">
+- 参考ESは品質傾向だけを参考にし、本文・語句・特徴的な言い回し・個別エピソードを再利用しない
+- 参考ES由来の事実をユーザー事実や企業根拠として扱わない
 </constraints>
+
+<quality_blueprint priority="primary">
+...
+</quality_blueprint>
+
+<template_special_cases>
+...
+</template_special_cases>
+
+<fact_boundary>
+...
+</fact_boundary>
+
+<length_style>
+...
+</length_style>
+
+<company>
+...
+</company>
+
+<context>
+...
+</context>
+
+<retry>
+...
+</retry>
 ```
 
-The runtime builder appends length policy, conclusion-first rules, required elements, anti-patterns, focus guidance, company guidance, reference quality guidance, user fact guidance, template playbook, and retry hints.
+The runtime builder also appends compact template special cases, length/style guidance, company context, allowed user facts, and retry deltas. Fallback keeps the same quality-first objective while using a stricter hard fact boundary. `include_template_focus=False` and `pass_focus_mode_context=False` keep the prompt smaller than standard rewrite.
 
 ## User Message
 
@@ -51,12 +74,13 @@ The runtime builder appends length policy, conclusion-first rules, required elem
 【元の回答】
 {answer}
 
-元の具体的事実を極力保ちつつ、構成だけを整えた安全な改善案本文を1件だけ返してください。
+この回答を、設問タイプに合う高品質な改善案本文に書き直してください。改善案本文のみを返してください。
 ```
 
 ## Review Criteria
 
-- Fallback must be safer and less creative than normal rewrite.
+- Fallback must preserve the quality-first objective through `QualityBlueprint`.
 - It must not introduce new company facts, achievements, roles, or numbers.
 - It must treat facts absent from the original answer, allowed user facts, and company evidence cards as unavailable even if they appeared in a failed previous draft.
 - It may generalize missing links but must not fabricate missing episodes.
+- Fact Guard checks against the original answer, selected user facts, company evidence card summaries used in that attempt, company name, role name, and internship name.

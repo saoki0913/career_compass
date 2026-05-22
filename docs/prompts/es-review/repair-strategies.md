@@ -3,6 +3,8 @@
 ES添削の品質チェック失敗時に適用される修復（retry/focus mode）戦略の設計仕様。
 評価・A/Bテスト用の参照ドキュメントとして使用する。
 
+実行時の正本は `backend/app/services/es_review/retry.py`、`backend/app/prompts/es_templates/_focus_modes.py`、`backend/app/prompts/es_templates/_length_control.py`、`backend/app/services/es_review/orchestrator.py` である。この文書は監査用であり、runtime から読み込まれない。
+
 ---
 
 ## 修復パイプライン概要
@@ -11,12 +13,14 @@ ES添削の品質チェック失敗時に適用される修復（retry/focus mod
 Rewrite Loop (max 3 attempts)
   ├── attempt 1: normal mode
   ├── attempt 2: atomic focus mode OR composite mode
-  └── attempt 3: safe_rewrite mode (compound-aware)
+  └── attempt 3: atomic/composite retry; 条件を満たす場合のみ safe_rewrite
          │
          ▼
 Recovery Pipeline
   └── Best-effort adoption (degraded_best_effort)
 ```
+
+`safe_rewrite` は常に3回目で発動するわけではない。文字数失敗と非文字数失敗が混在し、かつ安全な retry code の範囲に収まる場合だけ、fallback rewrite prompt を使って再構成する。
 
 ---
 
@@ -71,7 +75,7 @@ Recovery Pipeline
 
 ## 内部目標文字数（under_min_recovery オーバーシュート方式）
 
-LLM は consistently にアンダーシュートするため、`under_min_recovery` stage では focused retry の生成目標を **char_max を超えて** 設定できる。最終提出文は strict 受理帯へ戻す。
+LLM は consistently にアンダーシュートするため、`under_min_recovery` stage では focused retry の生成目標を **char_max を超えて** 設定できる。これは生成目標帯だけの話であり、最終提出文は strict 受理帯へ戻す。
 
 ### オーバーシュート値
 
@@ -161,3 +165,7 @@ validation 失敗時にプロンプトに追加される修復ヒント。
 | strict_ok / soft_ok | 200 | 成功消費 | 改善案を表示 |
 | degraded_best_effort | 200 | 成功消費 | 改善案 + 注意表示（文字数不足等） |
 | validation 全失敗 | 422 | 消費しない | エラーメッセージ |
+
+`degraded_best_effort` は、最良候補が `degraded_block_codes` に該当しない場合だけ採用する。`empty`、`fragment`、`negative_self_eval`、`company_reference_in_companyless`、`hallucination`、`fact_preservation`、`llm_quality` などは採用不可で、最終的に 422 となる。
+
+入力注入リスク high は上記の validation 全失敗とは別扱いで、SSE `error` として終了する。

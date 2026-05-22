@@ -4,20 +4,35 @@
 
 ## Runtime Source
 
+- `backend/app/prompts/es_reference_guidance.py`
 - `backend/app/prompts/reference_es.py`
-- Used by ES rewrite / draft builders through reference quality blocks.
+- Used by ES rewrite / fallback builders through `QualityBlueprint`.
 
 ## Runtime Role
 
-Reference ES data is converted into statistical and structural guidance. It is not a copy source.
+Reference ES data is converted into hand-curated abstract structural guidance. It is not a copy source and is not passed to the normal rewrite prompt as a long raw block. Runtime does not read raw reference ES bodies.
 
 Allowed runtime profile types:
 
-- average character count / sentence count
-- conclusion-first tendencies
-- STAR / CBPG / template-specific structure hints
-- specificity markers and quality hints
-- conditional hints by template type
+- quality hints
+- skeleton
+- sentence flow
+- character-count band label
+- compound metadata
+- compact `QualityBlueprint` fields: `flow`, `must_improve`, `avoid`, `compound_note`
+
+## Runtime Flow
+
+1. `orchestrator.py` calls `build_reference_quality_profile()`.
+2. `reference_es.py` reads hand-curated guidance from `es_reference_guidance.py`.
+3. If quality hints and skeleton are empty, `build_reference_quality_profile()` returns `None`.
+4. `build_template_rewrite_prompt()` / `build_template_fallback_rewrite_prompt()` pass the profile to `build_quality_blueprint()`.
+5. The generated prompt receives one `<quality_blueprint priority="primary">` block.
+6. Long reference quality blocks remain available for draft generation or compatibility/debug paths, but normal rewrite generation does not insert them into `<context>`.
+
+## Compound Handling
+
+Compound questions are handled primary-first. The primary type keeps the main skeleton, and secondary types add capped supplemental quality hints. Runtime does not mechanically merge multiple full skeletons.
 
 ## Forbidden in Docs and Runtime Output
 
@@ -30,4 +45,5 @@ Allowed runtime profile types:
 
 - The prompt should use reference ES only as abstract quality guidance.
 - The generated answer must not resemble a reference answer in wording.
-- Notes-like data must not pollute statistical profile assumptions.
+- Raw bodies and company-specific phrases must not appear in docs or runtime prompt output.
+- `<quality_blueprint>` should appear once and should precede `<fact_boundary>`.

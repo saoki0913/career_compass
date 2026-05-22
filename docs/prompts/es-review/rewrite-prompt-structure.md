@@ -1,104 +1,165 @@
-# Rewrite Prompt 構造（改善後）
+# Rewrite Prompt 構造（quality-first）
 
 ## 概要
 
-ES添削の rewrite prompt を3層の constraints 階層 + MUST/SHOULD/WATCH の文体指導に再構成した。
-プロンプト指示は SSOT（Single Source of Truth）で管理し、重複を排除した。
+ES添削の rewrite prompt は、元回答を弱いまま保存するための事実保全プロンプトではなく、設問タイプに合う高品質な提出ESへ再構成するためのプロンプトとして設計する。
 
-## Constraints 階層
+実行時の正本は `backend/app/prompts/es_templates/_prompt_builder.py`、`backend/app/prompts/es_templates/_types.py`、`backend/app/prompts/es_templates/_quality_blueprint.py` である。この文書は手動監査用であり、runtime から読み込まれない。
 
-### `<constraints priority="absolute">` — 違反 = hard block
+## 優先順位
 
-LLM が絶対に守るべき制約。違反した場合は rewrite を reject する。
-
-- 元回答の具体的事実の保持
-- ユーザー事実にない情報を足さない
-- 事実保持ルール（`_format_fact_preservation_rules()`）
-- だ・である調の統一
-- 参考 ES のコピー防止（`_format_reference_copy_safety_rules()`）
-
-### `<constraints priority="core">` — 違反 = retry
-
-品質の核となる制約。違反した場合は retry hint 付きで再試行する。
-
-- 設問に正面から答える
-- 結論ファーストで書く
-- 最終文は具体的な行動や貢献で締める
-- 冗長な接続詞で文字数を浪費しない
-- role_name があっても別職種を仮定しない
-
-### `<constraints priority="target">` — 違反 = lenient retry
-
-リクエスト固有の可変制約。最終 attempt では緩和される。
-
-- 企業情報の使い方（設問タイプ依存）
-- 企業固有表現の扱い
-- 企業敬称ルール（`company_mention_rule`）
-- 文字数制約（`_format_self_count_instruction()`）
-
-## `<core_style>` — MUST/SHOULD/WATCH
-
-`_build_contextual_rules()` が `STYLE_RULES` をフィルタリングして出力する文体指導。
-constraints とは補完関係:
-- constraints = 違反の硬度（どこまで retry するか）
-- core_style = 文体の指導強度（どの程度守るべきか）
-
-### MUST（絶対守る）
-
-1. 1文目は設問への答えを結論として言い切る（前置きや背景説明から入らない）
-2. ユーザーの元回答に含まれる数値・固有名詞は必ず保持する
-
-### SHOULD（できる限り）
-
-1. 各文は役割を1つに絞り、同趣旨を言い換えて引き延ばさない
-2. 企業接点・貢献・活かし方は必要なら1文に圧縮してよい
-3. 「整理した」「取り組んだ」のような抽象動詞だけで済ませず、具体的な行動を含める
-4. 同じ文末表現が連続しないよう、語尾を変化させる
-5. 「貢献する」「成長する」だけで終わらず、何にどう貢献するかを具体化する
-6. 複数の施策は①②で文中にインラインで示す（リスト化しない）。簡潔な列挙は1文内でよいが、各施策を説明する場合は「①では」を短い冒頭にして独立した文にする
-7. （テンプレート固有ルール: self_pr/work_values の抽象ラベル具体化など）
-
-### WATCH（注意）
-
-- 指定の字数下限を下回らないよう注意
-- 下限が200字超の設問では具体を削りすぎない
-- 短い字数制限では冗長な修飾を削る
-- 「関係者を巻き込みながら」等のLLM特有フレーズはユーザー元回答にない限り使わない
-
-## テンプレート別完結パターン
-
-`TEMPLATE_GUIDANCE` に各テンプレートの完結パターンを追加:
-
-| テンプレート | 完結パターン |
+| 優先 | 役割 |
 |---|---|
-| gakuchika | 「課題→施策(宣言+①では…②では…の独立文展開)→成果(何が変わった)」 |
-| company_motivation | 「根拠(経験)→企業接点→貢献像」 |
-| intern_reason | 「参加理由→経験接点→学び目標」 |
-| intern_goals | 「学びたいこと→現状の課題→成長後の姿」 |
-| post_join_goals | 「目標→原体験→企業での実現方法」 |
-| role_course_reason | 「職種の魅力→適性の根拠→将来の貢献」 |
-| self_pr | 「強み→場面→行動→結果」 |
-| work_values | 「価値観→場面→行動→変化」 |
-| basic | 「主張→根拠→展望」 |
+| P0 | 出力契約・参考ESコピー防止・明確なハードファクト捏造の機械ブロック |
+| P1 | 参考ESヒント由来の `QualityBlueprint` に沿った高品質ESへの改善 |
+| P2 | `FactBoundary`（数値・役職・固有名詞・未経験イベントを作らない境界） |
+| P3 | 文字数・文体・企業接地・固有名詞の使い方 |
+| P4 | retry 差分 |
 
-## 敬称ポリシー
+`FactBoundary` は P2 であり、absolute constraints には置かない。事実保全は目的ではなく、ハードファクト捏造を防ぐ境界条件である。
 
-| grounding_mode | ポリシー |
-|---|---|
-| `none` | 企業名・企業敬称を絶対に使わない |
-| `assistive` | 「{honorific}」を使う。本文全体で2回までにとどめる |
-| `required` | 企業名は1回まで、2回目以降は「{honorific}」を使う |
+## System Prompt 順序
 
-`get_company_honorific()` が業種別に適切な敬称を返す（銀行→貴行、信用金庫→貴庫 等）。
+`PromptRenderer.section_order` は次の全順序で描画する。実際の rewrite prompt では、phase と instruction の有無により `core`、`target`、`length`、`style`、`template` が空または最小化されることがある。
+
+```text
+あなたは{role}である。
+
+<role_task>
+元回答を、設問タイプに合う高品質な提出ESへ再構成する。
+単なる事実の保存ではなく、評価される構成・論理・表現への改善を主目的とする。
+</role_task>
+
+<output_contract>
+...
+</output_contract>
+
+<constraints priority="absolute">
+...
+</constraints>
+
+<quality_blueprint priority="primary">
+...
+</quality_blueprint>
+
+<template_special_cases>
+...
+</template_special_cases>
+
+<fact_boundary>
+...
+</fact_boundary>
+
+<length_style>
+...
+</length_style>
+
+<constraints priority="core">
+...
+</constraints>
+
+<constraints priority="target">
+...
+</constraints>
+
+<length>
+...
+</length>
+
+<style>
+...
+</style>
+
+<template>
+...
+</template>
+
+<company>
+...
+</company>
+
+<context>
+...
+</context>
+
+<retry>
+...
+</retry>
+```
+
+## Absolute Constraints
+
+`<constraints priority="absolute">` は、出力契約の補助と参考ESコピー防止を担う。ここに「元回答の具体的事実は保ち」のような事実保全を主目的化する文言を置かない。
+
+主な内容:
+
+- 参考ESは品質傾向だけを参考にし、本文・語句・特徴的な言い回し・個別エピソードを再利用しない
+- 参考ES由来の事実をユーザー事実や企業根拠として扱わない
+
+## QualityBlueprint
+
+`QualityBlueprint` は、生成プロンプトを肥大化させないための統合層である。以下を最大件数つきで圧縮する。
+
+- `reference_quality_profile["quality_hints"]`
+- `reference_quality_profile["skeleton"]`
+- `reference_quality_profile["sentence_flow"]`
+- `TemplateDef.rewrite_policy.required_elements`
+- `TemplateDef.rewrite_policy.anti_patterns`
+- `logic_patterns`
+- 設問タイプ別の評価される核
+- 複合設問の補助観点
+
+出力上限:
+
+- `flow`: 最大5件
+- `must_improve`: 最大3件
+- `avoid`: 最大3件
+- `compound_note`: 最大1〜2文
+
+通常生成プロンプトでは、`evaluation_rubric` や reference quality block の長文をそのまま出さない。
+
+`TemplateDef.rewrite_policy.playbook` は `QualityBlueprint` の直接入力ではない。中字数ガイドなど、別の描画処理で参照される。参考ES由来の `enumeration_phrasing` が文字数帯に合う場合は、`QualityBlueprint.must_improve` の先頭に入る。
+
+## TemplateSpecialCases
+
+`<template_special_cases>` は、設問タイプ固有で本当に必要な短い補助指示だけを置く。例: ガクチカの配分目安、ハードファクト境界と個人情報の扱い、自己PRの強み主役化、職種志望理由を企業志望理由に寄せない指示。長文の template guidance 全量は戻さない。
+
+## FactBoundary
+
+`FactBoundary` は、品質改善を止める制約ではなく、ハードファクト捏造を止める境界である。
+
+```text
+- 高品質なESへの改善を主目的とする。元回答を弱い表現のまま保存しない
+- 新しく作ってはいけないもの: 数値、役職、受賞、成果、固有名詞、未経験の出来事、企業カード外の固有施策・制度・事業内容
+- 積極的に改善してよいもの: 文の順序、論理接続、行動の目的・対象・工夫、経験の意味づけ、強み・学びの抽象化、貢献像、キャリア接続
+- 情報が不足する場合は、未確認の固有事実を足さず、一般化した表現で自然につなぐ
+- 数値・固有名詞・役職・期間などのハードファクトは、元回答または使えるユーザー事実にある場合だけ使う
+```
+
+## LengthStyle
+
+`<length_style>` は旧 `<length>` と `<style>` の通常 rewrite 用圧縮版である。文字数帯、生成目標帯、字数不足・超過時の操作、文体、AI臭い定型句の抑止を短く伝える。
+
+短字数・中字数の特殊ガイドは必要時のみ追加する。
+
+## Retry
+
+retry prompt は差分中心とする。再掲するのは出力契約、短縮版 `QualityBlueprint`、`FactBoundary`、`length_style`、最大2件の retry delta を中心とし、長文の参考ES品質ブロック、`evaluation_rubric`、logic patterns、テンプレートガイダンス全量は出さない。
 
 ## SSOT 管理表
 
 | プロンプト指示 | SSOT 場所 | 出力先 |
 |---|---|---|
-| 結論ファースト | `STYLE_RULES[0]` | `<core_style>` MUST |
-| 文末表現連続禁止 | `STYLE_RULES` | `<core_style>` SHOULD |
-| ナンバリング指示 | `STYLE_RULES` + allocation guide | `<core_style>` SHOULD（gakuchika 固有）+ 【配分ガイド】 |
-| LLM特有フレーズ禁止 | `STYLE_RULES` | `<core_style>` WATCH |
-| 敬称ポリシー | `company_mention_rule` | `<constraints priority="target">` |
-| テンプレート完結パターン | `TEMPLATE_GUIDANCE` | 【テンプレート別ガイダンス】 |
-| 構造化リトライ | `retry_policy.guidance_by_failure["structure"]` | 【前回失敗の回避】 |
+| 出力契約 | `_format_output_contract()` | `<output_contract>` |
+| 参考ESコピー防止 | `_format_reference_copy_safety_rules()` | `<constraints priority="absolute">` |
+| 品質改善の主構成 | `build_quality_blueprint()` | `<quality_blueprint>` |
+| テンプレート固有の短い補助指示 | `_format_template_special_cases()` | `<template_special_cases>` |
+| ハードファクト境界 | `_format_fact_boundary_rules()` | `<fact_boundary>` |
+| 文字数・文体圧縮 | `_format_length_style_section()` | `<length_style>` |
+| 企業接地 | `_format_company_section()` / company policy instruction | `<company>` |
+| 使えるユーザー事実 | `_format_context_section()` | `<context>` |
+| リトライ差分 | `_format_retry_section()` | `<retry>` |
+
+## Fact Guard 照合元
+
+LLM への指示だけでなく、検証時にも使える事実の範囲を制限する。照合元は、元回答、選抜済みユーザー事実、当該試行で渡した企業根拠カード要約、会社名、職種名、インターン名である。
