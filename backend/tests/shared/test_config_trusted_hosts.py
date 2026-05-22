@@ -20,7 +20,7 @@ def test_deployed_requires_non_local_trusted_hosts() -> None:
     with pytest.raises(ValueError, match="BACKEND_TRUSTED_HOSTS"):
         Settings(
             _env_file=None,
-            environment="production",
+            app_env="production",
             internal_api_jwt_secret="a" * 32,
             career_principal_hmac_secret="b" * 32,
             tenant_key_secret="c" * 32,
@@ -34,7 +34,7 @@ def test_deployed_rejects_wildcard_trusted_hosts() -> None:
     with pytest.raises(ValueError, match="wildcard"):
         Settings(
             _env_file=None,
-            environment="production",
+            app_env="production",
             internal_api_jwt_secret="a" * 32,
             career_principal_hmac_secret="b" * 32,
             tenant_key_secret="c" * 32,

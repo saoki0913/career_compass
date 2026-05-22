@@ -250,8 +250,6 @@ function isBalanced(text) {
 // .env.example.  Explicit Set (not regex) per Codex plan review finding.
 // ---------------------------------------------------------------------------
 const BACKEND_ALIAS_ALLOWLIST = new Set([
-  "ENVIRONMENT",
-  "RAILWAY_ENVIRONMENT_NAME",
   "RAILWAY_GIT_COMMIT_SHA",
   "CLAUDE_MODEL",
   "GPT_FAST_MODEL",
@@ -262,6 +260,81 @@ const BACKEND_ALIAS_ALLOWLIST = new Set([
   "RAG_PDF_OCR_MAX_PAGES_STANDARD",
   "RAG_PDF_OCR_MAX_PAGES_PRO",
 ]);
+
+const SECRETS_EXAMPLE_FILES = [
+  "scripts/release/secrets-examples/staging/shared.env.example",
+  "scripts/release/secrets-examples/staging/nextjs.env.example",
+  "scripts/release/secrets-examples/staging/fastapi.env.example",
+  "scripts/release/secrets-examples/staging/supabase.env.example",
+  "scripts/release/secrets-examples/production/shared.env.example",
+  "scripts/release/secrets-examples/production/nextjs.env.example",
+  "scripts/release/secrets-examples/production/fastapi.env.example",
+  "scripts/release/secrets-examples/production/supabase.env.example",
+  "scripts/release/secrets-examples/ci/github-actions.env.example",
+  "scripts/release/secrets-examples/infra/cloudflare.env.example",
+];
+
+const REQUIRED_SECRETS_EXAMPLE_ACTIVE_KEYS = new Map([
+  [
+    "scripts/release/secrets-examples/staging/fastapi.env.example",
+    ["APP_ENV", "CORS_ORIGINS", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "REDIS_URL", "REDIS_NAMESPACE", "BACKEND_TRUSTED_HOSTS"],
+  ],
+  [
+    "scripts/release/secrets-examples/production/fastapi.env.example",
+    ["APP_ENV", "CORS_ORIGINS", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "REDIS_URL", "REDIS_NAMESPACE", "BACKEND_TRUSTED_HOSTS"],
+  ],
+  [
+    "scripts/release/secrets-examples/staging/nextjs.env.example",
+    ["APP_ENV", "NEXT_PUBLIC_APP_ENV", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "UPSTASH_REDIS_NAMESPACE"],
+  ],
+  [
+    "scripts/release/secrets-examples/production/nextjs.env.example",
+    ["APP_ENV", "NEXT_PUBLIC_APP_ENV", "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN", "UPSTASH_REDIS_NAMESPACE"],
+  ],
+  [
+    "scripts/release/secrets-examples/infra/cloudflare.env.example",
+    ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"],
+  ],
+  [
+    "scripts/release/secrets-examples/ci/github-actions.env.example",
+    ["CI_E2E_AUTH_SECRET", "CI_E2E_AUTH_ENABLED", "PLAYWRIGHT_BASE_URL"],
+  ],
+]);
+
+const RETIRED_SECRETS_EXAMPLE_ACTIVE_KEYS = new Set([
+  "ENVIRONMENT",
+  "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
+  "NEXT_PUBLIC_LOGO_DEV_TOKEN",
+  "NEXT_PUBLIC_BRANDFETCH_CLIENT_ID",
+  "CLOUDFLARE_ZONE_ID",
+]);
+
+const SUPABASE_FORBIDDEN_ACTIVE_KEYS = new Set([
+  "INTERNAL_API_JWT_SECRET",
+  "CAREER_PRINCIPAL_HMAC_SECRET",
+  "TENANT_KEY_SECRET",
+]);
+
+const APPROVED_SECRETS_EXAMPLE_RUNTIME_KEYS = new Set([
+  "UPSTASH_REDIS_NAMESPACE",
+]);
+
+function isSecretsExampleMetaVar(varName) {
+  return [
+    /^VERCEL_PROJECT_ID$/,
+    /^VERCEL_TEAM_ID$/,
+    /^RAILWAY_PROJECT_ID$/,
+    /^RAILWAY_SERVICE_NAME$/,
+    /^RAILWAY_ENVIRONMENT_NAME$/,
+    /^SUPABASE_STAGING_PROJECT_REF$/,
+    /^SUPABASE_PRODUCTION_PROJECT_REF$/,
+    /^SUPABASE_ACCESS_TOKEN$/,
+    /^SUPABASE_ORG_ID$/,
+    /^CLOUDFLARE_API_TOKEN$/,
+    /^CLOUDFLARE_ACCOUNT_ID$/,
+    /^PLAYWRIGHT_BASE_URL$/,
+  ].some((pattern) => pattern.test(varName));
+}
 
 // ---------------------------------------------------------------------------
 // extractEnvExampleVars
@@ -462,6 +535,64 @@ export function checkDrift(t3Vars, backendVars, exampleVars, ciVarsMap, opts = {
   return { errors, warnings };
 }
 
+export function checkSecretsExamplesDrift(secretExampleVarsMap, knownRuntimeVars) {
+  const errors = [];
+  const warnings = [];
+
+  for (const filePath of SECRETS_EXAMPLE_FILES) {
+    const exampleVars = secretExampleVarsMap.get(filePath);
+    if (!exampleVars) {
+      errors.push({
+        id: "S0",
+        message: `${filePath} is missing from secrets examples`,
+      });
+      continue;
+    }
+
+    const requiredKeys = REQUIRED_SECRETS_EXAMPLE_ACTIVE_KEYS.get(filePath) ?? [];
+    for (const key of requiredKeys) {
+      if (!exampleVars.activeVars.has(key)) {
+        errors.push({
+          id: "S1",
+          message: `${key} must be active in ${filePath}`,
+        });
+      }
+    }
+
+    for (const key of exampleVars.activeVars) {
+      if (
+        filePath.includes("/supabase.env.example") &&
+        SUPABASE_FORBIDDEN_ACTIVE_KEYS.has(key)
+      ) {
+        errors.push({
+          id: "S4",
+          message: `${key} must not be active in Supabase example ${filePath}`,
+        });
+        continue;
+      }
+      if (RETIRED_SECRETS_EXAMPLE_ACTIVE_KEYS.has(key)) {
+        errors.push({
+          id: "S2",
+          message: `${key} is retired and must not be active in ${filePath}`,
+        });
+        continue;
+      }
+      if (
+        !knownRuntimeVars.has(key) &&
+        !APPROVED_SECRETS_EXAMPLE_RUNTIME_KEYS.has(key) &&
+        !isSecretsExampleMetaVar(key)
+      ) {
+        errors.push({
+          id: "S3",
+          message: `${key} in ${filePath} is not a runtime env var or approved provider meta key`,
+        });
+      }
+    }
+  }
+
+  return { errors, warnings };
+}
+
 // ---------------------------------------------------------------------------
 // CLI entry
 // ---------------------------------------------------------------------------
@@ -497,6 +628,13 @@ async function main() {
   const backendVars = extractBackendConfigVars(configSrc);
   const exampleResult = extractEnvExampleVars(exampleSrc);
   const exampleVars = exampleResult;
+  const secretExampleVarsMap = new Map();
+  for (const filePath of SECRETS_EXAMPLE_FILES) {
+    const src = await readSource(filePath, staged, cwd);
+    if (src) {
+      secretExampleVarsMap.set(filePath, extractEnvExampleVars(src));
+    }
+  }
 
   const serverCount = t3Vars.server.size;
   const clientCount = t3Vars.client.size;
@@ -506,6 +644,10 @@ async function main() {
 
   // Check drift
   const { errors, warnings } = checkDrift(t3Vars, backendVars, exampleVars, ciVarsMap);
+  const knownRuntimeVars = new Set([...t3Vars.server.keys(), ...t3Vars.client.keys(), ...backendVars.keys()]);
+  const secretsExamplesResult = checkSecretsExamplesDrift(secretExampleVarsMap, knownRuntimeVars);
+  errors.push(...secretsExamplesResult.errors);
+  warnings.push(...secretsExamplesResult.warnings);
   const directEnvVars = new Set(["APP_ENV", "NEXT_PUBLIC_APP_ENV"]);
   for (const filePath of collectSourceFiles("src", cwd)) {
     const src = await readSource(filePath, staged, cwd);

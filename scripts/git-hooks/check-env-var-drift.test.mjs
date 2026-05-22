@@ -9,6 +9,7 @@ import {
   extractCiWorkflowEnvVars,
   findDirectProcessEnvUsage,
   checkDrift,
+  checkSecretsExamplesDrift,
 } from "./check-env-var-drift.mjs";
 
 // ---------------------------------------------------------------------------
@@ -146,13 +147,13 @@ test("extractBackendConfigVars: extracts multiple aliases from single AliasChoic
 class Settings(BaseSettings):
     sentry_environment: str = Field(
         default="",
-        validation_alias=AliasChoices("SENTRY_ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME", "ENVIRONMENT"),
+        validation_alias=AliasChoices("SENTRY_DSN", "SENTRY_FASTAPI_DSN", "BACKEND_SENTRY_DSN"),
     )
 `;
   const vars = extractBackendConfigVars(configSrc);
-  assert.equal(vars.has("SENTRY_ENVIRONMENT"), true);
-  assert.equal(vars.has("RAILWAY_ENVIRONMENT_NAME"), true);
-  assert.equal(vars.has("ENVIRONMENT"), true);
+  assert.equal(vars.has("SENTRY_DSN"), true);
+  assert.equal(vars.has("SENTRY_FASTAPI_DSN"), true);
+  assert.equal(vars.has("BACKEND_SENTRY_DSN"), true);
 });
 
 test("extractBackendConfigVars: collects Tier 2 implicit field_name.upper()", () => {
@@ -481,7 +482,7 @@ test("checkDrift: C4 only checks Tier 1 (AliasChoices) not Tier 2 (implicit)", (
 test("checkDrift: C4 skips backend alias allowlist vars", () => {
   const t3Vars = { server: new Map(), client: new Map() };
   const backendVars = new Map([
-    ["RAILWAY_ENVIRONMENT_NAME", { line: 10, tier: 1 }],
+    ["RAILWAY_GIT_COMMIT_SHA", { line: 10, tier: 1 }],
     ["CLAUDE_MODEL", { line: 20, tier: 1 }],
     ["CORS_ORIGINS", { line: 30, tier: 1 }],
   ]);
@@ -551,6 +552,98 @@ test("checkDrift: backward compat - accepts plain Set as exampleVars", () => {
   const { errors, warnings } = checkDrift(t3Vars, backendVars, exampleVars, ciVarsMap);
   assert.equal(errors.length, 0);
   assert.equal(warnings.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// checkSecretsExamplesDrift
+// ---------------------------------------------------------------------------
+
+function makeSecretsExampleMap(entries) {
+  return new Map(
+    entries.map(([filePath, active, commented = []]) => [
+      filePath,
+      makeExampleVars(active, commented),
+    ]),
+  );
+}
+
+test("checkSecretsExamplesDrift: detects missing required deployed Redis keys", () => {
+  const filePath = "scripts/release/secrets-examples/staging/fastapi.env.example";
+  const secretExamples = makeSecretsExampleMap([
+    [
+      filePath,
+      ["APP_ENV", "CORS_ORIGINS", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "BACKEND_TRUSTED_HOSTS"],
+    ],
+  ]);
+  const knownRuntimeVars = new Set([
+    "APP_ENV",
+    "CORS_ORIGINS",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "REDIS_URL",
+    "REDIS_NAMESPACE",
+    "BACKEND_TRUSTED_HOSTS",
+  ]);
+
+  const { errors } = checkSecretsExamplesDrift(secretExamples, knownRuntimeVars);
+
+  assert.ok(errors.some((error) => error.id === "S1" && error.message.includes("REDIS_URL")));
+});
+
+test("checkSecretsExamplesDrift: rejects retired active keys", () => {
+  const filePath = "scripts/release/secrets-examples/staging/fastapi.env.example";
+  const secretExamples = makeSecretsExampleMap([
+    [
+      filePath,
+      [
+        "APP_ENV",
+        "ENVIRONMENT",
+        "CORS_ORIGINS",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "REDIS_URL",
+        "REDIS_NAMESPACE",
+        "BACKEND_TRUSTED_HOSTS",
+      ],
+    ],
+  ]);
+  const knownRuntimeVars = new Set([
+    "APP_ENV",
+    "CORS_ORIGINS",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "REDIS_URL",
+    "REDIS_NAMESPACE",
+    "BACKEND_TRUSTED_HOSTS",
+  ]);
+
+  const { errors } = checkSecretsExamplesDrift(secretExamples, knownRuntimeVars);
+
+  assert.ok(errors.some((error) => error.id === "S2" && error.message.includes("ENVIRONMENT")));
+});
+
+test("checkSecretsExamplesDrift: detects missing staging CI overlay keys", () => {
+  const filePath = "scripts/release/secrets-examples/ci/github-actions.env.example";
+  const secretExamples = makeSecretsExampleMap([
+    [filePath, ["CI_E2E_AUTH_SECRET", "PLAYWRIGHT_BASE_URL"]],
+  ]);
+  const knownRuntimeVars = new Set();
+
+  const { errors } = checkSecretsExamplesDrift(secretExamples, knownRuntimeVars);
+
+  assert.ok(errors.some((error) => error.id === "S1" && error.message.includes("CI_E2E_AUTH_ENABLED")));
+});
+
+test("checkSecretsExamplesDrift: rejects shared secrets in Supabase examples", () => {
+  const filePath = "scripts/release/secrets-examples/staging/supabase.env.example";
+  const secretExamples = makeSecretsExampleMap([
+    [filePath, ["SUPABASE_STAGING_PROJECT_REF", "INTERNAL_API_JWT_SECRET"]],
+  ]);
+  const knownRuntimeVars = new Set(["INTERNAL_API_JWT_SECRET"]);
+
+  const { errors } = checkSecretsExamplesDrift(secretExamples, knownRuntimeVars);
+
+  assert.ok(errors.some((error) => error.id === "S4" && error.message.includes("INTERNAL_API_JWT_SECRET")));
 });
 
 // ---------------------------------------------------------------------------

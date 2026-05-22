@@ -6,7 +6,7 @@ from app.config import Settings
 
 
 VALID_PRODUCTION_KWARGS = {
-    "environment": "production",
+    "app_env": "production",
     "internal_api_jwt_secret": "a" * 32,
     "career_principal_hmac_secret": "b" * 32,
     "tenant_key_secret": "c" * 32,
@@ -95,7 +95,7 @@ def test_staging_also_rejects() -> None:
         Settings(
             _env_file=None,
             **_production_kwargs(
-                environment="staging",
+                app_env="staging",
                 redis_namespace="staging",
                 internal_api_jwt_secret="",
             ),
@@ -113,7 +113,7 @@ def test_deployed_rejects_live_es_review_capture_debug() -> None:
 def test_development_allows_empty() -> None:
     settings = Settings(
         _env_file=None,
-        environment="development",
+        app_env="development",
         internal_api_jwt_secret="",
         career_principal_hmac_secret="",
         tenant_key_secret="",
@@ -133,7 +133,7 @@ def test_production_golden_path() -> None:
 
 
 @pytest.mark.parametrize(
-    ("environment", "expected_production", "expected_staging", "expected_deployed"),
+    ("app_env", "expected_production", "expected_staging", "expected_deployed"),
     [
         ("production", True, False, True),
         ("staging", False, True, True),
@@ -141,18 +141,18 @@ def test_production_golden_path() -> None:
     ],
 )
 def test_environment_properties(
-    environment: str,
+    app_env: str,
     expected_production: bool,
     expected_staging: bool,
     expected_deployed: bool,
 ) -> None:
     kwargs = (
         _production_kwargs(
-            environment=environment,
-            redis_namespace=environment,
+            app_env=app_env,
+            redis_namespace=app_env,
         )
-        if environment in {"production", "staging"}
-        else {"environment": environment}
+        if app_env in {"production", "staging"}
+        else {"app_env": app_env}
     )
 
     settings = Settings(_env_file=None, **kwargs)
@@ -162,61 +162,62 @@ def test_environment_properties(
     assert settings.is_deployed is expected_deployed
 
 
-def test_railway_environment_still_marks_deployed_when_environment_is_development(
+def test_invalid_app_env_rejected() -> None:
+    with pytest.raises(ValueError, match="APP_ENV"):
+        Settings(_env_file=None, app_env="prod")
+
+
+def test_railway_deployed_rejects_local_app_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
 
-    with pytest.warns(DeprecationWarning, match="APP_ENV 未設定"):
-        with pytest.raises(ValueError, match="LIVE_ES_REVIEW_CAPTURE_DEBUG"):
-            Settings(
-                _env_file=None,
-                **_production_kwargs(
-                    environment="development",
-                    redis_namespace="production",
-                    live_es_review_capture_debug=True,
-                ),
-            )
+    with pytest.raises(ValueError, match="APP_ENV"):
+        Settings(_env_file=None, app_env="development")
 
 
-def test_environment_alias_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("ENVIRONMENT", "staging")
+def test_railway_deployed_requires_app_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("APP_ENV", raising=False)
     monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
 
-    with pytest.warns(DeprecationWarning, match="APP_ENV 未設定"):
-        settings = Settings(
-            _env_file=None,
-            **_production_kwargs(environment=None, redis_namespace="staging"),
-        )
+    with pytest.raises(ValueError, match="APP_ENV"):
+        Settings(_env_file=None)
 
-    assert settings.environment == "staging"
+
+def test_railway_deployed_allows_split_project_production_environment_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_NAME", "production")
+
+    settings = Settings(
+        _env_file=None,
+        **_production_kwargs(app_env="staging", redis_namespace="staging"),
+    )
+
+    assert settings.logical_app_environment == "staging"
     assert settings.is_staging is True
-    assert settings.is_production is True
+
+
+def test_environment_alias_is_not_used_for_app_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "staging")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.environment == "development"
+    assert settings.logical_app_environment == "local"
+    assert settings.is_deployed is False
 
 
 def test_app_env_alias_is_supported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_ENV", "staging")
     settings = Settings(
         _env_file=None,
-        **_production_kwargs(environment=None, redis_namespace="staging"),
+        **_production_kwargs(app_env=None, redis_namespace="staging"),
     )
 
     assert settings.environment == "staging"
-    assert settings.logical_app_environment == "staging"
-
-
-def test_environment_alias_emits_deprecation_warning(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("APP_ENV", raising=False)
-    monkeypatch.setenv("ENVIRONMENT", "staging")
-
-    with pytest.warns(DeprecationWarning, match="APP_ENV 未設定"):
-        settings = Settings(
-            _env_file=None,
-            **_production_kwargs(environment=None, redis_namespace="staging"),
-        )
-
     assert settings.logical_app_environment == "staging"
 
 
@@ -229,7 +230,7 @@ def test_app_env_alias_does_not_emit_deprecation_warning(
         warnings.simplefilter("always")
         settings = Settings(
             _env_file=None,
-            **_production_kwargs(environment=None, redis_namespace="staging"),
+            **_production_kwargs(app_env=None, redis_namespace="staging"),
         )
 
     assert settings.logical_app_environment == "staging"

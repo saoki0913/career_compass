@@ -11,6 +11,8 @@ _PLACEHOLDER_PATTERNS = re.compile(
     r"^(changeme|replace.?me|dummy|dev|test|xxx+|placeholder|todo)$", re.IGNORECASE
 )
 _MIN_SECRET_LENGTH = 32
+_ALLOWED_APP_ENV_VALUES = {"development", "local", "staging", "production"}
+_DEPLOYED_ENV_VALUES = {"staging", "production"}
 
 
 class Settings(BaseSettings):
@@ -29,9 +31,9 @@ class Settings(BaseSettings):
 
     # ===== アプリケーション =====
     app_name: str = "就活Pass API"
-    environment: str = Field(
+    app_env: str = Field(
         default="development",
-        validation_alias=AliasChoices("APP_ENV", "ENVIRONMENT", "RAILWAY_ENVIRONMENT_NAME"),
+        validation_alias=AliasChoices("APP_ENV"),
     )
     debug: bool = False
     live_es_review_capture_debug: bool = Field(
@@ -520,12 +522,20 @@ class Settings(BaseSettings):
     es_char_tolerance_min: int = 20
 
     @property
+    def environment(self) -> str:
+        return self.app_env
+
+    @environment.setter
+    def environment(self, value: str) -> None:
+        self.app_env = value
+
+    @property
     def is_production(self) -> bool:
-        return "production" in self._deployment_environment_names
+        return self.logical_app_environment == "production"
 
     @property
     def is_staging(self) -> bool:
-        return "staging" in self._deployment_environment_names
+        return self.logical_app_environment == "staging"
 
     @property
     def is_deployed(self) -> bool:
@@ -533,27 +543,10 @@ class Settings(BaseSettings):
 
     @property
     def logical_app_environment(self) -> str:
-        normalized = self.environment.strip().lower()
+        normalized = self.app_env.strip().lower()
         if normalized in {"production", "staging", "local"}:
             return normalized
-        if self.is_production:
-            return "production"
-        if self.is_staging:
-            return "staging"
         return "local"
-
-    @property
-    def _deployment_environment_names(self) -> set[str]:
-        return {
-            value.strip().lower()
-            for value in (
-                self.environment,
-                os.getenv("APP_ENV", ""),
-                os.getenv("ENVIRONMENT", ""),
-                os.getenv("RAILWAY_ENVIRONMENT_NAME", ""),
-            )
-            if value and value.strip()
-        }
 
     @model_validator(mode="after")
     def validate_cors_origins(self):
@@ -566,22 +559,17 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def warn_deprecated_environment_aliases(self):
-        app_env = os.getenv("APP_ENV", "").strip()
-        if app_env:
-            return self
+    def validate_app_env_contract(self):
+        normalized = self.app_env.strip().lower()
+        if normalized not in _ALLOWED_APP_ENV_VALUES:
+            raise ValueError(
+                "APP_ENV は local / development / staging / production のいずれかを設定してください。"
+            )
 
-        fallback_env = (
-            os.getenv("ENVIRONMENT", "").strip()
-            or os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip()
-        )
-        normalized = fallback_env.lower()
-        if normalized in {"staging", "production"}:
-            warnings.warn(
-                "APP_ENV 未設定。ENVIRONMENT/RAILWAY_ENVIRONMENT_NAME からの環境解決は"
-                f"将来撤去予定です。APP_ENV={normalized} を設定してください",
-                DeprecationWarning,
-                stacklevel=2,
+        railway_env = os.getenv("RAILWAY_ENVIRONMENT_NAME", "").strip().lower()
+        if railway_env in _DEPLOYED_ENV_VALUES and normalized not in _DEPLOYED_ENV_VALUES:
+            raise ValueError(
+                "Railway のデプロイ環境では APP_ENV に staging / production のどちらかを設定してください。"
             )
         return self
 
@@ -670,7 +658,7 @@ class Settings(BaseSettings):
             raise ValueError("デプロイ環境の設定が不正です: " + " ".join(errors))
 
         if not self.sentry_environment.strip():
-            self.sentry_environment = self.environment
+            self.sentry_environment = self.app_env
         if self.is_production and not self.sentry_dsn.strip():
             warnings.warn(
                 "本番環境で SENTRY_FASTAPI_DSN / BACKEND_SENTRY_DSN / "
