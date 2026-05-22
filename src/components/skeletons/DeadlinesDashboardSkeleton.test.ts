@@ -7,7 +7,8 @@ describe("DeadlinesDashboardSkeleton", () => {
       new URL("./DeadlinesDashboardSkeleton.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("lg:grid-cols-4");
+    expect(source).toContain("xl:grid-cols-4");
+    expect(source).toContain("md:grid-cols-2");
   });
 
   it("does not include stat cards in the inline skeleton", async () => {

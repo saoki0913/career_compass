@@ -4,7 +4,7 @@ import Link from "next/link";
 import { memo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDraggable } from "@dnd-kit/core";
-import { Briefcase, Calendar, FileText, GripVertical, MoreHorizontal, Star, Trash2 } from "lucide-react";
+import { Briefcase, Calendar, ChevronRight, FileText, GripVertical, MoreHorizontal, Star, Trash2 } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,9 +49,53 @@ function CompanyKanbanCardComponent({
   const status = getStatusConfig(company.status);
   const currentPhase = getSelectionPhaseForStatus(company.status);
   const deadline = getDeadlineSummary(company.nearestDeadline);
+  const deadlineBgClass = deadline
+    ? deadline.tone === "overdue" || deadline.tone === "urgent"
+      ? "bg-destructive/10"
+      : deadline.tone === "warning"
+        ? "bg-warning/10"
+        : "bg-muted/30"
+    : "bg-muted/30";
+  const deadlineTextClass = deadline ? DEADLINE_TONE_CLASSES[deadline.tone] : "text-muted-foreground";
+  const fullUpdatedDate = new Date(company.updatedAt).toLocaleDateString("ja-JP", { year: "numeric", month: "short", day: "numeric" });
+  const shortUpdatedDate = new Date(company.updatedAt).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" });
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
     : undefined;
+  const renderPhaseMenu = () => (
+    <PopoverContent align="end" className="w-56 p-1">
+      {COMPANY_SELECTION_PHASE_COLUMNS.map((phase) => (
+        <button
+          key={phase.key}
+          type="button"
+          className={cn(
+            "flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:bg-accent",
+            phase.key === currentPhase.key && "bg-accent/50"
+          )}
+          onClick={() => {
+            onMoveToPhase(company.id, phase.key);
+            setPhaseMenuOpen(false);
+          }}
+        >
+          <span>{phase.label}</span>
+          {phase.key === currentPhase.key ? <span className="text-xs text-muted-foreground">現在</span> : null}
+        </button>
+      ))}
+      {onDeleteStart ? (
+        <button
+          type="button"
+          className="mt-1 flex w-full items-center gap-2 rounded-sm border-t border-border/70 px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:bg-destructive/10"
+          onClick={() => {
+            setPhaseMenuOpen(false);
+            onDeleteStart(company.id);
+          }}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          削除
+        </button>
+      ) : null}
+    </PopoverContent>
+  );
 
   return (
     <Card
@@ -68,7 +112,92 @@ function CompanyKanbanCardComponent({
         isOverlay && "shadow-lg ring-2 ring-primary/20"
       )}
     >
-      <CardContent className="flex h-full flex-col p-0">
+      <CardContent className="p-0">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_minmax(5.3rem,0.62fr)_auto] items-center gap-2 px-2.5 py-2 md:hidden">
+            <CompanyLogo company={company} className="h-12 w-12 shrink-0 rounded-xl" imageClassName="h-8 w-8" />
+            <div className="min-w-0 self-center">
+              <Link
+                href={`/companies/${company.id}`}
+                className={cn(
+                  "block min-w-0 truncate whitespace-nowrap text-sm font-bold leading-5 text-foreground underline-offset-2 hover:text-primary hover:underline",
+                  getCompanyNameClass(company.name)
+                )}
+                title={company.name}
+              >
+                {company.name}
+              </Link>
+              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                <p className="max-w-[5.5rem] truncate text-xs text-muted-foreground">{company.industry || "業界未設定"}</p>
+                <Badge
+                  variant="outline"
+                  className={cn("h-5 whitespace-nowrap rounded-full px-2 py-0 text-[11px] font-medium leading-5", status.bgColor, status.color)}
+                >
+                  {status.label}
+                </Badge>
+              </div>
+            </div>
+            <div className="min-w-0 self-center">
+              <div className={cn("min-w-0 rounded-lg px-2 py-1", deadlineBgClass)}>
+                <div className={cn("flex min-w-0 items-center gap-1 text-[11px] leading-4", deadlineTextClass)}>
+                  <Calendar className="h-3.5 w-3.5 shrink-0" />
+                {deadline ? (
+                  <>
+                    <span className="truncate">{deadline.typeLabel}</span>
+                    <span className="shrink-0 font-semibold">{deadline.daysText}</span>
+                  </>
+                ) : (
+                  <span>締切なし</span>
+                )}
+                </div>
+              </div>
+              <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                <span className="flex h-6 items-center gap-1 rounded-md border border-border/70 bg-background px-1.5">
+                <Briefcase className="h-3.5 w-3.5 text-primary" />
+                {company.activeApplicationCount}
+                </span>
+                <span className="flex h-6 items-center gap-1 rounded-md border border-border/70 bg-background px-1.5">
+                <FileText className="h-3.5 w-3.5 text-primary" />
+                {company.esDocumentCount}
+                </span>
+              </div>
+            </div>
+            <div className="flex min-w-[3.75rem] flex-col items-end justify-center gap-1 self-stretch text-xs text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <ChevronRight className="h-4 w-4 text-slate-700" aria-hidden="true" />
+                <Popover open={phaseMenuOpen} onOpenChange={setPhaseMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 rounded text-muted-foreground hover:text-foreground"
+                      aria-label={`${company.name} の操作メニューを開く`}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  {renderPhaseMenu()}
+                </Popover>
+              </div>
+              <span className="whitespace-nowrap">更新: {shortUpdatedDate}</span>
+              {onTogglePin ? (
+                <button
+                  type="button"
+                  onClick={() => onTogglePin(company.id, !company.isPinned)}
+                  className={cn(
+                    "flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all duration-200 hover:scale-110 active:scale-95",
+                    company.isPinned ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground/50 hover:text-amber-400"
+                  )}
+                  title={company.isPinned ? "お気に入り解除" : "お気に入りに追加"}
+                  aria-label={company.isPinned ? "お気に入り解除" : "お気に入りに追加"}
+                >
+                  <Star className={cn("h-3.5 w-3.5 transition-all duration-200", company.isPinned && "fill-current")} />
+                </button>
+              ) : null}
+            </div>
+        </div>
+
+        <div className="hidden h-full flex-col md:flex">
         <div className="flex items-center justify-between gap-1 px-2 pt-2">
           <div className="flex shrink-0 items-center gap-0.5">
             <button
@@ -138,15 +267,8 @@ function CompanyKanbanCardComponent({
           </div>
         </div>
 
-        <div className={cn(
-          "mx-2.5 mb-1.5 rounded-md px-2.5 py-1.5",
-          deadline && (deadline.tone === "overdue" || deadline.tone === "urgent")
-            ? "bg-destructive/10"
-            : deadline?.tone === "warning"
-              ? "bg-warning/10"
-              : "bg-muted/30"
-        )}>
-          <div className={cn("flex items-center gap-1.5 text-[11px]", deadline ? DEADLINE_TONE_CLASSES[deadline.tone] : "text-muted-foreground")}>
+        <div className={cn("mx-2.5 mb-1.5 rounded-md px-2.5 py-1.5", deadlineBgClass)}>
+          <div className={cn("flex items-center gap-1.5 text-[11px]", deadlineTextClass)}>
             <Calendar className="h-3 w-3 shrink-0" />
             {deadline ? (
               <>
@@ -172,9 +294,7 @@ function CompanyKanbanCardComponent({
         </div>
 
         <div className="mt-auto flex items-center justify-between border-t border-border/60 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-          <span>
-            更新: {new Date(company.updatedAt).toLocaleDateString("ja-JP", { year: "numeric", month: "short", day: "numeric" })}
-          </span>
+          <span>更新: {fullUpdatedDate}</span>
           <Popover open={phaseMenuOpen} onOpenChange={setPhaseMenuOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -187,26 +307,9 @@ function CompanyKanbanCardComponent({
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-56 p-1">
-              {COMPANY_SELECTION_PHASE_COLUMNS.map((phase) => (
-                <button
-                  key={phase.key}
-                  type="button"
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:bg-accent",
-                    phase.key === currentPhase.key && "bg-accent/50"
-                  )}
-                  onClick={() => {
-                    onMoveToPhase(company.id, phase.key);
-                    setPhaseMenuOpen(false);
-                  }}
-                >
-                  <span>{phase.label}</span>
-                  {phase.key === currentPhase.key ? <span className="text-xs text-muted-foreground">現在</span> : null}
-                </button>
-              ))}
-            </PopoverContent>
+            {renderPhaseMenu()}
           </Popover>
+        </div>
         </div>
       </CardContent>
     </Card>

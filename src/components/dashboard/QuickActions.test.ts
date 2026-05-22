@@ -32,25 +32,26 @@ describe("QuickActions", () => {
     expect(source).not.toContain("subtitle");
   });
 
-  it("uses one compact pill design without an inline prop split", async () => {
+  it("uses responsive action cards without an inline prop split", async () => {
     const source = await readQuickActionsSource();
     expect(source).not.toContain("inline");
-    // mobile h-11, desktop lg:h-9
-    expect(source).toContain("h-11");
+    expect(source).toContain("h-[68px]");
+    expect(source).toContain("sm:h-14");
     expect(source).toContain("lg:h-9");
     expect(source).toContain("border-[1.5px]");
+    expect(source).toContain("col-span-2");
   });
 
-  it("mobile quick actions have larger touch targets with desktop overrides", async () => {
+  it("mobile quick actions use a compact 2-column grid with desktop overrides", async () => {
     const source = await readQuickActionsSource();
-    // icon container: h-7 w-7 mobile, lg:h-6 lg:w-6 desktop
-    expect(source).toContain("h-7 w-7");
+    expect(source).toContain("h-9 w-9");
+    expect(source).toContain("sm:h-7 sm:w-7");
     expect(source).toContain("lg:h-6 lg:w-6");
-    // title text: text-sm mobile, lg:text-xs desktop
     expect(source).toContain("text-sm font-semibold");
+    expect(source).toContain("sm:text-sm");
     expect(source).toContain("lg:text-xs");
-    // action gap and padding: gap-2 px-3.5 mobile, lg:gap-1.5 lg:px-3 desktop
-    expect(source).toContain("gap-2");
+    expect(source).toContain("grid-cols-2");
+    expect(source).toContain("sm:gap-2");
     expect(source).toContain("lg:gap-1.5 lg:px-3");
   });
 

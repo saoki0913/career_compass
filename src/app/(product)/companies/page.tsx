@@ -12,7 +12,7 @@ export default async function CompaniesPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-[96rem] px-4 pb-7 pt-24 sm:px-6 sm:pb-9 sm:pt-24 lg:px-8 lg:py-9 xl:px-10">
         <CompaniesPageHeader />
         <Suspense fallback={<CompaniesKanbanSkeleton />}>
           <AnimatedSuspenseContent>

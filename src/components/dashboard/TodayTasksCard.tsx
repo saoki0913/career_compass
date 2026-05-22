@@ -214,9 +214,9 @@ export function TodayTasksCard({
   const todayTaskUrgent = isUrgentDeadline(todayTaskDaysLeft);
 
   return (
-    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1.5" data-testid="dashboard-today-task-card">
-      <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
-        <CardTitle className="text-base font-semibold tracking-tight">今日のタスク</CardTitle>
+    <Card className="h-full min-h-[260px] overflow-hidden rounded-2xl border-border/50 py-4 gap-3 lg:min-h-0 lg:rounded-xl lg:py-1.5 lg:gap-1.5" data-testid="dashboard-today-task-card">
+      <CardHeader className="flex shrink-0 flex-row items-center justify-between px-5 lg:px-5">
+        <CardTitle className="text-xl font-semibold tracking-tight lg:text-base">今日のタスク</CardTitle>
         <Link
           href="/tasks"
           className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
@@ -225,7 +225,7 @@ export function TodayTasksCard({
         </Link>
       </CardHeader>
 
-      <CardContent className="min-h-0 flex-1 overflow-y-auto px-4 lg:px-5">
+      <CardContent className="min-h-0 flex-1 overflow-y-auto px-5 lg:px-5">
         {!hasAnyContent ? (
           <div className="flex h-full min-h-[160px] flex-col items-center justify-center px-4 py-3 text-center">
             <Image

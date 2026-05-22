@@ -132,7 +132,7 @@ export function MotivationConversationContent({ companyId }: { companyId: string
   const {
     showStandaloneQuestion,
     hasSavedConversation,
-    requiresIndustrySelection,
+    industryState,
     effectiveIndustry,
     isSetupComplete,
     showSetupScreen,
@@ -263,7 +263,7 @@ export function MotivationConversationContent({ companyId }: { companyId: string
             <MotivationSetupPanel
               companyName={company.name}
               effectiveIndustry={effectiveIndustry}
-              requiresIndustrySelection={requiresIndustrySelection}
+              industryState={industryState}
               selectedIndustry={selectedIndustry}
               selectedRoleName={selectedRoleName}
               customRoleInput={customRoleInput}

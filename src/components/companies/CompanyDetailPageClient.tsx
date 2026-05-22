@@ -125,6 +125,13 @@ interface CompanyDetailPageClientProps {
 
 type DeadlineListFilter = "all" | "active" | "week" | "completed";
 
+const companyDetailShellClassName =
+  "mx-auto max-w-[90rem] px-5 pb-6 pt-20 sm:px-6 md:px-7 lg:px-8 lg:py-6";
+
+const detailCardClassName = "border-border/50 shadow-sm";
+const primaryActionClassName =
+  "inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-xl border px-3 py-2 text-center text-sm font-medium transition-colors sm:min-h-11 sm:w-auto lg:min-h-10";
+
 // Password display with on-demand fetch and show/hide toggle
 function PasswordDisplay({ companyId }: { companyId: string }) {
   const [password, setPassword] = useState<string | null>(null);
@@ -647,7 +654,7 @@ export default function CompanyDetailPageClient({
   if (error && !company) {
     return (
       <div className="min-h-screen bg-background">
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <main className={companyDetailShellClassName}>
           <Card className="border-red-200 bg-red-50/50 max-w-xl mx-auto">
             <CardContent className="py-6 text-center">
               <h2 className="text-lg font-semibold text-red-800 mb-2">{error}</h2>
@@ -667,11 +674,11 @@ export default function CompanyDetailPageClient({
     <OperationLockProvider>
     <NavigationGuard />
     <div className="min-h-screen bg-background">
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+      <main className={companyDetailShellClassName}>
         {/* Back button */}
         <Link
           href="/companies"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+          className="mb-5 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
         >
           <ArrowLeftIcon />
           企業一覧に戻る
@@ -685,103 +692,111 @@ export default function CompanyDetailPageClient({
         )}
 
         {/* Company Header with Quick Actions */}
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3 mb-4 pb-4 border-b border-border/50">
+        <div className="mb-5 space-y-4 border-b border-border/50 pb-5">
           {/* Left: Company Info */}
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold">{company.name}</h1>
-              {company.recruitmentUrl && (
-                <a
-                  href={company.recruitmentUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-sm text-primary hover:underline"
+          <div className="flex flex-col gap-4 min-[1180px]:flex-row min-[1180px]:items-start min-[1180px]:justify-between">
+            <div className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+                  <h1 className="min-w-0 break-words text-3xl font-bold tracking-normal text-slate-950 sm:text-4xl lg:text-3xl">
+                    {company.name}
+                  </h1>
+                  {company.recruitmentUrl && (
+                    <a
+                      href={company.recruitmentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                    >
+                      <ExternalLinkIcon />
+                      採用ページ
+                    </a>
+                  )}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <StatusDropdown
+                    currentStatus={company.status}
+                    onStatusChange={handleStatusChange}
+                  />
+                  {company.industry && (
+                    <span className="rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground">
+                      {company.industry}
+                    </span>
+                  )}
+                  {company.corporateUrl && (
+                    <a
+                      href={company.corporateUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
+                    >
+                      <ExternalLinkIcon />
+                      企業HP
+                    </a>
+                  )}
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={() => setShowEditModal(true)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="企業情報を編集"
                 >
-                  <ExternalLinkIcon />
-                  採用ページ
-                </a>
-              )}
+                  <EditIcon />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="text-muted-foreground hover:text-red-600"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  aria-label="企業を削除"
+                >
+                  <TrashIcon />
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 mt-1.5">
-              <StatusDropdown
-                currentStatus={company.status}
-                onStatusChange={handleStatusChange}
-              />
-              {company.industry && (
-                <>
-                  <span className="text-sm text-muted-foreground">•</span>
-                  <span className="text-sm text-muted-foreground">{company.industry}</span>
-                </>
-              )}
-              {company.corporateUrl && (
-                <>
-                  <span className="text-sm text-muted-foreground">•</span>
-                  <a
-                    href={company.corporateUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-                  >
-                    <ExternalLinkIcon />
-                    企業HP
-                  </a>
-                </>
-              )}
-            </div>
-          </div>
 
-          {/* Right: Quick Actions + Edit/Delete */}
-          <div className="flex flex-col gap-1.5 items-end">
-            <div className="flex items-center gap-2">
+            {/* Right: Quick Actions */}
+            <div className="min-[1180px]:max-w-[52rem]">
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-start min-[1180px]:justify-end">
               <Link
                 href={`/companies/${company.id}/motivation`}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-colors text-sm font-medium"
+                className={cn(
+                  primaryActionClassName,
+                  "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+                )}
               >
                 <SparklesIcon />
                 志望動機
               </Link>
               <Link
                 href={`/es?companyId=${company.id}`}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-muted/50 transition-colors text-sm font-medium"
+                className={cn(primaryActionClassName, "border-border bg-background hover:bg-muted/50")}
               >
                 <FileTextIcon />
                 ES作成/添削
               </Link>
               <Link
                 href={`/companies/${company.id}/interview`}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border hover:bg-muted/50 transition-colors text-sm font-medium"
+                className={cn(primaryActionClassName, "border-border bg-background hover:bg-muted/50")}
               >
                 <SparklesIcon />
                 面接対策
               </Link>
-              <FetchInfoButton
-                companyId={company.id}
-                companyName={company.name}
-                hasRecruitmentUrl={!!company.recruitmentUrl}
-                onSuccess={refreshDeadlines}
-              />
-              <div className="flex gap-0.5 ml-1 pl-2 border-l border-border/50">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowEditModal(true)}
-                  className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
-                >
-                  <EditIcon />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600"
-                  onClick={() => setShowDeleteConfirm(true)}
-                >
-                  <TrashIcon />
-                </Button>
+              <div className="col-span-2 [&>button]:min-h-14 [&>button]:w-full [&>button]:justify-center [&>button]:rounded-xl [&>button]:px-3 [&>button]:py-2 sm:col-span-1 sm:[&>button]:min-h-11 sm:[&>button]:w-auto lg:[&>button]:min-h-10">
+                <FetchInfoButton
+                  companyId={company.id}
+                  companyName={company.name}
+                  hasRecruitmentUrl={!!company.recruitmentUrl}
+                  onSuccess={refreshDeadlines}
+                />
               </div>
             </div>
             {/* マイページ情報（コンパクト表示） */}
             {(company.mypageUrl || company.hasCredentials) && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground min-[1180px]:justify-end">
                 {company.mypageUrl && (
                   <a
                     href={company.mypageUrl}
@@ -798,22 +813,24 @@ export default function CompanyDetailPageClient({
                 )}
               </div>
             )}
+            </div>
           </div>
         </div>
 
-	        {/* 2-column grid: Deadlines + Applications */}
-	        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+	        {/* Top cards: Deadlines + Applications + ES */}
+	        <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-2 lg:gap-5 xl:grid-cols-3">
 	          {/* Left column: Deadlines */}
 	          <Card className={cn(
-	            "border-border/50",
+	            detailCardClassName,
+              "min-h-[15rem]",
 	            hasOverdueDeadlines
 	              ? "bg-red-50/30 border-red-200"
 	              : hasThisWeekDeadlines
 	                ? "bg-amber-50/30 border-amber-200/50"
 	                : ""
 	          )}>
-	          <CardHeader className="flex flex-row items-center justify-between py-3">
-	            <CardTitle className="text-base flex items-center gap-2">
+	          <CardHeader className="flex flex-row items-start justify-between gap-3 py-4">
+	            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2 text-base">
 	              <CalendarIcon />
 	              締切・予定
 	              {unconfirmedDeadlineCount > 0 && (
@@ -827,7 +844,7 @@ export default function CompanyDetailPageClient({
 	                </span>
 	              ) : null}
 	            </CardTitle>
-	            <div className="flex gap-2">
+	            <div className="flex shrink-0 gap-2">
 	              {unconfirmedDeadlineCount > 1 && (
 	                <Button
 	                  variant="outline"
@@ -926,12 +943,12 @@ export default function CompanyDetailPageClient({
 	              </div>
 	            )}
 	          </CardContent>
-	          </Card>
+          </Card>
 
           {/* Right column: Applications */}
-          <Card className="border-border/50">
-              <CardHeader className="flex flex-row items-center justify-between py-3">
-                <CardTitle className="text-base flex items-center gap-2">
+          <Card className={cn(detailCardClassName, "min-h-[15rem]")}>
+              <CardHeader className="flex flex-row items-start justify-between gap-3 py-4">
+                <CardTitle className="flex min-w-0 items-center gap-2 text-base">
                   <BriefcaseIcon />
                   応募枠
                 </CardTitle>
@@ -1031,20 +1048,11 @@ export default function CompanyDetailPageClient({
                 )}
               </CardContent>
           </Card>
-        </div>
-
-        {/* Full-width bottom section: Corporate Info DB + ES Documents */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Corporate Info (RAG) section */}
-          <CorporateInfoSection
-            companyId={company.id}
-            companyName={company.name}
-          />
 
           {/* Linked ES Documents section */}
-          <Card className="border-border/50">
-            <CardHeader className="flex flex-row items-center justify-between py-3">
-              <CardTitle className="text-base flex items-center gap-2">
+          <Card className={cn(detailCardClassName, "min-h-[15rem]")}>
+            <CardHeader className="flex flex-row items-start justify-between gap-3 py-4">
+              <CardTitle className="flex min-w-0 items-center gap-2 whitespace-nowrap text-base">
                 <DocumentIcon />
                 この企業のES
                 {esDocuments.length > 0 && (
@@ -1055,7 +1063,7 @@ export default function CompanyDetailPageClient({
               </CardTitle>
               <Link
                 href={`/es?companyId=${company.id}`}
-                className="text-xs text-primary hover:underline"
+                className="shrink-0 whitespace-nowrap text-xs text-primary hover:underline"
               >
                 新規作成
               </Link>
@@ -1114,6 +1122,14 @@ export default function CompanyDetailPageClient({
               )}
             </CardContent>
           </Card>
+        </div>
+
+        {/* Full-width bottom section: Corporate Info DB */}
+        <div className="[&>div]:shadow-sm">
+          <CorporateInfoSection
+            companyId={company.id}
+            companyName={company.name}
+          />
         </div>
 
         {/* Application modal */}

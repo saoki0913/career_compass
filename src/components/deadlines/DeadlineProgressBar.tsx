@@ -23,7 +23,7 @@ export function DeadlineProgressBar({
   return (
     <div className={cn("flex items-center gap-2", className)}>
       <div
-        className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
+        className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-sky-100"
         role="progressbar"
         aria-valuenow={value}
         aria-valuemin={0}

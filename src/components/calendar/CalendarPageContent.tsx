@@ -7,8 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn, getLocalDateKey } from "@/lib/utils";
-import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Badge } from "@/components/ui/badge";
 import { useCalendarEvents, useGoogleCalendar, GoogleCalendarEvent, WorkBlockSuggestion } from "@/hooks/useCalendar";
 import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { WorkBlockSuggestionsModal } from "@/components/calendar/WorkBlockSuggestionsModal";
@@ -60,6 +58,27 @@ const LoadingSpinner = () => (
   </svg>
 );
 
+const GoogleMiniIcon = () => (
+  <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      fill="#4285F4"
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+    />
+  </svg>
+);
+
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 function notifyCalendarSyncResult(calendarSync?: { status?: string }) {
@@ -68,6 +87,75 @@ function notifyCalendarSyncResult(calendarSync?: { status?: string }) {
   } else if (calendarSync?.status === "failed") {
     notifyCalendarSyncFailed();
   }
+}
+
+function getEventTitle(event: DisplayEvent) {
+  return "title" in event ? event.title : event.summary;
+}
+
+function getEventKind(event: DisplayEvent) {
+  if ("eventType" in event && event.eventType === "deadline") return "締切";
+  if ("type" in event && event.type === "google") return "Google予定";
+  return "タスク";
+}
+
+function getEventChipClassName(event: DisplayEvent) {
+  if ("eventType" in event && event.eventType === "deadline") {
+    return "bg-red-100 text-red-700 ring-red-200";
+  }
+  if ("type" in event && event.type === "google") {
+    return "bg-emerald-100 text-emerald-700 ring-emerald-200";
+  }
+  return "bg-blue-100 text-blue-700 ring-blue-200";
+}
+
+interface GoogleCalendarConnectionStripProps {
+  isGoogleConnected: boolean;
+  needsReconnect?: boolean;
+  connectedEmail?: string | null;
+  className?: string;
+}
+
+function GoogleCalendarConnectionStrip({
+  isGoogleConnected,
+  needsReconnect = false,
+  connectedEmail,
+  className,
+}: GoogleCalendarConnectionStripProps) {
+  const label = needsReconnect ? "Google再連携が必要" : isGoogleConnected ? "Google連携中" : "Google未連携";
+  const action = needsReconnect ? "再連携" : "設定";
+
+  return (
+    <Link
+      href="/calendar/settings"
+      aria-label={`${label}。設定画面を開く`}
+      className={cn(
+        "flex min-h-10 items-center gap-2 rounded-2xl border px-3 py-2 text-xs shadow-sm transition-colors sm:min-h-11 sm:px-4 sm:text-sm",
+        needsReconnect
+          ? "border-amber-300 bg-amber-50/90 text-amber-800 hover:bg-amber-100"
+          : isGoogleConnected
+            ? "border-emerald-200 bg-emerald-50/80 text-emerald-800 hover:bg-emerald-100"
+            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+        className,
+      )}
+    >
+      <GoogleMiniIcon />
+      <span className="min-w-0 flex-1 truncate font-semibold">
+        {label}
+        {connectedEmail && isGoogleConnected && !needsReconnect && (
+          <span className="hidden font-normal text-slate-500 sm:inline"> ・ {connectedEmail}</span>
+        )}
+      </span>
+      <span
+        className={cn(
+          "shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold",
+          needsReconnect ? "bg-amber-200/70 text-amber-900" : "bg-white/80 text-slate-700",
+        )}
+      >
+        {action}
+      </span>
+    </Link>
+  );
 }
 
 interface AddEventModalProps {
@@ -154,10 +242,16 @@ function AddEventModal({ isOpen, selectedDate, onClose, onCreate }: AddEventModa
   if (!isOpen || !selectedDate) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="calendar-add-event-title"
+      onClick={onClose}
+    >
       <Card className="max-h-[min(80vh,42rem)] w-full max-w-md overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <CardHeader>
-          <CardTitle>タスクを追加</CardTitle>
+          <CardTitle id="calendar-add-event-title">タスクを追加</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -235,7 +329,9 @@ function AddEventModal({ isOpen, selectedDate, onClose, onCreate }: AddEventModa
 
 export default function CalendarPageContent() {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [focusedDate, setFocusedDate] = useState<Date | null>(new Date());
+  const [addEventDate, setAddEventDate] = useState<Date | null>(null);
+  const [suggestionDate, setSuggestionDate] = useState<Date | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
   const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
@@ -245,7 +341,6 @@ export default function CalendarPageContent() {
   const [dayDetailDate, setDayDetailDate] = useState<Date | null>(null);
   const [dayDetailEvents, setDayDetailEvents] = useState<DisplayEvent[]>([]);
   const [dismissedError, setDismissedError] = useState<string | null>(null);
-  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
 
   // Calculate month range for API
   const monthStart = useMemo(() => {
@@ -270,12 +365,14 @@ export default function CalendarPageContent() {
     fetchGoogleEvents,
     suggestWorkBlocks,
   } = useGoogleCalendar();
+  const canUseGoogleCalendar = isGoogleConnected && !connectionStatus?.needsReconnect;
 
   // Fetch Google Calendar events when month changes.
   // Do not depend on the whole hook return object — it is a new reference every render, and
   // fetchGoogleEvents toggles loading state which would retrigger this effect infinitely.
   useEffect(() => {
-    if (!isGoogleConnected) {
+    if (!canUseGoogleCalendar) {
+      setGoogleEvents([]);
       return;
     }
 
@@ -290,11 +387,11 @@ export default function CalendarPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [isGoogleConnected, fetchGoogleEvents, monthStart, monthEnd]);
+  }, [canUseGoogleCalendar, fetchGoogleEvents, monthStart, monthEnd]);
 
   const effectiveGoogleEvents = useMemo(
-    () => (isGoogleConnected ? googleEvents : []),
-    [isGoogleConnected, googleEvents],
+    () => (canUseGoogleCalendar ? googleEvents : []),
+    [canUseGoogleCalendar, googleEvents],
   );
 
   // Generate calendar days
@@ -317,12 +414,9 @@ export default function CalendarPageContent() {
       days.push(new Date(year, month, i));
     }
 
-    // Add days from next month
-    const remaining = 7 - (days.length % 7);
-    if (remaining < 7) {
-      for (let i = 1; i <= remaining; i++) {
-        days.push(new Date(year, month + 1, i));
-      }
+    // Add days from next month; keep the visual grid stable across months.
+    while (days.length < 42) {
+      days.push(new Date(year, month + 1, days.length - firstDay.getDay() - lastDay.getDate() + 1));
     }
 
     return days;
@@ -369,23 +463,30 @@ export default function CalendarPageContent() {
   }, [events, deadlines, effectiveGoogleEvents]);
 
   const prevMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+    const nextDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1);
+    setCurrentDate(nextDate);
+    setFocusedDate(nextDate);
   };
 
   const nextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+    const nextDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1);
+    setCurrentDate(nextDate);
+    setFocusedDate(nextDate);
   };
 
   const today = new Date();
   const todayKey = getLocalDateKey(today);
+  const focusedDateKey = focusedDate ? getLocalDateKey(focusedDate) : todayKey;
+  const focusedDateEvents = eventsByDate.get(focusedDateKey) || [];
 
   const handleDayClick = (day: Date) => {
-    setSelectedDate(day);
+    setFocusedDate(day);
+    setAddEventDate(day);
     setShowAddModal(true);
   };
 
   const handleSuggestWorkBlocks = async (day: Date) => {
-    setSelectedDate(day);
+    setSuggestionDate(day);
     setShowSuggestionsModal(true);
     const dateStr = getLocalDateKey(day);
     try {
@@ -393,7 +494,7 @@ export default function CalendarPageContent() {
       setWorkBlockSuggestions(suggestions);
     } catch (error) {
       setShowSuggestionsModal(false);
-      setSelectedDate(null);
+      setSuggestionDate(null);
       setWorkBlockSuggestions([]);
       const ui = toAppUiError(
         error,
@@ -456,29 +557,29 @@ export default function CalendarPageContent() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
-      <main className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-4 pt-4 max-lg:pb-4 sm:px-6 lg:px-8 lg:pb-4">
+    <div className="min-h-dvh bg-slate-50/80 text-slate-950">
+      <main className="mx-auto flex w-full max-w-[96rem] flex-col gap-4 px-4 py-4 pb-mobile-tab sm:gap-5 sm:px-6 sm:py-5 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:py-7">
         {/* Header */}
-        <div className="mb-4 flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-border/70 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
+        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="order-2 min-w-0 sm:order-1 sm:pl-14 lg:pl-0">
+            <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm sm:mb-3 sm:px-4 sm:py-1.5">
               スケジュール
             </p>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            <h1 className="text-3xl font-bold tracking-normal text-slate-950 sm:text-5xl lg:text-4xl">
               カレンダー
             </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 sm:mt-3 sm:text-base sm:leading-7 lg:text-sm">
               締切と作業ブロックを月単位で確認し、Google カレンダー連携の状態もここで管理します。
             </p>
           </div>
-          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end sm:gap-3">
-            <Button variant="ghost" asChild className="shrink-0">
+          <div className="order-1 flex w-full min-w-0 flex-wrap items-center gap-2 pl-14 sm:order-2 sm:w-auto sm:justify-end sm:gap-3 sm:pl-0">
+            <Button variant="ghost" asChild className="h-11 shrink-0 rounded-2xl px-4 text-slate-600 hover:bg-white">
               <Link href="/dashboard">
                 <span className="sm:hidden">ホーム</span>
                 <span className="hidden sm:inline">ホームに戻る</span>
               </Link>
             </Button>
-            <Button variant="outline" asChild className="shrink-0">
+            <Button variant="outline" asChild className="h-11 shrink-0 rounded-2xl border-slate-200 bg-white px-4 shadow-sm">
               <Link href="/calendar/settings">
                 <SettingsIcon />
                 <span className="ml-1.5">{connectionStatus?.needsReconnect ? "再連携" : "設定"}</span>
@@ -489,12 +590,13 @@ export default function CalendarPageContent() {
 
         {/* Error */}
         {error && dismissedError !== error && (
-          <Card className="mb-4 border-amber-200 bg-amber-50/50 shrink-0">
+          <Card className="shrink-0 rounded-[22px] border-amber-200 bg-amber-50/80">
             <CardContent className="py-3">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm text-amber-800 flex-1">{error}</p>
                 <button
                   type="button"
+                  aria-label="エラー通知を閉じる"
                   onClick={() => setDismissedError(error)}
                   className="p-0.5 rounded-md hover:bg-amber-200/50 transition-colors text-amber-600 shrink-0"
                 >
@@ -512,41 +614,47 @@ export default function CalendarPageContent() {
           </Card>
         )}
 
-        {/* Two Column Layout */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-0">
+        <GoogleCalendarConnectionStrip
+          className="lg:hidden"
+          isGoogleConnected={isGoogleConnected}
+          needsReconnect={connectionStatus?.needsReconnect}
+          connectedEmail={connectionStatus?.connectedEmail}
+        />
+
+        {/* Responsive Layout */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_24rem]">
           {/* Calendar - 3/4 width */}
-          <div className="lg:col-span-3 flex flex-col min-h-0">
-            <Card className="flex flex-col flex-1 min-h-0">
-              <CardHeader className="pb-2 shrink-0">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="icon" onClick={prevMonth}>
+          <div className="flex min-h-0 flex-col">
+            <Card className="flex min-h-0 flex-col rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_48px_rgba(15,23,42,0.08)]">
+              <CardHeader className="shrink-0 px-4 pb-2 pt-4 sm:px-8 sm:pb-3 sm:pt-6 lg:px-8">
+                <div className="flex items-center justify-center">
+                  <div className="flex items-center gap-4 sm:gap-8">
+                    <Button variant="ghost" size="icon" onClick={prevMonth} aria-label="前の月を表示" className="h-10 w-10 rounded-full text-slate-600 sm:h-11 sm:w-11">
                       <ChevronLeftIcon />
                     </Button>
-                    <CardTitle className="text-lg">
+                    <CardTitle className="min-w-32 text-center text-xl font-bold text-slate-950 sm:text-3xl lg:text-2xl">
                       {currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月
                     </CardTitle>
-                    <Button variant="ghost" size="icon" onClick={nextMonth}>
+                    <Button variant="ghost" size="icon" onClick={nextMonth} aria-label="次の月を表示" className="h-10 w-10 rounded-full text-slate-600 sm:h-11 sm:w-11">
                       <ChevronRightIcon />
                     </Button>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex min-h-0 flex-1 flex-col overflow-y-auto pb-mobile-tab">
+              <CardContent className="flex min-h-0 flex-1 flex-col px-3 pb-4 sm:px-8 sm:pb-5 lg:overflow-y-auto">
                 {isLoading ? (
-                  <div className="flex flex-1 items-center justify-center">
+                  <div className="flex min-h-[28rem] flex-1 items-center justify-center">
                     <LoadingSpinner />
                   </div>
                 ) : (
                   <div className="flex min-h-0 flex-col">
-                    {/* Weekday headers（月グリッド内スクロール時も見えるよう固定） */}
-                    <div className="sticky top-0 z-[1] mb-1 grid shrink-0 grid-cols-7 gap-1 border-b border-border/40 bg-card pb-1 pt-0.5">
+                    <div className="grid shrink-0 grid-cols-7 gap-1 pb-3 sm:gap-2">
                       {WEEKDAYS.map((day, i) => (
                         <div
                           key={day}
                           className={cn(
-                            "py-2 text-center text-xs font-medium sm:text-sm",
-                            i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-muted-foreground"
+                            "py-2 text-center text-sm font-semibold",
+                            i === 0 ? "text-red-500" : i === 6 ? "text-blue-500" : "text-slate-500"
                           )}
                         >
                           {day}
@@ -554,87 +662,101 @@ export default function CalendarPageContent() {
                       ))}
                     </div>
 
-                    {/* 週の行は最低高さを確保し、はみ出しはカード内スクロール */}
-                    <div className="grid auto-rows-[minmax(4rem,auto)] grid-cols-7 gap-1 sm:auto-rows-[minmax(4.5rem,auto)]">
+                    <div className="grid grid-cols-7 auto-rows-[minmax(5.5rem,auto)] gap-1.5 sm:auto-rows-[minmax(5.8rem,auto)] sm:gap-2 md:auto-rows-[minmax(6.4rem,auto)] lg:auto-rows-[minmax(5.8rem,1fr)] xl:auto-rows-[minmax(6.4rem,1fr)]">
                       {calendarDays.map((day, index) => {
                         const isCurrentMonth = day.getMonth() === currentDate.getMonth();
                         const dateKey = getLocalDateKey(day);
                         const isToday = dateKey === todayKey;
+                        const isFocused = dateKey === focusedDateKey;
                         const dayEvents = eventsByDate.get(dateKey) || [];
                         const dayOfWeek = day.getDay();
+                        const dateLabel = day.toLocaleDateString("ja-JP", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                          weekday: "short",
+                        });
 
                         return (
                           <div
                             key={index}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => handleDayClick(day)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                handleDayClick(day);
-                              }
-                            }}
-                            className={cn(
-                              "p-1 rounded-lg border transition-colors text-left overflow-hidden cursor-pointer",
-                              isCurrentMonth ? "bg-background" : "bg-muted/30",
-                              isToday && "ring-2 ring-primary",
-                              "hover:bg-muted/50"
-                            )}
+                            className="relative min-h-[5.5rem] overflow-hidden rounded-xl sm:min-h-24 sm:rounded-2xl md:min-h-[6.4rem] lg:min-h-0"
                           >
-                            <span
+                            <button
+                              type="button"
+                              onClick={() => handleDayClick(day)}
+                              aria-label={`${dateLabel}に予定を追加`}
+                              title={`${dateLabel}に予定を追加`}
+                              className="absolute inset-0 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 sm:rounded-2xl"
+                            />
+                            <div
+                              aria-hidden="true"
                               className={cn(
-                                "inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] sm:h-6 sm:w-6 sm:text-sm",
-                                !isCurrentMonth && "text-muted-foreground",
-                                isToday && "bg-primary text-primary-foreground",
-                                dayOfWeek === 0 && isCurrentMonth && !isToday && "text-red-500",
-                                dayOfWeek === 6 && isCurrentMonth && !isToday && "text-blue-500"
+                                "pointer-events-none absolute inset-0 rounded-xl border transition-colors sm:rounded-2xl",
+                                isCurrentMonth ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50/80",
+                                isFocused && "border-sky-400 bg-sky-50/40 ring-1 ring-sky-300",
+                                isToday && "border-sky-500 ring-2 ring-sky-500",
+                              )}
+                            />
+                            <div
+                              className={cn(
+                                "pointer-events-none relative z-[1] flex h-full min-h-14 flex-col overflow-hidden p-1 text-left sm:min-h-24 sm:p-2 md:min-h-0",
                               )}
                             >
-                              {day.getDate()}
-                            </span>
-                            <div className="mt-1 space-y-0.5">
-                              {dayEvents.slice(0, 2).map((event, i) => {
-                                const isDeadline = "eventType" in event && event.eventType === "deadline";
-                                const isGoogle = "type" in event && event.type === "google";
-                                const isCompleted = isDeadline && "completedAt" in event && !!event.completedAt;
-                                return (
+                              <span
+                                className={cn(
+                                  "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-sm font-semibold sm:h-7 sm:w-7 sm:text-base",
+                                  !isCurrentMonth && "text-slate-400",
+                                  isToday && "bg-sky-600 text-white shadow-sm",
+                                  dayOfWeek === 0 && isCurrentMonth && !isToday && "text-red-500",
+                                  dayOfWeek === 6 && isCurrentMonth && !isToday && "text-blue-500",
+                                  dayOfWeek !== 0 && dayOfWeek !== 6 && isCurrentMonth && !isToday && "text-slate-950",
+                                )}
+                              >
+                                {day.getDate()}
+                              </span>
+                              <div className="mt-1 space-y-1 overflow-hidden">
+                                {dayEvents.slice(0, 2).map((event, i) => {
+                                  const isDeadline = "eventType" in event && event.eventType === "deadline";
+                                  const isCompleted = isDeadline && "completedAt" in event && !!event.completedAt;
+                                  return (
+                                    <button
+                                      key={i}
+                                      type="button"
+                                      aria-label={`${getEventKind(event)}: ${getEventTitle(event)}の詳細を表示`}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedEvent(event);
+                                        setShowDetailModal(true);
+                                      }}
+                                      className={cn(
+                                        "pointer-events-auto flex h-6 w-full cursor-pointer items-center truncate rounded px-0.5 text-left text-[8px] font-semibold leading-4 ring-1 transition-opacity hover:opacity-80 sm:h-5 sm:rounded-md sm:px-1.5 sm:text-[11px] sm:leading-5",
+                                        getEventChipClassName(event),
+                                        isCompleted && "opacity-50 line-through"
+                                      )}
+                                    >
+                                      {getEventTitle(event)}
+                                    </button>
+                                  );
+                                })}
+                                {dayEvents.length > 2 && (
                                   <button
-                                    key={i}
                                     type="button"
+                                    aria-label={`${dateLabel}の予定一覧を表示`}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setSelectedEvent(event);
-                                      setShowDetailModal(true);
+                                      setFocusedDate(day);
+                                      setDayDetailDate(day);
+                                      setDayDetailEvents(dayEvents);
                                     }}
                                     className={cn(
-                                      "w-full truncate rounded px-1 py-0.5 text-left text-[10px] cursor-pointer sm:text-xs",
-                                      "hover:opacity-80 transition-opacity",
-                                      isDeadline
-                                        ? "bg-red-100 text-red-700"
-                                        : isGoogle
-                                        ? "bg-green-100 text-green-700"
-                                        : "bg-blue-100 text-blue-700",
-                                      isCompleted && "opacity-50 line-through"
+                                      "pointer-events-auto truncate text-left text-[10px] font-semibold leading-4 text-sky-600 hover:underline sm:px-1 sm:text-xs"
                                     )}
                                   >
-                                    {"title" in event ? event.title : event.summary}
+                                    +{dayEvents.length - 2}件
                                   </button>
-                                );
-                              })}
-                              {dayEvents.length > 2 && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setDayDetailDate(day);
-                                    setDayDetailEvents(dayEvents);
-                                  }}
-                                  className="text-xs text-primary hover:underline px-1 cursor-pointer"
-                                >
-                                  +{dayEvents.length - 2}件
-                                </button>
-                              )}
+                                )}
+                              </div>
                             </div>
                           </div>
                         );
@@ -643,106 +765,88 @@ export default function CalendarPageContent() {
                   </div>
                 )}
               </CardContent>
-            </Card>
-
-            {/* Legend */}
-            <div className="mt-2 flex shrink-0 flex-wrap items-center gap-3 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded bg-red-100" />
-                <span>締切</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded bg-blue-100" />
-                <span>タスク</span>
-              </div>
-              {isGoogleConnected && (
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded bg-green-100" />
-                  <span>Google予定</span>
+              <div className="flex shrink-0 flex-wrap items-center gap-5 px-5 pb-5 text-sm text-slate-500 sm:px-8">
+                <div className="flex items-center gap-2">
+                  <span className="h-3 w-3 rounded-full bg-red-100 ring-1 ring-red-200" />
+                  <span>締切</span>
                 </div>
-              )}
-            </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-3 w-3 rounded-full bg-blue-100 ring-1 ring-blue-200" />
+                  <span>タスク</span>
+                </div>
+                {canUseGoogleCalendar && (
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full bg-emerald-100 ring-1 ring-emerald-200" />
+                    <span>Google予定</span>
+                  </div>
+                )}
+              </div>
+            </Card>
           </div>
 
-          {/* Sidebar - 1/4 width (desktop) */}
-          <div className="hidden lg:flex lg:flex-col min-h-0 overflow-y-auto">
+          {/* Sidebar - desktop */}
+          <div className="hidden min-h-0 overflow-y-auto lg:block">
             <CalendarSidebar
               deadlines={deadlines}
               events={events}
-              googleEvents={googleEvents}
-              selectedDate={selectedDate}
+              googleEvents={effectiveGoogleEvents}
+              selectedDate={focusedDate}
+              selectedDateDisplayEvents={focusedDateEvents}
               isGoogleConnected={isGoogleConnected}
               needsReconnect={connectionStatus?.needsReconnect}
               connectedEmail={connectionStatus?.connectedEmail}
+              showMonthSummary={false}
             />
           </div>
         </div>
 
-        {/* Mobile sidebar trigger */}
-        <div className="lg:hidden shrink-0 mt-2">
-          <Sheet open={showMobileSidebar} onOpenChange={setShowMobileSidebar}>
-            <SheetTrigger asChild>
-              <button
-                type="button"
-                className="w-full flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
-              >
-                <div className="flex items-center gap-3 text-sm">
-                  <span className="text-muted-foreground">今週の締切</span>
-                  {(() => {
-                    const weekEnd = new Date();
-                    weekEnd.setDate(weekEnd.getDate() + 7);
-                    const urgentCount = deadlines.filter((d) => {
-                      if (d.completedAt) return false;
-                      const due = new Date(d.dueDate);
-                      return due >= new Date(new Date().setHours(0,0,0,0)) && due <= weekEnd;
-                    }).length;
-                    return urgentCount > 0 ? (
-                      <Badge variant="destructive" className="text-xs">{urgentCount}件</Badge>
-                    ) : (
-                      <Badge variant="secondary" className="text-xs">0件</Badge>
-                    );
-                  })()}
-                </div>
-                <svg className="w-4 h-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                </svg>
-              </button>
-            </SheetTrigger>
-            <SheetContent
-              side="bottom"
-              className="max-h-[80vh] overflow-y-auto pb-4"
-            >
-              <SheetHeader>
-                <SheetTitle>カレンダー情報</SheetTitle>
-              </SheetHeader>
-              <div className="mt-4">
-                <CalendarSidebar
-                  deadlines={deadlines}
-                  events={events}
-                  googleEvents={googleEvents}
-                  selectedDate={selectedDate}
-                  isGoogleConnected={isGoogleConnected}
-                  needsReconnect={connectionStatus?.needsReconnect}
-                  connectedEmail={connectionStatus?.connectedEmail}
-                />
-              </div>
-            </SheetContent>
-          </Sheet>
+        <div className="md:hidden">
+          <CalendarSidebar
+            deadlines={deadlines}
+            events={events}
+            googleEvents={effectiveGoogleEvents}
+            selectedDate={focusedDate}
+            selectedDateDisplayEvents={focusedDateEvents}
+            isGoogleConnected={isGoogleConnected}
+            needsReconnect={connectionStatus?.needsReconnect}
+            connectedEmail={connectionStatus?.connectedEmail}
+            showConnectionStatus={false}
+            showSelectedDateCard={false}
+            showMonthSummary
+          />
+        </div>
+
+        <div className="hidden md:block lg:hidden">
+          <CalendarSidebar
+            deadlines={deadlines}
+            events={events}
+            googleEvents={effectiveGoogleEvents}
+            selectedDate={focusedDate}
+            selectedDateDisplayEvents={focusedDateEvents}
+            isGoogleConnected={isGoogleConnected}
+            needsReconnect={connectionStatus?.needsReconnect}
+            connectedEmail={connectionStatus?.connectedEmail}
+            showConnectionStatus={false}
+            showOverviewCards={false}
+            showSelectedDateCard={false}
+            showMonthSummary
+          />
         </div>
 
         {/* Floating Action Button for Task Suggestions */}
         <WorkBlockFAB
           onClick={() => handleSuggestWorkBlocks(new Date())}
-          isVisible={isGoogleConnected}
+          isVisible={canUseGoogleCalendar}
+          className="max-lg:bottom-[calc(1rem+env(safe-area-inset-bottom))]"
         />
 
         {/* Add event modal */}
         <AddEventModal
           isOpen={showAddModal}
-          selectedDate={selectedDate}
+          selectedDate={addEventDate}
           onClose={() => {
             setShowAddModal(false);
-            setSelectedDate(null);
+            setAddEventDate(null);
           }}
           onCreate={handleCreateEvent}
         />
@@ -750,12 +854,12 @@ export default function CalendarPageContent() {
         {/* Work block suggestions modal */}
         <WorkBlockSuggestionsModal
           isOpen={showSuggestionsModal}
-          selectedDate={selectedDate}
+          selectedDate={suggestionDate}
           suggestions={workBlockSuggestions}
           isLoading={isGoogleLoading}
           onClose={() => {
             setShowSuggestionsModal(false);
-            setSelectedDate(null);
+            setSuggestionDate(null);
             setWorkBlockSuggestions([]);
           }}
           onCreateFromSuggestion={handleCreateFromSuggestion}
@@ -781,13 +885,16 @@ export default function CalendarPageContent() {
         {/* Day detail modal (for "+N more" overflow) */}
         {dayDetailDate && dayDetailEvents.length > 0 && (
           <div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="calendar-day-detail-title"
             onClick={() => { setDayDetailDate(null); setDayDetailEvents([]); }}
           >
-            <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <Card className="w-full max-w-sm rounded-[22px]" onClick={(e) => e.stopPropagation()}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-base">
+                  <CardTitle id="calendar-day-detail-title" className="text-base">
                     {dayDetailDate.toLocaleDateString("ja-JP", {
                       month: "long",
                       day: "numeric",
@@ -796,24 +903,25 @@ export default function CalendarPageContent() {
                   </CardTitle>
                   <button
                     type="button"
+                    aria-label="日別詳細を閉じる"
                     onClick={() => { setDayDetailDate(null); setDayDetailEvents([]); }}
-                    className="p-1 rounded-md hover:bg-muted transition-colors"
+                    className="rounded-md p-1 transition-colors hover:bg-muted"
                   >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-1.5 max-h-64 overflow-y-auto">
+              <CardContent className="max-h-64 space-y-1.5 overflow-y-auto">
                 {dayDetailEvents.map((event, i) => {
                   const isDeadline = "eventType" in event && event.eventType === "deadline";
-                  const isGoogle = "type" in event && event.type === "google";
                   const isCompleted = isDeadline && "completedAt" in event && !!event.completedAt;
                   return (
                     <button
                       key={i}
                       type="button"
+                      aria-label={`${getEventKind(event)}: ${getEventTitle(event)}の詳細を表示`}
                       onClick={() => {
                         setSelectedEvent(event);
                         setShowDetailModal(true);
@@ -821,17 +929,12 @@ export default function CalendarPageContent() {
                         setDayDetailEvents([]);
                       }}
                       className={cn(
-                        "w-full text-left text-sm px-3 py-2 rounded-lg cursor-pointer",
-                        "hover:opacity-80 transition-opacity",
-                        isDeadline
-                          ? "bg-red-100 text-red-700"
-                          : isGoogle
-                          ? "bg-green-100 text-green-700"
-                          : "bg-blue-100 text-blue-700",
+                        "w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm ring-1 transition-opacity hover:opacity-80",
+                        getEventChipClassName(event),
                         isCompleted && "opacity-50 line-through"
                       )}
                     >
-                      {"title" in event ? event.title : event.summary}
+                      {getEventTitle(event)}
                     </button>
                   );
                 })}

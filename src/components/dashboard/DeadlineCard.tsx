@@ -24,9 +24,9 @@ export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
   const visible = deadlines.filter((deadline) => deadline.isConfirmed).slice(0, maxVisible);
 
   return (
-    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1" data-testid="dashboard-deadline-card">
-      <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
-        <CardTitle className="text-base font-semibold tracking-tight">締切</CardTitle>
+    <Card className="h-full min-h-[220px] overflow-hidden rounded-2xl border-border/50 py-4 gap-3 lg:min-h-0 lg:rounded-xl lg:py-1.5 lg:gap-1" data-testid="dashboard-deadline-card">
+      <CardHeader className="flex shrink-0 flex-row items-center justify-between px-5 lg:px-5">
+        <CardTitle className="text-xl font-semibold tracking-tight lg:text-base">締切</CardTitle>
         <CardAction>
           <Link
             href="/calendar"
@@ -36,7 +36,7 @@ export function DeadlineCard({ deadlines, maxVisible = 3 }: DeadlineCardProps) {
           </Link>
         </CardAction>
       </CardHeader>
-      <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
+      <CardContent className="min-h-0 flex-1 overflow-hidden px-5 lg:px-5">
         {visible.length === 0 ? (
           <div className="flex h-full min-h-[120px] flex-col items-center justify-center px-4 py-2 text-center">
             <Image

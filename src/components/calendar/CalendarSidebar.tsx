@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn, getLocalDateKey } from "@/lib/utils";
 import { CalendarEvent, DeadlineEvent, GoogleCalendarEvent } from "@/hooks/useCalendar";
+import type { DisplayEvent } from "@/components/calendar/EventDetailModal";
 
 // Icons
 const CalendarIcon = () => (
@@ -121,15 +122,88 @@ function formatDaysLeft(daysLeft: number): string {
   return `あと${daysLeft}日`;
 }
 
+function isDeadlineEvent(event: DisplayEvent): event is DeadlineEvent {
+  return "eventType" in event && event.eventType === "deadline";
+}
+
+function isGoogleDisplayEvent(event: DisplayEvent): event is GoogleCalendarEvent & { type: "google" } {
+  return "type" in event && event.type === "google";
+}
+
+function getDisplayEventTitle(event: DisplayEvent) {
+  return "title" in event ? event.title : event.summary;
+}
+
+function getDisplayEventTone(event: DisplayEvent) {
+  if (isDeadlineEvent(event)) {
+    return {
+      label: "締切",
+      className: "border-red-200 bg-red-50 text-red-700",
+      dotClassName: "bg-red-300",
+    };
+  }
+  if (isGoogleDisplayEvent(event)) {
+    return {
+      label: "Google予定",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      dotClassName: "bg-emerald-300",
+    };
+  }
+  return {
+    label: "タスク",
+    className: "border-blue-200 bg-blue-50 text-blue-700",
+    dotClassName: "bg-blue-300",
+  };
+}
+
+function formatTimeRange(start: string, end?: string) {
+  const startTime = new Date(start).toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (!end) return startTime;
+  const endTime = new Date(end).toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${startTime} - ${endTime}`;
+}
+
+function getDisplayEventTime(event: DisplayEvent) {
+  if (isDeadlineEvent(event)) {
+    return new Date(event.dueDate).toLocaleDateString("ja-JP", {
+      month: "short",
+      day: "numeric",
+    });
+  }
+  if (isGoogleDisplayEvent(event)) {
+    if (event.start.dateTime) {
+      return formatTimeRange(event.start.dateTime, event.end.dateTime);
+    }
+    if (event.start.date) {
+      return "終日";
+    }
+    return null;
+  }
+  if ("startAt" in event) {
+    return formatTimeRange(event.startAt, event.endAt);
+  }
+  return null;
+}
+
 interface CalendarSidebarProps {
   deadlines: DeadlineEvent[];
   events: CalendarEvent[];
   googleEvents: GoogleCalendarEvent[];
   selectedDate: Date | null;
+  selectedDateDisplayEvents?: DisplayEvent[];
   isGoogleConnected: boolean;
   needsReconnect?: boolean;
   connectedEmail?: string | null;
-  onDateClick?: (date: Date) => void;
+  showConnectionStatus?: boolean;
+  showOverviewCards?: boolean;
+  showSelectedDateCard?: boolean;
+  showMonthSummary?: boolean;
 }
 
 export function CalendarSidebar({
@@ -137,9 +211,14 @@ export function CalendarSidebar({
   events,
   googleEvents,
   selectedDate,
+  selectedDateDisplayEvents,
   isGoogleConnected,
   needsReconnect = false,
   connectedEmail,
+  showConnectionStatus = true,
+  showOverviewCards = true,
+  showSelectedDateCard = true,
+  showMonthSummary = false,
 }: CalendarSidebarProps) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -173,199 +252,135 @@ export function CalendarSidebar({
   const selectedDateDeadlines = selectedDateKey
     ? deadlines.filter((d) => getLocalDateKey(d.dueDate) === selectedDateKey)
     : [];
-  const selectedDateEvents = selectedDateKey
+  const selectedDateLocalEvents = selectedDateKey
     ? events.filter((e) => getLocalDateKey(e.startAt) === selectedDateKey)
     : [];
+  const selectedDisplayEvents = selectedDateDisplayEvents ?? [
+    ...selectedDateDeadlines,
+    ...selectedDateLocalEvents,
+  ];
+  const monthDeadlineCount = deadlines.filter((deadline) => !deadline.completedAt).length;
 
   return (
     <div className="space-y-4">
       {/* Google Connection Status */}
-      <Card className={cn(
-        needsReconnect ? "border-amber-200 bg-amber-50/70" : isGoogleConnected ? "border-green-200 bg-green-50/50" : "border-border"
-      )}>
-        <CardContent className="py-3 px-4">
-          <Link href="/calendar/settings" className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <GoogleIcon />
-              <div>
-                <p className={cn(
-                  "text-sm",
-                  needsReconnect ? "text-amber-700" : isGoogleConnected ? "text-green-700" : "text-muted-foreground"
-                )}>
-                  {needsReconnect ? "Google再連携が必要です" : isGoogleConnected ? "Googleカレンダー連携中" : "Googleカレンダーを連携"}
-                </p>
-                {connectedEmail && isGoogleConnected && !needsReconnect && (
-                  <p className="text-xs text-muted-foreground">{connectedEmail}</p>
-                )}
-              </div>
-            </div>
-            {isGoogleConnected && !needsReconnect ? <CheckCircleIcon /> : <span className="text-xs text-primary">設定</span>}
-          </Link>
-        </CardContent>
-      </Card>
-
-      {/* This Week's Deadlines */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <AlertIcon />
-            今週の締切
-            {thisWeekDeadlines.length > 0 && (
-              <Badge variant="secondary" className="ml-auto">
-                {thisWeekDeadlines.length}件
-              </Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          {thisWeekDeadlines.length === 0 ? (
-            <p className="text-sm text-muted-foreground">今週の締切はありません</p>
-          ) : (
-            <div className="space-y-2">
-              {thisWeekDeadlines.slice(0, 5).map((deadline) => {
-                const daysLeft = getDaysLeft(deadline.dueDate);
-                const colors = getUrgencyColors(daysLeft);
-                return (
-                  <Link
-                    key={deadline.id}
-                    href={`/companies/${deadline.companyId}`}
-                    className={cn(
-                      "block p-2 rounded-lg border transition-colors hover:shadow-sm",
-                      colors.bg,
-                      colors.border
-                    )}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className={cn("text-sm font-medium truncate", colors.text)}>
-                          {deadline.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {deadline.companyName}
-                        </p>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={cn("text-xs shrink-0", colors.bg, colors.text, colors.border)}
-                      >
-                        {formatDaysLeft(daysLeft)}
-                      </Badge>
-                    </div>
-                  </Link>
-                );
-              })}
-              {thisWeekDeadlines.length > 5 && (
-                <p className="text-xs text-muted-foreground text-center pt-1">
-                  他 {thisWeekDeadlines.length - 5} 件
-                </p>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Today's Schedule */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <ClockIcon />
-            今日の予定
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          {todayEvents.length === 0 && todayGoogleEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground">今日の予定はありません</p>
-          ) : (
-            <div className="space-y-2">
-              {todayEvents.map((event) => (
-                <div
-                  key={event.id}
-                  className="p-2 rounded-lg bg-blue-50 border border-blue-200"
-                >
-                  <p className="text-sm font-medium text-blue-700">{event.title}</p>
-                  <p className="text-xs text-blue-600">
-                    {new Date(event.startAt).toLocaleTimeString("ja-JP", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}{" "}
-                    -{" "}
-                    {new Date(event.endAt).toLocaleTimeString("ja-JP", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+      {showConnectionStatus && (
+        <Card className={cn(
+          "rounded-[22px] border bg-white shadow-[0_12px_34px_rgba(15,23,42,0.07)]",
+          needsReconnect ? "border-amber-300 bg-amber-50/80" : isGoogleConnected ? "border-emerald-200 bg-emerald-50/60" : "border-slate-200"
+        )}>
+          <CardContent className="px-5 py-4">
+            <Link href="/calendar/settings" className="flex min-h-14 items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <GoogleIcon />
+                <div className="min-w-0">
+                  <p className={cn(
+                    "truncate text-sm font-semibold",
+                    needsReconnect ? "text-amber-700" : isGoogleConnected ? "text-emerald-700" : "text-slate-600"
+                  )}>
+                    {needsReconnect ? "Google再連携が必要です" : isGoogleConnected ? "Googleカレンダー連携中" : "Googleカレンダーを連携"}
                   </p>
-                </div>
-              ))}
-              {todayGoogleEvents.map((event, i) => (
-                <div
-                  key={`google-${i}`}
-                  className="p-2 rounded-lg bg-green-50 border border-green-200"
-                >
-                  <p className="text-sm font-medium text-green-700">{event.summary}</p>
-                  {event.start.dateTime && (
-                    <p className="text-xs text-green-600">
-                      {new Date(event.start.dateTime).toLocaleTimeString("ja-JP", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      {event.end.dateTime && (
-                        <>
-                          {" "}
-                          -{" "}
-                          {new Date(event.end.dateTime).toLocaleTimeString("ja-JP", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </>
-                      )}
-                    </p>
+                  {connectedEmail && isGoogleConnected && !needsReconnect && (
+                    <p className="truncate text-xs text-slate-500">{connectedEmail}</p>
                   )}
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+              </div>
+              {isGoogleConnected && !needsReconnect ? (
+                <span className="text-emerald-600" aria-label="連携済み"><CheckCircleIcon /></span>
+              ) : (
+                <span className="shrink-0 text-sm font-semibold text-sky-600">設定</span>
+              )}
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Selected Date Details */}
-      {selectedDate && (
-        <Card className="border-primary/20 bg-primary/5">
+      {/* This Week's Deadlines */}
+      {showOverviewCards && (
+        <Card className="rounded-[22px] border border-slate-200 bg-white shadow-[0_12px_34px_rgba(15,23,42,0.07)]">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <CalendarIcon />
-              {selectedDate.toLocaleDateString("ja-JP", {
-                month: "long",
-                day: "numeric",
-                weekday: "short",
-              })}
+            <CardTitle className="flex items-center gap-3 text-base font-semibold text-slate-900">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-amber-50 text-slate-900 shadow-sm">
+                <AlertIcon />
+              </span>
+              今週の締切
+              {thisWeekDeadlines.length > 0 && (
+                <Badge variant="secondary" className="ml-auto rounded-full bg-slate-100 text-slate-700">
+                  {thisWeekDeadlines.length}件
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            {selectedDateDeadlines.length === 0 && selectedDateEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">この日の予定はありません</p>
+            {thisWeekDeadlines.length === 0 ? (
+              <p className="text-sm text-slate-500">今週の締切はありません</p>
             ) : (
               <div className="space-y-2">
-                {selectedDateDeadlines.map((deadline) => {
+                {thisWeekDeadlines.slice(0, 5).map((deadline) => {
                   const daysLeft = getDaysLeft(deadline.dueDate);
                   const colors = getUrgencyColors(daysLeft);
                   return (
-                    <div
+                    <Link
                       key={deadline.id}
-                      className={cn("p-2 rounded-lg border", colors.bg, colors.border)}
+                      href={`/companies/${deadline.companyId}`}
+                      className={cn(
+                        "block rounded-xl border px-3 py-2.5 transition-colors hover:shadow-sm",
+                        colors.bg,
+                        colors.border
+                      )}
                     >
-                      <p className={cn("text-sm font-medium", colors.text)}>
-                        {deadline.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{deadline.companyName}</p>
-                    </div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className={cn("truncate text-sm font-semibold", colors.text)}>
+                            {deadline.title}
+                          </p>
+                          <p className="truncate text-xs text-slate-500">
+                            {deadline.companyName}
+                          </p>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={cn("shrink-0 rounded-full text-xs", colors.bg, colors.text, colors.border)}
+                        >
+                          {formatDaysLeft(daysLeft)}
+                        </Badge>
+                      </div>
+                    </Link>
                   );
                 })}
-                {selectedDateEvents.map((event) => (
+                {thisWeekDeadlines.length > 5 && (
+                  <p className="pt-1 text-center text-xs text-slate-500">
+                    他 {thisWeekDeadlines.length - 5} 件
+                  </p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Today's Schedule */}
+      {showOverviewCards && (
+        <Card className="rounded-[22px] border border-slate-200 bg-white shadow-[0_12px_34px_rgba(15,23,42,0.07)]">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-3 text-base font-semibold text-slate-900">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-sky-50 text-slate-900 shadow-sm">
+                <ClockIcon />
+              </span>
+              今日の予定
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {todayEvents.length === 0 && todayGoogleEvents.length === 0 ? (
+              <p className="text-sm text-slate-500">今日の予定はありません</p>
+            ) : (
+              <div className="space-y-2">
+                {todayEvents.map((event) => (
                   <div
                     key={event.id}
-                    className="p-2 rounded-lg bg-blue-50 border border-blue-200"
+                    className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5"
                   >
-                    <p className="text-sm font-medium text-blue-700">{event.title}</p>
+                    <p className="truncate text-sm font-semibold text-blue-700">{event.title}</p>
                     <p className="text-xs text-blue-600">
                       {new Date(event.startAt).toLocaleTimeString("ja-JP", {
                         hour: "2-digit",
@@ -379,8 +394,103 @@ export function CalendarSidebar({
                     </p>
                   </div>
                 ))}
+                {todayGoogleEvents.map((event, i) => (
+                  <div
+                    key={`google-${i}`}
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5"
+                  >
+                    <p className="truncate text-sm font-semibold text-emerald-700">{event.summary}</p>
+                    {event.start.dateTime && (
+                      <p className="text-xs text-emerald-600">
+                        {new Date(event.start.dateTime).toLocaleTimeString("ja-JP", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                        {event.end.dateTime && (
+                          <>
+                            {" "}
+                            -{" "}
+                            {new Date(event.end.dateTime).toLocaleTimeString("ja-JP", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Selected Date Details */}
+      {showSelectedDateCard && selectedDate && (
+        <Card className="rounded-[22px] border border-sky-200 bg-sky-50/60 shadow-[0_12px_34px_rgba(15,23,42,0.07)]">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-3 text-base font-semibold text-slate-900">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-900 shadow-sm">
+                <CalendarIcon />
+              </span>
+              {selectedDate.toLocaleDateString("ja-JP", {
+                month: "long",
+                day: "numeric",
+                weekday: "short",
+              })}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {selectedDisplayEvents.length === 0 ? (
+              <p className="text-sm text-slate-500">この日の予定はありません</p>
+            ) : (
+              <div className="space-y-2">
+                {selectedDisplayEvents.map((event, index) => {
+                  const tone = getDisplayEventTone(event);
+                  const eventTime = getDisplayEventTime(event);
+                  return (
+                    <div
+                      key={"id" in event ? event.id : `selected-${index}`}
+                      className={cn("rounded-xl border px-3 py-2.5", tone.className)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={cn("h-2 w-2 rounded-full", tone.dotClassName)} />
+                        <p className="min-w-0 flex-1 truncate text-sm font-semibold">
+                          {getDisplayEventTitle(event)}
+                        </p>
+                        <span className="shrink-0 text-[11px] font-medium">{tone.label}</span>
+                      </div>
+                      {isDeadlineEvent(event) && event.companyName && (
+                        <p className="mt-1 truncate pl-4 text-xs text-slate-500">{event.companyName}</p>
+                      )}
+                      {eventTime && (
+                        <p className="mt-1 truncate pl-4 text-xs font-medium text-slate-500">{eventTime}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {showMonthSummary && (
+        <Card className="rounded-[22px] border border-slate-200 bg-white shadow-[0_12px_34px_rgba(15,23,42,0.07)]">
+          <CardContent className="flex min-h-20 items-center justify-between gap-4 px-5 py-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-900 text-white shadow-sm">
+                <CalendarIcon />
+              </span>
+              <span className="text-base font-semibold text-slate-700">月の締切</span>
+              <Badge variant="secondary" className="rounded-full bg-sky-100 px-3 text-sm text-slate-700">
+                {monthDeadlineCount}件
+              </Badge>
+            </div>
+            <svg className="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 9l6 6 6-6" />
+            </svg>
           </CardContent>
         </Card>
       )}

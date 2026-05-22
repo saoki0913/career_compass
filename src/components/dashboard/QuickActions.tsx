@@ -51,7 +51,7 @@ interface QuickActionsProps {
 export function QuickActions({ onInterviewClick, onMotivationClick, className }: QuickActionsProps) {
   return (
     <div className={cn(
-      "flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:overflow-visible lg:pb-0",
+      "grid grid-cols-2 gap-2 sm:flex sm:items-center sm:gap-3 lg:gap-2 lg:overflow-visible",
       className,
     )} data-testid="dashboard-quick-actions">
       {ACTIONS.map((action) => {
@@ -59,16 +59,17 @@ export function QuickActions({ onInterviewClick, onMotivationClick, className }:
         const Icon = action.Icon;
         const content = (
           <>
-            <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md lg:h-6 lg:w-6", tone.icon)}>
-              <Icon className="h-4 w-4" aria-hidden="true" strokeWidth={2.2} />
+            <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg sm:h-7 sm:w-7 sm:rounded-md lg:h-6 lg:w-6", tone.icon)}>
+              <Icon className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden="true" strokeWidth={2.2} />
             </span>
-            <span className="whitespace-nowrap text-sm font-semibold leading-tight lg:text-xs">{action.title}</span>
+            <span className="whitespace-nowrap text-sm font-semibold leading-tight sm:text-sm lg:text-xs">{action.title}</span>
           </>
         );
         const actionClassName = cn(
-          "flex h-11 shrink-0 items-center gap-2 rounded-lg border-[1.5px] px-3.5 text-left shadow-sm transition-all duration-150 hover:-translate-y-px hover:shadow-md active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:h-9 lg:gap-1.5 lg:px-3",
+          "flex h-[68px] w-full items-center justify-center gap-2.5 rounded-xl border-[1.5px] px-3 text-center shadow-sm transition-all duration-150 hover:-translate-y-px hover:shadow-md active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:h-14 sm:w-auto sm:min-w-[132px] sm:flex-1 sm:flex-row sm:gap-2 sm:rounded-lg sm:px-3.5 sm:text-left lg:h-9 lg:min-w-0 lg:flex-none lg:gap-1.5 lg:px-3",
           tone.pill,
         );
+        const spanClass = action.key === "motivation" ? "col-span-2 sm:col-span-1" : "";
 
         if (action.actionType) {
           return (
@@ -76,7 +77,7 @@ export function QuickActions({ onInterviewClick, onMotivationClick, className }:
               key={action.key}
               type="button"
               onClick={action.actionType === "interview" ? onInterviewClick : onMotivationClick}
-              className={cn(actionClassName, "cursor-pointer")}
+              className={cn(actionClassName, "cursor-pointer", spanClass)}
               data-testid={`dashboard-quick-action-${action.key}`}
             >
               {content}
@@ -88,7 +89,7 @@ export function QuickActions({ onInterviewClick, onMotivationClick, className }:
           <Link
             key={action.key}
             href={action.href!}
-            className={actionClassName}
+            className={cn(actionClassName, spanClass)}
             data-testid={`dashboard-quick-action-${action.key}`}
           >
             {content}

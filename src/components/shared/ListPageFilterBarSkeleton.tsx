@@ -20,7 +20,9 @@ export function ListPageFilterBarSkeleton({
   const viewToggleSlots =
     variant === "gakuchika"
       ? 3
-      : variant === "deadlines" || variant === "tasks" || variant === "companies"
+      : variant === "companies"
+        ? 3
+        : variant === "deadlines" || variant === "tasks"
         ? 2
         : 0;
   const hasExtraFilter =
@@ -29,12 +31,14 @@ export function ListPageFilterBarSkeleton({
     variant === "tasks" ||
     variant === "deadlines";
 
+  const isCompanies = variant === "companies";
+
   return (
-    <div className="mb-8 min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-background/90 p-3 shadow-sm backdrop-blur-xl">
+    <div className={isCompanies ? "mb-8 min-w-0 overflow-hidden rounded-[1.35rem] border border-border/70 bg-background/90 p-3 shadow-sm backdrop-blur-xl md:p-5" : "mb-8 min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-background/90 p-3 shadow-sm backdrop-blur-xl"}>
       <div className="min-w-0 space-y-2">
-        <div className={SKELETON_SCROLL_ROW_CLASS}>
-          <Skeleton className="h-10 min-w-[14rem] max-w-[22rem] flex-[1_0_16rem] rounded-xl" />
-          <Skeleton className="h-10 w-[160px] shrink-0 rounded-md" />
+        <div className={isCompanies ? "grid w-full min-w-0 grid-cols-1 gap-2 md:flex md:flex-nowrap md:items-center md:gap-3 md:overflow-x-auto md:pb-1" : SKELETON_SCROLL_ROW_CLASS}>
+          <Skeleton className={isCompanies ? "h-10 w-full rounded-xl md:w-[14rem] md:flex-none lg:w-[19rem] xl:w-[21rem]" : "h-10 min-w-[14rem] max-w-[22rem] flex-[1_0_16rem] rounded-xl"} />
+          <Skeleton className={isCompanies ? "h-10 w-full rounded-xl md:w-[165px] md:shrink-0 lg:w-[210px]" : "h-10 w-[160px] shrink-0 rounded-md"} />
           {variant === "es" ? (
             <div className="flex shrink-0 items-center gap-2.5">
               <Skeleton className="h-9 w-[170px] shrink-0 rounded-md" />
@@ -42,15 +46,15 @@ export function ListPageFilterBarSkeleton({
             </div>
           ) : null}
           {hasExtraFilter && variant !== "es" ? (
-            <div className="flex shrink-0 items-center gap-2.5">
-              <Skeleton className="h-10 w-[160px] shrink-0 rounded-md" />
+            <div className={isCompanies ? "flex w-full shrink-0 items-center gap-2.5 md:w-auto" : "flex shrink-0 items-center gap-2.5"}>
+              <Skeleton className={isCompanies ? "h-10 w-full rounded-xl md:w-[130px] md:shrink-0 lg:w-[170px]" : "h-10 w-[160px] shrink-0 rounded-md"} />
             </div>
           ) : null}
           {viewToggleSlots > 0 ? (
-            <div className="shrink-0">
-              <div className="flex w-fit items-center gap-1 rounded-lg bg-muted/50 p-1">
+            <div className={isCompanies ? "w-full shrink-0 md:w-auto" : "shrink-0"}>
+              <div className={isCompanies ? "flex h-10 w-full items-center gap-1 rounded-lg bg-muted/50 p-1 md:w-fit" : "flex w-fit items-center gap-1 rounded-lg bg-muted/50 p-1"}>
                 {Array.from({ length: viewToggleSlots }).map((_, i) => (
-                  <Skeleton key={i} className="h-8 w-9 shrink-0 rounded-md" />
+                  <Skeleton key={i} className={isCompanies ? "h-9 flex-1 rounded-md md:w-9 md:flex-none" : "h-8 w-9 shrink-0 rounded-md"} />
                 ))}
               </div>
             </div>

@@ -65,16 +65,16 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
   const pipeline = useMemo(() => groupCompaniesByPipeline(companies), [companies]);
 
   return (
-    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1">
-      <CardHeader className="flex shrink-0 flex-row items-center justify-between px-4 lg:px-5">
-        <CardTitle className="text-lg">選考管理</CardTitle>
+    <Card className="h-full min-h-[500px] overflow-hidden rounded-2xl border-border/50 py-4 gap-3 sm:min-h-[380px] lg:min-h-0 lg:rounded-xl lg:py-1.5 lg:gap-1" data-testid="dashboard-pipeline-card">
+      <CardHeader className="flex shrink-0 flex-row items-center justify-between px-5 lg:px-5">
+        <CardTitle className="text-xl lg:text-lg">選考管理</CardTitle>
         <CardAction>
           <Button variant="outline" size="sm" asChild>
             <Link href="/companies">すべて見る</Link>
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
+      <CardContent className="min-h-0 flex-1 overflow-hidden px-5 lg:px-5">
         {pipeline.totalActive === 0 ? (
           <div className="flex h-full min-h-[160px] flex-col items-center justify-center px-4 py-2 text-center">
             <Image
@@ -92,14 +92,14 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
           </div>
         ) : (
           <div className="h-full overflow-x-auto lg:overflow-hidden">
-            <div className="grid h-full min-w-[520px] grid-cols-5 gap-1.5 lg:min-w-0 lg:gap-2">
+            <div className="grid h-full min-w-[620px] grid-cols-5 gap-2 sm:min-w-0 lg:gap-2">
               {pipeline.columns.map((col) => {
                 const count = col.companies.length;
                 return (
                   <div key={col.key} className="flex min-h-0 flex-col">
                     <div
                       className={cn(
-                        "flex items-center gap-1 rounded-lg px-2 py-1",
+                        "flex items-center gap-1 rounded-lg px-2 py-1.5 lg:py-1",
                         COLUMN_HEADER_COLORS[col.color] ?? COLUMN_HEADER_COLORS.slate,
                       )}
                     >
@@ -122,7 +122,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
                           <Link
                             key={company.id}
                             href={`/companies/${company.id}`}
-                            className="group flex min-h-[44px] items-center gap-2 rounded-lg border border-border/50 bg-card px-2 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-150 hover:border-primary/40 hover:bg-primary/5 hover:shadow-sm"
+                            className="group flex min-h-[58px] items-center gap-2 rounded-lg border border-border/50 bg-card px-2 py-2 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-150 hover:border-primary/40 hover:bg-primary/5 hover:shadow-sm lg:min-h-[44px] lg:py-1.5"
                           >
                             <CompanyFavicon urls={faviconUrls} name={company.name} />
                             <div className="min-w-0 flex-1">
@@ -169,7 +169,7 @@ export function CompanyProgressCard({ companies }: CompanyProgressCardProps) {
         )}
       </CardContent>
       {pipeline.totalActive > 0 && (
-        <div className="flex items-center justify-between border-t border-border/40 bg-muted/20 px-4 py-2 lg:px-5">
+        <div className="flex items-center justify-between border-t border-border/40 bg-muted/20 px-5 py-3 lg:px-5 lg:py-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium text-primary">次の一歩</span>
             <span className="hidden sm:inline">企業詳細から締切や選考状況を更新できます</span>

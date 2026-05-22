@@ -13,12 +13,16 @@ describe("DashboardSkeleton", () => {
     const source = await readFile(new URL("./DashboardSkeleton.tsx", import.meta.url), "utf8");
     expect(source).toContain("ml-auto");
     expect(source).toContain("length: 5");
+    expect(source).toContain("h-[68px]");
+    expect(source).toContain("sm:h-14");
     expect(source).toContain("h-9");
-    expect(source).toContain("w-[calc(100%+2rem)]");
-    expect(source).toContain("flex-wrap");
+    expect(source).toContain("grid-cols-2");
+    expect(source).toContain("lg:flex-wrap");
     expect(source).toContain("xl:flex-nowrap");
     expect(source).toContain("lg:min-w-0");
     expect(source).toContain("2xl:block");
+    expect(source).toContain("pt-14");
+    expect(source).not.toContain("h-14 w-52");
   });
 
   it("right column includes task and deadline skeleton cards", async () => {

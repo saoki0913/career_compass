@@ -12,10 +12,10 @@ export function ESListSkeleton() {
         aria-live="polite"
       >
         <span className="sr-only">ES一覧を読み込んでいます</span>
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-8 flex flex-col gap-4 pl-14 sm:flex-row sm:items-center sm:justify-between lg:pl-0">
           <div className="space-y-2">
             <Skeleton className="h-8 w-40" />
-            <SkeletonText lines={1} widths={["10rem"]} />
+            <SkeletonText lines={1} widths={["10rem"]} className="hidden sm:block" />
           </div>
           <div className="flex gap-2">
             <SkeletonButton className="h-10 w-28 sm:h-11" />

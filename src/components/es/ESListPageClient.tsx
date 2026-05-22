@@ -571,7 +571,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-8 flex flex-col gap-4 pl-14 sm:flex-row sm:items-center sm:justify-between lg:pl-0">
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold tracking-tight">ES作成</h1>
@@ -579,7 +579,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                 {activeDocuments.length}件の文書
               </span>
             </div>
-            <p className="mt-1 text-muted-foreground">
+            <p className="mt-1 hidden text-muted-foreground sm:block">
               エントリーシートの作成・管理ができます
             </p>
           </div>

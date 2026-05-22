@@ -7,15 +7,15 @@ describe("TodayPriorityTaskCard", () => {
       new URL("./TodayPriorityTaskCard.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain('aria-label="今日の最重要タスクを完了にする"');
+    expect(source).toContain("aria-label={`${todayTask.task.title}を完了にする`}");
   });
 
-  it("preserves 44px minimum touch target height", async () => {
+  it("preserves 44px touch target on mobile", async () => {
     const source = await readFile(
       new URL("./TodayPriorityTaskCard.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("min-h-[44px]");
+    expect(source).toContain("h-11 w-11");
   });
 
   it("hides company metadata on mobile via responsive class", async () => {

@@ -28,6 +28,13 @@ describe("ProductLayoutClient", () => {
     expect(source).toContain("env(safe-area-inset-top");
   });
 
+  it("keeps the mobile sidebar toggle fixed on the left across product routes", async () => {
+    const source = await readFile(new URL("./ProductLayoutClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain("left-3");
+    expect(source).not.toContain('pathname === "/dashboard"');
+    expect(source).not.toContain("right-5 sm:right-6");
+  });
+
   it("uses initialCollapsed as a prop not a local variable", async () => {
     const source = await readFile(new URL("./ProductLayoutClient.tsx", import.meta.url), "utf8");
     // The prop must be destructured or referenced from function parameters, not computed locally

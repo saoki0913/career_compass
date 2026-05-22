@@ -154,7 +154,7 @@ export function CompaniesPageClient({ initialData, showHeader = true }: Companie
                       {limit ? `${count} / ${limit} 社` : `${count} 社`}
                     </span>
                   </div>
-                  <p className="mt-1 text-muted-foreground">
+                  <p className="mt-1 hidden text-muted-foreground sm:block">
                     選考状況、締切、企業研究への導線を同じ画面で確認できます
                   </p>
                 </div>
@@ -191,10 +191,11 @@ export function CompaniesPageClient({ initialData, showHeader = true }: Companie
                   selected={selectedIndustries}
                   onChange={setSelectedIndustries}
                   placeholder="業界"
-                  className="w-[160px]"
+                  className="h-10 w-full rounded-xl md:w-[130px] lg:w-[170px]"
                 />
               }
-              viewToggle={<ViewToggle options={viewOptions} activeKey={viewMode} onChange={setViewMode} />}
+              viewToggle={<ViewToggle options={viewOptions} activeKey={viewMode} onChange={setViewMode} className="h-10 w-full md:w-auto" />}
+              variant="companies"
               activeFilters={[
                 selectedIndustries.length > 0 ? `業界: ${selectedIndustries.length}件` : "",
                 searchQuery ? `検索: ${searchQuery}` : "",
@@ -281,7 +282,7 @@ export function CompaniesPageClient({ initialData, showHeader = true }: Companie
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+      <main className="mx-auto max-w-[96rem] px-4 pb-7 pt-24 sm:px-6 sm:pb-9 sm:pt-24 lg:px-8 lg:py-9 xl:px-10">
         {body}
       </main>
     </div>

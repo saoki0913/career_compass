@@ -173,8 +173,8 @@ export function CorporateInfoSection({
     <>
       {/* Main info card */}
       <Card className="border-border/50">
-        <CardHeader className="flex flex-row items-center justify-between py-3">
-          <CardTitle className="flex items-center gap-2 text-base">
+        <CardHeader className="flex flex-row items-center justify-between gap-3 py-3">
+          <CardTitle className="flex min-w-0 items-center gap-2 whitespace-nowrap text-[13px] sm:text-base">
             <BuildingIcon />
             企業情報データベース
           </CardTitle>
@@ -183,6 +183,7 @@ export function CorporateInfoSection({
             size="sm"
             onClick={openModal}
             disabled={isLocked}
+            className="shrink-0 px-2.5 text-xs sm:px-3 sm:text-sm"
           >
             <SparklesIcon />
             企業情報を取得

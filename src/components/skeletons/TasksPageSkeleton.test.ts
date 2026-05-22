@@ -2,37 +2,52 @@ import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 
 describe("TasksPageSkeleton", () => {
-  it("uses py-10 outer padding matching TasksPageClient", async () => {
+  it("uses responsive outer padding matching TasksPageClient", async () => {
     const source = await readFile(
       new URL("./TasksPageSkeleton.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("py-10");
+    expect(source).toContain("pt-20");
+    expect(source).toContain("lg:pt-10");
   });
 
-  it("has compact single-row priority card skeleton", async () => {
+  it("has responsive priority card skeleton", async () => {
     const source = await readFile(
       new URL("./TasksPageSkeleton.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("min-h-[44px]");
-    expect(source).toContain("px-4 py-2");
+    expect(source).toContain("min-h-[72px]");
+    expect(source).toContain("md:min-h-[56px]");
   });
 
-  it("renders 5-column kanban grid as default view", async () => {
+  it("renders responsive task grid", async () => {
     const source = await readFile(
       new URL("./TasksPageSkeleton.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("lg:grid-cols-5");
+    expect(source).toContain("md:grid-cols-2");
+    expect(source).toContain("xl:grid-cols-5");
     expect(source).toContain("length: 5");
   });
 
-  it("includes header with responsive flex layout", async () => {
+  it("announces loading state", async () => {
     const source = await readFile(
       new URL("./TasksPageSkeleton.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("sm:flex-row sm:items-center sm:justify-between");
+    expect(source).toContain('role="status"');
+    expect(source).toContain('aria-busy="true"');
+    expect(source).toContain("タスクを読み込んでいます");
+  });
+
+  it("supports embedded loading inside the client page", async () => {
+    const source = await readFile(
+      new URL("./TasksPageSkeleton.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain("embedded = false");
+    expect(source).toContain("if (embedded)");
+    expect(source).toContain("<TaskListSkeleton />");
+    expect(source).toContain("<TaskGridSkeleton />");
   });
 });

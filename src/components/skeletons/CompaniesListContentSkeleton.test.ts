@@ -7,7 +7,7 @@ describe("CompaniesListContentSkeleton", () => {
       new URL("./CompaniesListContentSkeleton.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("lg:grid-cols-5");
+    expect(source).toContain("xl:grid-cols-5");
     expect(source).toContain("min-h-[420px]");
   });
 

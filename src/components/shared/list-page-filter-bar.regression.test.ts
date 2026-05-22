@@ -24,6 +24,8 @@ describe("ListPageFilterBar regressions", () => {
     expect(source).toContain("flex w-full min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto");
     expect(source).toContain("const hasStatusRow = filterTabs.length > 0 || activeFilters.length > 0");
     expect(source).toContain("relative min-w-[14rem] max-w-[22rem] flex-[1_0_16rem]");
+    expect(source).toContain('density = "default"');
+    expect(source).toContain('density?: "default" | "tasks"');
     expect(source).toContain("filterTabs.map");
     expect(source).toContain("activeFilters.map");
     expect(source).not.toContain("mt-3 flex flex-wrap gap-2");

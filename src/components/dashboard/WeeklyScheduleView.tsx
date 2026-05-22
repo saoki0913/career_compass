@@ -174,10 +174,10 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
   );
 
   return (
-    <Card className="h-full min-h-0 overflow-hidden border-border/50 py-1.5 gap-1.5">
-      <CardHeader className="flex shrink-0 flex-col gap-2 px-4 sm:flex-row sm:items-center sm:justify-between lg:px-5">
+    <Card className="h-full min-h-[560px] overflow-hidden rounded-2xl border-border/50 py-4 gap-3 sm:min-h-[520px] lg:min-h-0 lg:rounded-xl lg:py-1.5 lg:gap-1.5" data-testid="dashboard-schedule-card">
+      <CardHeader className="flex shrink-0 flex-col gap-3 px-4 sm:flex-row sm:items-center sm:justify-between lg:px-5 lg:gap-2">
         <div className="flex items-center gap-2">
-          <CardTitle className="text-lg">スケジュール・選考管理</CardTitle>
+          <CardTitle className="text-lg lg:text-lg">スケジュール・選考管理</CardTitle>
           {!isGuest && (
             isConnected ? (
               <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-600 lg:text-[10px]">
@@ -194,8 +194,8 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
           )}
         </div>
         <CardAction className="w-full self-auto justify-self-auto sm:w-auto">
-          <div className="flex items-center gap-1 sm:justify-end">
-            <Button variant="ghost" size="icon" className="h-9 w-9 lg:h-7 lg:w-7" onClick={onPrevWeek}>
+          <div className="flex items-center gap-2 sm:justify-end lg:gap-1">
+            <Button variant="ghost" size="icon" className="h-9 w-9 lg:h-7 lg:w-7" onClick={onPrevWeek} aria-label="前の週">
               <ChevronLeft className="h-4 w-4" aria-hidden="true" />
             </Button>
             <Button
@@ -206,7 +206,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
             >
               今日
             </Button>
-            <Button variant="ghost" size="icon" className="h-9 w-9 lg:h-7 lg:w-7" onClick={onNextWeek}>
+            <Button variant="ghost" size="icon" className="h-9 w-9 lg:h-7 lg:w-7" onClick={onNextWeek} aria-label="次の週">
               <ChevronRight className="h-4 w-4" aria-hidden="true" />
             </Button>
             <Button variant="outline" size="sm" className="hidden h-7 sm:inline-flex" asChild>
@@ -218,7 +218,7 @@ export function WeeklyScheduleView({ deadlines, calendarEvents = [], isGuest = f
 
       <CardContent className="min-h-0 flex-1 overflow-hidden px-4 lg:px-5">
         <div className="h-full overflow-x-auto lg:overflow-hidden" role="grid" aria-label="週間スケジュール">
-          <div className="grid h-full min-w-[480px] grid-cols-[2.5rem_repeat(7,minmax(0,1fr))] grid-rows-[auto_repeat(10,minmax(0,1fr))] lg:min-w-0">
+          <div className="grid h-full min-w-[360px] grid-cols-[2.5rem_repeat(7,minmax(0,1fr))] grid-rows-[auto_repeat(10,minmax(0,1fr))] min-[390px]:min-w-0 lg:min-w-0">
             {/* Day headers */}
             <div />
             {weekDays.map((date, i) => {

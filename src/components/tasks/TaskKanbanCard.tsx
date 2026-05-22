@@ -2,90 +2,19 @@
 
 import { Building2, CalendarClock, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { TASK_TYPE_LABELS, type Task, type TaskType } from "@/hooks/useTasks";
+import { TASK_TYPE_LABELS, type Task } from "@/hooks/useTasks";
+import {
+  formatDueDate,
+  getDaysLeft,
+  getDaysLeftColor,
+  getDaysLeftLabel,
+  taskTypeStyles,
+} from "./task-display";
 
 interface TaskKanbanCardProps {
   task: Task;
   onToggleComplete: (taskId: string) => void;
   onEdit: (task: Task) => void;
-}
-
-const typeColors: Record<
-  TaskType,
-  { bg: string; text: string; border: string }
-> = {
-  es: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200" },
-  web_test: {
-    bg: "bg-violet-50",
-    text: "text-violet-700",
-    border: "border-violet-200",
-  },
-  self_analysis: {
-    bg: "bg-emerald-50",
-    text: "text-emerald-700",
-    border: "border-emerald-200",
-  },
-  gakuchika: {
-    bg: "bg-amber-50",
-    text: "text-amber-700",
-    border: "border-amber-200",
-  },
-  video: {
-    bg: "bg-rose-50",
-    text: "text-rose-700",
-    border: "border-rose-200",
-  },
-  other: {
-    bg: "bg-slate-100",
-    text: "text-slate-700",
-    border: "border-slate-200",
-  },
-};
-
-function getDaysLeft(dueDate: string | null): number | null {
-  if (!dueDate) return null;
-  const date = new Date(dueDate);
-  if (Number.isNaN(date.getTime())) return null;
-  const today = new Date();
-  const todayStart = new Date(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate(),
-  );
-  const dueDay = new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-  );
-  return Math.ceil(
-    (dueDay.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24),
-  );
-}
-
-function getDaysLeftLabel(daysLeft: number | null, status: string): string {
-  if (status === "done") return "完了";
-  if (daysLeft == null) return "期限なし";
-  if (daysLeft < 0) return `${Math.abs(daysLeft)}日超過`;
-  if (daysLeft === 0) return "今日";
-  if (daysLeft === 1) return "明日";
-  return `あと${daysLeft}日`;
-}
-
-function getDaysLeftColor(daysLeft: number | null, status: string): string {
-  if (status === "done") return "text-success";
-  if (daysLeft == null) return "text-muted-foreground";
-  if (daysLeft < 0) return "text-destructive font-medium";
-  if (daysLeft < 3) return "text-destructive";
-  if (daysLeft < 7) return "text-warning-foreground";
-  return "text-muted-foreground";
-}
-
-function formatDueDate(dueDate: string): string {
-  const date = new Date(dueDate);
-  return date.toLocaleDateString("ja-JP", {
-    month: "short",
-    day: "numeric",
-  });
 }
 
 export function TaskKanbanCard({
@@ -95,90 +24,93 @@ export function TaskKanbanCard({
 }: TaskKanbanCardProps) {
   const isCompleted = task.status === "done";
   const daysLeft = getDaysLeft(task.dueDate);
-  const colors = typeColors[task.type];
+  const colors = taskTypeStyles[task.type];
+  const openEditor = () => onEdit(task);
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={() => onEdit(task)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onEdit(task);
-        }
-      }}
-      className="group block w-full cursor-pointer rounded-xl border border-border/50 bg-card p-3.5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-md focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+    <article
+      className={cn(
+        "group w-full rounded-xl border border-border/55 bg-card p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-md xl:p-3",
+        isCompleted && "bg-muted/20",
+      )}
     >
-      {/* Company name */}
-      {task.company ? (
-        <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Building2 className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{task.company.name}</span>
-        </div>
-      ) : null}
-
-      {/* Title */}
-      <p
-        className={cn(
-          "mb-2 text-sm font-medium leading-snug line-clamp-2 transition-colors group-hover:text-primary",
-          isCompleted && "line-through opacity-60",
-        )}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={openEditor}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openEditor();
+          }
+        }}
+        className="block w-full cursor-pointer rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        aria-label={`${task.title}を編集`}
       >
-        {task.title}
-      </p>
+        {task.company ? (
+          <div className="mb-2 flex items-center gap-1.5 text-sm text-muted-foreground xl:mb-1.5 xl:text-xs">
+            <Building2 className="h-4 w-4 shrink-0 xl:h-3.5 xl:w-3.5" />
+            <span className="truncate">{task.company.name}</span>
+          </div>
+        ) : null}
 
-      {/* Type badge and days left */}
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span
+        <p
           className={cn(
-            "rounded-full border px-2 py-0.5 text-xs font-medium",
-            colors.bg,
-            colors.text,
-            colors.border,
+            "mb-3 text-base font-medium leading-snug line-clamp-2 transition-colors group-hover:text-primary xl:mb-2 xl:text-sm",
+            isCompleted && "line-through opacity-70",
           )}
         >
-          {TASK_TYPE_LABELS[task.type]}
-        </span>
-        <span
-          className={cn(
-            "text-xs tabular-nums",
-            getDaysLeftColor(daysLeft, task.status),
-          )}
-        >
-          {getDaysLeftLabel(daysLeft, task.status)}
-        </span>
+          {task.title}
+        </p>
+
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span
+            className={cn(
+              "max-w-[70%] truncate rounded-full border px-2.5 py-1 text-xs font-medium xl:px-2 xl:py-0.5",
+              colors.bg,
+              colors.text,
+              colors.border,
+            )}
+          >
+            {TASK_TYPE_LABELS[task.type]}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 text-sm tabular-nums xl:text-xs",
+              getDaysLeftColor(daysLeft, task.status),
+            )}
+          >
+            {getDaysLeftLabel(daysLeft, task.status)}
+          </span>
+        </div>
+
+        {task.dueDate ? (
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground xl:text-xs">
+            <CalendarClock className="h-4 w-4 shrink-0 xl:h-3.5 xl:w-3.5" />
+            <span>{formatDueDate(task.dueDate)}</span>
+          </div>
+        ) : null}
       </div>
 
-      {/* Due date row */}
-      {task.dueDate ? (
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <CalendarClock className="h-3.5 w-3.5 shrink-0" />
-          <span>{formatDueDate(task.dueDate)}</span>
-        </div>
-      ) : null}
-
-      {/* Complete toggle */}
-      <div className="flex justify-end">
+      <div className="mt-2 flex justify-end xl:mt-1">
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleComplete(task.id);
-          }}
+          onClick={() => onToggleComplete(task.id)}
           className={cn(
-            "flex h-6 w-6 items-center justify-center rounded-full border-2 transition-colors",
+            "flex h-11 w-11 items-center justify-center rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             isCompleted
               ? "border-primary bg-primary text-primary-foreground"
               : "border-muted-foreground/40 hover:border-primary",
           )}
           aria-label={
-            isCompleted ? "タスクを未完了に戻す" : "タスクを完了にする"
+            isCompleted
+              ? `${task.title}を未完了に戻す`
+              : `${task.title}を完了にする`
           }
         >
-          {isCompleted ? <Check className="h-3.5 w-3.5" /> : null}
+          {isCompleted ? <Check className="h-4 w-4" /> : null}
         </button>
       </div>
-    </div>
+    </article>
   );
 }

@@ -172,13 +172,14 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
               </div>
               <button
                 type="button"
+                aria-label="詳細を閉じる"
                 onClick={onClose}
                 className="p-1 rounded-md hover:bg-muted transition-colors"
               >
                 <CloseIcon />
               </button>
             </div>
-            <CardTitle className="text-lg mt-2">{event.title}</CardTitle>
+            <CardTitle id="calendar-event-detail-title" className="text-lg mt-2">{event.title}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2 text-sm">
@@ -242,13 +243,14 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
               </div>
               <button
                 type="button"
+                aria-label="詳細を閉じる"
                 onClick={onClose}
                 className="p-1 rounded-md hover:bg-muted transition-colors"
               >
                 <CloseIcon />
               </button>
             </div>
-            <CardTitle className="text-lg mt-2">{event.summary}</CardTitle>
+            <CardTitle id="calendar-event-detail-title" className="text-lg mt-2">{event.summary}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2 text-sm">
@@ -304,13 +306,14 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
               </div>
               <button
                 type="button"
+                aria-label="詳細を閉じる"
                 onClick={onClose}
                 className="p-1 rounded-md hover:bg-muted transition-colors"
               >
                 <CloseIcon />
               </button>
             </div>
-            <CardTitle className="text-lg mt-2">{event.title}</CardTitle>
+            <CardTitle id="calendar-event-detail-title" className="text-lg mt-2">{event.title}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2 text-sm">
@@ -375,7 +378,13 @@ export function EventDetailModal({ isOpen, event, onClose, onDelete }: EventDeta
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="calendar-event-detail-title"
+      onClick={onClose}
+    >
       <Card className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>{renderContent()}</Card>
     </div>
   );

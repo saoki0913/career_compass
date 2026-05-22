@@ -13,6 +13,9 @@ import { cn } from "@/lib/utils";
 const FILTER_BAR_SCROLL_ROW_CLASS =
   "flex w-full min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80";
 
+const TASK_FILTER_SEARCH_CLASS =
+  "relative min-w-[13rem] max-w-[32rem] flex-[1_0_14rem] xl:flex-[1_1_30rem]";
+
 export interface FilterTab {
   key: string;
   label: string;
@@ -38,6 +41,8 @@ interface ListPageFilterBarProps {
   viewToggle?: React.ReactNode;
   actions?: React.ReactNode;
   activeFilters?: string[];
+  density?: "default" | "tasks";
+  variant?: "default" | "companies";
   clearAction?: {
     label?: string;
     onClear: () => void;
@@ -59,17 +64,34 @@ export function ListPageFilterBar({
   viewToggle,
   actions,
   activeFilters = [],
+  density = "default",
+  variant = "default",
   clearAction,
 }: ListPageFilterBarProps) {
   const selectedSortLabel =
     sortOptions.find((option) => option.value === sortBy)?.label ?? "並び順";
   const hasStatusRow = filterTabs.length > 0 || activeFilters.length > 0;
+  const isCompanies = variant === "companies";
+  const controlRowClass = isCompanies
+    ? "grid w-full min-w-0 grid-cols-1 gap-2 md:flex md:flex-nowrap md:items-center md:gap-3 md:overflow-x-auto md:overscroll-x-contain md:pb-1 md:[-ms-overflow-style:none] md:[scrollbar-width:thin] md:[&::-webkit-scrollbar]:h-1.5 md:[&::-webkit-scrollbar-thumb]:rounded-full md:[&::-webkit-scrollbar-thumb]:bg-slate-300/80"
+    : FILTER_BAR_SCROLL_ROW_CLASS;
+  const searchClass = isCompanies
+    ? "relative min-w-0 md:w-[14rem] md:flex-none lg:w-[19rem] xl:w-[21rem]"
+    : density === "tasks"
+      ? TASK_FILTER_SEARCH_CLASS
+      : "relative min-w-[14rem] max-w-[22rem] flex-[1_0_16rem]";
 
   return (
-    <div className="mb-6 min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/70 bg-background/90 p-3 shadow-sm backdrop-blur-xl sm:mb-8">
+    <div
+      className={cn(
+        "mb-6 min-w-0 max-w-full overflow-hidden border border-border/70 bg-background/90 shadow-sm backdrop-blur-xl sm:mb-8",
+        isCompanies ? "rounded-[1.35rem] p-3 md:p-5" : "rounded-2xl",
+        density === "tasks" ? "p-3 sm:p-4 xl:p-5" : !isCompanies && "p-3",
+      )}
+    >
       <div className="min-w-0 space-y-2">
-        <div className={FILTER_BAR_SCROLL_ROW_CLASS}>
-          <div className="relative min-w-[14rem] max-w-[22rem] flex-[1_0_16rem]">
+        <div className={controlRowClass}>
+          <div className={searchClass}>
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
@@ -77,12 +99,21 @@ export function ListPageFilterBar({
               placeholder={searchPlaceholder}
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="h-10 w-full rounded-xl border border-border/80 bg-background pl-10 pr-4 text-sm shadow-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15"
+              className={cn(
+                "w-full rounded-xl border border-border/80 bg-background pl-10 pr-4 text-sm shadow-sm transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15",
+                "h-10"
+              )}
             />
           </div>
 
           <Select value={sortBy} onValueChange={onSortChange}>
-            <SelectTrigger className="h-10 w-[160px] shrink-0">
+            <SelectTrigger
+              className={cn(
+                "shrink-0",
+                isCompanies ? "h-10 w-full rounded-xl md:w-[165px] lg:w-[210px]" : "h-10",
+                !isCompanies && (density === "tasks" ? "w-[150px] xl:w-[220px]" : "w-[160px]"),
+              )}
+            >
               <span className="min-w-0 flex-1 truncate text-left">{selectedSortLabel}</span>
             </SelectTrigger>
             <SelectContent>
@@ -95,12 +126,12 @@ export function ListPageFilterBar({
           </Select>
 
           {extraFilter ? (
-            <div className="flex shrink-0 items-center gap-2 [&>*]:min-w-0 [&>*]:shrink-0">
+            <div className={cn("flex shrink-0 items-center gap-2 [&>*]:min-w-0", isCompanies ? "w-full md:w-auto md:[&>*]:shrink-0" : "[&>*]:shrink-0")}>
               {extraFilter}
             </div>
           ) : null}
 
-          {viewToggle ? <div className="shrink-0">{viewToggle}</div> : null}
+          {viewToggle ? <div className={cn("shrink-0", isCompanies && "w-full md:w-auto")}>{viewToggle}</div> : null}
 
           {clearAction ? (
             <Button
@@ -132,7 +163,7 @@ export function ListPageFilterBar({
                   type="button"
                   onClick={() => onFilterChange?.(tab.key)}
                   className={cn(
-                    "flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 cursor-pointer",
+                    "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] font-medium transition-all duration-200 cursor-pointer sm:gap-2 sm:px-4 sm:py-2 sm:text-sm",
                     isActive
                       ? "bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(30,41,59,0.98))] text-white shadow-[0_18px_36px_-26px_rgba(15,23,42,0.64)]"
                       : "border border-slate-200/80 bg-white/92 text-slate-500 hover:border-slate-300 hover:text-slate-900"

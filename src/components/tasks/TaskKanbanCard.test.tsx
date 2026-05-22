@@ -6,9 +6,14 @@ describe("TaskKanbanCard", () => {
     expect(mod.TaskKanbanCard).toBeDefined();
   });
 
-  it("card wrapper uses div[role=button] instead of button to avoid nesting", async () => {
-    const mod = await import("./TaskKanbanCard");
-    const src = mod.TaskKanbanCard.toString();
-    expect(src).not.toMatch(new RegExp('createElement\\("button".*createElement\\("button"', "s"));
+  it("separates edit and completion controls", async () => {
+    const source = await import("node:fs/promises").then(({ readFile }) =>
+      readFile(new URL("./TaskKanbanCard.tsx", import.meta.url), "utf8"),
+    );
+
+    expect(source).toContain('role="button"');
+    expect(source).toContain("onKeyDown");
+    expect(source).toContain("aria-label={`${task.title}を編集`}");
+    expect(source).toContain("`${task.title}を完了にする`");
   });
 });

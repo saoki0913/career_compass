@@ -12,11 +12,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { findRoleOption, type RoleOptionsResponse, type RoleSelectionSource } from "@/features/motivation/domain/ui";
+import type { ResolvedIndustryState } from "@/lib/motivation/industry-resolution";
 
 export function MotivationSetupPanel({
   companyName,
   effectiveIndustry,
-  requiresIndustrySelection,
+  industryState,
   selectedIndustry,
   selectedRoleName,
   customRoleInput,
@@ -33,7 +34,7 @@ export function MotivationSetupPanel({
 }: {
   companyName: string;
   effectiveIndustry: string;
-  requiresIndustrySelection: boolean;
+  industryState: ResolvedIndustryState;
   selectedIndustry: string;
   selectedRoleName: string;
   customRoleInput: string;
@@ -48,6 +49,8 @@ export function MotivationSetupPanel({
   onRoleSelectionSourceChange: (value: RoleSelectionSource | null) => void;
   onCustomRoleInputChange: (value: string) => void;
 }) {
+  const needsIndustrySelection = industryState.kind === "requires_selection";
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
       <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
@@ -82,12 +85,12 @@ export function MotivationSetupPanel({
             <div className="space-y-2">
               <p className="text-sm font-semibold text-foreground">業界</p>
               <p className="text-xs leading-5 text-muted-foreground">
-                {requiresIndustrySelection
+                {needsIndustrySelection
                   ? "企業情報だけでは広いため、ここで必須選択します。"
                   : "企業情報から解決できているため確認のみです。"}
               </p>
 
-              {requiresIndustrySelection ? (
+              {needsIndustrySelection ? (
                 <Select
                   value={selectedIndustry}
                   disabled={disableSetupEditing}

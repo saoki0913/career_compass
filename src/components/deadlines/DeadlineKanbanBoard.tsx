@@ -1,7 +1,10 @@
 "use client";
 
+import type { ComponentType } from "react";
+import { Activity, Check, ClipboardList, FileClock, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DeadlineKanbanCard } from "./DeadlineKanbanCard";
+import { DEADLINE_STATUS_META } from "./deadline-display";
 import type {
   DeadlineDashboardItem,
   DeadlineComputedStatus,
@@ -9,44 +12,30 @@ import type {
 
 interface DeadlineKanbanBoardProps {
   deadlines: DeadlineDashboardItem[];
+  visibleStatuses?: DeadlineComputedStatus[];
 }
 
 interface KanbanColumn {
   status: DeadlineComputedStatus;
-  label: string;
-  emptyLabel: string;
-  accentClass: string;
-  headerBorderClass: string;
+  icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
 }
 
 const COLUMNS: KanbanColumn[] = [
   {
     status: "not_started",
-    label: "未着手",
-    emptyLabel: "未着手の締切はありません",
-    accentClass: "text-muted-foreground",
-    headerBorderClass: "border-muted-foreground/30",
+    icon: ClipboardList,
   },
   {
     status: "in_progress",
-    label: "進行中",
-    emptyLabel: "進行中の締切はありません",
-    accentClass: "text-primary",
-    headerBorderClass: "border-primary/40",
+    icon: Activity,
   },
   {
     status: "completed",
-    label: "完了",
-    emptyLabel: "完了した締切はありません",
-    accentClass: "text-success",
-    headerBorderClass: "border-success/40",
+    icon: Check,
   },
   {
     status: "overdue",
-    label: "期限切れ",
-    emptyLabel: "期限切れの締切はありません",
-    accentClass: "text-destructive",
-    headerBorderClass: "border-destructive/40",
+    icon: FileClock,
   },
 ];
 
@@ -70,39 +59,46 @@ function groupByStatus(
   return grouped;
 }
 
-export function DeadlineKanbanBoard({ deadlines }: DeadlineKanbanBoardProps) {
+export function DeadlineKanbanBoard({
+  deadlines,
+  visibleStatuses,
+}: DeadlineKanbanBoardProps) {
   const grouped = groupByStatus(deadlines);
+  const columns = visibleStatuses
+    ? COLUMNS.filter((col) => visibleStatuses.includes(col.status))
+    : COLUMNS;
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {COLUMNS.map((col) => {
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-8 xl:grid-cols-4 xl:gap-6">
+      {columns.map((col) => {
         const items = grouped[col.status];
+        const meta = DEADLINE_STATUS_META[col.status];
+        const EmptyIcon = col.icon;
         return (
           <section
             key={col.status}
             className="flex flex-col"
-            aria-label={`${col.label}の締切`}
+            aria-label={`${meta.label}の締切`}
           >
-            {/* Column header */}
             <div
               className={cn(
-                "mb-3 flex items-center gap-2 border-b-2 pb-2",
-                col.headerBorderClass,
+                "mb-3 flex items-center gap-2 border-b-2 pb-2.5",
+                meta.borderClass,
               )}
             >
               <h3
                 className={cn(
-                  "text-sm font-semibold",
-                  col.accentClass,
+                  "text-base font-bold md:text-sm",
+                  meta.accentClass,
                 )}
               >
-                {col.label}
+                {meta.label}
               </h3>
               <span
                 className={cn(
-                  "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium",
+                  "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-semibold",
                   items.length > 0
-                    ? "bg-muted text-muted-foreground"
+                    ? "bg-slate-100 text-slate-600"
                     : "bg-transparent text-muted-foreground/50",
                 )}
               >
@@ -110,17 +106,33 @@ export function DeadlineKanbanBoard({ deadlines }: DeadlineKanbanBoardProps) {
               </span>
             </div>
 
-            {/* Cards */}
-            <div className="flex flex-1 flex-col gap-2.5">
+            <div className="flex flex-1 flex-col gap-3 md:gap-3">
               {items.length > 0 ? (
                 items.map((item) => (
                   <DeadlineKanbanCard key={item.id} item={item} />
                 ))
               ) : (
-                <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/40 bg-muted/30 p-6">
-                  <p className="text-center text-xs text-muted-foreground/60">
-                    {col.emptyLabel}
-                  </p>
+                <div className="flex min-h-[6.25rem] items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] md:min-h-[16rem] md:justify-center md:p-6 xl:min-h-[32rem]">
+                  <div className="flex w-full items-center gap-4 md:flex-col md:gap-4 md:text-center">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-dashed border-slate-300 bg-white/80 md:h-16 md:w-16">
+                      <EmptyIcon
+                        className={cn("h-5 w-5 md:h-7 md:w-7", meta.emptyIconClass)}
+                        aria-hidden={true}
+                      />
+                    </span>
+                    <div className="min-w-0 flex-1 md:flex-none">
+                      <p className="text-sm font-medium text-slate-700 md:text-sm">
+                        {meta.emptyLabel}
+                      </p>
+                      <p className="mt-1 hidden text-sm leading-relaxed text-muted-foreground md:block">
+                        {meta.emptyDescription}
+                      </p>
+                    </div>
+                    <MoreHorizontal
+                      className="h-5 w-5 shrink-0 text-muted-foreground/50 md:hidden"
+                      aria-hidden="true"
+                    />
+                  </div>
                 </div>
               )}
             </div>

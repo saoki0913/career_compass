@@ -5,7 +5,10 @@ import {
   CalendarDays,
   LayoutGrid,
   List,
+  Search,
+  X,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -13,11 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ListPageFilterBar } from "@/components/shared/ListPageFilterBar";
 import { ViewToggle } from "@/components/shared/ViewToggle";
+import { cn } from "@/lib/utils";
 import {
   useDeadlinesDashboard,
   type DeadlineDashboardData,
+  type DeadlineComputedStatus,
 } from "@/hooks/useDeadlinesDashboard";
 import {
   DEADLINE_TYPE_LABELS,
@@ -62,6 +66,9 @@ const deadlineViewOptions = [
   { key: "kanban", icon: <LayoutGrid className="h-4 w-4" />, label: "ボード表示" },
   { key: "list", icon: <List className="h-4 w-4" />, label: "リスト表示" },
 ];
+
+const controlClassName =
+  "h-10 rounded-xl border-slate-200 bg-white text-sm shadow-[0_10px_26px_-22px_rgba(15,23,42,0.55)]";
 
 interface DeadlinesDashboardClientProps {
   initialData?: DeadlineDashboardData;
@@ -114,52 +121,65 @@ export function DeadlinesDashboardClient({
         : deadlines.filter((d) => d.status === statusFilter),
     [deadlines, statusFilter],
   );
+  const visibleBoardStatuses = useMemo<DeadlineComputedStatus[] | undefined>(
+    () =>
+      statusFilter === "all"
+        ? undefined
+        : ([statusFilter as DeadlineComputedStatus]),
+    [statusFilter],
+  );
 
   const hasFilters = Boolean(typeFilter || searchQuery || statusFilter !== "all");
-  const activeFilterLabels = [
-    typeFilter
-      ? `種類: ${DEADLINE_TYPE_LABELS[typeFilter as DeadlineType] ?? typeFilter}`
-      : null,
-    searchQuery ? `検索: ${searchQuery}` : null,
-    statusFilter !== "all"
-      ? `状態: ${deadlineFilterTabs.find((t) => t.key === statusFilter)?.label ?? statusFilter}`
-      : null,
-  ].filter((label): label is string => label != null);
 
   return (
-    <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_48%,#ffffff_100%)]">
+      <main className="mx-auto max-w-[92rem] px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-6 sm:px-8 sm:py-10 lg:px-10 xl:px-12">
+        <div className="mb-5 flex flex-col gap-4 pl-14 sm:mb-7 sm:flex-row sm:items-center sm:justify-between lg:pl-0">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">締切管理</h1>
-              <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+              <h1 className="text-3xl font-bold tracking-normal text-slate-950 sm:text-3xl">締切管理</h1>
+              <span className="rounded-full bg-sky-50 px-3 py-1 text-sm font-semibold text-slate-600">
                 {deadlines.length}件
               </span>
             </div>
-            <p className="mt-1 text-muted-foreground">
+            <p className="mt-2 hidden max-w-3xl text-base leading-relaxed text-slate-600 sm:block sm:text-sm">
               未着手、進行中、期限切れを同じ画面で確認し、今日動くべき締切を絞り込めます
             </p>
           </div>
         </div>
 
-        <ListPageFilterBar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          searchPlaceholder="締切を検索..."
-          filterTabs={deadlineFilterTabs}
-          activeFilter={statusFilter}
-          onFilterChange={setStatusFilter}
-          tabCounts={tabCounts}
-          sortOptions={deadlineSortOptions}
-          sortBy={sortMode}
-          onSortChange={handleSortChange}
-          extraFilter={
+        <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.5)] backdrop-blur-xl sm:mb-8 sm:p-4">
+          <div className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-[minmax(18rem,1.4fr)_minmax(11rem,0.7fr)_minmax(11rem,0.7fr)_auto]">
+            <div className="relative col-span-2 min-w-0 xl:col-span-1">
+              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="text"
+                aria-label="締切を検索..."
+                placeholder="締切を検索..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm shadow-[0_10px_26px_-22px_rgba(15,23,42,0.55)] outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
+              />
+            </div>
+
+            <Select value={sortMode} onValueChange={handleSortChange}>
+              <SelectTrigger className={cn(controlClassName, "min-w-0")} aria-label="並び順">
+                <SelectValue placeholder="並び順" />
+              </SelectTrigger>
+              <SelectContent>
+                {deadlineSortOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             <Select
               value={typeFilter ?? "all"}
               onValueChange={handleTypeChange}
             >
-              <SelectTrigger className="w-36" aria-label="種類で絞り込み">
+              <SelectTrigger className={cn(controlClassName, "min-w-0")} aria-label="種類で絞り込み">
                 <SelectValue placeholder="種類" />
               </SelectTrigger>
               <SelectContent>
@@ -171,28 +191,62 @@ export function DeadlinesDashboardClient({
                 ))}
               </SelectContent>
             </Select>
-          }
-          viewToggle={
-            <ViewToggle
-              options={deadlineViewOptions}
-              activeKey={viewMode}
-              onChange={(key) => setViewMode(key as ViewMode)}
-            />
-          }
-          clearAction={
-            hasFilters
-              ? {
-                  label: "フィルタをクリア",
-                  onClear: () => {
+
+            <div className="col-span-2 flex min-w-0 items-center gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80 xl:col-span-1 xl:overflow-visible xl:pb-0">
+              <ViewToggle
+                options={deadlineViewOptions}
+                activeKey={viewMode}
+                onChange={(key) => setViewMode(key as ViewMode)}
+              />
+              {hasFilters ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
                     setTypeFilter(undefined);
                     setSearchQuery("");
                     setStatusFilter("all");
-                  },
-                }
-              : undefined
-          }
-          activeFilters={activeFilterLabels}
-        />
+                  }}
+                  className="h-10 shrink-0 rounded-xl text-muted-foreground"
+                >
+                  <X className="h-4 w-4" />
+                  クリア
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-3 flex min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80">
+            {deadlineFilterTabs.map((tab) => {
+              const tabCount = tabCounts[tab.key] ?? 0;
+              const isActive = statusFilter === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setStatusFilter(tab.key)}
+                  className={cn(
+                    "flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[13px] font-semibold transition-all duration-200 sm:h-10 sm:gap-2 sm:px-4 sm:text-sm",
+                    isActive
+                      ? "bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(30,41,59,0.98))] text-white shadow-[0_18px_36px_-26px_rgba(15,23,42,0.7)]"
+                      : "border border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-900",
+                  )}
+                >
+                  {tab.label}
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-xs font-semibold",
+                      isActive ? "bg-white/16 text-white" : "bg-slate-100 text-slate-500",
+                    )}
+                  >
+                    {tabCount}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {/* Error state */}
         {error && (
@@ -224,7 +278,10 @@ export function DeadlinesDashboardClient({
             </p>
           </div>
         ) : viewMode === "kanban" ? (
-          <DeadlineKanbanBoard deadlines={filteredDeadlines} />
+          <DeadlineKanbanBoard
+            deadlines={filteredDeadlines}
+            visibleStatuses={visibleBoardStatuses}
+          />
         ) : (
           <DeadlineListView deadlines={filteredDeadlines} />
         )}

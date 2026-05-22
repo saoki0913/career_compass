@@ -2,10 +2,11 @@ import { describe, it, expect } from "vitest";
 import { startOfJstDayAsUtc } from "@/lib/datetime/jst";
 
 describe("DeadlineListView computeDaysLeft", () => {
-  it("uses JST day boundary for daysLeft calculation", async () => {
+  it("uses shared JST day boundary helper for daysLeft calculation", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./DeadlineListView.tsx", import.meta.url), "utf8");
-    expect(source).toContain("startOfJstDayAsUtc");
+    expect(source).toContain("computeDeadlineDaysLeft");
+    expect(source).not.toContain("new Date(item.dueDate).toLocaleDateString");
   });
 
   it("returns correct days across JST boundary", () => {

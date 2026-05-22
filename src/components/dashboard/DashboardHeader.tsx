@@ -69,10 +69,10 @@ export function DashboardHeader({ viewer }: DashboardHeaderProps) {
   const greeting = getGreeting();
 
   return (
-    <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-2 xl:flex-nowrap">
+    <div className="flex min-h-9 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-3 lg:gap-y-2 xl:flex-nowrap">
       <DashboardPurchaseSuccessEffect />
-      <div className="flex min-w-0 items-baseline gap-x-2 xl:shrink">
-        <h1 className="truncate text-lg font-bold tracking-tight">
+      <div className="flex min-w-0 items-baseline gap-x-2 pl-14 lg:pl-0 xl:shrink">
+        <h1 className="truncate text-lg font-bold tracking-tight sm:text-xl lg:text-lg">
           {greeting}、{viewer.displayName}さん
         </h1>
         {viewer.isGuest && (
@@ -83,7 +83,7 @@ export function DashboardHeader({ viewer }: DashboardHeaderProps) {
       <QuickActions
         onInterviewClick={() => setShowInterviewCompanySelect(true)}
         onMotivationClick={() => setShowMotivationCompanySelect(true)}
-        className="-mx-4 w-[calc(100%+2rem)] px-4 sm:-mx-6 sm:w-[calc(100%+3rem)] sm:px-6 lg:mx-0 lg:basis-full lg:px-0 xl:ml-auto xl:mr-0 xl:min-w-0 xl:basis-auto xl:flex-1 xl:justify-end xl:overflow-visible xl:pb-0"
+        className="w-full sm:w-full lg:basis-full xl:ml-auto xl:mr-0 xl:min-w-0 xl:basis-auto xl:flex-1 xl:justify-end xl:overflow-visible xl:pb-0"
       />
 
       {showInterviewCompanySelect && (

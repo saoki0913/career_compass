@@ -89,8 +89,8 @@ export function CompanyKanbanBoard({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6 lg:mx-0 lg:px-0">
-          <div className="flex min-w-max gap-3 xl:min-w-0">
+        <div className="pb-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-4 xl:grid-cols-5">
             {companiesByPhase.map(({ phase, companies: phaseCompanies }) => (
               <CompanyKanbanColumn
                 key={phase.key}

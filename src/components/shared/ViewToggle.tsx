@@ -12,17 +12,20 @@ interface ViewToggleProps {
   options: ViewToggleOption[];
   activeKey: string;
   onChange: (key: string) => void;
+  className?: string;
 }
 
-export function ViewToggle({ options, activeKey, onChange }: ViewToggleProps) {
+export function ViewToggle({ options, activeKey, onChange, className }: ViewToggleProps) {
   return (
-    <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
+    <div className={cn("flex items-center gap-1 rounded-lg bg-muted/50 p-0.5 sm:p-1", className)} role="group" aria-label="表示形式">
       {options.map((option) => (
         <button
           key={option.key}
+          type="button"
           onClick={() => onChange(option.key)}
+          aria-pressed={activeKey === option.key}
           className={cn(
-            "flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium transition-all duration-200 cursor-pointer",
+            "flex flex-1 cursor-pointer items-center justify-center gap-1 rounded-md px-2 py-1 text-sm font-medium transition-all duration-200 sm:px-2.5 sm:py-1.5 md:flex-none",
             activeKey === option.key
               ? "bg-background text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"

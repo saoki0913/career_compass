@@ -1,56 +1,10 @@
 "use client";
 
+import { Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaskKanbanCard } from "./TaskKanbanCard";
 import type { Task } from "@/hooks/useTasks";
-
-type TaskGroupKey = "overdue" | "today" | "upcoming" | "noDue" | "done";
-
-interface KanbanColumn {
-  key: TaskGroupKey;
-  label: string;
-  emptyLabel: string;
-  accentClass: string;
-  headerBorderClass: string;
-}
-
-const COLUMNS: KanbanColumn[] = [
-  {
-    key: "overdue",
-    label: "期限切れ",
-    emptyLabel: "期限切れのタスクはありません",
-    accentClass: "text-destructive",
-    headerBorderClass: "border-destructive/40",
-  },
-  {
-    key: "today",
-    label: "今日まで",
-    emptyLabel: "今日のタスクはありません",
-    accentClass: "text-primary",
-    headerBorderClass: "border-primary/40",
-  },
-  {
-    key: "upcoming",
-    label: "今後",
-    emptyLabel: "今後のタスクはありません",
-    accentClass: "text-muted-foreground",
-    headerBorderClass: "border-muted-foreground/30",
-  },
-  {
-    key: "noDue",
-    label: "期限なし",
-    emptyLabel: "期限なしのタスクはありません",
-    accentClass: "text-muted-foreground",
-    headerBorderClass: "border-muted-foreground/30",
-  },
-  {
-    key: "done",
-    label: "完了",
-    emptyLabel: "完了したタスクはありません",
-    accentClass: "text-success",
-    headerBorderClass: "border-success/40",
-  },
-];
+import { TASK_KANBAN_COLUMNS, type TaskGroupKey } from "./task-display";
 
 interface TaskKanbanBoardProps {
   groupedTasks: Record<TaskGroupKey, Task[]>;
@@ -64,30 +18,29 @@ export function TaskKanbanBoard({
   onEditTask,
 }: TaskKanbanBoardProps) {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-      {COLUMNS.map((col) => {
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-5 xl:gap-4">
+      {TASK_KANBAN_COLUMNS.map((col) => {
         const items = groupedTasks[col.key] ?? [];
         return (
           <section
             key={col.key}
-            className="flex flex-col"
+            className="flex min-w-0 flex-col"
             aria-label={`${col.label}のタスク`}
           >
-            {/* Column header */}
             <div
               className={cn(
-                "mb-3 flex items-center gap-2 border-b-2 pb-2",
+                "mb-3 flex items-center gap-2 border-b-2 pb-3",
                 col.headerBorderClass,
               )}
             >
               <h3
-                className={cn("text-sm font-semibold", col.accentClass)}
+                className={cn("text-base font-semibold xl:text-sm", col.accentClass)}
               >
                 {col.label}
               </h3>
               <span
                 className={cn(
-                  "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium",
+                  "flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-xs font-medium xl:h-5 xl:min-w-5 xl:px-1.5",
                   items.length > 0
                     ? "bg-muted text-muted-foreground"
                     : "bg-transparent text-muted-foreground/50",
@@ -97,8 +50,7 @@ export function TaskKanbanBoard({
               </span>
             </div>
 
-            {/* Cards */}
-            <div className="flex flex-1 flex-col gap-2.5">
+            <div className="flex flex-1 flex-col gap-3 xl:gap-2.5">
               {items.length > 0 ? (
                 items.map((task) => (
                   <TaskKanbanCard
@@ -109,8 +61,9 @@ export function TaskKanbanBoard({
                   />
                 ))
               ) : (
-                <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/40 bg-muted/30 p-6">
-                  <p className="text-center text-xs text-muted-foreground/60">
+                <div className="flex min-h-56 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border/50 bg-slate-50/60 p-6 text-center xl:min-h-72">
+                  <Inbox className="mb-3 h-9 w-9 text-muted-foreground/30" aria-hidden="true" />
+                  <p className="max-w-36 text-xs leading-5 text-muted-foreground/70">
                     {col.emptyLabel}
                   </p>
                 </div>

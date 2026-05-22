@@ -11,9 +11,23 @@ describe("WeeklyScheduleView", () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./WeeklyScheduleView.tsx", import.meta.url), "utf8");
     expect(source).toContain("GoogleCalendarIcon");
-    expect(source).toContain('<CardTitle className="text-lg">スケジュール・選考管理</CardTitle>');
+    expect(source).toContain('<CardTitle className="text-lg lg:text-lg">スケジュール・選考管理</CardTitle>');
     expect(source).toContain('<GoogleCalendarIcon className="h-3.5 w-3.5" />');
     expect(source).not.toMatch(/\bCalendarIcon\b/);
+  });
+
+  it("keeps mobile schedule columns scrollable before 390px", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./WeeklyScheduleView.tsx", import.meta.url), "utf8");
+    expect(source).toContain("min-w-[360px]");
+    expect(source).toContain("min-[390px]:min-w-0");
+  });
+
+  it("has accessible names for week navigation buttons", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./WeeklyScheduleView.tsx", import.meta.url), "utf8");
+    expect(source).toContain('aria-label="前の週"');
+    expect(source).toContain('aria-label="次の週"');
   });
 
   it("receives calendar connection state as a prop", async () => {
