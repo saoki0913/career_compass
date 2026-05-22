@@ -22,7 +22,7 @@
 - `docs/architecture/ARCHITECTURE.md`
 - `docs/architecture/BFF_FASTAPI_CONTRACT.md`
 - `docs/architecture/FASTAPI_MODULE_LAYOUT.md`
-- `docs/ops/DEAD_CODE_REMOVAL.md`
+- `docs/operations/development/DEAD_CODE_REMOVAL.md`
 - `.omm/overall-architecture/**`
 - `.omm/request-lifecycle/**`
 - `src/app/api/**`
@@ -95,7 +95,7 @@ Status は以下だけを使う。
 - `src/lib/db/schema.ts` には `companies`, `documents`, `tasks`, `motivation_conversations` など主要 owner table に `user_id XOR guest_id` check がある。
 - `eslint.config.mjs` は `features -> app/bff` と `components -> bff` の禁止を持つ。
 - `backend/.importlinter` は `app.services -> app.routers` の静的 import 禁止を持つ。
-- `docs/ops/DEAD_CODE_REMOVAL.md` に、Knip 結果をそのまま削除しない反証手順が定義済みである。
+- `docs/operations/development/DEAD_CODE_REMOVAL.md` に、Knip 結果をそのまま削除しない反証手順が定義済みである。
 - `backend/app/services/motivation/` は router 分割後の基準例として使える程度に service 化が進んでいる。
 
 ### 5.2 重大な弱点

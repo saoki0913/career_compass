@@ -26,7 +26,7 @@ test("blocks runtime and generated artifact paths", async () => {
   const findings = await evaluateFiles([
     "backend/.ai/verification/current.json",
     "product/.ai/verification/current.json",
-    "docs/ops/agent-usage.log",
+    "docs/operations/development/agent-usage.log",
     "output/playwright/home.png",
     "public/screenshots/generated/product/product.dashboard/desktop.png",
     "public/marketing/LP/assets/_archive/metadata/manifest.txt",
@@ -38,7 +38,7 @@ test("blocks runtime and generated artifact paths", async () => {
     [
       "backend/.ai/verification/current.json",
       "product/.ai/verification/current.json",
-      "docs/ops/agent-usage.log",
+      "docs/operations/development/agent-usage.log",
       "output/playwright/home.png",
       "public/screenshots/generated/product/product.dashboard/desktop.png",
       "public/marketing/LP/assets/_archive/metadata/manifest.txt",

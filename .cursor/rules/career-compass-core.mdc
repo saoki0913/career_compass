@@ -26,7 +26,7 @@ alwaysApply: true
 
 - `private/agent-pipeline/skills/*.md` が canonical source
 - `.claude/skills/`, `.codex/skills/`, `.codex/commands/`, generator 管轄の `.cursor/rules/*.mdc` は手編集しない
-- 例外は `docs/ops/AI_HARNESS.md` 1.2.1 に明記された non-canonical skill と、この `career-compass-core.mdc`
+- 例外は `docs/operations/development/AI_HARNESS.md` 1.2.1 に明記された non-canonical skill と、この `career-compass-core.mdc`
 
 ## Working Style
 

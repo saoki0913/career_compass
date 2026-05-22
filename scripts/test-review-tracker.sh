@@ -4,6 +4,8 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+node scripts/docs/check-docs.mjs
+
 ERRFILE=$(mktemp)
 echo 0 > "$ERRFILE"
 
@@ -39,7 +41,7 @@ check_markdown_links() {
 }
 
 echo "--- Checking docs entrypoint links ---"
-for entrypoint in README.md docs/INDEX.md docs/ops/SECURITY.md docs/release/setup/ENV_REFERENCE.md; do
+for entrypoint in README.md docs/README.md docs/INDEX.md docs/operations/platform/SECURITY.md docs/release/setup/ENV_REFERENCE.md; do
   if [ ! -f "$entrypoint" ]; then
     echo "ERROR: $entrypoint not found"
     bump_err

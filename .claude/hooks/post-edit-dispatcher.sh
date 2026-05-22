@@ -31,7 +31,7 @@ node "$PROJECT_DIR/tools/mark-verification-stale.mjs" --file="$FILE_PATH" --sess
 if is_hotspot_path "$FILE_PATH"; then
   cat >&2 <<EOF
 🔥 hotspot ファイルを編集しました: ${FILE_PATH}
-   （docs/ops/AI_DEVELOPMENT_PRINCIPLES.md 列挙の負債集中ポイント）
+   （docs/operations/development/AI_DEVELOPMENT_PRINCIPLES.md 列挙の負債集中ポイント）
 
    推奨アクション:
      1. 継ぎ足し追記なら refactoring-specialist skill で分離可否を先に判定

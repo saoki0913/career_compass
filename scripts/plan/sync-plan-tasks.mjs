@@ -82,7 +82,7 @@ const manualBacklog = [
   },
   {
     id: "plan-sync:es-prompt-contract-drift",
-    sourcePlan: "es-review-prompt-quality-improvement-plan.md",
+    sourcePlan: "llm-rag-security-owasp-audit.md",
     status: "Todo",
     priority: "P0",
     area: "Prompt",
@@ -293,6 +293,11 @@ const markdownFiles = readdirSync(docsDir)
   .filter((fileName) => fileName.endsWith(".md"))
   .sort();
 
+const completedMarkdownFiles = readdirSync(path.join(docsDir, "completed"))
+  .filter((fileName) => fileName.endsWith(".md"))
+  .map((fileName) => `completed/${fileName}`)
+  .sort();
+
 const parsedTasks = markdownFiles.flatMap((fileName) => {
   const content = readFileSync(path.join(docsDir, fileName), "utf8");
   return parseTables(fileName, content);
@@ -375,7 +380,7 @@ const data = {
     "Every task has non-empty acceptanceCriteria and a sourcePlan.",
     "After all tasks are Done or Superseded, obsolete compatibility JSON files under docs/plan may be removed.",
   ],
-  documents: markdownFiles,
+  documents: Array.from(new Set([...markdownFiles, ...completedMarkdownFiles])),
   tasks,
 };
 

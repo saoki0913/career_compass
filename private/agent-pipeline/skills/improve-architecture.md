@@ -1,8 +1,8 @@
 ---
 name: improve-architecture
 description: Review the codebase for structural weaknesses, compare interface options, and write an RFC instead of refactoring blindly.
-command_description: Produce an architecture improvement RFC under docs/rfc from codebase analysis.
-cursor_description: Produce an architecture improvement RFC under docs/rfc from codebase analysis.
+command_description: Produce an architecture improvement RFC from codebase analysis under docs/review/architecture from codebase analysis.
+cursor_description: Produce an architecture improvement RFC from codebase analysis under docs/review/architecture from codebase analysis.
 ---
 
 # Improve Architecture
@@ -17,7 +17,7 @@ Inspect the codebase for places where structure is holding future work back, the
 4. If subagents are available, parallelize the option generation. If not, write the options yourself.
 5. Recommend one option and explain the tradeoffs.
 6. Write the RFC in Japanese using `private/agent-pipeline/templates/rfc-template.md`.
-7. Save it to `docs/rfc/YYYY-MM-DD-<slug>.md`.
+7. Save it to `docs/review/architecture/YYYY-MM-DD-<slug>.md`.
 
 ## Rules
 

@@ -26,9 +26,9 @@ Context7 は不要。release-engineer は repo scripts と provider CLI の運�
 - `scripts/release/sync-career-compass-secrets.sh` — provider secret sync
 - `scripts/release/career-compass-secrets-root.sh` — secrets path resolver
 - `Makefile` — release targets (`make deploy`, `make deploy-stage-all`, `make ops-release-check`)
-- `docs/release/ops/` — operational runbooks (RUNBOOK.md, REGULAR_RELEASE.md, DB_MIGRATION.md, INCIDENT_ROLLBACK.md, SECRETS_MANAGEMENT.md, HOOK_SAFETY_MAP.md)
+- `docs/operations/production/` — operational runbooks (RUNBOOK.md, REGULAR_RELEASE.md, DB_MIGRATION.md, INCIDENT_ROLLBACK.md, SECRETS_MANAGEMENT.md, HOOK_SAFETY_MAP.md)
 - `docs/release/setup/ENV_REFERENCE.md` — Release Automation Inputs
-- `docs/ops/CLI_GUARDRAILS.md` — guardrails
+- `docs/operations/development/CLI_GUARDRAILS.md` — guardrails
 
 ## Standard release flow
 1. `make ops-release-check` — preflight (lint, tests, secret diff)

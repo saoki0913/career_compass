@@ -93,7 +93,7 @@ export const legacyTaskBoardArchives = [
           "area": "CLI Verification",
           "task": "Record current release monitoring readiness from CLI checks",
           "evidence": [
-            "docs/ops/MONITORING_SETUP.md",
+            "docs/operations/platform/MONITORING_SETUP.md",
             "docs/release/PRODUCTION.md"
           ],
           "acceptanceCriteria": "Vercel, Railway health, Sentry projects, secrets check, robots, and sitemap results are documented with remaining warnings.",
@@ -149,7 +149,7 @@ export const legacyTaskBoardArchives = [
           "area": "Docs",
           "task": "Document release-minimum monitoring state and manual follow-ups",
           "evidence": [
-            "docs/ops/MONITORING_SETUP.md",
+            "docs/operations/platform/MONITORING_SETUP.md",
             "docs/release/PRODUCTION.md"
           ],
           "acceptanceCriteria": "Docs distinguish completed release-minimum checks from deferred Loki, Crons, rollback automation, and deep health work.",
@@ -190,9 +190,9 @@ export const legacyTaskBoardArchives = [
           "area": "Docs",
           "task": "Align release monitoring docs to Sentry-first policy",
           "evidence": [
-            "docs/ops/MONITORING_SETUP.md",
+            "docs/operations/platform/MONITORING_SETUP.md",
             "docs/release/PRODUCTION.md",
-            "docs/release/EXTERNAL_SERVICES.md",
+            "docs/release/setup/EXTERNAL_SERVICES.md",
             "docs/plan/execution-order.md"
           ],
           "acceptanceCriteria": "Docs make Sentry the primary release monitoring tool, remove comprehensive UptimeRobot setup as a release blocker, and keep UptimeRobot only as optional redundancy.",
@@ -206,9 +206,9 @@ export const legacyTaskBoardArchives = [
           "area": "Docs",
           "task": "Record Railway shared-domain Sentry uptime limitation and defer backend monitors",
           "evidence": [
-            "docs/ops/MONITORING_SETUP.md",
+            "docs/operations/platform/MONITORING_SETUP.md",
             "docs/release/PRODUCTION.md",
-            "docs/release/EXTERNAL_SERVICES.md",
+            "docs/release/setup/EXTERNAL_SERVICES.md",
             "docs/plan/execution-order.md"
           ],
           "acceptanceCriteria": "Docs state that frontend uptime monitor reached 200 check-ins, backend Railway generated-domain monitors are blocked by Sentry domain-wide limit, and backend Sentry uptime is deferred until a custom backend domain is configured.",
@@ -320,9 +320,9 @@ export const legacyTaskBoardArchives = [
           "area": "External Monitoring",
           "task": "Document UptimeRobot and Sentry production setup",
           "evidence": [
-            "docs/ops/MONITORING_SETUP.md",
-            "docs/release/EXTERNAL_SERVICES.md",
-            "docs/ops/OBSERVABILITY.md"
+            "docs/operations/platform/MONITORING_SETUP.md",
+            "docs/release/setup/EXTERNAL_SERVICES.md",
+            "docs/operations/platform/OBSERVABILITY.md"
           ],
           "acceptanceCriteria": "Docs list monitor targets, allowed telemetry, required env vars, and deferred SSL/heartbeat work.",
           "updatedAt": "2026-05-05"

@@ -19,7 +19,7 @@ const EXPECTED_HARNESS_INVENTORY = {
   agents: 13,
   opusAgents: 11,
   sonnetAgents: 2,
-  claudeSkills: 43,
+  claudeSkills: 46,
   canonicalSkills: 48,
 };
 
@@ -130,7 +130,7 @@ test("syncPipeline renders codex, claude, and cursor artifacts from canonical so
 test("harness inventory counts match expected baseline", () => {
   // 本テストは v3/v4 で揃えた agent / hook / skill の件数と agent 定義の
   // Context7 coverage / model 配分が意図せず崩れた場合に CI で fail させる。
-  // 期待値と docs/ops/AI_HARNESS.md §7.4 は 1:1 で揃える運用。
+  // 期待値と docs/operations/development/AI_HARNESS.md §7.4 は 1:1 で揃える運用。
   const projectRoot = path.resolve(import.meta.dirname, "../..");
 
   const agentDir = path.join(projectRoot, ".claude/agents");

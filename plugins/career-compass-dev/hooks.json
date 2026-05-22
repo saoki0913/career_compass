@@ -78,7 +78,7 @@
         "scripts/release/**",
         "scripts/bootstrap/**",
         "docs/release/**",
-        "docs/ops/CLI_GUARDRAILS.md"
+        "docs/operations/development/CLI_GUARDRAILS.md"
       ],
       "suggest": [
         "command:release",

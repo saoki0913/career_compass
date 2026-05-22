@@ -5,7 +5,7 @@ uncommitted changes を対象にレビューしてください。
 
 ## 参照すべきファイル
 - AGENTS.md（ルーティングテーブルとビジネスルール）
-- docs/ops/AI_DEVELOPMENT_PRINCIPLES.md（品質基準）
+- docs/operations/development/AI_DEVELOPMENT_PRINCIPLES.md（品質基準）
 
 ## レビュー観点
 1. OWASP Top 10（broken access control, injection, CSRF bypass, auth issues）

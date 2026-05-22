@@ -55,7 +55,7 @@ test("codex harness docs and commands exist", () => {
     ".codex/commands/codex-start.md",
     ".codex/commands/codex-closeout.md",
     ".codex/hooks.json",
-    "docs/ops/CODEX_HARNESS.md",
+    "docs/operations/development/CODEX_HARNESS.md",
     ".agents/agents/README.md",
     ".codex/agents/architect.toml",
     ".codex/agents/nextjs-developer.toml",
@@ -234,7 +234,7 @@ test("codex-start wrapper prints codex agent specs", () => {
 });
 
 test("codex harness doc points to .codex agents as the runtime source", () => {
-  const source = readFileSync(path.join(repoRoot, "docs/ops/CODEX_HARNESS.md"), "utf8");
+  const source = readFileSync(path.join(repoRoot, "docs/operations/development/CODEX_HARNESS.md"), "utf8");
   assert.match(source, /\.codex\/agents/);
   assert.match(source, /\.agents\/agents/);
   assert.match(source, /AGENTS\.md/);
@@ -269,6 +269,11 @@ test("codex custom agents include the required schema and skill bindings", () =>
   const security = readFileSync(path.join(agentDir, "security-auditor.toml"), "utf8");
   assert.match(security, /better-auth-best-practices/);
   assert.match(security, /payment-integration/);
+
+  const codeReviewer = readFileSync(path.join(agentDir, "code-reviewer.toml"), "utf8");
+  assert.match(codeReviewer, /^model = "gpt-5\.5"$/m);
+  assert.match(codeReviewer, /^model_reasoning_effort = "high"$/m);
+  assert.match(codeReviewer, /three independent code-reviewer passes in parallel/);
 });
 
 test("codex config aligns with the 13-agent routing and shared MCP set", () => {
@@ -886,7 +891,7 @@ test("codex user-prompt router does not record autonomy intent for negated push 
 });
 
 test("pipeline doc no longer references removed grill-me step", () => {
-  const source = readFileSync(path.join(repoRoot, "docs/ops/AI_AGENT_PIPELINE.md"), "utf8");
+  const source = readFileSync(path.join(repoRoot, "docs/operations/development/AI_AGENT_PIPELINE.md"), "utf8");
   assert.doesNotMatch(source, /`grill-me`/);
 });
 
@@ -1176,10 +1181,15 @@ test("delegate.sh isolates delegated Codex runs from user-level MCP startup", ()
   assert.doesNotMatch(source, /--profile(?:\s|=)/);
   assert.doesNotMatch(source, /features\.rmcp_client\s*=\s*true/);
   assert.doesNotMatch(source, /experimental_use_rmcp_client\s*=\s*true/);
+  assert.match(source, /PLAN_REVIEW_PARALLELISM=3/);
+  assert.match(source, /POST_REVIEW_PARALLELISM=3/);
+  assert.match(source, /post_review\)\n\s+MODEL_REASONING_EFFORT="high"/);
 
   const caseBlocks = [...source.matchAll(/case "\$MODE" in([\s\S]*?)esac/g)].map((match) => match[1]);
   assert.ok(caseBlocks.length > 0, "case block must exist in delegate.sh");
-  const modeBlocks = caseBlocks.flatMap((caseBlock) => caseBlock.split(/\n\s*;;\s*\n/));
+  const executionCaseBlock = caseBlocks.find((caseBlock) => caseBlock.includes("codex exec"));
+  assert.ok(executionCaseBlock, "execution case block must exist in delegate.sh");
+  const modeBlocks = executionCaseBlock.split(/\n\s*;;\s*\n/);
   const expectedModes = ["plan_review", "implementation", "post_review", "imagegen"];
 
   for (const modeName of expectedModes) {

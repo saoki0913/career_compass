@@ -36,7 +36,7 @@ test("claude harness scripts and docs exist", () => {
     ".claude/hooks/user-prompt-submit-router.sh",
     ".claude/hooks/permission-request-guard.sh",
     ".claude/hooks/post-tool-failure-triage.sh",
-    "docs/ops/AI_HARNESS.md",
+    "docs/operations/development/AI_HARNESS.md",
   ];
 
   for (const relativePath of requiredPaths) {

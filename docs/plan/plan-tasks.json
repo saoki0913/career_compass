@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-05-12T17:29:08.959Z",
-  "lastUpdated": "2026-05-18",
+  "generatedAt": "2026-05-20T08:28:25.819Z",
+  "lastUpdated": "2026-05-20",
   "description": "Unified SSOT for docs/plan task state. Markdown plan files are narrative; this JSON is the task state source of truth.",
   "statusValues": [
     "Todo",
@@ -19,10 +19,8 @@
   "documents": [
     "auth-guest-ownership-api-boundary-plan.md",
     "backend-config-env-consolidation-improvement-plan.md",
-    "billing-credit-integrity-report.md",
     "company-info-deadline-extraction-improvement-plan.md",
     "db-design-optimization-rls.md",
-    "es-review-prompt-quality-improvement-plan.md",
     "execution-order.md",
     "legal-commercial-support-plan.md",
     "llm-rag-security-owasp-audit.md",
@@ -33,10 +31,11 @@
     "release-infrastructure-operations-plan.md",
     "security-vulnerability-hardening-plan.md",
     "seo-public-page-quality-plan.md",
-    "supabase-environment-separation-plan.md",
     "task-deadline-calendar-integration-plan.md",
     "test-quality-gate-plan.md",
-    "ui-ux-responsive-quality-plan.md"
+    "ui-ux-responsive-quality-plan.md",
+    "completed/billing-credit-integrity-report.md",
+    "completed/supabase-environment-separation-plan.md"
   ],
   "tasks": [
     {
@@ -461,6 +460,150 @@
       "archivedFrom": "test-quality-gate-tasks.json"
     },
     {
+      "id": "backend-config-env-consolidation-improvement-plan:bce-01",
+      "rawId": "BCE-01",
+      "aliases": [
+        "BCE-01"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P1",
+      "area": "General",
+      "task": "BCE-01: RERANKER_*（4 変数）を config 統合 + reranker.py 置換",
+      "ownerAgent": "search-quality-engineer",
+      "acceptanceCriteria": [
+        "等価テーブルテスト green（正常/clamp 内外/不正/未設定）。AB routing 決定性が統合前後で一致"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/utils/reranker.py:223,230,243,244, backend/app/config.py"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan:bce-02",
+      "rawId": "BCE-02",
+      "aliases": [
+        "BCE-02"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P1",
+      "area": "General",
+      "task": "BCE-02: GAKUCHIKA_* + AI_LIVE_LOCAL_RELAX_GAKUCHIKA_GATES を config 統合 + 呼出側置換（三状態 None フォールバック維持）",
+      "ownerAgent": "search-quality-engineer",
+      "acceptanceCriteria": [
+        "isdigit 厳格・==\\\"1\\\" 厳密・三状態 None フォールバックの境界テスト green。draft-ready 判定が統合前と一致"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/normalization/gakuchika_payload.py:79,87,98, backend/app/utils/question_loop_detector.py:59"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan:bce-03",
+      "rawId": "BCE-03",
+      "aliases": [
+        "BCE-03"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P2",
+      "area": "General",
+      "task": "BCE-03: LLM_*_JSON を raw string 明示化（parse は lru_cache 内維持）",
+      "ownerAgent": "fastapi-developer",
+      "acceptanceCriteria": [
+        "json.loads 失敗時の silent ignore（return {}）動作が不変。lru_cache clear fixture で偽陰性回避"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/utils/llm_usage_cost.py:115,399"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan:bce-04",
+      "rawId": "BCE-04",
+      "aliases": [
+        "BCE-04"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P2",
+      "area": "General",
+      "task": "BCE-04: BUILD_TIME / health 環境表示 / WEB_SEARCH_DEBUG_PRINT を config 統合",
+      "ownerAgent": "fastapi-developer",
+      "acceptanceCriteria": [
+        "_env_flag 真理値同値を真理値テーブルテストで証明後に置換。APP_ENV→ENVIRONMENT fallback 維持。health 表示文字列が統合前と一致"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/routers/health.py:14,15, backend/app/utils/web_search.py:75"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan:bce-05",
+      "rawId": "BCE-05",
+      "aliases": [
+        "BCE-05"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P2",
+      "area": "General",
+      "task": "BCE-05: TOKENIZERS_PARALLELISM を main.py 先頭へ移設（冪等二重防御、reranker.py:15 残置）",
+      "ownerAgent": "fastapi-developer",
+      "acceptanceCriteria": [
+        "main.py 先頭に setdefault。reranker.py:15 残置。import 順序によらず最終値 \\\"false\\\"（明示設定尊重）。config 化しない"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        "backend/app/main.py, backend/app/utils/reranker.py:15"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
+      "id": "backend-config-env-consolidation-improvement-plan:bce-06",
+      "rawId": "BCE-06",
+      "aliases": [
+        "BCE-06"
+      ],
+      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
+      "status": "Todo",
+      "originalStatus": "Todo",
+      "priority": "P3",
+      "area": "General",
+      "task": "BCE-06: cleanup + drift C4 整合（service-scoped、.env.example/secrets-examples documented 反映）",
+      "ownerAgent": "fastapi-developer",
+      "acceptanceCriteria": [
+        "npm run check:env-drift（service-scoped）が \"no drift\"。tuning 系は optional コメント付き記載・本番強制 validation 対象外"
+      ],
+      "verificationCommands": [],
+      "dependencies": [],
+      "evidence": [
+        ".env.example, scripts/release/secrets-examples/"
+      ],
+      "updatedAt": "2026-05-18",
+      "notes": ""
+    },
+    {
       "id": "CI-001",
       "rawId": "CI-001",
       "aliases": [
@@ -479,7 +622,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [],
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "notes": "",
       "archivedFrom": "company-info-phase0-tasks.json"
     },
@@ -502,7 +645,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [],
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "notes": "",
       "archivedFrom": "company-info-phase0-tasks.json"
     },
@@ -525,7 +668,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [],
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "notes": "",
       "archivedFrom": "company-info-phase0-tasks.json"
     },
@@ -548,7 +691,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [],
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "notes": "",
       "archivedFrom": "company-info-phase0-tasks.json"
     },
@@ -571,7 +714,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [],
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "notes": "",
       "archivedFrom": "company-info-phase0-tasks.json"
     },
@@ -594,7 +737,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [],
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "notes": "",
       "archivedFrom": "company-info-phase0-tasks.json"
     },
@@ -617,7 +760,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [],
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "notes": "",
       "archivedFrom": "company-info-phase0-tasks.json"
     },
@@ -640,7 +783,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [],
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "notes": "",
       "archivedFrom": "company-info-phase0-tasks.json"
     },
@@ -3478,9 +3621,9 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "docs/ops/MONITORING_SETUP.md",
-        "docs/release/EXTERNAL_SERVICES.md",
-        "docs/ops/OBSERVABILITY.md"
+        "docs/operations/platform/MONITORING_SETUP.md",
+        "docs/release/setup/EXTERNAL_SERVICES.md",
+        "docs/operations/platform/OBSERVABILITY.md"
       ],
       "updatedAt": "2026-05-05",
       "notes": "",
@@ -3684,12 +3827,12 @@
       "task": "インシデントランブック 10 本作成",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/runbooks/ に 10 ファイル。主要 3 本は copy-paste 可能な diagnosis commands 付き"
+        "docs/operations/production/runbooks/ に 10 ファイル。主要 3 本は copy-paste 可能な diagnosis commands 付き"
       ],
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "docs/ops/OBSERVABILITY.md"
+        "docs/operations/platform/OBSERVABILITY.md"
       ],
       "updatedAt": "2026-05-05",
       "notes": ""
@@ -3805,7 +3948,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "docs/ops/MONITORING_SETUP.md",
+        "docs/operations/platform/MONITORING_SETUP.md",
         "docs/release/PRODUCTION.md"
       ],
       "updatedAt": "2026-05-09",
@@ -3909,7 +4052,7 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "docs/ops/MONITORING_SETUP.md",
+        "docs/operations/platform/MONITORING_SETUP.md",
         "docs/release/PRODUCTION.md"
       ],
       "updatedAt": "2026-05-09",
@@ -3986,9 +4129,9 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "docs/ops/MONITORING_SETUP.md",
+        "docs/operations/platform/MONITORING_SETUP.md",
         "docs/release/PRODUCTION.md",
-        "docs/release/EXTERNAL_SERVICES.md",
+        "docs/release/setup/EXTERNAL_SERVICES.md",
         "docs/plan/execution-order.md"
       ],
       "updatedAt": "2026-05-10",
@@ -4014,9 +4157,9 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "docs/ops/MONITORING_SETUP.md",
+        "docs/operations/platform/MONITORING_SETUP.md",
         "docs/release/PRODUCTION.md",
-        "docs/release/EXTERNAL_SERVICES.md",
+        "docs/release/setup/EXTERNAL_SERVICES.md",
         "docs/plan/execution-order.md"
       ],
       "updatedAt": "2026-05-10",
@@ -4556,7 +4699,7 @@
       "aliases": [],
       "dependencies": [],
       "notes": "",
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "id": "plan-sync:db-migration-safety-drift",
       "sourcePlan": "db-design-optimization-rls.md",
       "status": "Todo",
@@ -4581,9 +4724,9 @@
       "aliases": [],
       "dependencies": [],
       "notes": "",
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "id": "plan-sync:es-prompt-contract-drift",
-      "sourcePlan": "es-review-prompt-quality-improvement-plan.md",
+      "sourcePlan": "llm-rag-security-owasp-audit.md",
       "status": "Todo",
       "priority": "P0",
       "area": "Prompt",
@@ -4605,7 +4748,7 @@
       "aliases": [],
       "dependencies": [],
       "notes": "",
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "id": "plan-sync:fastapi-sse-contract",
       "sourcePlan": "monitoring-logging-incident-response-plan.md",
       "status": "Todo",
@@ -4629,7 +4772,7 @@
       "aliases": [],
       "dependencies": [],
       "notes": "",
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "id": "plan-sync:next-raw-error-debt",
       "sourcePlan": "auth-guest-ownership-api-boundary-plan.md",
       "status": "Todo",
@@ -4653,7 +4796,7 @@
       "aliases": [],
       "dependencies": [],
       "notes": "",
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "id": "plan-sync:rag-metadata-contract",
       "sourcePlan": "llm-rag-security-owasp-audit.md",
       "status": "Todo",
@@ -4677,7 +4820,7 @@
       "aliases": [],
       "dependencies": [],
       "notes": "",
-      "updatedAt": "2026-05-13",
+      "updatedAt": "2026-05-20",
       "id": "plan-sync:test-json-ssot",
       "sourcePlan": "test-quality-gate-plan.md",
       "status": "Done",
@@ -4729,7 +4872,7 @@
       "task": "R-2. インシデント対応手順書を作成する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/INCIDENT_PLAYBOOK.md に (1) P0-P3 severity 分類 (2) 検知→トリアージ→緩和→解決→振り返りの 5 ステップフロー (3) provider 別障害対応手順 (Vercel/Railway/Supabase/Stripe/LLM) (4) 決定木（ログイン不可→P0, 支払い不可→P0, 主要機能停止→P1）(5) 1 人運用最適化（セルフ通知、エスカレーション不要）"
+        "docs/operations/production/INCIDENT_PLAYBOOK.md に (1) P0-P3 severity 分類 (2) 検知→トリアージ→緩和→解決→振り返りの 5 ステップフロー (3) provider 別障害対応手順 (Vercel/Railway/Supabase/Stripe/LLM) (4) 決定木（ログイン不可→P0, 支払い不可→P0, 主要機能停止→P1）(5) 1 人運用最適化（セルフ通知、エスカレーション不要）"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -4749,7 +4892,7 @@
       "task": "R-3. Better Stack で合成監視を設定する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) https://www.shupass.jp HTTP 200 監視 (3 分 interval) (2) shupass-backend-production.up.railway.app/health HTTP 200 監視 (3 分 interval) (3) email アラート設定 (4) docs/ops/MONITORING_SETUP.md に設定手順を記録"
+        "(1) https://www.shupass.jp HTTP 200 監視 (3 分 interval) (2) shupass-backend-production.up.railway.app/health HTTP 200 監視 (3 分 interval) (3) email アラート設定 (4) docs/operations/platform/MONITORING_SETUP.md に設定手順を記録"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -4809,7 +4952,7 @@
       "task": "R-6. DB マイグレーション安全策を整備する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) scripts/ops/pre-deploy-schema-snapshot.sh を作成。pg_dump --schema-only で pre-deploy スキーマを ~/.career_compass/schema-snapshots/ に保存 (2) release-career-compass.sh の promote_to_main 前にスナップショット取得を挿入 (3) docs/ops/MIGRATION_ROLLBACK.md にロールバック手順を文書化（paired rollback SQL 方針、PITR 手順）"
+        "(1) scripts/ops/pre-deploy-schema-snapshot.sh を作成。pg_dump --schema-only で pre-deploy スキーマを ~/.career_compass/schema-snapshots/ に保存 (2) release-career-compass.sh の promote_to_main 前にスナップショット取得を挿入 (3) docs/operations/production/MIGRATION_ROLLBACK.md にロールバック手順を文書化（paired rollback SQL 方針、PITR 手順）"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -4929,7 +5072,7 @@
       "task": "S-6. ログ保持ポリシーを策定する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) docs/ops/LOG_RETENTION_POLICY.md 作成 (2) カテゴリ別 retention: ERROR 90 日 / WARN 30 日 / INFO 7 日 / DEBUG production 無効 (3) プロバイダ別: Vercel (Pro 3 日 or log drain), Railway (7 日), Supabase (pgaudit), Sentry (90 日 free tier) (4) 即時アクション: Better Stack log drain または Axiom free tier の選定"
+        "(1) docs/operations/production/LOG_RETENTION_POLICY.md 作成 (2) カテゴリ別 retention: ERROR 90 日 / WARN 30 日 / INFO 7 日 / DEBUG production 無効 (3) プロバイダ別: Vercel (Pro 3 日 or log drain), Railway (7 日), Supabase (pgaudit), Sentry (90 日 free tier) (4) 即時アクション: Better Stack log drain または Axiom free tier の選定"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -4949,7 +5092,7 @@
       "task": "O-1. PII scrub allowlist を定義する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) docs/ops/PII_SCRUB_POLICY.md 作成 (2) 外部送信禁止データ: ES 本文、志望動機テキスト、企業メモ、guest_device_token、user email、mypagePassword (3) 許可データ: error message (redacted), stack trace (dev only), request path, status code, response time, user plan tier (4) Sentry beforeSend callback の実装仕様 (5) backend secure_logger.py の既存 redaction パターンとの整合性確認"
+        "(1) docs/operations/production/PII_SCRUB_POLICY.md 作成 (2) 外部送信禁止データ: ES 本文、志望動機テキスト、企業メモ、guest_device_token、user email、mypagePassword (3) 許可データ: error message (redacted), stack trace (dev only), request path, status code, response time, user plan tier (4) Sentry beforeSend callback の実装仕様 (5) backend secure_logger.py の既存 redaction パターンとの整合性確認"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -4969,7 +5112,7 @@
       "task": "D-1. RPO/RTO を定義する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) docs/ops/DISASTER_RECOVERY.md 作成 (2) Critical (user accounts, payments, documents): RPO 24h→target 1h, RTO unknown→target 2h (3) Important (AI outputs, notifications): RPO 24h, RTO 4h (4) Rebuildable (ChromaDB, BM25): RPO 72h acceptable, RTO 8h (5) Recoverable (application code): RPO realtime (git), RTO 15min"
+        "(1) docs/operations/production/DISASTER_RECOVERY.md 作成 (2) Critical (user accounts, payments, documents): RPO 24h→target 1h, RTO unknown→target 2h (3) Important (AI outputs, notifications): RPO 24h, RTO 4h (4) Rebuildable (ChromaDB, BM25): RPO 72h acceptable, RTO 8h (5) Recoverable (application code): RPO realtime (git), RTO 15min"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5029,7 +5172,7 @@
       "task": "R-8. ポストモーテムテンプレートを作成する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/POSTMORTEM_TEMPLATE.md に Incident ID, severity, duration, timeline, root cause, impact, action items, lessons learned を定義"
+        "docs/operations/production/POSTMORTEM_TEMPLATE.md に Incident ID, severity, duration, timeline, root cause, impact, action items, lessons learned を定義"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5049,7 +5192,7 @@
       "task": "R-9. フィーチャーフラグの基盤を実装する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) src/lib/feature-flags.ts: FF_<FLAG> 環境変数の型安全な読み取り (2) backend/app/utils/feature_flags.py: 同等の Python 実装 (3) docs/ops/FEATURE_FLAGS.md に運用手順（追加・トグル・削除）"
+        "(1) src/lib/feature-flags.ts: FF_<FLAG> 環境変数の型安全な読み取り (2) backend/app/utils/feature_flags.py: 同等の Python 実装 (3) docs/operations/production/FEATURE_FLAGS.md に運用手順（追加・トグル・削除）"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5069,7 +5212,7 @@
       "task": "R-10. デプロイメントウィンドウを文書化する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/DEPLOYMENT_WINDOWS.md に (1) 推奨: 火水 14:00 JST (2) 禁止: 金曜、週末、cron 実行中 (3) ピーク回避: 20:00-23:00 JST (就活生利用ピーク) (4) 週次リリース推奨スケジュール"
+        "docs/operations/production/DEPLOYMENT_WINDOWS.md に (1) 推奨: 火水 14:00 JST (2) 禁止: 金曜、週末、cron 実行中 (3) ピーク回避: 20:00-23:00 JST (就活生利用ピーク) (4) 週次リリース推奨スケジュール"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5109,7 +5252,7 @@
       "task": "S-7. シークレットローテーション手順書を作成する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) docs/ops/SECRET_ROTATION_RUNBOOK.md 作成 (2) CAREER_PRINCIPAL_HMAC_SECRET: dual-write (FastAPI に _PREVIOUS env var 追加 → BFF 更新 → _PREVIOUS 削除) (3) INTERNAL_API_JWT_SECRET: 同 dual-write (4) BETTER_AUTH_SECRET: session 全無効化を伴う (5) STRIPE_SECRET_KEY: Stripe rolling secrets 手順 (6) 緊急ローテーション: 「secret が commit/log に露出した場合」チェックリスト"
+        "(1) docs/operations/production/SECRET_ROTATION_RUNBOOK.md 作成 (2) CAREER_PRINCIPAL_HMAC_SECRET: dual-write (FastAPI に _PREVIOUS env var 追加 → BFF 更新 → _PREVIOUS 削除) (3) INTERNAL_API_JWT_SECRET: 同 dual-write (4) BETTER_AUTH_SECRET: session 全無効化を伴う (5) STRIPE_SECRET_KEY: Stripe rolling secrets 手順 (6) 緊急ローテーション: 「secret が commit/log に露出した場合」チェックリスト"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5149,7 +5292,7 @@
       "task": "S-9. secrets アクセスインベントリを作成する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/SECRETS_INVENTORY.md に (1) secret 名、source env file、consuming service(s)、rotation impact、最終ローテーション日 の一覧表 (2) sync-career-compass-secrets.sh の bundle ファイルから自動生成可能なスクリプト"
+        "docs/operations/production/SECRETS_INVENTORY.md に (1) secret 名、source env file、consuming service(s)、rotation impact、最終ローテーション日 の一覧表 (2) sync-career-compass-secrets.sh の bundle ファイルから自動生成可能なスクリプト"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5189,7 +5332,7 @@
       "task": "S-11. WAF 統合を評価・設定する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) Cloudflare proxy (orange cloud) を www.shupass.jp と stg.shupass.jp で有効化 (2) 基本 WAF ルール (free tier) を有効化 (3) SSL 証明書管理の変更を検証 (4) docs/ops/WAF_DEPLOYMENT.md に設定手順を記録"
+        "(1) Cloudflare proxy (orange cloud) を www.shupass.jp と stg.shupass.jp で有効化 (2) 基本 WAF ルール (free tier) を有効化 (3) SSL 証明書管理の変更を検証 (4) docs/operations/production/WAF_DEPLOYMENT.md に設定手順を記録"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5269,7 +5412,7 @@
       "task": "O-4. Better Stack ステータスページを設定する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) status.shupass.jp CNAME を Cloudflare に追加 (2) Better Stack status page 作成 (Frontend, Backend API, Database, Cron Jobs) (3) 日本語設定 (4) auto-incident creation 有効化 (5) docs/ops/STATUS_PAGE.md に設定手順を記録"
+        "(1) status.shupass.jp CNAME を Cloudflare に追加 (2) Better Stack status page 作成 (Frontend, Backend API, Database, Cron Jobs) (3) 日本語設定 (4) auto-incident creation 有効化 (5) docs/operations/production/STATUS_PAGE.md に設定手順を記録"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5289,7 +5432,7 @@
       "task": "O-5. アラート実装を OBSERVABILITY.md ルールにバインドする",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) Sentry: error rate spike > 5x → email, principal_mismatch → immediate email (2) Grafana Cloud (メトリクスエクスポート後): rag_principal_mismatch_total > 0/1h, tenant_filter_miss > 1%/5m, rerank p95 > 2s/10m, retrieval errors > 5/5m (3) Better Stack: frontend/backend down > 3min → email + push (4) docs/ops/OBSERVABILITY.md を実装済みの状態に更新"
+        "(1) Sentry: error rate spike > 5x → email, principal_mismatch → immediate email (2) Grafana Cloud (メトリクスエクスポート後): rag_principal_mismatch_total > 0/1h, tenant_filter_miss > 1%/5m, rerank p95 > 2s/10m, retrieval errors > 5/5m (3) Better Stack: frontend/backend down > 3min → email + push (4) docs/operations/platform/OBSERVABILITY.md を実装済みの状態に更新"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5309,7 +5452,7 @@
       "task": "O-6. Grafana Cloud メトリクスエクスポートを設定する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) opentelemetry-exporter-otlp-proto-http を requirements.txt に追加 (2) backend/app/metrics/otlp_exporter.py 作成: push metrics to Grafana Cloud via OTLP/HTTP (3) 既存 rag/telemetry.py の Prometheus metrics を OTLP に並行出力 (4) 内部 /metrics endpoint は作らない (5) docs/ops/grafana/rag-dashboard.json を Grafana Cloud にインポート"
+        "(1) opentelemetry-exporter-otlp-proto-http を requirements.txt に追加 (2) backend/app/metrics/otlp_exporter.py 作成: push metrics to Grafana Cloud via OTLP/HTTP (3) 既存 rag/telemetry.py の Prometheus metrics を OTLP に並行出力 (4) 内部 /metrics endpoint は作らない (5) docs/operations/platform/grafana/rag-dashboard.json を Grafana Cloud にインポート"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5329,7 +5472,7 @@
       "task": "D-3. DB リカバリ手順書を作成する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/runbooks/DATABASE_RESTORE.md に (1) PITR 手順 (Supabase dashboard) (2) 論理バックアップからの復旧手順 (3) 一時 Supabase プロジェクトでの検証ステップ (4) env var 切り替え手順 (5) 推定復旧時間: PITR 30-60 分、論理 2-4 時間"
+        "docs/operations/production/runbooks/DATABASE_RESTORE.md に (1) PITR 手順 (Supabase dashboard) (2) 論理バックアップからの復旧手順 (3) 一時 Supabase プロジェクトでの検証ステップ (4) env var 切り替え手順 (5) 推定復旧時間: PITR 30-60 分、論理 2-4 時間"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5349,7 +5492,7 @@
       "task": "D-4. RAG インデックスリビルド手順書を作成する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/runbooks/RAG_REBUILD.md に (1) DB 健全性確認 (2) Railway サービス再デプロイ (空ボリューム) (3) 全企業の re-ingest API 呼び出し (4) ingest_reference_es.py で参照 ES コーパス再構築 (5) /health/ready と RAG retrieval テストで検証 (6) 推定時間: 2-4 時間"
+        "docs/operations/production/runbooks/RAG_REBUILD.md に (1) DB 健全性確認 (2) Railway サービス再デプロイ (空ボリューム) (3) 全企業の re-ingest API 呼び出し (4) ingest_reference_es.py で参照 ES コーパス再構築 (5) /health/ready と RAG retrieval テストで検証 (6) 推定時間: 2-4 時間"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5369,7 +5512,7 @@
       "task": "D-5. フル環境再構築手順書を作成する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/runbooks/FULL_ENVIRONMENT_REBUILD.md に (1) DNS: Cloudflare 設定 (5 分) (2) DB: Supabase 新規 + migration + backup restore (30 分) (3) Backend: Railway + env sync (20 分) (4) Frontend: Vercel + env sync (10 分) (5) RAG: rebuild (2-4h) (6) Stripe: webhook URL 更新 (15 分) (7) Google OAuth: redirect URI 更新 (10 分) (8) 合計推定: 4-6 時間"
+        "docs/operations/production/runbooks/FULL_ENVIRONMENT_REBUILD.md に (1) DNS: Cloudflare 設定 (5 分) (2) DB: Supabase 新規 + migration + backup restore (30 分) (3) Backend: Railway + env sync (20 分) (4) Frontend: Vercel + env sync (10 分) (5) RAG: rebuild (2-4h) (6) Stripe: webhook URL 更新 (15 分) (7) Google OAuth: redirect URI 更新 (10 分) (8) 合計推定: 4-6 時間"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5389,7 +5532,7 @@
       "task": "D-6. プロバイダフェイルオーバー手順書を作成する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/runbooks/PROVIDER_FAILOVER.md に (1) Vercel down → Cloudflare Pages or Railway 静的配信 (2) Railway down → Render/Fly.io に同一 Dockerfile でデプロイ (3) Supabase down → Neon/Railway Postgres に論理バックアップ復旧 (4) Cloudflare down → レジストラ NS をプロバイダデフォルトに切替 (5) OpenAI down → Anthropic fallback (既存 multi-model 対応) (6) Anthropic down → GPT/Gemini fallback"
+        "docs/operations/production/runbooks/PROVIDER_FAILOVER.md に (1) Vercel down → Cloudflare Pages or Railway 静的配信 (2) Railway down → Render/Fly.io に同一 Dockerfile でデプロイ (3) Supabase down → Neon/Railway Postgres に論理バックアップ復旧 (4) Cloudflare down → レジストラ NS をプロバイダデフォルトに切替 (5) OpenAI down → Anthropic fallback (既存 multi-model 対応) (6) Anthropic down → GPT/Gemini fallback"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5409,7 +5552,7 @@
       "task": "D-7. Supabase PITR の費用対効果を評価する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) Supabase Pro ($25/月) + PITR ($100/月) のコスト vs RPO 改善 (24h → 秒) (2) 代替案: 週次論理バックアップ + 4h RPO は許容可能か (3) docs/ops/DISASTER_RECOVERY.md に評価結果を追記 (4) 判断期限: 本番リリース後 1 ヶ月"
+        "(1) Supabase Pro ($25/月) + PITR ($100/月) のコスト vs RPO 改善 (24h → 秒) (2) 代替案: 週次論理バックアップ + 4h RPO は許容可能か (3) docs/operations/production/DISASTER_RECOVERY.md に評価結果を追記 (4) 判断期限: 本番リリース後 1 ヶ月"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5469,7 +5612,7 @@
       "task": "S-13. サードパーティスクリプトインベントリを作成する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/THIRD_PARTY_SCRIPT_INVENTORY.md に (1) Google Analytics: domain, purpose, CSP entry, SRI 不可 (URL 動的変更) (2) Stripe: domain, purpose, CSP entry, SRI 不可 (公式非対応) (3) 最終レビュー日"
+        "docs/operations/production/THIRD_PARTY_SCRIPT_INVENTORY.md に (1) Google Analytics: domain, purpose, CSP entry, SRI 不可 (URL 動的変更) (2) Stripe: domain, purpose, CSP entry, SRI 不可 (公式非対応) (3) 最終レビュー日"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5529,7 +5672,7 @@
       "task": "S-16. Bot 保護を評価する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) Cloudflare proxy 有効化 (S-11) 後の bot fight mode 検証 (2) Cloudflare Turnstile のコンタクトフォーム・ログイン画面への導入検討 (3) 結論を docs/ops/WAF_DEPLOYMENT.md に追記"
+        "(1) Cloudflare proxy 有効化 (S-11) 後の bot fight mode 検証 (2) Cloudflare Turnstile のコンタクトフォーム・ログイン画面への導入検討 (3) 結論を docs/operations/production/WAF_DEPLOYMENT.md に追記"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5549,7 +5692,7 @@
       "task": "S-17. レート制限設定を監査する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/RATE_LIMIT_AUDIT.md に (1) 現行制限一覧 (FastAPI per-endpoint, spike handler, daily token) (2) Vercel/Railway analytics からのトラフィックベースライン (3) 調整推奨"
+        "docs/operations/production/RATE_LIMIT_AUDIT.md に (1) 現行制限一覧 (FastAPI per-endpoint, spike handler, daily token) (2) Vercel/Railway analytics からのトラフィックベースライン (3) 調整推奨"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5569,7 +5712,7 @@
       "task": "O-7. ログ集約を設定する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "(1) Better Stack Logtail free tier (1GB/day, 3 日 retention) (2) Vercel log drain → Better Stack (3) Railway log drain → Better Stack (Pro plan or API polling fallback) (4) docs/ops/LOG_AGGREGATION.md に設定手順"
+        "(1) Better Stack Logtail free tier (1GB/day, 3 日 retention) (2) Vercel log drain → Better Stack (3) Railway log drain → Better Stack (Pro plan or API polling fallback) (4) docs/operations/production/LOG_AGGREGATION.md に設定手順"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5609,7 +5752,7 @@
       "task": "D-8. DR テストスケジュールを策定する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/DR_TEST_SCHEDULE.md に (1) Q3 2026: DB PITR restore test + RAG rebuild (staging) (2) Q4 2026: フル staging 再構築 (3) Q1 2027: Railway → Render フェイルオーバー (4) 四半期ドリル結果は docs/ops/dr-drill-log/YYYY-QN.md に記録"
+        "docs/operations/production/DR_TEST_SCHEDULE.md に (1) Q3 2026: DB PITR restore test + RAG rebuild (staging) (2) Q4 2026: フル staging 再構築 (3) Q1 2027: Railway → Render フェイルオーバー (4) 四半期ドリル結果は docs/operations/production/dr-drill-log/YYYY-QN.md に記録"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -5629,7 +5772,7 @@
       "task": "S-18. セキュリティレビュー定期実行計画を策定する",
       "ownerAgent": "orchestrator",
       "acceptanceCriteria": [
-        "docs/ops/SECURITY_REVIEW_CADENCE.md に (1) 毎コミット: pre-commit scan (2) 毎 PR: dependency review + CodeQL (3) 毎週: secrets drift check (4) 毎月: npm/pip audit + Stripe webhook 監査 (5) 四半期: SECURITY.md 全面レビュー + CSP 検証 (6) 年次: OWASP Top 10 再評価"
+        "docs/operations/production/SECURITY_REVIEW_CADENCE.md に (1) 毎コミット: pre-commit scan (2) 毎 PR: dependency review + CodeQL (3) 毎週: secrets drift check (4) 毎月: npm/pip audit + Stripe webhook 監査 (5) 四半期: SECURITY.md 全面レビュー + CSP 検証 (6) 年次: OWASP Top 10 再評価"
       ],
       "verificationCommands": [],
       "dependencies": [],
@@ -8764,365 +8907,6 @@
       "updatedAt": "2026-05-05",
       "notes": "Makefileターゲットを追加済み",
       "archivedFrom": "test-quality-gate-tasks.json"
-    },
-    {
-      "id": "supabase-environment-separation-plan.md:SEP-01",
-      "rawId": "SEP-01",
-      "aliases": [
-        "SEP-01"
-      ],
-      "sourcePlan": "supabase-environment-separation-plan.md",
-      "status": "Superseded",
-      "originalStatus": "Todo",
-      "priority": "P0",
-      "area": "Env SSOT",
-      "task": "Superseded: resolveDatabaseSchema() 追加（別 project 分離により schema 切替不要）",
-      "ownerAgent": "database-engineer",
-      "acceptanceCriteria": [
-        "別 Supabase project 分離により、staging/production は各 project の public schema を使う。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [],
-      "evidence": [
-        "src/env/deployment.ts:20, src/env/deployment.test.ts"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": "2026-05-19: career-compass-staging 別 project 採用により不要化。",
-      "lastUpdatedBy": "scripts/plan/update-plan-task-status.mjs"
-    },
-    {
-      "id": "supabase-environment-separation-plan.md:SEP-02",
-      "rawId": "SEP-02",
-      "aliases": [
-        "SEP-02"
-      ],
-      "sourcePlan": "supabase-environment-separation-plan.md",
-      "status": "Done",
-      "originalStatus": "Todo",
-      "priority": "P0",
-      "area": "VERCEL_ENV->APP_ENV",
-      "task": "残存 VERCEL_ENV->APP_ENV 移行（src/lib/stripe/config.ts:114, src/lib/auth/ci-e2e.ts:32 等）",
-      "ownerAgent": "security-auditor",
-      "acceptanceCriteria": [
-        "resolveAppEnvironment()===production に統一。test runtime bypass 維持。staging の sk_test_ が誤拒否されない単体テスト green。production 判定結果が不変。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [
-        "supabase-environment-separation-plan.md:SEP-01"
-      ],
-      "evidence": [
-        "src/lib/stripe/config.ts:114, src/lib/auth/ci-e2e.ts:29-32"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": "2026-05-19: Stripe config / portal route を resolveAppEnvironment() 判定へ移行済み。"
-    },
-    {
-      "id": "supabase-environment-separation-plan.md:SEP-03",
-      "rawId": "SEP-03",
-      "aliases": [
-        "SEP-03"
-      ],
-      "sourcePlan": "supabase-environment-separation-plan.md",
-      "status": "Superseded",
-      "originalStatus": "Todo",
-      "priority": "P1",
-      "area": "Migration runner",
-      "task": "Superseded: migration runner target-schema-aware 分割（別 project 分離により schema 履歴分離不要）",
-      "ownerAgent": "database-engineer",
-      "acceptanceCriteria": [
-        "staging runner は --env staging で .env.staging の別 project に接続する。schema 履歴分離は不要。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [
-        "supabase-environment-separation-plan.md:SEP-01"
-      ],
-      "evidence": [
-        "scripts/ci/migration-config.mjs:76, scripts/release/run-migrations.mjs:256,269,449"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": "2026-05-19: staging project 分離により target schema / staging_drizzle 設計は撤回。"
-    },
-    {
-      "id": "supabase-environment-separation-plan.md:SEP-04",
-      "rawId": "SEP-04",
-      "aliases": [
-        "SEP-04"
-      ],
-      "sourcePlan": "supabase-environment-separation-plan.md",
-      "status": "Superseded",
-      "originalStatus": "Todo",
-      "priority": "P1",
-      "area": "FK schema-qualification",
-      "task": "Superseded: public 固定 FK 解消（別 project の public schema を使うため変換不要）",
-      "ownerAgent": "database-engineer",
-      "acceptanceCriteria": [
-        "staging/production は各 project の public schema を使うため、Drizzle SQL の public 参照は環境内に閉じる。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [
-        "supabase-environment-separation-plan.md:SEP-03"
-      ],
-      "evidence": [
-        "drizzle_pg/0000_ambitious_infant_terrible.sql:426 (FK 67箇所), scripts/release/run-migrations.mjs:137"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": "2026-05-19: schema 分離を採用しないため不要。"
-    },
-    {
-      "id": "supabase-environment-separation-plan.md:SEP-05",
-      "rawId": "SEP-05",
-      "aliases": [
-        "SEP-05"
-      ],
-      "sourcePlan": "supabase-environment-separation-plan.md",
-      "status": "Superseded",
-      "originalStatus": "Todo",
-      "priority": "P1",
-      "area": "Staging schema bootstrap",
-      "task": "Superseded: staging schema bootstrap（別 project 分離により CREATE SCHEMA staging 不要）",
-      "ownerAgent": "security-auditor",
-      "acceptanceCriteria": [
-        "staging project の public schema に通常 migration を適用する。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [
-        "supabase-environment-separation-plan.md:SEP-04"
-      ],
-      "evidence": [
-        "supabase/migrations/20260325110000_harden_public_data_api.sql:55"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": "2026-05-19: career-compass-staging 別 project 採用により不要化。"
-    },
-    {
-      "id": "supabase-environment-separation-plan.md:SEP-06",
-      "rawId": "SEP-06",
-      "aliases": [
-        "SEP-06"
-      ],
-      "sourcePlan": "supabase-environment-separation-plan.md",
-      "status": "Done",
-      "originalStatus": "Todo",
-      "priority": "P1",
-      "area": "Staging deploy 経路分離",
-      "task": "staging deploy を --env staging に切替、migration 書込先を staging project に分離",
-      "ownerAgent": "release-engineer",
-      "acceptanceCriteria": [
-        "staging deploy が production project に migration を適用しない。staging E2E/reset-live-state は staging project の DB 接続情報で実行する。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [
-        "supabase-environment-separation-plan.md:SEP-03",
-        "supabase-environment-separation-plan.md:SEP-05"
-      ],
-      "evidence": [
-        "scripts/release/deploy-staging.sh:131,152"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": "2026-05-19: deploy-staging.sh は run-migrations.mjs --env staging を使用。"
-    },
-    {
-      "id": "supabase-environment-separation-plan.md:SEP-07",
-      "rawId": "SEP-07",
-      "aliases": [
-        "SEP-07"
-      ],
-      "sourcePlan": "supabase-environment-separation-plan.md",
-      "status": "Superseded",
-      "originalStatus": "Todo",
-      "priority": "P1",
-      "area": "Dry-run assert",
-      "task": "Superseded: staging schema assert（別 project 分離により search_path/schema assert 不要）",
-      "ownerAgent": "database-engineer",
-      "acceptanceCriteria": [
-        "staging の安全性は別 project の DATABASE_URL/DIRECT_URL と supabase-staging target で担保する。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [
-        "supabase-environment-separation-plan.md:SEP-05"
-      ],
-      "evidence": [
-        "scripts/release/run-migrations.mjs:447"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": "2026-05-19: schema 分離を採用しないため不要。"
-    },
-    {
-      "id": "supabase-environment-separation-plan.md:SEP-08",
-      "rawId": "SEP-08",
-      "aliases": [
-        "SEP-08"
-      ],
-      "sourcePlan": "supabase-environment-separation-plan.md",
-      "status": "Done",
-      "originalStatus": "Todo",
-      "priority": "P2",
-      "area": "Docs 改訂",
-      "task": "docs 改訂（別 Supabase project 分離・staging migration runner・secret target）",
-      "ownerAgent": "release-engineer",
-      "acceptanceCriteria": [
-        "shared production project / schema 分離の旧前提を、別 project + public schema の現行運用に更新する。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [
-        "supabase-environment-separation-plan.md:SEP-06",
-        "supabase-environment-separation-plan.md:SEP-07"
-      ],
-      "evidence": [
-        "docs/release/setup/SUPABASE.md:7, docs/release/ops/DB_MIGRATION.md, scripts/release/deploy-staging.sh:131"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": "2026-05-19: ENVIRONMENT_VARIABLES / SUPABASE / DB_MIGRATION / secrets examples を更新。"
-    },
-    {
-      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-01",
-      "rawId": "BCE-01",
-      "aliases": [
-        "BCE-01"
-      ],
-      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
-      "status": "Todo",
-      "originalStatus": "Todo",
-      "priority": "P1",
-      "area": "RERANKER_* 統合",
-      "task": "RERANKER_*（4 変数）を config 統合 + reranker.py 置換",
-      "ownerAgent": "search-quality-engineer",
-      "acceptanceCriteria": [
-        "等価テーブルテスト green（正常/clamp 内外/不正/未設定）。AB routing 決定性が統合前後で一致。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [],
-      "evidence": [
-        "backend/app/utils/reranker.py:223,230,243,244, backend/app/config.py"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": ""
-    },
-    {
-      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-02",
-      "rawId": "BCE-02",
-      "aliases": [
-        "BCE-02"
-      ],
-      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
-      "status": "Todo",
-      "originalStatus": "Todo",
-      "priority": "P1",
-      "area": "GAKUCHIKA_* 統合",
-      "task": "GAKUCHIKA_* + AI_LIVE_LOCAL_RELAX_GAKUCHIKA_GATES を config 統合 + 呼出側置換（三状態 None フォールバック維持）",
-      "ownerAgent": "search-quality-engineer",
-      "acceptanceCriteria": [
-        "isdigit 厳格・==\"1\" 厳密・三状態 None フォールバックの境界テスト green。draft-ready 判定が統合前と一致。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [],
-      "evidence": [
-        "backend/app/normalization/gakuchika_payload.py:79,87,98, backend/app/utils/question_loop_detector.py:59"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": ""
-    },
-    {
-      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-03",
-      "rawId": "BCE-03",
-      "aliases": [
-        "BCE-03"
-      ],
-      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
-      "status": "Todo",
-      "originalStatus": "Todo",
-      "priority": "P2",
-      "area": "LLM_*_JSON 明示化",
-      "task": "LLM_*_JSON を raw string 明示化（parse は lru_cache 内維持）",
-      "ownerAgent": "fastapi-developer",
-      "acceptanceCriteria": [
-        "json.loads 失敗時の silent ignore（return {}）動作が不変。lru_cache clear fixture で偽陰性回避。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [],
-      "evidence": [
-        "backend/app/utils/llm_usage_cost.py:115,399"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": ""
-    },
-    {
-      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-04",
-      "rawId": "BCE-04",
-      "aliases": [
-        "BCE-04"
-      ],
-      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
-      "status": "Todo",
-      "originalStatus": "Todo",
-      "priority": "P2",
-      "area": "health/web_search 統合",
-      "task": "BUILD_TIME / health 環境表示 / WEB_SEARCH_DEBUG_PRINT を config 統合",
-      "ownerAgent": "fastapi-developer",
-      "acceptanceCriteria": [
-        "_env_flag 真理値同値を真理値テーブルテストで証明後に置換。APP_ENV->ENVIRONMENT fallback 維持。health 表示文字列が統合前と一致。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [],
-      "evidence": [
-        "backend/app/routers/health.py:14,15, backend/app/utils/web_search.py:75"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": ""
-    },
-    {
-      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-05",
-      "rawId": "BCE-05",
-      "aliases": [
-        "BCE-05"
-      ],
-      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
-      "status": "Todo",
-      "originalStatus": "Todo",
-      "priority": "P2",
-      "area": "TOKENIZERS 移設",
-      "task": "TOKENIZERS_PARALLELISM を main.py 先頭へ移設（冪等二重防御、reranker.py:15 残置）",
-      "ownerAgent": "fastapi-developer",
-      "acceptanceCriteria": [
-        "main.py 先頭に setdefault。reranker.py:15 残置。import 順序によらず最終値 false（明示設定尊重）。config 化しない。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [],
-      "evidence": [
-        "backend/app/main.py, backend/app/utils/reranker.py:15"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": ""
-    },
-    {
-      "id": "backend-config-env-consolidation-improvement-plan.md:BCE-06",
-      "rawId": "BCE-06",
-      "aliases": [
-        "BCE-06"
-      ],
-      "sourcePlan": "backend-config-env-consolidation-improvement-plan.md",
-      "status": "Todo",
-      "originalStatus": "Todo",
-      "priority": "P3",
-      "area": "drift C4 整合 + cleanup",
-      "task": "cleanup + drift C4 整合（service-scoped、.env.example/secrets-examples documented 反映）",
-      "ownerAgent": "fastapi-developer",
-      "acceptanceCriteria": [
-        "npm run check:env-drift（service-scoped）が no drift。tuning 系は optional コメント付き記載・本番強制 validation 対象外。"
-      ],
-      "verificationCommands": [],
-      "dependencies": [
-        "backend-config-env-consolidation-improvement-plan.md:BCE-01",
-        "backend-config-env-consolidation-improvement-plan.md:BCE-02",
-        "backend-config-env-consolidation-improvement-plan.md:BCE-03",
-        "backend-config-env-consolidation-improvement-plan.md:BCE-04",
-        "backend-config-env-consolidation-improvement-plan.md:BCE-05"
-      ],
-      "evidence": [
-        ".env.example, scripts/release/secrets-examples/**"
-      ],
-      "updatedAt": "2026-05-18",
-      "notes": ""
     }
   ]
 }

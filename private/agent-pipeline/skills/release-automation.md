@@ -34,4 +34,4 @@ cursor_description: Run the Career Compass release automation via repo scripts.
 
 - `make deploy-*` 系のターゲットが**通常の release 入口**。provider CLI の直接操作は回避する。
 - `git push --force` や `main` への直接 push は原則禁止。
-- release 記録は `docs/release/` に追記する。運用制約は `docs/ops/CLI_GUARDRAILS.md` を参照。
+- release 記録は `docs/release/` に追記する。運用制約は `docs/operations/development/CLI_GUARDRAILS.md` を参照。

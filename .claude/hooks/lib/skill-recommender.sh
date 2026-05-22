@@ -3,7 +3,7 @@
 # 各 hook から `source` して使う。stdout は汚さない（呼び出し側で stderr に出す）。
 #
 # 提供するもの:
-#   - HOTSPOT_FILES (array): docs/ops/AI_DEVELOPMENT_PRINCIPLES.md と同期
+#   - HOTSPOT_FILES (array): docs/operations/development/AI_DEVELOPMENT_PRINCIPLES.md と同期
 #   - is_hotspot_path "<path>"           — path が hotspot なら 0
 #   - file_line_count "<path>"           — 行数を stdout に
 #   - is_oversized_file "<path>" [thresh] — 既存ファイルが thresh 行超なら 0（既定 500）
@@ -18,7 +18,7 @@ if [ -n "${__SKILL_RECOMMENDER_SOURCED:-}" ]; then
 fi
 __SKILL_RECOMMENDER_SOURCED=1
 
-# Hotspot files (docs/ops/AI_DEVELOPMENT_PRINCIPLES.md と一致させる)
+# Hotspot files (docs/operations/development/AI_DEVELOPMENT_PRINCIPLES.md と一致させる)
 HOTSPOT_FILES=(
   "backend/app/routers/company_info.py"
   "backend/app/routers/es_review.py"

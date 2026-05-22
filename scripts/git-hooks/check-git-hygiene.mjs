@@ -24,7 +24,7 @@ const FORBIDDEN_PREFIXES = [
   "scripts/marketing_video/output/",
 ];
 
-const FORBIDDEN_EXACT = new Set(["docs/ops/agent-usage.log"]);
+const FORBIDDEN_EXACT = new Set(["docs/operations/development/agent-usage.log"]);
 
 const ALLOWED_IMAGE_PREFIXES = [
   "public/marketing/LP/assets/",

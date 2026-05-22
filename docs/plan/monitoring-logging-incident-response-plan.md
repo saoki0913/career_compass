@@ -83,7 +83,7 @@ Status は以下のみを使う:
 | Todo | P1 | Log Aggregation | FastAPI → Grafana Cloud Loki push handler | `backend/app/utils/secure_logger.py:63` | production で JSON format ログが Loki に到達。request_id は structured field（label でない） | 2026-05-05 |
 | Todo | P1 | Frontend | error.tsx 強化 + global-error.tsx 新規作成 | `src/app/(product)/error.tsx:15` | captureException で Sentry に送信。global-error.tsx がルートレベル error を捕捉 | 2026-05-05 |
 | Todo | P1 | Rollback | rollback-career-compass.sh の実装化 | `scripts/release/rollback-career-compass.sh:47` | --confirm で Vercel/Railway rollback 実行可能。前後 health check、DB migration 判定付き | 2026-05-05 |
-| Todo | P1 | Runbooks | インシデントランブック 10 本作成 | `docs/ops/OBSERVABILITY.md` | `docs/ops/runbooks/` に 10 ファイル。主要 3 本は copy-paste 可能な diagnosis commands 付き | 2026-05-05 |
+| Todo | P1 | Runbooks | インシデントランブック 10 本作成 | `docs/operations/platform/OBSERVABILITY.md` | `docs/operations/production/runbooks/` に 10 ファイル。主要 3 本は copy-paste 可能な diagnosis commands 付き | 2026-05-05 |
 | Todo | P1 | Cron Monitoring | Sentry Crons + GHA retry 設定 | `.github/workflows/calendar-sync-cron.yml` | 3 cron jobs が Sentry Crons で監視。calendar-sync に 3 回リトライ。missed execution でメール通知 | 2026-05-05 |
 | Todo | P2 | DB Monitoring | Drizzle custom logger + slow query 検出 | `src/lib/db/index.ts:58` | query duration 計測。200ms 超で structured log 出力。`make db:slow-queries` ターゲット追加 | 2026-05-05 |
 | Todo | P2 | Dashboard | Grafana Cloud ダッシュボード構築 | `backend/app/rag/telemetry.py` | backend ログ + RAG メトリクスの可視化。weekly review で使用可能 | 2026-05-05 |
@@ -788,7 +788,7 @@ npm run test:unit -- src/lib/sanitize
 # Grafana > Explore > {service="backend"} でログ到達確認
 make rollback-prod TARGET=<staging-id> --dry-run
 # Sentry > Crons > 3 monitors OK
-ls docs/ops/runbooks/                # 10 files
+ls docs/operations/production/runbooks/                # 10 files
 ```
 
 ---
@@ -821,7 +821,7 @@ ls docs/ops/runbooks/                # 10 files
 | `backend/app/observability/sentry_setup.py` | 0 |
 | `backend/app/utils/sanitizer.py` | 1 |
 | `backend/app/observability/loki_handler.py` | 1 |
-| `docs/ops/runbooks/*.md` (10 files) | 1 |
+| `docs/operations/production/runbooks/*.md` (10 files) | 1 |
 
 ### 変更
 

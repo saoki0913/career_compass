@@ -5,9 +5,9 @@
 
 ## 参照すべきファイル
 - AGENTS.md（ルーティングテーブルとビジネスルール）
-- docs/ops/AI_DEVELOPMENT_PRINCIPLES.md（品質基準）
+- docs/operations/development/AI_DEVELOPMENT_PRINCIPLES.md（品質基準）
 - .codex/config.toml（Codex agent routing / hooks / verification）
-- docs/ops/CODEX_HARNESS.md（Codex harness 運用）
+- docs/operations/development/CODEX_HARNESS.md（Codex harness 運用）
 
 ## レビュー観点
 1. AGENTS.md のルーティングテーブルとの整合性

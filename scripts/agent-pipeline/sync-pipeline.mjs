@@ -120,7 +120,7 @@ function renderCodexCommand({ commandDescription, name, body }) {
     "<instructions>",
     GENERATED_BANNER,
     `Use the canonical pipeline skill \`${name}\` as the source of truth.`,
-    `If the user does not specify an output path, keep generated artifacts under \`docs/prd\`, \`docs/issues\`, or \`docs/rfc\` as appropriate.`,
+    `If the user does not specify an output path, keep generated artifacts under \`docs/prd\` or \`docs/issues\` as appropriate. Architecture review proposals belong under \`docs/review/architecture\`.`,
     "",
     OUTPUT_LANGUAGE_CONTRACT,
     "",

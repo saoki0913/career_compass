@@ -9,7 +9,7 @@ test("cursor harness docs and core artifacts exist", () => {
   const requiredPaths = [
     ".cursor/mcp.json",
     ".cursor/rules/career-compass-core.mdc",
-    "docs/ops/CURSOR_HARNESS.md",
+    "docs/operations/development/CURSOR_HARNESS.md",
   ];
 
   for (const relativePath of requiredPaths) {
@@ -47,7 +47,7 @@ test("generated cursor rules stay aligned with canonical pipeline skills", () =>
 });
 
 test("cursor harness doc explains source-of-truth and intentional tool differences", () => {
-  const source = readFileSync(path.join(repoRoot, "docs/ops/CURSOR_HARNESS.md"), "utf8");
+  const source = readFileSync(path.join(repoRoot, "docs/operations/development/CURSOR_HARNESS.md"), "utf8");
 
   assert.match(source, /AGENTS\.md/);
   assert.match(source, /\.cursor\/rules\/career-compass-core\.mdc/);

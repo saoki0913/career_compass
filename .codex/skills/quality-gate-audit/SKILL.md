@@ -107,6 +107,6 @@ Verdict: BLOCK (2 critical findings)
 
 ## Integration
 
-- `docs/review/TRACKER.md` に quality-gate エントリを追加
+- `docs/review/REVIEW_POLICY.md` の分類に従い、必要なら `docs/review/quality-gate/` にレポートを追加
 - `docs/review/quality-gate/` にレポートを永続化
 - 既存の `quality-review` skill とは独立（complementary、not replacement）
