@@ -1,6 +1,6 @@
 # 本番セットアップ手順書（Vercel + Railway + Supabase）
 
-初期セットアップ手順書。日常運用は [ops/RUNBOOK.md](../ops/RUNBOOK.md) を参照。
+初期セットアップ手順書。日常運用は [operations/production/RUNBOOK.md](../../operations/production/RUNBOOK.md) を参照。
 
 就活Pass（シューパス）の本番デプロイ手順をステップバイステップで記載します。
 
@@ -48,7 +48,7 @@
 | バックエンド | Railway | `*.up.railway.app`（Railway で生成される公開ドメイン） |
 | staging バックエンド | Railway | `stg-api.shupass.jp` |
 | データベース | Supabase (PostgreSQL) | -- |
-| staging DB | Supabase (shared production project) | staging / production で同じ project を参照 |
+| staging DB | Supabase (PostgreSQL) | production とは別 project（`career-compass-staging`）を参照 |
 | ベクトルDB / BM25 | Railway Volume | `/app/data` |
 
 ---

@@ -326,11 +326,13 @@ e2e/
 
 ## 環境変数
 
-環境変数の一覧・必須性・環境別の差・設定場所・生成/取得方法の正本（SSOT）は [`docs/ops/ENVIRONMENT_VARIABLES.md`](../ops/ENVIRONMENT_VARIABLES.md) に集約しました。重複防止のためこのファイルからは一覧表を削除しています。
+環境変数の一覧・必須性・環境別の差・設定場所・生成/取得方法の正本（SSOT）は [`docs/operations/platform/ENVIRONMENT_VARIABLES.md`](../operations/platform/ENVIRONMENT_VARIABLES.md) に集約しました。重複防止のためこのファイルからは一覧表を削除しています。
 
-- 全変数リファレンス（required/optional・取得手順込み）: SSOT の **§5**
-- 環境別（local/CI/staging/production）の差: SSOT の **§3**
-- 新規変数を追加するときにどのファイルを触るか: SSOT の **§2 判断フロー**
+- 全変数リファレンス（required/optional・取得手順込み）: SSOT の **D 変数索引**
+- 環境別（local/CI/staging/production）の差: SSOT の **A 環境別早見表**
+- 新規変数を追加するときにどのファイルを触るか: SSOT の **C 判断フロー**
+
+デプロイ先は staging / production で別 project を使います。`develop` は `career-compass-staging` / staging Railway project、`main` は `career-compass` / production Railway project に対応し、どちらもプロバイダ上の Production/production 環境へ同期します。アプリの論理環境は `APP_ENV`（Next.js は `NEXT_PUBLIC_APP_ENV` も同値）で分けます。
 
 このファイル後半「環境変数・外部サービス（詳細）」には、サービスごとの `.env.local` 設定例（Supabase / Better Auth / Google OAuth / Stripe 等）を残しています。網羅的な一覧と本番値は上記 SSOT を見てください。
 
@@ -368,7 +370,7 @@ npm run db:generate
 - [SPEC.md](../SPEC.md) — 機能仕様書
 - [DB_SUPABASE.md](./DB_SUPABASE.md) — Supabase / DB 運用（ローカル・本番・マイグレーション）
 - [MCP_SETUP.md](./MCP_SETUP.md) — MCP サーバー設定
-- [環境変数 SSOT](../ops/ENVIRONMENT_VARIABLES.md) — 環境変数の唯一の正本（A 早見表・B 環境判定モデル・C 判断フロー・D 変数索引・E drift・F 保守）
+- [環境変数 SSOT](../operations/platform/ENVIRONMENT_VARIABLES.md) — 環境変数の唯一の正本（A 早見表・B 環境判定モデル・C 判断フロー・D 変数索引・E drift・F 保守）
 - [Next.js Docs](https://nextjs.org/docs)
 - [Drizzle ORM Docs](https://orm.drizzle.team/)
 - [Better Auth Docs](https://www.better-auth.com/)
@@ -410,7 +412,7 @@ cp .env.example .env.local
 
 以下のサービスごとに設定を行います。
 
-**法令・問い合わせ表示（本番）**: 特商法ページ等に出す連絡先・販売 URL は `LEGAL_*` 環境変数で上書きすることを推奨します（`LEGAL_SALES_URL` 省略時は `https://www.shupass.jp`）。一覧は [`.env.example`](../../.env.example) と [`docs/ops/SECURITY.md`](../ops/SECURITY.md) を参照。
+**法令・問い合わせ表示（本番）**: 特商法ページ等に出す連絡先・販売 URL は `LEGAL_*` 環境変数で上書きすることを推奨します（`LEGAL_SALES_URL` 省略時は `https://www.shupass.jp`）。一覧は [`.env.example`](../../.env.example) と [`docs/operations/platform/SECURITY.md`](../operations/platform/SECURITY.md) を参照。
 
 ---
 
@@ -781,9 +783,9 @@ stripe listen --forward-to localhost:3000/api/webhooks/stripe
 
 ## 環境変数一覧
 
-全変数の一覧・必須性（required/optional）・取得先・環境別の差・設定場所は [`docs/ops/ENVIRONMENT_VARIABLES.md`](../ops/ENVIRONMENT_VARIABLES.md) の **D 変数リファレンス**（環境差は **A-1 早見表**、判断フローは **C**）に集約しました（重複防止のためこのファイルからは一覧表を削除）。取得手順（Supabase project 作成 / Google OAuth コンソール / Stripe CLI / `openssl rand` 等）も同 SSOT に併記しています。
+全変数の一覧・必須性（required/optional）・取得先・環境別の差・設定場所は [`docs/operations/platform/ENVIRONMENT_VARIABLES.md`](../operations/platform/ENVIRONMENT_VARIABLES.md) の **D 変数リファレンス**（環境差は **A-1 早見表**、判断フローは **C**）に集約しました（重複防止のためこのファイルからは一覧表を削除）。取得手順（Supabase project 作成 / Google OAuth コンソール / Stripe CLI / `openssl rand` 等）も同 SSOT に併記しています。
 
-企業ロゴが頭文字 avatar に落ちる場合は、まず `LOGO_DEV_TOKEN` を設定してください。企業名しかない登録データを Logo.dev の domain lookup に寄せる場合は `LOGO_DEV_SECRET_KEY` も追加します。Brandfetch も使う場合は `BRANDFETCH_CLIENT_ID` を追加します。既存の `NEXT_PUBLIC_LOGO_DEV_TOKEN` / `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` は互換 alias として読みますが、新規設定では server-only 名を使います。favicon は企業ロゴとして表示しません。
+企業ロゴが頭文字 avatar に落ちる場合は、まず `LOGO_DEV_TOKEN` を設定してください。企業名しかない登録データを Logo.dev の domain lookup に寄せる場合は `LOGO_DEV_SECRET_KEY` も追加します。Brandfetch も使う場合は `BRANDFETCH_CLIENT_ID` を追加します。旧 `NEXT_PUBLIC_LOGO_DEV_TOKEN` / `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` は現在読みません。favicon は企業ロゴとして表示しません。
 
 ---
 

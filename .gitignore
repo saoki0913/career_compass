@@ -162,7 +162,7 @@ quality/reports/
 drizzle_pg/rollback/
 
 # Local agent / marketing generation outputs
-docs/ops/agent-usage.log
+docs/operations/development/agent-usage.log
 scripts/marketing_video/.venv/
 scripts/marketing_video/output/
 .release-worktrees/

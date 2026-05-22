@@ -4,7 +4,7 @@
 
 ---
 
-> 標準運用では staging / production を別 Supabase project に分離します。staging は `career-compass-staging`（ref `vbjykhkyhmxickxcgvdh`）、production は `career-compass-db` を使います。release 前確認は `scripts/release/run-migrations.mjs --env <staging|production>` と `scripts/release/sync-career-compass-secrets.sh` を正本にします。
+> 標準運用では staging / production を別 Supabase project に分離します。project ref は `.secrets/` の `supabase.env` に置き、公開サンプルには書きません。release 前確認は `scripts/release/run-migrations.mjs --env <staging|production>` と `scripts/release/sync-career-compass-secrets.sh` を正本にします。
 
 ## 1-0. Supabase プロジェクト作成
 

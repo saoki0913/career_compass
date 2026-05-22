@@ -15,7 +15,7 @@
 1. Supabase Dashboard で **New project** を作成し、Region は可能なら **Tokyo**（なければ Singapore）を選ぶ。
 2. **Settings → Database → Connection string** から Pooler（Transaction mode / 6543）と Direct（5432）の接続文字列を取得する。
 3. ローカル開発では `.env.local` に `DATABASE_URL`（アプリ用・Pooler 推奨）を設定する。production migration は `.env.local` ではなく release runner を使う。
-4. ローカルのスキーマ反映は `npm run db:migrate` を基本にする。production は [../release/ops/DB_MIGRATION.md](../release/ops/DB_MIGRATION.md) を参照する。
+4. ローカルのスキーマ反映は `npm run db:migrate` を基本にする。production は [../operations/production/DB_MIGRATION.md](../operations/production/DB_MIGRATION.md) を参照する。
 
 補足: パスワードの URL エンコード例は `node -e "console.log(encodeURIComponent(process.argv[1]))" "your-password"`。接続文字列のクエリ（`?sslmode=require` 等）は削らないこと。
 
@@ -563,4 +563,4 @@ supabase start
 
 - [DATABASE.md](../architecture/DATABASE.md) — スキーマ設計・テーブル定義
 - [DEVELOPMENT_AND_ENV.md](./DEVELOPMENT_AND_ENV.md) — 開発ガイドと環境変数
-- [ENVIRONMENT_VARIABLES.md](../ops/ENVIRONMENT_VARIABLES.md) — 本番環境変数チェックリスト
+- [ENVIRONMENT_VARIABLES.md](../operations/platform/ENVIRONMENT_VARIABLES.md) — 本番環境変数チェックリスト

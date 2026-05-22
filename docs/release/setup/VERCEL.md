@@ -4,7 +4,7 @@
 
 ---
 
-> いまの標準運用では、Vercel の env は `scripts/release/sync-career-compass-secrets.sh` で同期し、値の正本は repo local の `.secrets/` です。人間向けの一覧は [`docs/ops/ENVIRONMENT_VARIABLES.md`](../../ops/ENVIRONMENT_VARIABLES.md) を参照してください。
+> いまの標準運用では、Vercel の env は `scripts/release/sync-career-compass-secrets.sh` で同期し、値の正本は repo local の `.secrets/` です。人間向けの一覧は [`docs/operations/platform/ENVIRONMENT_VARIABLES.md`](../../operations/platform/ENVIRONMENT_VARIABLES.md) を参照してください。
 
 ## 4-1. Vercel にプロジェクトをインポート
 
@@ -94,53 +94,18 @@ if [ "$VERCEL_GIT_COMMIT_REF" = "main" ]; then exit 1; else exit 0; fi
 
 > **重要**: 環境変数の変更は **次回デプロイから** 反映されます。既存のデプロイには影響しません。変数設定後に再デプロイが必要な場合は、Deployments タブから最新デプロイの **「...」** → **「Redeploy」** をクリック。
 
-### 必須変数
+### 環境変数の正本
+
+Vercel に設定する変数の意味・必須性・環境差は、この文書では管理しません。正本は [operations/platform/ENVIRONMENT_VARIABLES.md](../../operations/platform/ENVIRONMENT_VARIABLES.md) と `.secrets/` bundle です。
+
+設定・差分確認は repo script を使います。
 
 ```bash
-# === アプリケーション ===
-APP_ENV=production
-NEXT_PUBLIC_APP_ENV=production
-NEXT_PUBLIC_APP_URL=https://www.shupass.jp
-
-# === データベース ===
-DATABASE_URL=postgresql://...   # 推奨: Pooler (Transaction mode / 6543)
-DIRECT_URL=postgresql://...     # 推奨: Direct connection (5432)
-
-# === 認証 - Better Auth ===
-BETTER_AUTH_SECRET=<openssl rand -base64 32 で生成>
-BETTER_AUTH_URL=https://www.shupass.jp
-BETTER_AUTH_TRUSTED_ORIGINS=https://www.shupass.jp,https://shupass.jp
-
-# === 認証 - Google OAuth ===
-GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-...
-
-# === セキュリティ ===
-ENCRYPTION_KEY=<openssl rand -hex 32 で生成（64桁hex）>
-
-# === Stripe 決済 ===
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_PORTAL_CONFIGURATION_ID=bpc_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_PRICE_STANDARD_MONTHLY=price_...
-STRIPE_PRICE_STANDARD_ANNUAL=price_...
-STRIPE_PRICE_PRO_MONTHLY=price_...
-STRIPE_PRICE_PRO_ANNUAL=price_...
-
-# === FastAPI バックエンド URL ===
-FASTAPI_URL=https://shupass-backend-production.up.railway.app
-
-# === Vercel Cron 認証 ===
-CRON_SECRET=<openssl rand -hex 32 で生成>
+zsh scripts/release/sync-career-compass-secrets.sh --check --target vercel-production
+zsh scripts/release/sync-career-compass-secrets.sh --apply --target vercel-production --vercel-env production
 ```
 
-### 任意変数（推奨）
-
-```bash
-# === レート制限 (Upstash Redis) ===
-UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
-UPSTASH_REDIS_REST_TOKEN=AXxx...
-```
+この setup 文書は Vercel Dashboard の操作場所だけを扱います。変数カタログをここに複製しないでください。
 
 ### 設定不要な変数
 

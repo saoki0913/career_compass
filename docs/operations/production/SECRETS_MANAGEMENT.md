@@ -120,7 +120,7 @@ make deploy-check
 
 ### 2. 環境変数カタログを更新
 
-新しい変数は `docs/ops/ENVIRONMENT_VARIABLES.md` に追記する。
+新しい変数は `docs/operations/platform/ENVIRONMENT_VARIABLES.md` に追記する。
 
 ### 3. T3 Env バリデーションを更新
 
@@ -181,6 +181,6 @@ make deploy-check
 
 ## 参照
 
-- 環境変数カタログ: [../../ops/ENVIRONMENT_VARIABLES.md](../../ops/ENVIRONMENT_VARIABLES.md)
+- 環境変数カタログ: [operations/platform/ENVIRONMENT_VARIABLES.md](../platform/ENVIRONMENT_VARIABLES.md)
 - シークレットバンドルの例: `scripts/release/secrets-examples/`
 - 同期スクリプト: `scripts/release/sync-career-compass-secrets.sh`

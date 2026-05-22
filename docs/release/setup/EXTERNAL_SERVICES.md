@@ -165,7 +165,7 @@ Upstash Free で 1 DB しか使えない場合は、同じ DB を使っても `U
 
 ## 5-6. Sentry 設定（エラー追跡）
 
-Phase 0 では Replay と tracing を使わず、error tracking のみ有効化する。設定前に `docs/ops/MONITORING_SETUP.md` の送信禁止項目を確認する。
+Phase 0 では Replay と tracing を使わず、error tracking のみ有効化する。設定前に `docs/operations/platform/MONITORING_SETUP.md` の送信禁止項目を確認する。
 
 ### Vercel
 

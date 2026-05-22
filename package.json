@@ -50,6 +50,7 @@
     "test:static": "npx tsc --noEmit && npm run lint",
     "test:security:static": "node scripts/security/check-api-route-csrf.mjs && node scripts/security/check-raw-error-responses.mjs && node scripts/security/check-local-prod-secrets.mjs && node --test scripts/security/*.test.mjs",
     "test:security:light": "bash scripts/security/run-lightweight-scan.sh --staged-only --fail-on=critical",
+    "docs:check": "node scripts/docs/check-docs.mjs",
     "test:ui:review": "node tools/run-ui-review.mjs",
     "screenshots:capture": "dotenv -e .env.local -- node tools/run-screenshot-capture.mjs",
     "test:unit": "vitest run",

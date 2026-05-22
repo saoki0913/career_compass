@@ -4,7 +4,7 @@
 
 ---
 
-> いまの標準運用では、Railway の env は `scripts/release/sync-career-compass-secrets.sh` で同期し、値の正本は repo local の `.secrets/` です。人間向けの一覧は [`docs/ops/ENVIRONMENT_VARIABLES.md`](../../ops/ENVIRONMENT_VARIABLES.md) を参照してください。
+> いまの標準運用では、Railway の env は `scripts/release/sync-career-compass-secrets.sh` で同期し、値の正本は repo local の `.secrets/` です。人間向けの一覧は [`docs/operations/platform/ENVIRONMENT_VARIABLES.md`](../../operations/platform/ENVIRONMENT_VARIABLES.md) を参照してください。
 
 ## 3-0. Railway アカウント作成 & CLI インストール
 
@@ -158,68 +158,18 @@ Volume がないとデプロイごとにデータが消失します。
 
 > **重要**: 変数の変更は、既に動いているデプロイには即反映されません。保存後は `Deployments` から **Redeploy** するか、サービスを再起動してください。
 
-### 必須変数
+### 環境変数の正本
+
+Railway に設定する変数の意味・必須性・環境差は、この文書では管理しません。正本は [operations/platform/ENVIRONMENT_VARIABLES.md](../../operations/platform/ENVIRONMENT_VARIABLES.md) と `.secrets/` bundle です。
+
+設定・差分確認は repo script を使います。
 
 ```bash
-# AI API キー
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-
-# CORS（Vercel フロントエンドのドメインを許可）
-CORS_ORIGINS=["https://www.shupass.jp","https://shupass.jp"]
-# 形式: JSON配列文字列（推奨） or カンマ区切り（例: "https://www.shupass.jp,https://shupass.jp"）
-
-# ポート
-# Railway などの PaaS は PORT を自動注入することが多いため、通常は手動設定不要です。
-# (ローカル/固定したい場合のみ) PORT=8000
-# PORT=8000
+zsh scripts/release/sync-career-compass-secrets.sh --check --target railway-production
+zsh scripts/release/sync-career-compass-secrets.sh --apply --target railway-production
 ```
 
-### 任意変数（推奨）
-
-```bash
-# LLM ベースモデルID
-CLAUDE_MODEL=claude-sonnet-4-5-20250929
-CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
-OPENAI_MODEL=gpt-5.4-mini
-GOOGLE_MODEL=gemini-3.1-pro-preview
-
-# 追加 provider API キー（必要なものだけ設定）
-# GOOGLE_API_KEY=...
-
-# 機能別モデル設定（エイリアス or 明示モデルID）
-# 例:
-#   MODEL_ES_REVIEW=claude-sonnet
-#   MODEL_ES_REVIEW=gpt-5.4
-#   MODEL_ES_REVIEW=gemini-3.1-pro-preview
-#   MODEL_ES_REVIEW=low-cost
-MODEL_ES_REVIEW=claude-sonnet
-MODEL_GAKUCHIKA=gpt-mini
-MODEL_MOTIVATION=gpt-mini
-MODEL_SELECTION_SCHEDULE=gpt-mini
-MODEL_COMPANY_INFO=openai
-MODEL_RAG_QUERY_EXPANSION=gpt-mini
-MODEL_RAG_HYDE=gpt-mini
-MODEL_RAG_CLASSIFY=gpt-nano
-
-# RAG 埋め込み設定
-OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_MAX_INPUT_CHARS=8000
-
-# ハイブリッド検索
-USE_HYBRID_SEARCH=true
-
-# デバッグ無効化（本番）
-DEBUG=false
-COMPANY_SEARCH_DEBUG=false
-WEB_SEARCH_DEBUG=false
-
-# フロントエンドURL（任意: ログ出力用）
-FRONTEND_URL=https://www.shupass.jp
-
-# Redis キャッシュ（任意）
-# REDIS_URL=redis://...
-```
+この setup 文書は Railway Dashboard の操作場所だけを扱います。変数カタログをここに複製しないでください。
 
 > ES添削パネルの標準モデルは UI の `モデル選択` dropdown から `Claude Sonnet 4.6 / GPT-5.4 / Gemini 3.1 Pro Preview / クレジット消費を抑えて添削` を切り替えられる。
 

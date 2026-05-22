@@ -110,7 +110,7 @@ STRIPE_SECRET_KEY_LIVE=<sk_live_...> npm run stripe:bootstrap-live
 - Webhook `https://www.shupass.jp/api/webhooks/stripe`（8 イベント）
 - Customer Portal の**デフォルト設定**（支払い方法・プラン変更・キャンセル・請求履歴、規約/プライバシー URL、return URL `/settings`）
 
-終了時に `STRIPE_PRICE_*` の追記用行が標準出力に出ます。Webhook 新規作成時の `STRIPE_WEBHOOK_SECRET` 値は標準出力に出さず、Stripe Dashboard で確認して repo local `.secrets/production/nextjs.env` の `STRIPE_WEBHOOK_SECRET` へ反映してください（secret bundle の正本は repo local `.secrets/`。解決順は [../ops/SECRETS_MANAGEMENT.md](../ops/SECRETS_MANAGEMENT.md) を参照）。その後 `zsh scripts/release/sync-career-compass-secrets.sh --check --target vercel-production` → `zsh scripts/release/sync-career-compass-secrets.sh --apply --target vercel-production --vercel-env production` を実行します。
+終了時に `STRIPE_PRICE_*` の追記用行が標準出力に出ます。Webhook 新規作成時の `STRIPE_WEBHOOK_SECRET` 値は標準出力に出さず、Stripe Dashboard で確認して repo local `.secrets/production/nextjs.env` の `STRIPE_WEBHOOK_SECRET` へ反映してください（secret bundle の正本は repo local `.secrets/`。解決順は [operations/production/SECRETS_MANAGEMENT.md](../../operations/production/SECRETS_MANAGEMENT.md) を参照）。その後 `zsh scripts/release/sync-career-compass-secrets.sh --check --target vercel-production` → `zsh scripts/release/sync-career-compass-secrets.sh --apply --target vercel-production --vercel-env production` を実行します。
 
 > **注意**: Stripe CLI のプロファイルが `rk_live_...`（制限付きキー）だけの場合、`stripe ... --live` が応答しないことがあります。ブートストラップは **`sk_live_` を `STRIPE_SECRET_KEY` に渡す**想定です。
 
@@ -178,7 +178,7 @@ Stripe Dashboard → **商品カタログ** → **商品を追加**
 | 設定 | 値 |
 |---|---|
 | 商品名 | `就活Pass Standard` |
-| 説明 | `月100クレジット・企業無制限・選考50回/RAG100ページ無料枠（要約）` |
+| 説明 | `就活Pass Standard（月額）` |
 | 価格 | ¥1,490 / 月 (recurring) |
 | 請求間隔 | 毎月 |
 
@@ -189,7 +189,7 @@ Stripe Dashboard → **商品カタログ** → **商品を追加**
 | 設定 | 値 |
 |---|---|
 | 商品名 | `就活Pass Standard` |
-| 説明 | `月100クレジット・企業無制限・選考50回/RAG100ページ無料枠（年額）` |
+| 説明 | `就活Pass Standard（年額）` |
 | 価格 | ¥14,900 / 年 (recurring) |
 | 請求間隔 | 毎年 |
 
@@ -200,7 +200,7 @@ Stripe Dashboard → **商品カタログ** → **商品を追加**
 | 設定 | 値 |
 |---|---|
 | 商品名 | `就活Pass Pro` |
-| 説明 | `月300クレジット・企業無制限・選考150回/RAG300ページ無料枠（要約）` |
+| 説明 | `就活Pass Pro（月額）` |
 | 価格 | ¥2,980 / 月 (recurring) |
 | 請求間隔 | 毎月 |
 
@@ -211,7 +211,7 @@ Stripe Dashboard → **商品カタログ** → **商品を追加**
 | 設定 | 値 |
 |---|---|
 | 商品名 | `就活Pass Pro` |
-| 説明 | `月300クレジット・企業無制限・選考150回/RAG300ページ無料枠（年額）` |
+| 説明 | `就活Pass Pro（年額）` |
 | 価格 | ¥29,800 / 年 (recurring) |
 | 請求間隔 | 毎年 |
 
@@ -322,15 +322,7 @@ stripe trigger charge.dispute.closed
 
 ## 本番運用 env チェック
 
-Stripe 本番稼働で必須の env（正本は [`../../ops/ENVIRONMENT_VARIABLES.md`](../../ops/ENVIRONMENT_VARIABLES.md) の Vercel セクション）:
-
-- `STRIPE_SECRET_KEY=sk_live_...`
-- `STRIPE_WEBHOOK_SECRET=whsec_...`（該当 endpoint の signing secret。Webhook は HTTPS で作成する）
-- `STRIPE_PRICE_STANDARD_MONTHLY`
-- `STRIPE_PRICE_STANDARD_ANNUAL`
-- `STRIPE_PRICE_PRO_MONTHLY`
-- `STRIPE_PRICE_PRO_ANNUAL`
-- `STRIPE_PORTAL_CONFIGURATION_ID`
+Stripe 本番稼働で必須の env は [`operations/platform/ENVIRONMENT_VARIABLES.md`](../../operations/platform/ENVIRONMENT_VARIABLES.md) の Vercel セクションを正本にします。この文書では変数カタログを複製しません。
 
 確認は `make stripe-preflight`。
 

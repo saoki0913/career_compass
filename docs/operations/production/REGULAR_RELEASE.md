@@ -89,7 +89,7 @@ SYNC_MODE=--apply TARGET=railway-production make ops-secrets-sync
 
 ## Step 4: DB マイグレーション
 
-> **WHY**: staging と production は同一 Supabase project を共有している。DB 変更は即座に production に影響する。expand-only は安全なので自動適用するが、risky/contract は人間が SQL を確認する。
+> **WHY**: staging と production は別 Supabase project を使う。まず staging project で適用・検証し、production project への適用前に risky/contract を人間が確認する。
 
 **実行者**: expand-auto は自動 / risky・contract は確認必要
 **Hook**: `migration-safety-guard.sh`（risky/contract 検出時のみ発火）

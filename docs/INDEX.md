@@ -2,11 +2,11 @@
 
 **最終更新**: 2026-05-19
 
-**この文書の目的**: `docs/` 配下にある現行 Markdown 文書への入口です。初めて読む人は「最初に読む」から入り、変更作業をする人は「作業別入口」から該当カテゴリへ進んでください。文書の構造・命名・置き場所の規約は [CONVENTIONS.md](./CONVENTIONS.md) を参照してください。
+**この文書の目的**: `docs/` 配下にある現行 Markdown 文書の完全カタログです。初めて読む人は読者別入口の [README.md](./README.md) から入り、全体目録として本書を使ってください。文書の構造・命名・置き場所の規約は [CONVENTIONS.md](./CONVENTIONS.md) を参照してください。
 
 **正しい動作の一次情報はコード**です。仕様書と実装が食い違う場合はコードを優先し、ドキュメントの修正 issue を立てるとよいです。secret 実値は読まず、環境変数の棚卸しは repo script の `--check` 系コマンドで key set のみ確認します。
 
-**`ops/` と `release/` の役割分担**: `ops/` は AI 開発ハーネス・監視・SECURITY・SEO・**環境変数 SSOT** など開発／参照系の正本です。`release/` は本番リリース・本番運用手順の唯一の正本（運用シナリオは `release/ops/`、本番初期構築は `release/setup/`）です。本番運用手順を探すときは必ず `release/` を見てください。
+**運用文書の役割分担**: `operations/development/` は AI 開発ハーネスや CLI guardrails、`operations/platform/` は環境変数 SSOT・security・observability、`operations/production/` は本番 runbook の正本です。`release/setup/` は初回本番構築だけを扱います。
 
 ---
 
@@ -15,6 +15,7 @@
 | 文書 | 説明 |
 |------|------|
 | [README.md](../README.md) | リポジトリの顔。Quick Start と全体入口 |
+| [docs/README.md](./README.md) | docs/ の読者別入口 |
 | [SPEC.md](./SPEC.md) | 機能・非機能の上位仕様。ユーザー、価値、事業ルールの確認入口 |
 | [CONVENTIONS.md](./CONVENTIONS.md) | docs/ の構造・命名・置き場所の規約。新規文書を追加する前に |
 | [architecture/ARCHITECTURE.md](./architecture/ARCHITECTURE.md) | システム全体構成、Next.js BFF と FastAPI の役割 |
@@ -29,16 +30,16 @@
 | UI / App Router を変更する | [architecture/FRONTEND_UI_GUIDELINES.md](./architecture/FRONTEND_UI_GUIDELINES.md) → 該当 [features/](#機能-features) → [testing/UI_PLAYWRIGHT_VERIFICATION.md](./testing/UI_PLAYWRIGHT_VERIFICATION.md) |
 | Next.js API / BFF を変更する | [architecture/BFF_FASTAPI_CONTRACT.md](./architecture/BFF_FASTAPI_CONTRACT.md) → [architecture/ERROR_HANDLING.md](./architecture/ERROR_HANDLING.md) → 該当 [features/](#機能-features) |
 | FastAPI / AI / RAG を変更する | [architecture/FASTAPI_MODULE_LAYOUT.md](./architecture/FASTAPI_MODULE_LAYOUT.md) → [features/COMPANY_RAG.md](./features/COMPANY_RAG.md) → [testing/BACKEND_TESTS.md](./testing/BACKEND_TESTS.md) |
-| DB / migration を変更する | [architecture/DATABASE.md](./architecture/DATABASE.md) → [setup/DB_SUPABASE.md](./setup/DB_SUPABASE.md) → [release/ops/DB_MIGRATION.md](./release/ops/DB_MIGRATION.md) |
+| DB / migration を変更する | [architecture/DATABASE.md](./architecture/DATABASE.md) → [setup/DB_SUPABASE.md](./setup/DB_SUPABASE.md) → [operations/production/DB_MIGRATION.md](./operations/production/DB_MIGRATION.md) |
 | 認証・ゲスト・課金を変更する | [features/AUTH.md](./features/AUTH.md) → [features/CREDITS.md](./features/CREDITS.md) → [architecture/BILLING_STATE_MACHINE.md](./architecture/BILLING_STATE_MACHINE.md) |
 | プロンプト・AI 品質を確認する | [features/AI_PROMPTS.md](./features/AI_PROMPTS.md) → [prompts/README.md](./prompts/README.md) → [testing/ES_REVIEW_QUALITY.md](./testing/ES_REVIEW_QUALITY.md) |
 | 性能・コストを確認する | [architecture/PERFORMANCE_COST_GUARDRAILS.md](./architecture/PERFORMANCE_COST_GUARDRAILS.md) → [plan/performance-cost-optimization-plan.md](./plan/performance-cost-optimization-plan.md) |
 | マーケティング LP を変更する | [marketing/LP.md](./marketing/LP.md) → [marketing/README.md](./marketing/README.md) → 実装済み [features/](#機能-features) |
-| リリース・本番運用をする | [release/README.md](./release/README.md) → [release/ops/RUNBOOK.md](./release/ops/RUNBOOK.md) → [ops/ENVIRONMENT_VARIABLES.md](./ops/ENVIRONMENT_VARIABLES.md) → [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) |
-| テスト・commit gate を確認する | [testing/E2E.md](./testing/E2E.md) → [ops/TEST_HARNESS.md](./ops/TEST_HARNESS.md) |
-| デッドコードを削除する | [ops/DEAD_CODE_REMOVAL.md](./ops/DEAD_CODE_REMOVAL.md) → [architecture/REFACTORING_TEST_CONTRACTS.md](./architecture/REFACTORING_TEST_CONTRACTS.md) |
-| 本番リリース前の完成項目を確認する | [plan/execution-order.md](./plan/execution-order.md) → [release/ops/RUNBOOK.md](./release/ops/RUNBOOK.md) → [ops/SECURITY.md](./ops/SECURITY.md) |
-| AI 開発レビュー観点を確認する | [ai_agent_development_review_checklist_priority.md](./ai_agent_development_review_checklist_priority.md) → [ops/AI_DEVELOPMENT_PRINCIPLES.md](./ops/AI_DEVELOPMENT_PRINCIPLES.md) |
+| リリース・本番運用をする | [release/README.md](./release/README.md) → [operations/production/RUNBOOK.md](./operations/production/RUNBOOK.md) → [operations/platform/ENVIRONMENT_VARIABLES.md](./operations/platform/ENVIRONMENT_VARIABLES.md) → [operations/development/CLI_GUARDRAILS.md](./operations/development/CLI_GUARDRAILS.md) |
+| テスト・commit gate を確認する | [testing/E2E.md](./testing/E2E.md) → [operations/development/TEST_HARNESS.md](./operations/development/TEST_HARNESS.md) |
+| デッドコードを削除する | [operations/development/DEAD_CODE_REMOVAL.md](./operations/development/DEAD_CODE_REMOVAL.md) → [architecture/REFACTORING_TEST_CONTRACTS.md](./architecture/REFACTORING_TEST_CONTRACTS.md) |
+| 本番リリース前の完成項目を確認する | [plan/execution-order.md](./plan/execution-order.md) → [operations/production/RUNBOOK.md](./operations/production/RUNBOOK.md) → [operations/platform/SECURITY.md](./operations/platform/SECURITY.md) |
+| AI 開発レビュー観点を確認する | [ai_agent_development_review_checklist_priority.md](./ai_agent_development_review_checklist_priority.md) → [operations/development/AI_DEVELOPMENT_PRINCIPLES.md](./operations/development/AI_DEVELOPMENT_PRINCIPLES.md) |
 
 ---
 
@@ -216,6 +217,7 @@
 | [reference/es-review/intern_goals.md](./reference/es-review/intern_goals.md) | インターン目標設問の作成ヒント |
 | [reference/es-review/intern_reason.md](./reference/es-review/intern_reason.md) | インターン志望理由設問の作成ヒント |
 | [reference/es-review/post_join_goals.md](./reference/es-review/post_join_goals.md) | 入社後目標設問の作成ヒント |
+| [reference/es-review/references_reclassified_by_original_label_types_pruned.md](./reference/es-review/references_reclassified_by_original_label_types_pruned.md) | 参考ES 出典・本文の分類済み監査用資料 |
 | [reference/es-review/role_course_reason.md](./reference/es-review/role_course_reason.md) | 職種・コース志望理由設問の作成ヒント |
 | [reference/es-review/self_pr.md](./reference/es-review/self_pr.md) | 自己PR設問の作成ヒント |
 | [reference/es-review/work_values.md](./reference/es-review/work_values.md) | 仕事観設問の作成ヒント |
@@ -246,49 +248,49 @@
 
 ---
 
-## 運用 (ops/)
+## 運用 (operations/)
 
-`ops/` は AI 開発ハーネス、監視、安全運用、環境変数 SSOT の入口です。本番リリース・本番運用手順は [release/](#リリース-release) を見てください。`docs/ops/grafana/rag-dashboard.json` は [ops/OBSERVABILITY.md](./ops/OBSERVABILITY.md) 付属の Grafana Cloud import 用正本 artifact として扱い、ログファイルは索引対象外です。
+`operations/` は開発運用、プラットフォーム運用、本番 runbook の正本です。`operations/development/` は AI 開発ハーネス、`operations/platform/` は環境変数・監視・security、`operations/production/` は本番運用手順を扱います。`docs/operations/platform/grafana/rag-dashboard.json` は [operations/platform/OBSERVABILITY.md](./operations/platform/OBSERVABILITY.md) 付属の Grafana Cloud import 用正本 artifact として扱い、ログファイルは索引対象外です。
 
 | 文書 | 説明 |
 |------|------|
-| [ops/AI_HARNESS.md](./ops/AI_HARNESS.md) | Claude Code ハーネス（agents / skills / hooks / MCP / commands）の詳細リファレンスと運用ガイド |
-| [ops/CODEX_HARNESS.md](./ops/CODEX_HARNESS.md) | Codex custom agent / config / wrapper の詳細リファレンス |
-| [ops/CURSOR_HARNESS.md](./ops/CURSOR_HARNESS.md) | Cursor rules / MCP / prompt template の詳細リファレンス |
-| [ops/AI_AGENT_PIPELINE.md](./ops/AI_AGENT_PIPELINE.md) | Codex / Claude / Cursor 共通の AI 開発 pipeline |
-| [ops/AI_DEVELOPMENT_PRINCIPLES.md](./ops/AI_DEVELOPMENT_PRINCIPLES.md) | AI 継続開発で負債を増やさないための設計原則 |
-| [ops/DEAD_CODE_REMOVAL.md](./ops/DEAD_CODE_REMOVAL.md) | Web アプリ構成に合わせたデッドコード調査・反証・削除手順 |
-| [ops/CLI_GUARDRAILS.md](./ops/CLI_GUARDRAILS.md) | CLI の安全な使い方 |
-| [ops/ENVIRONMENT_VARIABLES.md](./ops/ENVIRONMENT_VARIABLES.md) | 環境変数 SSOT（唯一の正本。A 環境別早見表・B 環境判定モデル・C 判断フロー・D 変数索引・E drift 不変条件・F 保守） |
-| [ops/SECURITY.md](./ops/SECURITY.md) | セキュリティの注意事項 |
-| [ops/OBSERVABILITY.md](./ops/OBSERVABILITY.md) | RAG / FastAPI の運用監視メトリクス、アラート、Grafana dashboard の正本 |
-| [ops/MONITORING_SETUP.md](./ops/MONITORING_SETUP.md) | 本番リリース前の Phase 0 監視セットアップ。送信可否、PII scrub |
-| [ops/TEST_HARNESS.md](./ops/TEST_HARNESS.md) | unit / backend deterministic / E2E / AI Functional / commit gate の運用メモ |
-| [ops/STRIPE_CODEX_CLI.md](./ops/STRIPE_CODEX_CLI.md) | Codex 向け Stripe CLI の inspect / audit / sync / readiness 確認手順 |
-| [ops/SEO_GOOGLE_SEARCH_CONSOLE.md](./ops/SEO_GOOGLE_SEARCH_CONSOLE.md) | Google Search Console の所有権確認、sitemap 送信、URL 検査、月次モニタリング手順 |
-| [ops/grafana/rag-dashboard.json](./ops/grafana/rag-dashboard.json) | OBSERVABILITY.md 付属の Grafana Cloud import 用正本 dashboard 定義 |
+| [operations/development/AI_HARNESS.md](./operations/development/AI_HARNESS.md) | Claude Code ハーネス（agents / skills / hooks / MCP / commands）の詳細リファレンスと運用ガイド |
+| [operations/development/CODEX_HARNESS.md](./operations/development/CODEX_HARNESS.md) | Codex custom agent / config / wrapper の詳細リファレンス |
+| [operations/development/CURSOR_HARNESS.md](./operations/development/CURSOR_HARNESS.md) | Cursor rules / MCP / prompt template の詳細リファレンス |
+| [operations/development/AI_AGENT_PIPELINE.md](./operations/development/AI_AGENT_PIPELINE.md) | Codex / Claude / Cursor 共通の AI 開発 pipeline |
+| [operations/development/AI_DEVELOPMENT_PRINCIPLES.md](./operations/development/AI_DEVELOPMENT_PRINCIPLES.md) | AI 継続開発で負債を増やさないための設計原則 |
+| [operations/development/DEAD_CODE_REMOVAL.md](./operations/development/DEAD_CODE_REMOVAL.md) | Web アプリ構成に合わせたデッドコード調査・反証・削除手順 |
+| [operations/development/CLI_GUARDRAILS.md](./operations/development/CLI_GUARDRAILS.md) | CLI の安全な使い方 |
+| [operations/platform/ENVIRONMENT_VARIABLES.md](./operations/platform/ENVIRONMENT_VARIABLES.md) | 環境変数 SSOT（唯一の正本。§0 ナビ・§1 セットアップ手順・§2 共通か/環境ごとか・§3 環境判定モデル・§4 リファレンス＝変数索引/判断フロー/drift/保守） |
+| [operations/platform/SECURITY.md](./operations/platform/SECURITY.md) | セキュリティの注意事項 |
+| [operations/platform/OBSERVABILITY.md](./operations/platform/OBSERVABILITY.md) | RAG / FastAPI の運用監視メトリクス、アラート、Grafana dashboard の正本 |
+| [operations/platform/MONITORING_SETUP.md](./operations/platform/MONITORING_SETUP.md) | 本番リリース前の Phase 0 監視セットアップ。送信可否、PII scrub |
+| [operations/development/TEST_HARNESS.md](./operations/development/TEST_HARNESS.md) | unit / backend deterministic / E2E / AI Functional / commit gate の運用メモ |
+| [operations/platform/STRIPE_CODEX_CLI.md](./operations/platform/STRIPE_CODEX_CLI.md) | Codex 向け Stripe CLI の inspect / audit / sync / readiness 確認手順 |
+| [operations/platform/SEO_GOOGLE_SEARCH_CONSOLE.md](./operations/platform/SEO_GOOGLE_SEARCH_CONSOLE.md) | Google Search Console の所有権確認、sitemap 送信、URL 検査、月次モニタリング手順 |
+| [operations/platform/grafana/rag-dashboard.json](./operations/platform/grafana/rag-dashboard.json) | OBSERVABILITY.md 付属の Grafana Cloud import 用正本 dashboard 定義 |
 
 ---
 
 ## リリース (release/)
 
-`release/` は**本番リリース・本番運用手順の唯一の正本**です。日常運用と本番環境変数の SSOT は `docs/ops/ENVIRONMENT_VARIABLES.md` にあります（`release/setup/ENV_REFERENCE.md` はその互換入口）。
+`release/` は本番初期構築と互換入口です。日常運用は `operations/production/`、本番環境変数の SSOT は `operations/platform/ENVIRONMENT_VARIABLES.md` にあります（`release/setup/ENV_REFERENCE.md` はその互換入口）。
 
 | 文書 | 説明 |
 |------|------|
 | [release/README.md](./release/README.md) | ナビゲーションインデックス。セットアップ / 運用の入口 |
-| [release/PRODUCTION.md](./release/PRODUCTION.md) | 旧本番手順書。再構成済みで setup/ops/README への案内入口 |
+| [release/PRODUCTION.md](./release/PRODUCTION.md) | 旧本番手順書。再構成済みで setup / operations / README への案内入口 |
 
-### 運用手順書 (release/ops/)
+### 本番運用手順書 (operations/production/)
 
 | 文書 | 説明 |
 |------|------|
-| [release/ops/RUNBOOK.md](./release/ops/RUNBOOK.md) | 全シナリオの概要・判断フロー・共通前提条件（シナリオ入口） |
-| [release/ops/REGULAR_RELEASE.md](./release/ops/REGULAR_RELEASE.md) | 通常リリース（develop → main）9ステップ |
-| [release/ops/DB_MIGRATION.md](./release/ops/DB_MIGRATION.md) | DB 移行の 4 フェーズ + ドリフト検出 |
-| [release/ops/INCIDENT_ROLLBACK.md](./release/ops/INCIDENT_ROLLBACK.md) | 障害対応トリアージ + ロールバック手順 |
-| [release/ops/SECRETS_MANAGEMENT.md](./release/ops/SECRETS_MANAGEMENT.md) | シークレット追加・更新・ローテーション |
-| [release/ops/HOOK_SAFETY_MAP.md](./release/ops/HOOK_SAFETY_MAP.md) | Hook → 操作のマッピング表 |
+| [operations/production/RUNBOOK.md](./operations/production/RUNBOOK.md) | 全シナリオの概要・判断フロー・共通前提条件（シナリオ入口） |
+| [operations/production/REGULAR_RELEASE.md](./operations/production/REGULAR_RELEASE.md) | 通常リリース（develop → main）9ステップ |
+| [operations/production/DB_MIGRATION.md](./operations/production/DB_MIGRATION.md) | DB 移行の 4 フェーズ + ドリフト検出 |
+| [operations/production/INCIDENT_ROLLBACK.md](./operations/production/INCIDENT_ROLLBACK.md) | 障害対応トリアージ + ロールバック手順 |
+| [operations/production/SECRETS_MANAGEMENT.md](./operations/production/SECRETS_MANAGEMENT.md) | シークレット追加・更新・ローテーション |
+| [operations/production/HOOK_SAFETY_MAP.md](./operations/production/HOOK_SAFETY_MAP.md) | Hook → 操作のマッピング表 |
 
 ### 初期セットアップ (release/setup/)
 
@@ -301,7 +303,7 @@
 | [release/setup/VERCEL.md](./release/setup/VERCEL.md) | Vercel（Next.js） |
 | [release/setup/EXTERNAL_SERVICES.md](./release/setup/EXTERNAL_SERVICES.md) | OAuth、CORS 等 |
 | [release/setup/DOMAIN_OPERATIONS.md](./release/setup/DOMAIN_OPERATIONS.md) | `shupass.jp` のドメイン運用正本 |
-| [release/setup/ENV_REFERENCE.md](./release/setup/ENV_REFERENCE.md) | 環境変数の互換入口。正本は [ops/ENVIRONMENT_VARIABLES.md](./ops/ENVIRONMENT_VARIABLES.md)（tooling 互換のため存置） |
+| [release/setup/ENV_REFERENCE.md](./release/setup/ENV_REFERENCE.md) | 環境変数の互換入口。正本は [operations/platform/ENVIRONMENT_VARIABLES.md](./operations/platform/ENVIRONMENT_VARIABLES.md)（tooling 互換のため存置） |
 | [release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md](./release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md) | 特商法・個人事業、Stripe 審査・公開表記 |
 
 ---
