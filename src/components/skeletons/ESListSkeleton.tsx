@@ -1,3 +1,4 @@
+import { ES_LIST_GRID_CLASS } from "@/components/es/es-list-layout";
 import { ListPageFilterBarSkeleton } from "@/components/shared/ListPageFilterBarSkeleton";
 import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 import { EsDocumentCardSkeleton } from "@/components/skeletons/EsDocumentCardSkeleton";
@@ -16,7 +17,7 @@ export function ESListSkeleton() {
 
         <ListPageFilterBarSkeleton variant="es" />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 xl:grid-cols-4">
+        <div className={ES_LIST_GRID_CLASS}>
           {Array.from({ length: 8 }).map((_, i) => (
             <EsDocumentCardSkeleton key={i} />
           ))}

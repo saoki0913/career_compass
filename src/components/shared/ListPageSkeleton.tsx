@@ -1,3 +1,4 @@
+import { ES_LIST_GRID_CLASS } from "@/components/es/es-list-layout";
 import { EsDocumentCardSkeleton } from "@/components/skeletons/EsDocumentCardSkeleton";
 import { GakuchikaCardSkeleton } from "@/components/skeletons/GakuchikaCardSkeleton";
 
@@ -10,9 +11,13 @@ interface ListPageSkeletonProps {
 /** Grid matching `ESGrid` / `GakuchikaGrid` breakpoints. */
 export function ListPageSkeleton({ count = 8, variant = "es" }: ListPageSkeletonProps) {
   const Card = variant === "gakuchika" ? GakuchikaCardSkeleton : EsDocumentCardSkeleton;
+  const gridClass =
+    variant === "gakuchika"
+      ? "grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 lg:gap-6 xl:grid-cols-4"
+      : ES_LIST_GRID_CLASS;
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 lg:gap-6 xl:grid-cols-4">
+    <div className={gridClass}>
       {Array.from({ length: count }, (_, i) => (
         <Card key={i} />
       ))}

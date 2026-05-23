@@ -28,6 +28,7 @@ import { useCompanies, type Company } from "@/hooks/useCompanies";
 import { usePins } from "@/hooks/usePins";
 import { ESGrid } from "@/components/es/ESGrid";
 import { CompanyGroup } from "@/components/es/CompanyGroup";
+import { ES_LIST_SECTION_STACK_CLASS } from "@/components/es/es-list-layout";
 import { ListPageFilterBar } from "@/components/shared/ListPageFilterBar";
 import { ListPageSkeleton } from "@/components/shared/ListPageSkeleton";
 import { ListPageEmptyState } from "@/components/shared/ListPageEmptyState";
@@ -583,17 +584,26 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
           }
           actions={
             <>
-              <Button variant="outline" onClick={() => setShowTrash((current) => !current)}>
-                <Trash2 className="w-4 h-4" />
-                <span className="ml-1.5">{showTrash ? "通常表示" : "ゴミ箱"}</span>
+              <Button
+                variant="outline"
+                onClick={() => setShowTrash((current) => !current)}
+                className="h-11 rounded-xl px-3 text-sm lg:h-9"
+                aria-label={showTrash ? "通常表示に戻す" : "ゴミ箱を表示"}
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="ml-1.5 hidden min-[360px]:inline">{showTrash ? "通常表示" : "ゴミ箱"}</span>
                 {trashedDocuments.length > 0 && !showTrash && (
                   <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-xs">{trashedDocuments.length}</span>
                 )}
               </Button>
               {!showTrash && (
-                <Button onClick={() => setShowNewModal(true)}>
-                  <Plus className="w-5 h-5" />
-                  <span className="ml-1.5">新規作成</span>
+                <Button
+                  onClick={() => setShowNewModal(true)}
+                  className="h-11 rounded-xl px-4 text-sm font-semibold lg:h-9"
+                  aria-label="新規ESを作成"
+                >
+                  <Plus className="h-5 w-5" />
+                  <span className="ml-1.5 hidden min-[360px]:inline">新規作成</span>
                 </Button>
               )}
             </>
@@ -647,13 +657,14 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
             sortOptions={sortOptions}
             sortBy={sortBy}
             onSortChange={(value) => setSortBy(value as SortKey)}
+            variant="es"
             extraFilter={
               <Fragment>
                 <Select
                   value={selectedEsCategory}
                   onValueChange={(v) => setSelectedEsCategory(v as "all" | EsDocumentCategory)}
                 >
-                  <SelectTrigger className="h-9 w-full sm:w-[170px] font-normal text-sm">
+                  <SelectTrigger className="h-10 w-[150px] rounded-xl font-normal text-sm md:h-9 md:w-[170px]">
                     <span className="min-w-0 flex-1 truncate text-left">
                       {selectedEsCategory === "all" ? "分類: すべて" : ES_DOCUMENT_CATEGORY_LABELS[selectedEsCategory]}
                     </span>
@@ -673,7 +684,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                     selected={selectedCompanies}
                     onChange={setSelectedCompanies}
                     placeholder="企業"
-                    className="w-full sm:w-[160px]"
+                    className="h-10 w-[132px] rounded-xl md:w-[160px]"
                   />
                 ) : null}
               </Fragment>
@@ -701,7 +712,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
               description="削除されたドキュメントはありません"
             />
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 lg:gap-6">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 lg:gap-6 xl:grid-cols-4">
               {trashedDocuments.map((document) => (
                 <Card key={document.id} className="h-full">
                   <CardContent className="flex h-full flex-col p-4">
@@ -765,7 +776,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
             statusUpdatingId={statusUpdatingId}
           />
         ) : (
-          <div className="space-y-8">
+          <div className={ES_LIST_SECTION_STACK_CLASS}>
             <FavoritesSection count={pinnedDocs.length}>
               <ESGrid
                 documents={pinnedDocs}
@@ -781,13 +792,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
             </FavoritesSection>
 
             {unpinnedDocs.length > 0 && (
-              <section>
-                {pinnedDocs.length > 0 && (
-                  <div className="mb-4 flex items-center gap-2">
-                    <h2 className="text-lg font-semibold text-foreground">すべてのES</h2>
-                    <span className="text-sm text-muted-foreground">({unpinnedDocs.length})</span>
-                  </div>
-                )}
+              <section aria-label="その他のES">
                 <ESGrid
                   documents={unpinnedDocs}
                   pinnedIds={pinnedIds}

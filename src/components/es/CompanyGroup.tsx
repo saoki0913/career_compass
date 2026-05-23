@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { ESCard } from "./ESCard";
+import { ES_COMPANY_GROUP_STACK_CLASS, ES_LIST_GRID_CLASS } from "./es-list-layout";
 import type { Document } from "@/hooks/useDocuments";
 
 interface CompanyGroupProps {
@@ -46,11 +47,11 @@ export function CompanyGroup({
   }, [documents]);
 
   return (
-    <div className="space-y-8">
+    <div className={ES_COMPANY_GROUP_STACK_CLASS}>
       {groupedDocuments.map((group) => (
         <div key={group.companyName}>
-          <div className="flex items-center gap-2 mb-3">
-            <h2 className="text-base font-semibold text-foreground">
+          <div className="mb-3 flex items-center gap-2">
+            <h2 className="text-[1.05rem] font-bold leading-tight text-foreground sm:text-base sm:font-semibold">
               {group.companyName}
             </h2>
             <span className="text-sm text-muted-foreground">
@@ -58,7 +59,7 @@ export function CompanyGroup({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
+          <div className={ES_LIST_GRID_CLASS}>
             {group.documents.map((doc) => (
               <ESCard
                 key={doc.id}

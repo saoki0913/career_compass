@@ -7,63 +7,76 @@ const SKELETON_SCROLL_ROW_CLASS =
 export function ListPageFilterBarSkeleton({
   variant,
 }: {
-  variant: "es" | "companies" | "gakuchika" | "tasks" | "deadlines";
+  variant: "es" | "companies" | "gakuchika" | "tasks" | "deadlines" | "search";
 }) {
   const tabCount =
-    variant === "es"
-      ? 3
-      : variant === "tasks"
+    variant === "search"
+      ? 0
+      : variant === "es"
         ? 3
-        : variant === "companies" || variant === "gakuchika"
-          ? 4
-          : 5;
+        : variant === "tasks"
+          ? 3
+          : variant === "companies" || variant === "gakuchika"
+            ? 4
+            : 5;
   const viewToggleSlots =
-    variant === "gakuchika"
-      ? 3
-      : variant === "companies"
+    variant === "search"
+      ? 0
+      : variant === "gakuchika"
         ? 3
-        : variant === "deadlines" || variant === "tasks"
-        ? 2
-        : 0;
+        : variant === "companies"
+          ? 3
+          : variant === "deadlines" || variant === "tasks" || variant === "es"
+            ? 2
+            : 0;
   const hasExtraFilter =
     variant === "es" ||
     variant === "companies" ||
     variant === "tasks" ||
     variant === "deadlines";
+  const extraFilterSlots = variant === "es" ? 2 : hasExtraFilter ? 1 : 0;
 
+  const isSearch = variant === "search";
   const isCompanies = variant === "companies";
 
   return (
-    <div className={isCompanies ? "mb-8 min-w-0 overflow-hidden rounded-[1.35rem] border border-border/70 bg-background/90 p-3 shadow-sm backdrop-blur-xl md:p-5" : "mb-8 min-w-0 overflow-hidden rounded-2xl border border-border/70 bg-background/90 p-3 shadow-sm backdrop-blur-xl"}>
-      <div className="min-w-0 space-y-2">
-        <div className={isCompanies ? "grid w-full min-w-0 grid-cols-1 gap-2 md:flex md:flex-nowrap md:items-center md:gap-3 md:overflow-x-auto md:pb-1" : SKELETON_SCROLL_ROW_CLASS}>
-          <Skeleton className={isCompanies ? "h-10 w-full rounded-xl md:w-[14rem] md:flex-none lg:w-[19rem] xl:w-[21rem]" : "h-10 min-w-[14rem] max-w-[22rem] flex-[1_0_16rem] rounded-xl"} />
-          <Skeleton className={isCompanies ? "h-10 w-full rounded-xl md:w-[165px] md:shrink-0 lg:w-[210px]" : "h-10 w-[160px] shrink-0 rounded-md"} />
-          {variant === "es" ? (
-            <div className="flex shrink-0 items-center gap-2.5">
-              <Skeleton className="h-9 w-[170px] shrink-0 rounded-md" />
-              <Skeleton className="h-9 w-[160px] shrink-0 rounded-md" />
+    <div className={isSearch ? "mb-4 min-w-0 overflow-hidden sm:mb-5" : "mb-4 min-w-0 overflow-hidden rounded-[1.1rem] border border-slate-200/80 bg-white/92 p-3 shadow-[0_18px_48px_-34px_rgba(15,23,42,0.45)] backdrop-blur-xl sm:mb-5 md:px-3 md:py-2.5"}>
+      <div className="min-w-0">
+        <div className={isSearch ? "grid w-full min-w-0 grid-cols-1 gap-2" : "grid w-full min-w-0 grid-cols-2 gap-2 md:flex md:flex-nowrap md:items-center md:gap-2 md:overflow-x-auto md:pb-1"}>
+          <Skeleton className={isSearch ? "h-[52px] w-full rounded-[1.1rem]" : isCompanies ? "col-span-2 h-[52px] w-full rounded-[1.1rem] md:h-9 md:w-[12rem] md:flex-none md:rounded-xl lg:w-[14rem]" : "col-span-2 h-[52px] w-full rounded-[1.1rem] md:h-9 md:min-w-[11rem] md:max-w-[14rem] md:flex-[0_1_13rem] md:rounded-xl"} />
+          {!isSearch ? <Skeleton className={isCompanies ? "h-12 w-full rounded-xl md:h-9 md:w-[150px] md:shrink-0 lg:w-[170px]" : "h-12 w-full shrink-0 rounded-xl md:h-9 md:w-[150px]"} /> : null}
+          {Array.from({ length: extraFilterSlots }).map((_, i) => (
+            <div
+              key={i}
+              className={isCompanies || variant === "tasks" || variant === "deadlines" || variant === "es" ? "min-w-0" : "col-span-2 min-w-0"}
+            >
+              <Skeleton
+                className={
+                  isCompanies
+                    ? "h-12 w-full rounded-xl md:h-9 md:w-[130px] md:shrink-0 lg:w-[160px]"
+                    : variant === "es" && i === 1
+                      ? "h-12 w-full shrink-0 rounded-xl md:h-9 md:w-[132px] md:rounded-md lg:w-[160px]"
+                      : "h-12 w-full shrink-0 rounded-xl md:h-9 md:w-[150px] md:rounded-md"
+                }
+              />
             </div>
-          ) : null}
-          {hasExtraFilter && variant !== "es" ? (
-            <div className={isCompanies ? "flex w-full shrink-0 items-center gap-2.5 md:w-auto" : "flex shrink-0 items-center gap-2.5"}>
-              <Skeleton className={isCompanies ? "h-10 w-full rounded-xl md:w-[130px] md:shrink-0 lg:w-[170px]" : "h-10 w-[160px] shrink-0 rounded-md"} />
-            </div>
-          ) : null}
+          ))}
           {viewToggleSlots > 0 ? (
-            <div className={isCompanies ? "w-full shrink-0 md:w-auto" : "shrink-0"}>
-              <div className={isCompanies ? "flex h-10 w-full items-center gap-1 rounded-lg bg-muted/50 p-1 md:w-fit" : "flex w-fit items-center gap-1 rounded-lg bg-muted/50 p-1"}>
+            <div className="col-span-2 w-full shrink-0 md:w-auto">
+              <div className="flex h-11 w-full items-center gap-1 rounded-xl bg-muted/50 p-1 md:h-9 md:w-fit md:rounded-lg">
                 {Array.from({ length: viewToggleSlots }).map((_, i) => (
-                  <Skeleton key={i} className={isCompanies ? "h-9 flex-1 rounded-md md:w-9 md:flex-none" : "h-8 w-9 shrink-0 rounded-md"} />
+                  <Skeleton key={i} className="h-9 flex-1 rounded-md md:h-7 md:w-9 md:flex-none" />
                 ))}
               </div>
             </div>
           ) : null}
-        </div>
-        <div className={SKELETON_SCROLL_ROW_CLASS}>
-          {Array.from({ length: tabCount }).map((_, i) => (
-            <SkeletonPill key={i} className="h-9 w-[5.25rem] shrink-0 sm:w-24" />
-          ))}
+          {tabCount > 0 ? (
+            <div className={`${SKELETON_SCROLL_ROW_CLASS} col-span-2 md:w-auto md:flex-none md:pb-0`}>
+              {Array.from({ length: tabCount }).map((_, i) => (
+                <SkeletonPill key={i} className="h-9 w-[5.25rem] shrink-0 md:h-8 md:w-20" />
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

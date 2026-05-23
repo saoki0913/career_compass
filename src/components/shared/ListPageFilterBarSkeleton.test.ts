@@ -6,10 +6,12 @@ async function readSource() {
 }
 
 describe("ListPageFilterBarSkeleton", () => {
-  it("mirrors the compact h-10 filter controls (no oversized h-12)", async () => {
+  it("mirrors the mobile stacked filter controls", async () => {
     const source = await readSource();
-    // 実画面 ListPageFilterBar の h-10 統一に追従し、companies の h-12 を排除する
-    expect(source).not.toContain("h-12 w-full rounded-xl md:h-10");
-    expect(source).toContain("h-10 w-full rounded-xl md:w-[14rem]");
+    expect(source).toContain('variant: "es" | "companies" | "gakuchika" | "tasks" | "deadlines" | "search"');
+    expect(source).toContain("col-span-2 h-[52px] w-full rounded-[1.1rem] md:h-9");
+    expect(source).toContain("grid w-full min-w-0 grid-cols-2 gap-2 md:flex");
+    expect(source).toContain("md:min-w-[11rem] md:max-w-[14rem] md:flex-[0_1_13rem]");
+    expect(source).toContain('const extraFilterSlots = variant === "es" ? 2 : hasExtraFilter ? 1 : 0');
   });
 });

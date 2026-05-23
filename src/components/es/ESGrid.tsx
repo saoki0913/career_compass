@@ -1,6 +1,7 @@
 "use client";
 
 import { ESCard } from "./ESCard";
+import { ES_LIST_GRID_CLASS } from "./es-list-layout";
 import type { Document } from "@/hooks/useDocuments";
 
 interface ESGridProps {
@@ -25,7 +26,7 @@ export function ESGrid({
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
+    <div className={ES_LIST_GRID_CLASS}>
       {documents.map((doc) => (
         <ESCard
           key={doc.id}
