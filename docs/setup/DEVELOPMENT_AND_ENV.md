@@ -472,20 +472,23 @@ BETTER_AUTH_URL=http://localhost:3000
 
 Google OAuth はカレンダー連携に必要です。
 
-### 1. Google Cloud Console でプロジェクト作成
+### 1. Google Cloud Console でプロジェクトを選択
 
 1. https://console.cloud.google.com/ にアクセス
-2. 新しいプロジェクトを作成（例: `career-compass-dev`）
+2. プロジェクト `career-compass`（ID: `ukarun-483616`）を選択
+3. ローカル開発用 OAuth クライアント `shupass-local` を使う
 
-### 2. OAuth 同意画面の設定
+Google Cloud の本番 / staging / local 集約手順は [`docs/release/GOOGLE_CLOUD.md`](../release/GOOGLE_CLOUD.md#1-google-cloud-console-プロジェクト設定) を正とする。
 
-1. 「APIとサービス」→「OAuth 同意画面」
-2. User Type: 「外部」を選択
-3. アプリ情報を入力:
+### 2. OAuth 同意画面の確認
+
+1. 「Google Auth Platform」→「Branding」
+2. User Type が「外部」であることを確認
+3. アプリ情報を確認:
    - アプリ名: `就活Pass（開発）`
    - ユーザーサポートメール: あなたのメールアドレス
    - デベロッパーの連絡先: あなたのメールアドレス
-4. スコープ:
+4. `Data Access` で必要なスコープを確認:
    - `email`
    - `profile`
    - `openid`
@@ -495,25 +498,28 @@ Google OAuth はカレンダー連携に必要です。
 
 ### 3. OAuth クライアント ID の作成
 
-1. 「APIとサービス」→「認証情報」
-2. 「認証情報を作成」→「OAuth クライアント ID」
+1. 「Google Auth Platform」→「Clients」
+2. 既存の `shupass-local` がなければ「Create client」
 3. アプリケーションの種類: 「ウェブアプリケーション」
-4. 承認済みの JavaScript 生成元:
+4. 名前: `shupass-local`
+5. 承認済みの JavaScript 生成元:
    ```
    http://localhost:3000
    ```
-5. 承認済みのリダイレクト URI:
+6. 承認済みのリダイレクト URI:
    ```
    http://localhost:3000/api/auth/callback/google
    ```
-6. クライアント ID とシークレットをコピー
+7. クライアント ID とシークレットをコピー
 
 ### 4. `.env.local` に設定
 
 ```env
-GOOGLE_CLIENT_ID=123456789-abcdefg.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxx
+GOOGLE_CLIENT_ID=<google-client-id>
+GOOGLE_CLIENT_SECRET=<google-client-secret>
 ```
+
+> 実 secret はドキュメントやチャットに貼らない。貼ってしまった API キーや OAuth シークレットは再利用せず、Google Cloud Console で無効化または再作成する。
 
 ---
 

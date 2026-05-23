@@ -2,7 +2,7 @@
 
 就活Pass の日常運用手順の入口ドキュメント。AI エージェント（Claude Code / Codex）が実行し、人間が監督・承認する構成。
 
-初期セットアップは [setup/PRODUCTION_SETUP.md](../../release/setup/PRODUCTION_SETUP.md) を参照。
+初期セットアップは [PRODUCTION_SETUP.md](../../release/PRODUCTION_SETUP.md) を参照。
 
 ---
 
@@ -107,7 +107,7 @@ make doctor
 make rollback-prod TARGET=<deployment-or-sha>
 ```
 
-Stripe 本番運用の詳細は [release/setup/STRIPE.md](../../release/setup/STRIPE.md)、環境変数は [operations/platform/ENVIRONMENT_VARIABLES.md](../platform/ENVIRONMENT_VARIABLES.md)、DB は [DB_MIGRATION.md](./DB_MIGRATION.md)、シークレットは [SECRETS_MANAGEMENT.md](./SECRETS_MANAGEMENT.md) を参照。
+Stripe 本番運用の詳細は [release/STRIPE.md](../../release/STRIPE.md)、環境変数は [operations/platform/ENVIRONMENT_VARIABLES.md](../platform/ENVIRONMENT_VARIABLES.md)、DB は [DB_MIGRATION.md](./DB_MIGRATION.md)、シークレットは [SECRETS_MANAGEMENT.md](./SECRETS_MANAGEMENT.md) を参照。
 
 ---
 

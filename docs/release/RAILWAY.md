@@ -1,10 +1,10 @@
 # Step 3: Railway にバックエンドをデプロイ
 
-[← インデックス](../README.md) | [環境変数リファレンス →](./ENV_REFERENCE.md)
+[← インデックス](./README.md)
 
 ---
 
-> いまの標準運用では、Railway の env は `scripts/release/sync-career-compass-secrets.sh` で同期し、値の正本は repo local の `.secrets/` です。人間向けの一覧は [`docs/operations/platform/ENVIRONMENT_VARIABLES.md`](../../operations/platform/ENVIRONMENT_VARIABLES.md) を参照してください。
+> いまの標準運用では、Railway の env は `scripts/release/sync-career-compass-secrets.sh` で同期し、値の正本は repo local の `.secrets/` です。人間向けの一覧は [`docs/operations/platform/ENVIRONMENT_VARIABLES.md`](../operations/platform/ENVIRONMENT_VARIABLES.md) を参照してください。
 
 ## 3-0. Railway アカウント作成 & CLI インストール
 
@@ -160,7 +160,7 @@ Volume がないとデプロイごとにデータが消失します。
 
 ### 環境変数の正本
 
-Railway に設定する変数の意味・必須性・環境差は、この文書では管理しません。正本は [operations/platform/ENVIRONMENT_VARIABLES.md](../../operations/platform/ENVIRONMENT_VARIABLES.md) と `.secrets/` bundle です。
+Railway に設定する変数の意味・必須性・環境差は、この文書では管理しません。正本は [operations/platform/ENVIRONMENT_VARIABLES.md](../operations/platform/ENVIRONMENT_VARIABLES.md) と `.secrets/` bundle です。
 
 設定・差分確認は repo script を使います。
 

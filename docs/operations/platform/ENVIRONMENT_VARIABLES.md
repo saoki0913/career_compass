@@ -53,7 +53,7 @@ npm run dev                  # 5. 開発サーバー起動
 |---|---|---|
 | `DATABASE_URL` | DB 接続 | ローカル Docker postgres の接続文字列 |
 | `BETTER_AUTH_SECRET` | セッション署名 | `openssl rand -base64 32` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth | Google Cloud Console（redirect `<base>/api/auth/callback/google`） |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth | Google Cloud Console（redirect `<base>/api/auth/callback/google`）。詳細は [`GOOGLE_CLOUD.md`](../../release/GOOGLE_CLOUD.md#1-google-cloud-console-プロジェクト設定) |
 | `STRIPE_SECRET_KEY` | 決済 | Stripe test key（`sk_test_`） |
 | `STRIPE_WEBHOOK_SECRET` | webhook 検証 | `stripe listen` が出力（`whsec_`） |
 | `ENCRYPTION_KEY` | 暗号化 | `openssl rand -hex 32`（64 桁 hex） |
@@ -73,7 +73,7 @@ FastAPI（`backend/app/config.py`。BFF と同じ secret を共有）:
 | `ANTHROPIC_API_KEY` | LLM | Anthropic |
 
 > `CORS_ORIGINS` / `FRONTEND_URL` はローカルでは default（`http://localhost:3000`）で動くため設定不要。Redis（`UPSTASH_*` / `REDIS_URL`）も任意で、未設定ならキャッシュ無効で動作する。
-> **外部サービスの取得手順**（Supabase project 作成・Google OAuth console・Stripe アカウント）は [`docs/setup/DEVELOPMENT_AND_ENV.md`](../../setup/DEVELOPMENT_AND_ENV.md) に集約。ここでは複製しない。
+> **外部サービスの取得手順**（Supabase project 作成・Google OAuth console・Stripe アカウント）は [`docs/setup/DEVELOPMENT_AND_ENV.md`](../../setup/DEVELOPMENT_AND_ENV.md) に集約。Google Cloud の本番 / staging 集約手順は [`docs/release/GOOGLE_CLOUD.md`](../../release/GOOGLE_CLOUD.md) を正とする。
 
 ### 1-2 staging / production を環境別に設定する
 
@@ -247,7 +247,7 @@ Vercel/Railway/Supabase は **staging / production は別 project** で分離す
 「環境差あり」の値は **§2-3** が唯一の正（ここでは再掲しない）。生成/取得は要点のみ。
 
 - **Database**: `DATABASE_URL`(required), `DIRECT_URL`(optional, migration 5432), `DATABASE_POOL_SIZE`(optional)
-- **Auth**: `BETTER_AUTH_SECRET`(required, `openssl rand -base64 32`), `BETTER_AUTH_URL`/`BETTER_AUTH_TRUSTED_ORIGINS`(optional, deployed で HTTPS 必須・production は 2 origin を `capabilities.ts` が検証), `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`(required, OAuth redirect `<base>/api/auth/callback/google`)
+- **Auth**: `BETTER_AUTH_SECRET`(required, `openssl rand -base64 32`), `BETTER_AUTH_URL`/`BETTER_AUTH_TRUSTED_ORIGINS`(optional, deployed で HTTPS 必須・production は 2 origin を `capabilities.ts` が検証), `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`(required, OAuth redirect `<base>/api/auth/callback/google`)。Google Cloud は既存 project `ukarun-483616` に集約し、OAuth client は local / staging / production で分ける
 - **Stripe**: `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET`(required), `STRIPE_PRICE_{STANDARD,PRO}_{MONTHLY,ANNUAL}` / `STRIPE_PORTAL_CONFIGURATION_ID`(optional。**production profile では `capabilities.ts` が必須化**)
 - **Security**: `ENCRYPTION_KEY`(required, 64桁hex `openssl rand -hex 32`), `CRON_SECRET`(required)
 - **Internal API（BFF↔FastAPI）**: `INTERNAL_API_JWT_SECRET`/`CAREER_PRINCIPAL_HMAC_SECRET`(required, 32+, `shared.env`), `TENANT_KEY_SECRET`(deployed で必須・**環境別値**), `FASTAPI_URL`/`BACKEND_URL`(optional, deployed で必須化)
@@ -265,6 +265,8 @@ Vercel/Railway/Supabase は **staging / production は別 project** で分離す
 - **環境判定**: `APP_ENV`（正）。`ENVIRONMENT` は退役済み。`RAILWAY_ENVIRONMENT_NAME` は Railway 同期メタキーであり、環境判定には使わない。
 - **deployed 必須**（`validate_deployed_requirements` が fail-fast）: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `INTERNAL_API_JWT_SECRET`, `CAREER_PRINCIPAL_HMAC_SECRET`, `TENANT_KEY_SECRET`, `CORS_ORIGINS`（localhost/`*` 不可）, `BACKEND_TRUSTED_HOSTS`, `REDIS_URL`
 - **主要 optional・別名あり**: `FRONTEND_URL`(alias `NEXT_PUBLIC_APP_URL`), `REDIS_NAMESPACE`(未設定時 `APP_ENV` から導出), `SENTRY_DSN`(alias `SENTRY_FASTAPI_DSN`/`BACKEND_SENTRY_DSN`), `SENTRY_ENVIRONMENT`(未設定→ `APP_ENV`), `SENTRY_RELEASE`(alias `RAILWAY_GIT_COMMIT_SHA`), モデル ID 群 `CLAUDE_*`/`GPT_*`/`GEMINI_*`/`MODEL_*`（一部 alias あり）, OCR/抽出 `GOOGLE_DOCUMENT_AI_*`/`MISTRAL_API_KEY`/`FIRECRAWL_*`
+  - `GOOGLE_API_KEY` は Gemini API 用。Google Cloud project `ukarun-483616` で環境別に作成し、API 制限は `generativelanguage.googleapis.com` のみにする。
+  - `GOOGLE_DOCUMENT_AI_*` は PDF OCR 用。`Google Docs API` ではなく `Document AI API` (`documentai.googleapis.com`) を使う。
 - **チューニング（全環境共通・default で動作）**: `RAG_*`, `PDF_OCR_*`, `MOTIVATION_*`, `USE_HYBRID_SEARCH`, `RERANKER_VARIANT`/`RERANKER_AB_TUNED_RATIO`/`RERANKER_BASE_MODEL`/`RERANKER_TUNED_MODEL_PATH`, `GAKUCHIKA_MIN_USER_ANSWERS_FOR_ES_DRAFT_READY`/`GAKUCHIKA_FORCE_DRAFT_READY_AFTER`/`GAKUCHIKA_LOOP_SIMILARITY_THRESHOLD`, `LLM_PRICE_OVERRIDES_JSON`/`LLM_CALL_BUDGET_OVERRIDES_JSON`, `LLM_USAGE_COST_LOG` 系, `LIVE_ES_REVIEW_CAPTURE_DEBUG`（deployed では使用不可＝fail-fast 対象）
 - backend の後方互換 alias（`CLAUDE_MODEL`, `GPT_FAST_MODEL`, `OPENAI_MODEL`, `GOOGLE_MODEL` 等）は `BACKEND_ALIAS_ALLOWLIST`（`check-env-var-drift.mjs`）に登録され `.env.example` 未文書化でも C4 を出さない
 
@@ -370,7 +372,7 @@ make stripe-preflight
 
 - `docs/setup/DEVELOPMENT_AND_ENV.md`: ローカル開発の Quick Start と外部サービス取得手順（Supabase / OAuth / Stripe）。変数一覧は持たず本文書（§1 / §2 / §4-2）へ誘導。
 - `scripts/release/secrets-examples/README.md`: provider 同期テンプレの操作 how-to の正本（本文書は変数の意味の正本）。
-- `docs/release/setup/ENV_REFERENCE.md`: 純 redirect（本文書へ）。
+- ~~`docs/release/setup/ENV_REFERENCE.md`~~: 削除済み。環境変数の正本は本文書。
 - `docs/INDEX.md`: 「環境変数 SSOT」として本文書へ。
 - 参照のみ（変更しない）: `docs/operations/production/RUNBOOK.md`, `docs/operations/production/SECRETS_MANAGEMENT.md`, `docs/setup/DB_SUPABASE.md`
 

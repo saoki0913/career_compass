@@ -1,6 +1,6 @@
 # 本番セットアップ手順書（Vercel + Railway + Supabase）
 
-初期セットアップ手順書。日常運用は [operations/production/RUNBOOK.md](../../operations/production/RUNBOOK.md) を参照。
+初期セットアップ手順書。日常運用は [operations/production/RUNBOOK.md](../operations/production/RUNBOOK.md) を参照。
 
 就活Pass（シューパス）の本番デプロイ手順をステップバイステップで記載します。
 
@@ -62,8 +62,10 @@
 | **Step 2** | Stripe 本番設定 | [STRIPE.md](./STRIPE.md) |
 | **Step 3** | Railway にバックエンドをデプロイ | [RAILWAY.md](./RAILWAY.md) |
 | **Step 4** | Vercel にフロントエンドをデプロイ | [VERCEL.md](./VERCEL.md) |
-| **Step 5** | 外部サービスの本番設定（Google OAuth, CORS, Upstash） | [EXTERNAL_SERVICES.md](./EXTERNAL_SERVICES.md) |
-| **Ref** | 環境変数クイックリファレンス | [ENV_REFERENCE.md](./ENV_REFERENCE.md) |
+| **Step 5a** | Google Cloud / OAuth / CORS | [GOOGLE_CLOUD.md](./GOOGLE_CLOUD.md) |
+| **Step 5b** | Upstash Redis（レート制限） | [UPSTASH_REDIS.md](./UPSTASH_REDIS.md) |
+| **Step 5c** | Sentry（エラー追跡・外部監視） | [SENTRY.md](./SENTRY.md) |
+| **Ref** | 環境変数リファレンス（SSOT） | [ENVIRONMENT_VARIABLES.md](../operations/platform/ENVIRONMENT_VARIABLES.md) |
 
 ---
 

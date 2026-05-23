@@ -10,7 +10,7 @@
 | 機能を変更する | [features/](./features/) → [architecture/](./architecture/) → [testing/](./testing/) |
 | AI エージェントで作業する | [../AGENTS.md](../AGENTS.md) → [operations/development/AI_HARNESS.md](./operations/development/AI_HARNESS.md) → [operations/development/TEST_HARNESS.md](./operations/development/TEST_HARNESS.md) |
 | 本番を運用する | [operations/production/RUNBOOK.md](./operations/production/RUNBOOK.md) → [operations/platform/ENVIRONMENT_VARIABLES.md](./operations/platform/ENVIRONMENT_VARIABLES.md) |
-| 初回本番構築をする | [release/setup/PRODUCTION_SETUP.md](./release/setup/PRODUCTION_SETUP.md) |
+| 初回本番構築をする | [release/PRODUCTION_SETUP.md](./release/PRODUCTION_SETUP.md) |
 | LP / SEO を変更する | [SPEC.md](./SPEC.md) → [marketing/LP.md](./marketing/LP.md) → [marketing/README.md](./marketing/README.md) |
 | テスト・品質ゲートを見る | [testing/E2E.md](./testing/E2E.md) → [operations/development/TEST_HARNESS.md](./operations/development/TEST_HARNESS.md) |
 | 計画・レビュー履歴を見る | [plan/execution-order.md](./plan/execution-order.md) → [plan/plan-tasks.json](./plan/plan-tasks.json) → [review/REVIEW_POLICY.md](./review/REVIEW_POLICY.md) |
@@ -20,7 +20,7 @@
 - 正しい runtime 挙動の一次情報はコードです。
 - 環境変数の意味・必須性は [operations/platform/ENVIRONMENT_VARIABLES.md](./operations/platform/ENVIRONMENT_VARIABLES.md) が正本です。
 - 本番の日常運用手順は [operations/production/](./operations/production/) が正本です。
-- 本番の初回構築手順は [release/setup/](./release/setup/) に置きます。
+- 本番の初回構築手順は [release/](./release/) に置きます。
 - `docs/prompts/`、`docs/reference/`、`docs/review/` は runtime 非連携または作成時点のスナップショットです。
 - 実 secret ファイルは直接読まず、棚卸しは `scripts/release/sync-career-compass-secrets.sh --check` 系で行います。
 
@@ -33,7 +33,7 @@
 | [operations/development/](./operations/development/) | AI harness、CLI guardrails、test harness、開発運用 |
 | [operations/platform/](./operations/platform/) | 環境変数、security、observability、monitoring、SEO / Stripe CLI |
 | [operations/production/](./operations/production/) | 本番 runbook、release、DB migration、secrets、incident |
-| [release/setup/](./release/setup/) | Vercel / Railway / Supabase / Stripe / domain の初回構築 |
+| [release/](./release/) | Vercel / Railway / Supabase / Stripe / domain の初回構築 |
 | [setup/](./setup/) | ローカル開発環境 |
 | [testing/](./testing/) | テスト方針 |
 | [prompts/](./prompts/) | LLM プロンプトの人間レビュー用 snapshot |

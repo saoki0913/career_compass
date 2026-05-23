@@ -63,7 +63,7 @@
 - `src/lib/sanitize.ts` / `backend/app/utils/sanitizer.py` を追加し、logger と Sentry beforeSend の共通 scrubber とした。
 - Sentry は Replay 完全 OFF、`sendDefaultPii=false`、DSN 未設定 no-op。Next.js と FastAPI の初期化を追加済み。
 - `/health/ready` は provider key configured boolean を返さない。
-- `docs/operations/platform/MONITORING_SETUP.md` と `docs/release/setup/EXTERNAL_SERVICES.md` に Sentry-first 監視手順を追加した。UptimeRobot は任意冗長監視として扱う。
+- `docs/operations/platform/MONITORING_SETUP.md` と `docs/release/GOOGLE_CLOUD.md` / `docs/release/SENTRY.md` に Sentry-first 監視手順を追加した。UptimeRobot は任意冗長監視として扱う。
 - SSL expiry monitor、cron heartbeat / Sentry Crons、Loki / Grafana、`/health/deep`、Drizzle slow query logger は Phase 1+ へ延期する。
 
 **#15 P0 実装メモ (2026-05-05)**:

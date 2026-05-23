@@ -6,7 +6,7 @@
 
 **正しい動作の一次情報はコード**です。仕様書と実装が食い違う場合はコードを優先し、ドキュメントの修正 issue を立てるとよいです。secret 実値は読まず、環境変数の棚卸しは repo script の `--check` 系コマンドで key set のみ確認します。
 
-**運用文書の役割分担**: `operations/development/` は AI 開発ハーネスや CLI guardrails、`operations/platform/` は環境変数 SSOT・security・observability、`operations/production/` は本番 runbook の正本です。`release/setup/` は初回本番構築だけを扱います。
+**運用文書の役割分担**: `operations/development/` は AI 開発ハーネスや CLI guardrails、`operations/platform/` は環境変数 SSOT・security・observability、`operations/production/` は本番 runbook の正本です。`release/` は初回本番構築だけを扱います。
 
 ---
 
@@ -55,7 +55,7 @@
 
 ## 開発・環境 (setup/)
 
-ローカル開発環境のセットアップが対象。本番初期構築は [release/setup/](#初期セットアップ-releasesetup) を見てください。
+ローカル開発環境のセットアップが対象。本番初期構築は [release/](#初期セットアップ-release) を見てください。
 
 | 文書 | 説明 |
 |------|------|
@@ -274,37 +274,26 @@
 
 ## リリース (release/)
 
-`release/` は本番初期構築と互換入口です。日常運用は `operations/production/`、本番環境変数の SSOT は `operations/platform/ENVIRONMENT_VARIABLES.md` にあります（`release/setup/ENV_REFERENCE.md` はその互換入口）。
+`release/` は本番初期構築のガイドです。日常運用は `operations/production/`、本番環境変数の SSOT は `operations/platform/ENVIRONMENT_VARIABLES.md` を参照してください。
 
 | 文書 | 説明 |
 |------|------|
-| [release/README.md](./release/README.md) | ナビゲーションインデックス。セットアップ / 運用の入口 |
-| [release/PRODUCTION.md](./release/PRODUCTION.md) | 旧本番手順書。再構成済みで setup / operations / README への案内入口 |
+| [release/README.md](./release/README.md) | 本番初回構築のナビゲーションインデックス |
 
-### 本番運用手順書 (operations/production/)
-
-| 文書 | 説明 |
-|------|------|
-| [operations/production/RUNBOOK.md](./operations/production/RUNBOOK.md) | 全シナリオの概要・判断フロー・共通前提条件（シナリオ入口） |
-| [operations/production/REGULAR_RELEASE.md](./operations/production/REGULAR_RELEASE.md) | 通常リリース（develop → main）9ステップ |
-| [operations/production/DB_MIGRATION.md](./operations/production/DB_MIGRATION.md) | DB 移行の 4 フェーズ + ドリフト検出 |
-| [operations/production/INCIDENT_ROLLBACK.md](./operations/production/INCIDENT_ROLLBACK.md) | 障害対応トリアージ + ロールバック手順 |
-| [operations/production/SECRETS_MANAGEMENT.md](./operations/production/SECRETS_MANAGEMENT.md) | シークレット追加・更新・ローテーション |
-| [operations/production/HOOK_SAFETY_MAP.md](./operations/production/HOOK_SAFETY_MAP.md) | Hook → 操作のマッピング表 |
-
-### 初期セットアップ (release/setup/)
+### 初期セットアップ (release/)
 
 | 文書 | 説明 |
 |------|------|
-| [release/setup/PRODUCTION_SETUP.md](./release/setup/PRODUCTION_SETUP.md) | 本番環境の初期構築手順（アーキテクチャ図あり） |
-| [release/setup/SUPABASE.md](./release/setup/SUPABASE.md) | 本番 Supabase |
-| [release/setup/STRIPE.md](./release/setup/STRIPE.md) | Stripe 本番 |
-| [release/setup/RAILWAY.md](./release/setup/RAILWAY.md) | Railway（FastAPI） |
-| [release/setup/VERCEL.md](./release/setup/VERCEL.md) | Vercel（Next.js） |
-| [release/setup/EXTERNAL_SERVICES.md](./release/setup/EXTERNAL_SERVICES.md) | OAuth、CORS 等 |
-| [release/setup/DOMAIN_OPERATIONS.md](./release/setup/DOMAIN_OPERATIONS.md) | `shupass.jp` のドメイン運用正本 |
-| [release/setup/ENV_REFERENCE.md](./release/setup/ENV_REFERENCE.md) | 環境変数の互換入口。正本は [operations/platform/ENVIRONMENT_VARIABLES.md](./operations/platform/ENVIRONMENT_VARIABLES.md)（tooling 互換のため存置） |
-| [release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md](./release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md) | 特商法・個人事業、Stripe 審査・公開表記 |
+| [release/PRODUCTION_SETUP.md](./release/PRODUCTION_SETUP.md) | 本番環境の初期構築手順（アーキテクチャ図あり） |
+| [release/SUPABASE.md](./release/SUPABASE.md) | 本番 Supabase |
+| [release/STRIPE.md](./release/STRIPE.md) | Stripe 本番 |
+| [release/RAILWAY.md](./release/RAILWAY.md) | Railway（FastAPI） |
+| [release/VERCEL.md](./release/VERCEL.md) | Vercel（Next.js） |
+| [release/GOOGLE_CLOUD.md](./release/GOOGLE_CLOUD.md) | Google Cloud Console / OAuth / CORS |
+| [release/UPSTASH_REDIS.md](./release/UPSTASH_REDIS.md) | Upstash Redis（レート制限） |
+| [release/SENTRY.md](./release/SENTRY.md) | Sentry（エラー追跡・外部監視） |
+| [release/DOMAIN_OPERATIONS.md](./release/DOMAIN_OPERATIONS.md) | `shupass.jp` のドメイン運用正本 |
+| [release/INDIVIDUAL_BUSINESS_COMPLIANCE.md](./release/INDIVIDUAL_BUSINESS_COMPLIANCE.md) | 特商法・個人事業、Stripe 審査・公開表記 |
 
 ---
 

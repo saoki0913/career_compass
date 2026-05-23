@@ -1,6 +1,6 @@
 # Step 2: Stripe 本番設定
 
-[← インデックス](../README.md)
+[← インデックス](./README.md)
 
 Stripe は Vercel (フロントエンド) 側のみで使用します。バックエンド (Railway) には Stripe 関連の設定は不要です。
 
@@ -110,7 +110,7 @@ STRIPE_SECRET_KEY_LIVE=<sk_live_...> npm run stripe:bootstrap-live
 - Webhook `https://www.shupass.jp/api/webhooks/stripe`（8 イベント）
 - Customer Portal の**デフォルト設定**（支払い方法・プラン変更・キャンセル・請求履歴、規約/プライバシー URL、return URL `/settings`）
 
-終了時に `STRIPE_PRICE_*` の追記用行が標準出力に出ます。Webhook 新規作成時の `STRIPE_WEBHOOK_SECRET` 値は標準出力に出さず、Stripe Dashboard で確認して repo local `.secrets/production/nextjs.env` の `STRIPE_WEBHOOK_SECRET` へ反映してください（secret bundle の正本は repo local `.secrets/`。解決順は [operations/production/SECRETS_MANAGEMENT.md](../../operations/production/SECRETS_MANAGEMENT.md) を参照）。その後 `zsh scripts/release/sync-career-compass-secrets.sh --check --target vercel-production` → `zsh scripts/release/sync-career-compass-secrets.sh --apply --target vercel-production --vercel-env production` を実行します。
+終了時に `STRIPE_PRICE_*` の追記用行が標準出力に出ます。Webhook 新規作成時の `STRIPE_WEBHOOK_SECRET` 値は標準出力に出さず、Stripe Dashboard で確認して repo local `.secrets/production/nextjs.env` の `STRIPE_WEBHOOK_SECRET` へ反映してください（secret bundle の正本は repo local `.secrets/`。解決順は [operations/production/SECRETS_MANAGEMENT.md](../operations/production/SECRETS_MANAGEMENT.md) を参照）。その後 `zsh scripts/release/sync-career-compass-secrets.sh --check --target vercel-production` → `zsh scripts/release/sync-career-compass-secrets.sh --apply --target vercel-production --vercel-env production` を実行します。
 
 > **注意**: Stripe CLI のプロファイルが `rk_live_...`（制限付きキー）だけの場合、`stripe ... --live` が応答しないことがあります。ブートストラップは **`sk_live_` を `STRIPE_SECRET_KEY` に渡す**想定です。
 
@@ -322,7 +322,7 @@ stripe trigger charge.dispute.closed
 
 ## 本番運用 env チェック
 
-Stripe 本番稼働で必須の env は [`operations/platform/ENVIRONMENT_VARIABLES.md`](../../operations/platform/ENVIRONMENT_VARIABLES.md) の Vercel セクションを正本にします。この文書では変数カタログを複製しません。
+Stripe 本番稼働で必須の env は [`operations/platform/ENVIRONMENT_VARIABLES.md`](../operations/platform/ENVIRONMENT_VARIABLES.md) の Vercel セクションを正本にします。この文書では変数カタログを複製しません。
 
 確認は `make stripe-preflight`。
 

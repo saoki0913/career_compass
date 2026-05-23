@@ -17,7 +17,7 @@ if [ "$TOOL" = "Read" ]; then
   - zsh scripts/release/sync-career-compass-secrets.sh --check
   - 個別インベントリ確認のみ（実値は読まない）
 
-env テンプレの確認は docs/release/ENV_REFERENCE.md を参照してください。
+env テンプレの確認は docs/operations/platform/ENVIRONMENT_VARIABLES.md を参照してください。
 EOF
     exit 2
   fi

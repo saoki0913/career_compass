@@ -108,13 +108,13 @@ function checkRetiredPaths(files) {
     errors.push("retired directory still exists: docs/release/ops");
   }
   const pattern = /docs\/ops|docs\/release\/ops|release\/ops\//;
-  const movedPathPattern = /docs\/release\/EXTERNAL_SERVICES\.md/;
+  const movedPathPattern = /docs\/release\/EXTERNAL_SERVICES\.md|docs\/release\/setup\/ENV_REFERENCE\.md/;
   for (const file of files) {
     if (file === "scripts/docs/check-docs.mjs") continue;
     const content = readFileSync(path.join(project, file), "utf8");
     if (pattern.test(content)) errors.push(`${file}: references retired docs ops path`);
     if (movedPathPattern.test(content)) {
-      errors.push(`${file}: references moved path docs/release/EXTERNAL_SERVICES.md`);
+      errors.push(`${file}: references moved/deleted path (EXTERNAL_SERVICES.md or ENV_REFERENCE.md)`);
     }
   }
 }

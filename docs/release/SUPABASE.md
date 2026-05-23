@@ -1,6 +1,6 @@
 # Step 1: Supabase (PostgreSQL) 本番データベースの作成
 
-[← インデックス](../README.md)
+[← インデックス](./README.md)
 
 ---
 

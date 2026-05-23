@@ -41,7 +41,7 @@ check_markdown_links() {
 }
 
 echo "--- Checking docs entrypoint links ---"
-for entrypoint in README.md docs/README.md docs/INDEX.md docs/operations/platform/SECURITY.md docs/release/setup/ENV_REFERENCE.md; do
+for entrypoint in README.md docs/README.md docs/INDEX.md docs/operations/platform/SECURITY.md; do
   if [ ! -f "$entrypoint" ]; then
     echo "ERROR: $entrypoint not found"
     bump_err

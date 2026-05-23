@@ -111,7 +111,7 @@
 
 ## 法令・問い合わせ先（現行実装メモ）
 
-就活Pass の本番方針は [`docs/release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md`](../../release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md) を正本とし、`/legal` の公開文面はページ本文に直接記載します。
+就活Pass の本番方針は [`docs/release/INDIVIDUAL_BUSINESS_COMPLIANCE.md`](../../release/INDIVIDUAL_BUSINESS_COMPLIANCE.md) を正本とし、`/legal` の公開文面はページ本文に直接記載します。
 
 一方、現行コードでは [`getCommerceDisclosure`](../../../src/lib/legal/commerce-disclosure.ts) が `process.env` から文言を組み立てる実装も残っています。以下の `LEGAL_*` は、現行実装やフォーク環境で使うためのメモであり、就活Pass 本番公開方針の正本ではありません。
 

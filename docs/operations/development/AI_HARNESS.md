@@ -429,7 +429,7 @@ Codex hook 配線の正本は [`docs/operations/development/CODEX_HARNESS.md`](.
   - Read tool で `.env*`, `.secrets/`, `codex-company/.secrets/`, `*.pem`, `*.key`, `*.p12` などの sensitive path を開こうとする
   - Bash tool で `cat|head|tail|less|more|bat|sed|awk|grep|rg` 等の読み取り系コマンドが sensitive path を対象にする
 - **許可される操作**: `zsh scripts/release/sync-career-compass-secrets.sh --check`
-- **相互参照**: [`docs/operations/platform/SECURITY.md`](../platform/SECURITY.md), [`docs/release/setup/ENV_REFERENCE.md`](../../release/setup/ENV_REFERENCE.md), `CLAUDE.md` の API / Error Handling Rules 節
+- **相互参照**: [`docs/operations/platform/SECURITY.md`](../platform/SECURITY.md), [`docs/operations/platform/ENVIRONMENT_VARIABLES.md`](../platform/ENVIRONMENT_VARIABLES.md), `CLAUDE.md` の API / Error Handling Rules 節
 
 #### 5.3.5 `post-edit-dispatcher.sh`（PostToolUse, Edit|Write）
 
