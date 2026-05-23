@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -12,12 +12,10 @@ import {
   ChatInput,
   ConversationRestartConfirmDialog,
   ConversationMobileStatus,
-  DraftReadyCTA,
+  EsDraftSettingsDialog,
+  ReadyOutputBar,
 } from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
-import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
-import { CharLimitSelector } from "@/components/chat/CharLimitSelector";
-import { GeneratedDraftActionCard } from "@/components/chat/GeneratedDraftActionCard";
 import { DraftPreviewModal } from "@/components/chat/DraftPreviewModal";
 import { ConversationWorkspaceShell } from "@/components/chat/ConversationWorkspaceShell";
 import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
@@ -160,6 +158,37 @@ export function MotivationConversationContent({ companyId }: { companyId: string
   }, [causalGaps.length, isDeepDive, stageStatus]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [esDraftDialogOpen, setEsDraftDialogOpen] = useState(false);
+  const readyOutputActions = [
+    {
+      key: "draft",
+      label: "ES作成",
+      description:
+        canGenerateDraft || generatedDraft
+          ? generatedDraft
+            ? "生成済みESを開く"
+            : "文字数を選んで生成"
+          : "材料が揃うと利用できます",
+      icon: "draft" as const,
+      disabled: (!canGenerateDraft && !generatedDraft) || isLocked || isGeneratingDraft,
+      pending: isGeneratingDraft,
+      onClick: () => {
+        if (generatedDraft) {
+          setIsDraftModalOpen(true);
+          return;
+        }
+        setEsDraftDialogOpen(true);
+      },
+    },
+    {
+      key: "feedback",
+      label: "フィードバック生成",
+      description: generatedDraft ? "面接向けの整理は次の工程で有効化" : "ES作成後に利用できます",
+      icon: "feedback" as const,
+      disabled: true,
+      onClick: () => undefined,
+    },
+  ];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -204,30 +233,11 @@ export function MotivationConversationContent({ companyId }: { companyId: string
           ) : null
         }
         actionBar={
-          generatedDraft ? (
-            <GeneratedDraftActionCard
-              draft={generatedDraft}
-              charLimit={charLimit}
-              documentId={generatedDocumentId}
-              onOpenPreview={() => setIsDraftModalOpen(true)}
-              isBusy={isGeneratingDraft || isLocked}
-            />
-          ) : (
-            <ConversationActionBar
-              actionLabel="志望動機ESを作成"
-              pendingLabel="作成中..."
-              onAction={handleGenerateDraft}
-              disabled={!canGenerateDraft || isLocked}
-              isPending={isGeneratingDraft}
-              controls={
-                <CharLimitSelector
-                  value={charLimit}
-                  onChange={setCharLimit}
-                  disabled={isGeneratingDraft}
-                />
-              }
-            />
-          )
+          <ReadyOutputBar
+            actions={readyOutputActions}
+            compact
+            helperText={generatedDraft ? "生成済みのESを確認できます。チャットは続けられます。" : undefined}
+          />
         }
         mobileStatus={
           <ConversationMobileStatus
@@ -342,26 +352,6 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                 </div>
               )}
 
-              {isDraftReady && !nextQuestion && !generatedDraft && !isGeneratingDraft && !isWaitingForResponse && !isTextStreaming && (
-                <DraftReadyCTA
-                  variant="pre-draft"
-                  message="材料が揃いました。右上の「志望動機ESを作成」から任意のタイミングで生成できます。追加で深掘りして強化することもできます。"
-                  actionLabel="深掘りを続ける"
-                  onAction={handleResumeDeepDive}
-                  isActionDisabled={isSending || isLocked || isGeneratingDraft}
-                />
-              )}
-
-              {isDraftReady && !nextQuestion && generatedDraft && !isWaitingForResponse && !isTextStreaming && (
-                <DraftReadyCTA
-                  variant="post-draft"
-                  message="ESを生成しました。さらに深掘りして強化できます。"
-                  actionLabel="深掘りを続ける"
-                  onAction={handleResumeDeepDive}
-                  isActionDisabled={isSending || isLocked || isGeneratingDraft}
-                />
-              )}
-
               <div ref={messagesEndRef} />
             </div>
           )
@@ -422,20 +412,18 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                 </div>
               </div>
             ) : (
-              <ChatInput
+              <div className="space-y-3">
+                <ChatInput
                 value={answer}
                 onChange={setAnswer}
                 onSend={() => handleSend()}
-                disabled={isSending || !nextQuestion || isLocked || showSetupScreen}
+                disabled={isSending || isLocked || showSetupScreen}
                 placeholder={
-                  isDraftReady && !nextQuestion && generatedDraft
-                    ? "「深掘りを続ける」で補強できます"
-                    : isDraftReady && !nextQuestion
-                      ? "ESは任意のタイミングで作成できます"
-                    : answerGuide
+                  isDraftReady ? "追加で深掘りしたい内容を入力してください" : answerGuide
                 }
                 className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0"
               />
+              </div>
             )}
           </>
         }
@@ -511,6 +499,23 @@ export function MotivationConversationContent({ companyId }: { companyId: string
           onClose={handleCloseDraftModal}
         />
       ) : null}
+      <EsDraftSettingsDialog
+        open={esDraftDialogOpen}
+        onOpenChange={setEsDraftDialogOpen}
+        description="志望動機の深掘り内容からESを生成します。"
+        value={charLimit}
+        onValueChange={setCharLimit}
+        isGenerating={isGeneratingDraft}
+        onGenerate={() => {
+          setEsDraftDialogOpen(false);
+          void handleGenerateDraft();
+        }}
+        materialItems={[
+          { title: "深掘り会話", description: "この会話で確認した内容" },
+          { title: "業界理由・企業理由・差別化", description: "志望動機の主要な構成要素" },
+          { title: "入社後にやりたいこと", description: "将来像と貢献内容" },
+        ]}
+      />
     </>
   );
 }

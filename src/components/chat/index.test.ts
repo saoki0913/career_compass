@@ -12,7 +12,8 @@ describe("chat/index exports", () => {
     const source = await readFile(new URL("./index.ts", import.meta.url), "utf8");
     expect(source).toContain("ConversationSidebar");
     expect(source).toContain("ConversationRestartConfirmDialog");
-    expect(source).toContain("DraftReadyCTA");
+    expect(source).toContain("ReadyOutputBar");
+    expect(source).toContain("EsDraftSettingsDialog");
     expect(source).toContain("ConversationMobileStatus");
   });
 });

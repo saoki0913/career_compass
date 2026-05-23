@@ -4,14 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 
-import { ConversationActionBar } from "@/components/chat/ConversationActionBar";
 import { ConversationPhaseBar } from "@/components/chat/ConversationPhaseBar";
 import { ConversationProgressBar } from "@/components/chat/ConversationProgressBar";
 import {
   ConversationSidebarCard,
   ConversationWorkspaceShell,
 } from "@/components/chat/ConversationWorkspaceShell";
-import { ChatInput, ChatMessage, ThinkingIndicator } from "@/components/chat";
+import { ChatInput, ChatMessage, ReadyOutputBar, ThinkingIndicator } from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { DrillPanel } from "@/components/interview/DrillPanel";
 import { RoleSelector } from "@/components/interview/RoleSelector";
@@ -198,6 +197,30 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
   const selectedSheetData = useMemo(() => parseSheetData(selectedHistory?.sheetDataJson), [selectedHistory?.sheetDataJson]);
   const selectedSheetFallback = selectedHistory?.sheetContent ?? null;
 
+  const readyOutputActions = [
+    feedback
+      ? {
+          key: "sheet-open",
+          label: "まとめシート作成",
+          description: "生成済みのまとめシートを表示",
+          icon: "sheet" as const,
+          disabled: !activeSheetData && !activeSheetFallback,
+          onClick: () => setSheetDialogOpen(true),
+        }
+      : {
+          key: "sheet-generate",
+          label: "まとめシート作成",
+          description: questionFlowCompleted
+            ? `成功時のみ ${billingCosts.feedback} credits`
+            : "必要な質問が完了すると利用できます",
+          icon: "sheet" as const,
+          disabled: !questionFlowCompleted || !canGenerateFeedback,
+          pending: isGeneratingFeedback,
+          pendingLabel: "生成中...",
+          onClick: handleGenerateFeedback,
+        },
+  ];
+
   useEffect(() => { const viewport = conversationRef.current?.parentElement; if (!viewport) return; const handleScroll = () => { const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight; autoScrollEnabledRef.current = distanceFromBottom < 96; }; handleScroll(); viewport.addEventListener("scroll", handleScroll); return () => viewport.removeEventListener("scroll", handleScroll); }, [hasStarted]);
   useEffect(() => { if (!autoScrollEnabledRef.current) return; conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages.length, streamingText, streamingFeedback?.overall_comment, streamingFeedback?.improved_answer, streamingFeedback?.strengths.length, streamingFeedback?.improvements.length, streamingFeedback?.next_preparation.length, streamingFeedback?.consistency_risks.length]);
   useEffect(() => { if (!feedback || feedbackCompletionCount <= lastAnnouncedFeedbackCompletionCountRef.current) return; lastAnnouncedFeedbackCompletionCountRef.current = feedbackCompletionCount; requestAnimationFrame(() => { setSheetDialogOpen(true); }); notifySuccess({ title: "まとめシートを生成しました", description: "まとめシートを表示しました。内容を確認しながら振り返れます。", duration: 4200 }); }, [feedback, feedbackCompletionCount]);
@@ -235,7 +258,7 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
         backHref={`/companies/${normalizedCompanyId}`}
         title="面接対策"
         subtitle={companyName || "企業特化模擬面接"}
-        actionBar={<ConversationActionBar helperText={feedbackHelperText} actionLabel="まとめシートを作成" pendingLabel="シートを作成中..." onAction={handleGenerateFeedback} disabled={!canGenerateFeedback} isPending={isGeneratingFeedback} />}
+        actionBar={<ReadyOutputBar actions={readyOutputActions} compact helperText={feedbackHelperText} />}
         mobileStatus={<div className="space-y-1 text-sm text-muted-foreground"><div className="flex flex-wrap items-center gap-2"><span>{turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || "開始前"}</span><span>{questionCount > 0 ? `${questionCount}問目` : "開始前"}</span></div>{transitionLine ? (<p className="text-xs text-foreground/80">{transitionLine}</p>) : null}{sessionState.isActive ? (<p className="text-xs">前回の続きです。現在 {sessionState.questionCount || questionCount} 問目まで進んでいます。</p>) : null}</div>}
         conversation={
           !hasStarted ? (
@@ -296,8 +319,8 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
             </div>
           )
         }
-        conversationFooter={transitionLine || feedback ? (<div ref={feedbackCardRef} className="space-y-3">{transitionLine ? (<div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm leading-6 text-muted-foreground">{transitionLine}</div>) : null}{feedback ? (<><div className="rounded-xl border border-border/60 bg-muted/15 px-4 py-3"><p className="text-sm font-medium">まとめシートを生成しました</p><p className="mt-1 text-xs text-muted-foreground">{feedback.overall_comment?.slice(0, 100)}{(feedback.overall_comment?.length ?? 0) > 100 ? "..." : ""}</p><Button variant="outline" size="sm" className="mt-2" onClick={() => setSheetDialogOpen(true)}>まとめシートを開く</Button></div>{feedback.weakest_turn_id && feedback.weakest_question_snapshot && normalizedCompanyId ? (<Collapsible><CollapsibleTrigger asChild><Button variant="outline" className="w-full justify-between">最弱回答を書き直して再採点する<ChevronDown className="h-4 w-4" /></Button></CollapsibleTrigger><CollapsibleContent className="mt-3"><DrillPanel companyId={normalizedCompanyId} weakestTurnId={feedback.weakest_turn_id} weakestQuestion={feedback.weakest_question_snapshot} weakestAnswer={feedback.weakest_answer_snapshot ?? ""} weakestAxis={weakestAxis ?? "specificity"} originalScore={weakestAxis ? (feedback.scores[weakestAxis] ?? 0) : 0} originalScores={feedbackScoreRecord} originalFeedbackId={latestFeedbackHistory?.id} interviewFormat={setupState.interviewFormat} interviewerType={setupState.interviewerType} strictnessMode={setupState.strictnessMode} /></CollapsibleContent></Collapsible>) : null}<div className="flex flex-wrap gap-3"><Button onClick={handleContinue} disabled={!canContinue}>面接対策を続ける（{billingCosts.continue} credit）</Button><ResetConfirmButton onReset={handleReset} disabled={isBusy} /></div><p className="text-xs text-muted-foreground"><Link href="/interview/dashboard" className="text-primary underline-offset-2 hover:underline">成長ダッシュボードで推移を見る →</Link></p></>) : null}</div>) : undefined}
-        composer={hasStarted && !isComplete ? (questionFlowCompleted ? (<p className="text-sm text-muted-foreground">模擬面接は完了です。必要になったら上部のボタンからまとめシートを作成してください。</p>) : (<div className="space-y-2">{nextQuestionHint ? (<div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground"><span className="font-medium text-foreground">回答のヒント: </span>{nextQuestionHint}</div>) : null}<ChatInput value={answer} onChange={setAnswer} onSend={handleSend} isSending={isBusy} disableSend={!canSend} placeholder="回答を入力..." className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0" /></div>)) : undefined}
+        conversationFooter={transitionLine || feedback ? (<div ref={feedbackCardRef} className="space-y-3">{transitionLine ? (<div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm leading-6 text-muted-foreground">{transitionLine}</div>) : null}{feedback ? (<><div className="rounded-xl border border-border/60 bg-muted/15 px-4 py-3"><p className="text-sm font-medium">まとめシートを生成しました</p><p className="mt-1 text-xs text-muted-foreground">{feedback.overall_comment?.slice(0, 100)}{(feedback.overall_comment?.length ?? 0) > 100 ? "..." : ""}</p></div>{feedback.weakest_turn_id && feedback.weakest_question_snapshot && normalizedCompanyId ? (<Collapsible><CollapsibleTrigger asChild><Button variant="outline" className="w-full justify-between">最弱回答を書き直して再採点する<ChevronDown className="h-4 w-4" /></Button></CollapsibleTrigger><CollapsibleContent className="mt-3"><DrillPanel companyId={normalizedCompanyId} weakestTurnId={feedback.weakest_turn_id} weakestQuestion={feedback.weakest_question_snapshot} weakestAnswer={feedback.weakest_answer_snapshot ?? ""} weakestAxis={weakestAxis ?? "specificity"} originalScore={weakestAxis ? (feedback.scores[weakestAxis] ?? 0) : 0} originalScores={feedbackScoreRecord} originalFeedbackId={latestFeedbackHistory?.id} interviewFormat={setupState.interviewFormat} interviewerType={setupState.interviewerType} strictnessMode={setupState.strictnessMode} /></CollapsibleContent></Collapsible>) : null}<div className="flex flex-wrap gap-3"><Button onClick={handleContinue} disabled={!canContinue}>面接対策を続ける（{billingCosts.continue} credit）</Button><ResetConfirmButton onReset={handleReset} disabled={isBusy} /></div><p className="text-xs text-muted-foreground"><Link href="/interview/dashboard" className="text-primary underline-offset-2 hover:underline">成長ダッシュボードで推移を見る →</Link></p></>) : null}</div>) : undefined}
+        composer={hasStarted && !isComplete ? (<div className="space-y-3">{nextQuestionHint ? (<div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground"><span className="font-medium text-foreground">回答のヒント: </span>{nextQuestionHint}</div>) : null}<ChatInput value={answer} onChange={setAnswer} onSend={handleSend} isSending={isBusy} disableSend={!canSend} placeholder="回答を入力..." className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0" /></div>) : undefined}
         sidebar={<><ConversationSidebarCard title="進捗" actions={hasStarted ? (<ResetConfirmButton onReset={handleReset} disabled={isBusy} size="sm" className="h-9 rounded-xl px-3 text-xs shadow-sm" />) : null}><div className="space-y-3">{sessionState.isActive ? (<div className="rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-xs leading-5 text-muted-foreground">前回の続きです。現在 {sessionState.questionCount || questionCount} 問目まで進んでいます。やり直す場合は会話内容が破棄されます。</div>) : null}<div className="flex flex-wrap gap-2">{effectiveIndustry ? (<Badge variant="soft-info" className="px-3 py-1 text-[11px]">{effectiveIndustry}</Badge>) : (<Badge variant="outline" className="px-3 py-1 text-[11px]">業界未設定</Badge>)}{resolvedSelectedRole ? (<Badge variant="soft-primary" className="px-3 py-1 text-[11px]">職種: {resolvedSelectedRole}</Badge>) : (<Badge variant="outline" className="px-3 py-1 text-[11px]">職種未選択</Badge>)}<Badge variant="outline" className="px-3 py-1 text-[11px]">{INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</Badge></div><ConversationProgressBar stages={topicStages} headerSubtext={questionDisplay} footerMessage={coachingNarrative} columns={2} /><ConversationPhaseBar phases={interviewPhases} /></div></ConversationSidebarCard><ConversationSidebarCard title="面接設定"><div className="space-y-2 text-xs text-muted-foreground"><p>業界: {effectiveIndustry || "未設定"}</p><p>職種: {resolvedSelectedRole || setupState.selectedRole || "未設定"}</p><p>職種分類: {ROLE_TRACK_LABELS[setupState.roleTrack]}</p><p>面接方式: {INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</p><p>選考種別: {SELECTION_TYPE_LABELS[setupState.selectionType]}</p><p>面接段階: {INTERVIEW_STAGE_LABELS[setupState.interviewStage]}</p><p>面接官: {INTERVIEWER_TYPE_LABELS[setupState.interviewerType]}</p><p>厳しさ: {STRICTNESS_MODE_LABELS[setupState.strictnessMode]}</p>{turnMeta?.interviewSetupNote ? (<p className="pt-2 text-foreground/90">{turnMeta.interviewSetupNote}</p>) : null}</div></ConversationSidebarCard><ConversationSidebarCard title="参考にする材料"><InterviewMaterialsCard materials={materials} /></ConversationSidebarCard><ConversationSidebarCard title="過去のまとめシート"><FeedbackHistoryList histories={feedbackHistories} onOpen={setSelectedHistory} /></ConversationSidebarCard></>}
       />
       <SheetViewerDialog open={sheetDialogOpen} onOpenChange={setSheetDialogOpen} data={activeSheetData} markdownFallback={activeSheetFallback} satisfactionScore={latestFeedbackHistory?.satisfactionScore ?? null} onSaveSatisfaction={feedback ? handleSaveSatisfaction : undefined} isSavingSatisfaction={isSavingSatisfaction} />
