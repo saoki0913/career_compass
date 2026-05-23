@@ -73,7 +73,7 @@ FastAPI（`backend/app/config.py`。BFF と同じ secret を共有）:
 | `ANTHROPIC_API_KEY` | LLM | Anthropic |
 
 > `CORS_ORIGINS` / `FRONTEND_URL` はローカルでは default（`http://localhost:3000`）で動くため設定不要。Redis（`UPSTASH_*` / `REDIS_URL`）も任意で、未設定ならキャッシュ無効で動作する。
-> **外部サービスの取得手順**（Supabase project 作成・Google OAuth console・Stripe アカウント）は [`docs/setup/DEVELOPMENT_AND_ENV.md`](../../setup/DEVELOPMENT_AND_ENV.md) に集約。Google Cloud の本番 / staging 集約手順は [`docs/release/GOOGLE_CLOUD.md`](../../release/GOOGLE_CLOUD.md) を正とする。
+> **外部サービスのキー取得手順は CLI 優先で `docs/release/` のサービス別 doc に集約**（OpenAI / Anthropic / Stripe / Supabase / Vercel / Railway / Upstash / Sentry / Google Cloud / Document AI / Mistral / Firecrawl / Resend / Logo.dev / Brandfetch / Cloudflare）。一覧と前提 CLI は [`docs/release/README.md`](../../release/README.md)、ローカル開発の Quick Start は [`docs/setup/DEVELOPMENT_AND_ENV.md`](../../setup/DEVELOPMENT_AND_ENV.md)。
 
 ### 1-2 staging / production を環境別に設定する
 
@@ -102,6 +102,7 @@ for f in .secrets/**/*.example; do mv "$f" "${f%.example}"; done
 `STRIPE_PRICE_{STANDARD,PRO}_{MONTHLY,ANNUAL}`, `STRIPE_PORTAL_CONFIGURATION_ID`（`bpc_`）, さらに `BETTER_AUTH_TRUSTED_ORIGINS` に `https://www.shupass.jp,https://shupass.jp` を含めること。
 
 **設定時の注意（loss-less）**:
+- **外部 API キーはローカル/staging で流用してよい（本番は分離推奨）**: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `FIRECRAWL_API_KEY`, `RESEND_API_KEY`, `LOGO_DEV_TOKEN`, `LOGO_DEV_SECRET_KEY`, `BRANDFETCH_CLIENT_ID` は環境分離の境界（webhook endpoint や namespace）を持たないため、ローカルの `.env.local` の値を staging にそのまま流用してよい。ただし `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `RESEND_API_KEY` は漏洩時の影響範囲・quota・監査を分けるため **production は別キーを推奨**（§2-2「原則別値」と整合）。Logo.dev / Brandfetch / Mistral / Firecrawl は本番も同値でよい。一方 `[環境別]`（URL・`DATABASE_URL`/`DIRECT_URL`・`STRIPE_*`・`GOOGLE_CLIENT_ID`/`SECRET`・`UPSTASH_*`/`REDIS_*`・`SENTRY_*` DSN・provider project ID・各種署名鍵）は環境ごとに取得・生成する（判定は §2-2）。
 - `shared.env` の変数を `nextjs.env`/`fastapi.env` に**重複定義しない**（値が同じでも sync がエラー中断）。
 - `BACKEND_TRUSTED_HOSTS` は本番 host を含める。未設定だと `/health` は通っても通常 API が host check で落ちる。
 - DB migration は Transaction Pooler `6543` 不可。Direct/Session `5432`（`DIRECT_URL`）を使う。production migration は raw `db:push` ではなく `make deploy-migrate` / `make db-migrate-check`。
@@ -371,7 +372,8 @@ make stripe-preflight
 #### 関連 doc（環境変数の記述は本 SSOT に集約）
 
 - `docs/setup/DEVELOPMENT_AND_ENV.md`: ローカル開発の Quick Start と外部サービス取得手順（Supabase / OAuth / Stripe）。変数一覧は持たず本文書（§1 / §2 / §4-2）へ誘導。
-- `scripts/release/secrets-examples/README.md`: provider 同期テンプレの操作 how-to の正本（本文書は変数の意味の正本）。
+- `docs/release/*.md`: 外部サービスのキー取得手順（CLI 優先）。サービス別 doc（OpenAI / Anthropic / Stripe / Supabase / Vercel / Railway / Upstash / Sentry / Google Cloud / Mistral / Firecrawl / Resend / Logo.dev / Brandfetch / Cloudflare）。一覧と前提 CLI は `docs/release/README.md`。本文書は変数の意味の正本で、取得手順は持たず release/ へ誘導する。
+- `scripts/release/secrets-examples/README.md`: provider 同期テンプレの操作 how-to の正本（本文書は変数の意味の正本）。サービス別の取得手順 doc への索引表もここに集約。
 - ~~`docs/release/setup/ENV_REFERENCE.md`~~: 削除済み。環境変数の正本は本文書。
 - `docs/INDEX.md`: 「環境変数 SSOT」として本文書へ。
 - 参照のみ（変更しない）: `docs/operations/production/RUNBOOK.md`, `docs/operations/production/SECRETS_MANAGEMENT.md`, `docs/setup/DB_SUPABASE.md`

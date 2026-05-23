@@ -35,12 +35,104 @@
 
 実際に見る順番は次で固定します。
 
-1. 現在構成の確認
-2. Web ドメイン設定
-3. メール設定
-4. 動作確認
-5. お名前.com レンタルサーバー解約判断
-6. 最終チェックリスト
+1. 前提 CLI / 認証
+2. 現在構成の確認
+3. Web ドメイン設定
+4. メール設定
+5. 動作確認
+6. お名前.com レンタルサーバー解約判断
+7. 最終チェックリスト
+
+DNS レコードの追加・確認は **Cloudflare 公式 API（curl）を第一の手段** とします。Dashboard 操作は fallback として各節末尾に残します。レジストラは お名前.com のままですが、レコード編集の正本は Cloudflare です。
+
+---
+
+## 0. 前提 CLI / 認証
+
+DNS 操作には次のどちらかを使います。**curl + 公式 API を推奨**します。CLI が手元にない環境でも curl は使えるためです。
+
+| 手段 | 用途 | 状態 |
+|---|---|---|
+| `curl` + Cloudflare API v4 | DNS レコードの作成・一覧・確認（推奨） | 公式・常用 |
+| `flarectl` | 同上を short option で実行する CLI | 公式だが maintenance モード |
+| Dashboard | GUI 操作（fallback） | 常時利用可 |
+
+> `wrangler` は Workers / Pages 向けの CLI で、汎用的な zone の DNS レコード CRUD は対象外です。DNS は API（curl）または `flarectl` を使います。
+> 公式: Cloudflare API でダッシュボードの操作はほぼ自動化できる。参考: https://developers.cloudflare.com/fundamentals/api/
+
+### 0-1. 認証情報
+
+bootstrap 用に `scripts/release/secrets-examples/infra/cloudflare.env.example` で定義済みです。Cloudflare は bootstrap 専用で、`sync-career-compass-secrets.sh` の sync 対象には含めません。
+
+| 変数 | 用途 | 重要度 |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | DNS API 認証（Bearer token） | `[必須]` `[共通可]` |
+| `CLOUDFLARE_ACCOUNT_ID` | account 単位での zone 絞り込み | `[必須]` `[共通可]` |
+
+実値は `.secrets/infra/cloudflare.env`（project-internal, gitignored）にあります。**実 secret ファイルは Read しません**。下のコマンドはシェルに値を読み込んでから実行します（実トークンは貼らず placeholder のまま管理します）。
+
+```bash
+# 実 secret ファイルから環境変数を読み込む（値はターミナルに出さない）
+set -a; source .secrets/infra/cloudflare.env; set +a
+
+# 以降のコマンドは $CLOUDFLARE_API_TOKEN / $CLOUDFLARE_ACCOUNT_ID を参照する
+```
+
+### 0-2. API トークンの権限
+
+DNS レコードを作成・編集するトークンは、最小権限で次のスコープに絞ります。
+
+| Permission | 値 |
+|---|---|
+| Zone - DNS | `Edit`（create / read / update / delete / list を含む） |
+| Zone - Zone | `Read`（zone 一覧から zone_id を引くため） |
+| Zone Resources | `shupass.jp` のみに限定 |
+
+> 公式: DNS 編集には `Zone - DNS - Edit` テンプレートを使い、対象 zone を限定する。参考: https://developers.cloudflare.com/fundamentals/api/get-started/create-token/
+> 公式: 権限カテゴリ一覧。参考: https://developers.cloudflare.com/fundamentals/api/reference/permissions/
+
+### 0-3. トークン検証
+
+```bash
+curl https://api.cloudflare.com/client/v4/user/tokens/verify \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+# => "status": "active" を確認する
+```
+
+> 公式: トークン検証は `/user/tokens/verify`。参考: https://developers.cloudflare.com/api/resources/user/subresources/tokens/methods/verify/
+
+### 0-4. zone_id の取得
+
+DNS レコード操作はすべて `zone_id` を要求します。`shupass.jp` の zone_id をまず引き、以降のコマンドで使い回します。
+
+```bash
+# shupass.jp の zone_id を取得（jq があれば .result[0].id を抽出）
+curl -s "https://api.cloudflare.com/client/v4/zones?name=shupass.jp&account.id=$CLOUDFLARE_ACCOUNT_ID" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq -r '.result[0].id'
+
+# 取得した値をシェル変数に入れて以降で使う
+export ZONE_ID="<取得した zone_id>"
+```
+
+> 公式: zone 一覧は `GET /zones`、`name` で絞り込める。参考: https://developers.cloudflare.com/api/resources/zones/methods/list/
+
+### 0-5. flarectl を使う場合（CLI fallback）
+
+`flarectl` は `--zone="shupass.jp"` のように zone 名を直接指定できます（内部で zone_id を解決）。認証は同じトークンを `CF_API_TOKEN` で渡します。
+
+```bash
+# インストール（Go 環境がある場合）
+go install github.com/cloudflare/cloudflare-go/cmd/flarectl@latest
+
+# 認証（API トークンを渡す）
+export CF_API_TOKEN="$CLOUDFLARE_API_TOKEN"
+
+# 例: レコード一覧
+flarectl dns list --zone="shupass.jp"
+```
+
+> 公式（pkg）: `flarectl dns` のサブコマンドと option。参考: https://pkg.go.dev/github.com/cloudflare/cloudflare-go/cmd/flarectl
+> flarectl は maintenance モードのため、新規自動化は curl + API を優先します。
 
 ---
 
@@ -92,6 +184,72 @@ staging は現行前提を維持します。
 - `stg-api.shupass.jp`: staging backend 用の DNS レコードを維持する
 
 用途不明の古い Web 用レコードは即削除せず、現行サービスと照合してから整理します。
+
+#### CLI / API でレコードを追加する（推奨）
+
+事前に Section 0 で `$ZONE_ID` を設定しておきます。apex の `A` レコードと `www` の `CNAME` を作成します。`proxied` は Vercel 接続の都合に合わせます（Vercel の指示で proxy なしにする場合は `false`）。`ttl: 1` は「automatic」を意味します。
+
+```bash
+# apex (@) を Vercel へ向ける A レコード
+curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+  --request POST \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "type": "A",
+        "name": "shupass.jp",
+        "content": "76.76.21.21",
+        "ttl": 1,
+        "proxied": false,
+        "comment": "apex -> Vercel"
+      }'
+
+# www を Vercel へ向ける CNAME レコード
+curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+  --request POST \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "type": "CNAME",
+        "name": "www.shupass.jp",
+        "content": "cname.vercel-dns.com",
+        "ttl": 1,
+        "proxied": false,
+        "comment": "www -> Vercel"
+      }'
+```
+
+`flarectl` を使う場合（zone 名を直接指定）:
+
+```bash
+flarectl dns create --zone="shupass.jp" --name="@" --type="A" --content="76.76.21.21"
+flarectl dns create --zone="shupass.jp" --name="www" --type="CNAME" --content="cname.vercel-dns.com"
+```
+
+> 公式: DNS レコード作成は `POST /zones/{zone_id}/dns_records`、`ttl: 1` は automatic。参考: https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/create/
+> 公式: API での作成手順全体。参考: https://developers.cloudflare.com/dns/manage-dns-records/how-to/create-dns-records/
+
+#### 追加後の確認
+
+`type` で種別を絞り、対象名は `jq` で照合します（一覧 API は `name` フィルタも持ちますが、確実に効く `type` 絞り込み + クライアント側照合を採用します）。
+
+```bash
+# A レコードを一覧して apex を照合する
+curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  | jq '.result[] | select(.name=="shupass.jp") | {type,name,content,proxied}'
+
+# CNAME レコードを一覧して www を照合する
+curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  | jq '.result[] | select(.name=="www.shupass.jp") | {type,name,content,proxied}'
+```
+
+> 公式: レコード一覧は `GET /zones/{zone_id}/dns_records`、`type` で絞り込める。`name` フィルタは `contains`/`endswith`/`exact`/`startswith` をサポート。参考: https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/list/
+
+#### Dashboard で追加する（fallback）
+
+API が使えない場合のみ、Cloudflare Dashboard → 対象 zone (`shupass.jp`) → `DNS` → `Records` → `Add record` で上表のとおり登録します。編集の正本は Cloudflare であり、お名前.com DNS 画面は使いません。
 
 ### 2-2. Vercel 側で確認すること
 
@@ -146,6 +304,91 @@ curl -I https://shupass.jp
 
 この編集先は Cloudflare です。お名前.com DNS 画面は正本ではありません。
 
+#### CLI / API でレコードを追加する（推奨）
+
+事前に Section 0 で `$ZONE_ID` を設定しておきます。MX は `priority` を別フィールドで指定します（`content` には priority を含めません）。SPF / DKIM / DMARC は `TXT` レコードとして作成します。DKIM の `content` は Google Admin Console で生成した公開鍵に置き換えます。
+
+```bash
+# MX レコード（priority は専用フィールド）
+curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+  --request POST \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "type": "MX",
+        "name": "shupass.jp",
+        "content": "smtp.google.com",
+        "priority": 1,
+        "ttl": 1,
+        "comment": "Google Workspace MX"
+      }'
+
+# SPF（TXT @）
+curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+  --request POST \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "type": "TXT",
+        "name": "shupass.jp",
+        "content": "v=spf1 include:_spf.google.com ~all",
+        "ttl": 1,
+        "comment": "Google Workspace SPF"
+      }'
+
+# DKIM（TXT google._domainkey）。content は Admin Console で生成した公開鍵に置換する
+curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+  --request POST \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "type": "TXT",
+        "name": "google._domainkey.shupass.jp",
+        "content": "<Google が発行した DKIM 公開鍵>",
+        "ttl": 1,
+        "comment": "Google Workspace DKIM"
+      }'
+
+# DMARC（TXT _dmarc）監視モード
+curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+  --request POST \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "type": "TXT",
+        "name": "_dmarc.shupass.jp",
+        "content": "v=DMARC1; p=none; rua=mailto:support@shupass.jp",
+        "ttl": 1,
+        "comment": "DMARC monitoring mode"
+      }'
+```
+
+`flarectl` を使う場合（MX は `--priority`、TXT の `--content` は引用符でそのまま渡す）:
+
+```bash
+flarectl dns create --zone="shupass.jp" --name="@" --type="MX" --content="smtp.google.com" --priority=1
+flarectl dns create --zone="shupass.jp" --name="@" --type="TXT" --content="v=spf1 include:_spf.google.com ~all"
+```
+
+> 公式: MX は `priority` フィールドが必須。参考: https://developers.cloudflare.com/dns/manage-dns-records/how-to/email-records/
+> 公式: 作成エンドポイントと TXT/MX の body 定義。参考: https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/create/
+
+#### 追加後の確認
+
+```bash
+# MX
+curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=MX" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq '.result[] | {name,content,priority}'
+
+# SPF / DKIM / DMARC（TXT を一覧して内容を照合）
+curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=TXT" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq '.result[] | {name,content}'
+```
+
+#### Dashboard で追加する（fallback）
+
+API が使えない場合のみ、Cloudflare Dashboard → 対象 zone (`shupass.jp`) → `DNS` → `Records` から上表のとおり登録します。MX は `Mail server` と `Priority`、TXT は `Content` をそのまま入力します。編集の正本は Cloudflare です。
+
 ### 3-3. 削除候補
 
 次は Google Workspace 運用と競合しやすいため、利用中でないことを確認したうえで削除候補にします。
@@ -154,6 +397,26 @@ curl -I https://shupass.jp
 - `include:_spf.onamae.ne.jp` を含む SPF
 - 旧メールサービスの `MX`
 - 旧メールサービス由来の `TXT`
+
+#### CLI / API で削除する（推奨）
+
+削除は record_id を指定する `DELETE` です。まず一覧で対象の `id` を特定してから削除します。**消す前に内容を必ず確認**します（破壊操作のため）。
+
+```bash
+# 削除候補を一覧して id と内容を確認する（例: mail サブドメインの A）
+curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  | jq '.result[] | select(.name=="mail.shupass.jp") | {id,name,content}'
+
+# 内容を確認したうえで record_id を指定して削除する
+curl "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$DNS_RECORD_ID" \
+  -X DELETE \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+```
+
+> 公式: 削除は `DELETE /zones/{zone_id}/dns_records/{dns_record_id}`。参考: https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/delete/
+
+Dashboard で行う場合 (fallback): 対象 zone → `DNS` → `Records` → 該当行の `Edit` → `Delete`。いずれの手段でも、用途不明レコードは即削除せず現行サービスと照合してから整理します。
 
 ### 3-4. Google Workspace 側の設定
 
@@ -190,6 +453,8 @@ in:anywhere to:support@shupass.jp newer_than:7d
 
 ### 4-1. DNS 確認コマンド
 
+`dig` は実際に解決される値（伝播後の状態）を確認します。
+
 ```bash
 dig shupass.jp mx +short
 # => 1 smtp.google.com.
@@ -203,6 +468,19 @@ dig google._domainkey.shupass.jp txt +short
 dig _dmarc.shupass.jp txt +short
 # => "v=DMARC1; p=none; rua=mailto:support@shupass.jp"
 ```
+
+設定の正本（Cloudflare 上のレコード）は API でも確認できます。`dig` が期待値を返さないときに、Cloudflare 側の登録内容と突き合わせます（事前に Section 0 で `$ZONE_ID` を設定）。
+
+```bash
+# Cloudflare 上の MX / TXT を一覧して登録内容を照合する
+curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=MX" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq '.result[] | {name,content,priority}'
+
+curl -s "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=TXT" \
+  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | jq '.result[] | {name,content}'
+```
+
+> 公式: レコード一覧は `GET /zones/{zone_id}/dns_records`。参考: https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/list/
 
 ### 4-2. 実送信確認
 

@@ -48,8 +48,32 @@
 | **Step 5a** | Google Cloud / OAuth / CORS | [GOOGLE_CLOUD.md](./GOOGLE_CLOUD.md) |
 | **Step 5b** | Upstash Redis（レート制限） | [UPSTASH_REDIS.md](./UPSTASH_REDIS.md) |
 | **Step 5c** | Sentry（エラー追跡・外部監視） | [SENTRY.md](./SENTRY.md) |
+| **Step 5d** | AI / LLM プロバイダ（OpenAI / Anthropic） | [OPENAI.md](./OPENAI.md) ・ [ANTHROPIC.md](./ANTHROPIC.md) |
+| **Step 5e** | 補助サービス（OCR / メール / 企業ロゴ） | [MISTRAL.md](./MISTRAL.md) ・ [FIRECRAWL.md](./FIRECRAWL.md) ・ [RESEND.md](./RESEND.md) ・ [LOGO_DEV.md](./LOGO_DEV.md) ・ [BRANDFETCH.md](./BRANDFETCH.md) |
 | **Ref** | 環境変数リファレンス（SSOT） | [ENVIRONMENT_VARIABLES.md](../operations/platform/ENVIRONMENT_VARIABLES.md) |
 | **Ref** | 個人事業主コンプライアンス（特商法・Stripe 審査） | [INDIVIDUAL_BUSINESS_COMPLIANCE.md](./INDIVIDUAL_BUSINESS_COMPLIANCE.md) |
+
+---
+
+## 前提 CLI（CLI 優先で設定する）
+
+各サービスの設定は「CLI コマンド（推奨）を先に、GUI（fallback）を後に」の順で記述しています。よく使う CLI と詳細手順の在りかは次のとおり。インストール・認証コマンドの正確な形は各 doc に記載しています（最新の公式ドキュメントで裏取り済み）。
+
+| CLI | 主な用途 | 詳細手順 |
+|---|---|---|
+| `gcloud` | Google Cloud / OAuth / Document AI | [GOOGLE_CLOUD.md](./GOOGLE_CLOUD.md) |
+| `stripe` | Stripe 商品・Price・Webhook・Portal | [STRIPE.md](./STRIPE.md) |
+| `supabase` | Supabase project / 接続情報 / secrets | [SUPABASE.md](./SUPABASE.md) |
+| `vercel` | Vercel project / env / deploy | [VERCEL.md](./VERCEL.md) |
+| `railway` | Railway service / variables / deploy | [RAILWAY.md](./RAILWAY.md) |
+| `upstash` | Upstash Redis DB 作成・認証情報取得 | [UPSTASH_REDIS.md](./UPSTASH_REDIS.md) |
+| `sentry-cli` | Sentry release / sourcemap / cron | [SENTRY.md](./SENTRY.md) |
+| `openai` | OpenAI プロジェクト・サービスキー発行 | [OPENAI.md](./OPENAI.md) |
+| `resend` | Resend API キー・送信ドメイン認証 | [RESEND.md](./RESEND.md) |
+| Cloudflare API（`curl`） | Cloudflare DNS レコード | [DOMAIN_OPERATIONS.md](./DOMAIN_OPERATIONS.md) |
+
+> **CLI が無い/キー発行に使えないサービス**: Anthropic・Mistral・Firecrawl・Logo.dev・Brandfetch は API キーの発行を Dashboard で行う（CLI は発行に使えない、または存在しない）。手順は各 doc を参照。
+> **env への反映の正本**は repo の secret 同期（`make ops-secrets-sync` / `scripts/release/sync-career-compass-secrets.sh`）。provider CLI（`vercel env` / `railway variables` 等）はその fallback。
 
 ---
 

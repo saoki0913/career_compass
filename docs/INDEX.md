@@ -1,6 +1,6 @@
 # ドキュメント一覧（地図）
 
-**最終更新**: 2026-05-19
+**最終更新**: 2026-05-24
 
 **この文書の目的**: `docs/` 配下にある現行 Markdown 文書の完全カタログです。初めて読む人は読者別入口の [README.md](./README.md) から入り、全体目録として本書を使ってください。文書の構造・命名・置き場所の規約は [CONVENTIONS.md](./CONVENTIONS.md) を参照してください。
 
@@ -292,6 +292,13 @@
 | [release/GOOGLE_CLOUD.md](./release/GOOGLE_CLOUD.md) | Google Cloud Console / OAuth / CORS |
 | [release/UPSTASH_REDIS.md](./release/UPSTASH_REDIS.md) | Upstash Redis（レート制限） |
 | [release/SENTRY.md](./release/SENTRY.md) | Sentry（エラー追跡・外部監視） |
+| [release/OPENAI.md](./release/OPENAI.md) | OpenAI（LLM・RAG・embeddings、CLI 優先） |
+| [release/ANTHROPIC.md](./release/ANTHROPIC.md) | Anthropic Claude（ES 添削・面接・下書き） |
+| [release/MISTRAL.md](./release/MISTRAL.md) | Mistral OCR（高精度 PDF OCR・任意） |
+| [release/FIRECRAWL.md](./release/FIRECRAWL.md) | Firecrawl（選考スケジュール HTML 抽出・任意） |
+| [release/RESEND.md](./release/RESEND.md) | Resend（お問い合わせメール送信・任意） |
+| [release/LOGO_DEV.md](./release/LOGO_DEV.md) | Logo.dev（企業ロゴ取得・任意） |
+| [release/BRANDFETCH.md](./release/BRANDFETCH.md) | Brandfetch（企業ロゴ fallback・任意） |
 | [release/DOMAIN_OPERATIONS.md](./release/DOMAIN_OPERATIONS.md) | `shupass.jp` のドメイン運用正本 |
 | [release/INDIVIDUAL_BUSINESS_COMPLIANCE.md](./release/INDIVIDUAL_BUSINESS_COMPLIANCE.md) | 特商法・個人事業、Stripe 審査・公開表記 |
 

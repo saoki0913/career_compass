@@ -73,7 +73,7 @@ Gemini production 用キーの作成:
 ```bash
 gcloud services api-keys create \
   --project=ukarun-483616 \
-  --display-name="shupass-gemini-production" \
+  --display-name="career-compass-gemini-production" \
   --api-target=service=generativelanguage.googleapis.com
 ```
 
@@ -82,7 +82,7 @@ staging と production は別キーにする。
 ```bash
 gcloud services api-keys create \
   --project=ukarun-483616 \
-  --display-name="shupass-gemini-staging" \
+  --display-name="career-compass-gemini-staging" \
   --api-target=service=generativelanguage.googleapis.com
 ```
 
@@ -97,18 +97,118 @@ gcloud services api-keys create \
 
 ### Document AI 管理
 
-`Document AI API` は `Google Docs API` とは別物。就活Pass では PDF OCR の経路で `documentai.googleapis.com` を呼び出す。
+`Document AI API` は `Google Docs API` とは別物。就活Pass では PDF OCR の経路で `documentai.googleapis.com` を呼び出す。アクセスは API キーではなく、サービスアカウントの JSON 鍵で行う。
 
 必要な環境変数:
 
-```env
-GOOGLE_DOCUMENT_AI_PROJECT_ID=ukarun-483616
-GOOGLE_DOCUMENT_AI_LOCATION=（例: us または eu）
-GOOGLE_DOCUMENT_AI_PROCESSOR_ID=（Document AI の processor ID）
-GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON=（サービスアカウント JSON）
+| 環境変数 | 値の例 | 説明 |
+|---|---|---|
+| `GOOGLE_DOCUMENT_AI_PROJECT_ID` | `ukarun-483616` | プロセッサを作成した Google Cloud プロジェクト ID |
+| `GOOGLE_DOCUMENT_AI_LOCATION` | `us`（または `eu`） | プロセッサのロケーション。リージョナルエンドポイントと一致させる |
+| `GOOGLE_DOCUMENT_AI_PROCESSOR_ID` | （Document AI の processor ID） | 作成したプロセッサの ID |
+| `GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON` | （サービスアカウント JSON の中身を 1 行で） | アクセストークン発行に使うサービスアカウント鍵 |
+
+#### 0. 前提
+
+`documentai.googleapis.com` の有効化は「API の有効化」節（このページ上部）で実施済みであること。未有効化の場合はそちらの `gcloud services enable` を先に実行する。以降のコマンドは `gcloud config set project ukarun-483616` で対象プロジェクトを固定した状態を前提にする。
+
+> 公式: API の有効化は Google Cloud プロジェクト単位。参考: https://cloud.google.com/service-usage/docs/enable-disable
+
+#### 1. ロケーションを決める
+
+Document AI のロケーションはデータの保存・処理の場所を決め、API のリージョナルエンドポイント（`LOCATION-documentai.googleapis.com`）と一致させる必要がある。日本からの利用では、レイテンシ重視なら `us`、データ所在を EU に限定したい場合は `eu` を選ぶ。`OCR_PROCESSOR` / `FORM_PARSER_PROCESSOR` はどちらのロケーションでも利用できる。一度決めたロケーションは以降のすべての手順（プロセッサ作成・処理リクエスト・`GOOGLE_DOCUMENT_AI_LOCATION`）で揃える。
+
+> 公式: ロケーションごとにデータ保存・文書処理が行われる。`us`（米国）/ `eu`（EU）のマルチリージョンを選択する。参考: https://cloud.google.com/document-ai/docs/regions
+
+#### 2. Document AI プロセッサを作成する（REST API）
+
+gcloud には Document AI のプロセッサを作成するサブコマンドが無いため、公式 REST API（`projects.locations.processors.create`）を curl で呼ぶ。認証は `gcloud auth print-access-token` で取得したアクセストークンを `Authorization: Bearer` に渡す。
+
+利用可能なプロセッサ種別を確認する場合:
+
+```bash
+# LOCATION は us または eu
+curl -X GET \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  "https://us-documentai.googleapis.com/v1/projects/ukarun-483616/locations/us:fetchProcessorTypes"
 ```
 
-Document AI は API キーではなく、サービスアカウントでアクセストークンを発行して呼び出す。サービスアカウントには最小権限だけを付与する。
+PDF OCR 用に Document OCR プロセッサ（種別 `OCR_PROCESSOR`）を作成する。Form Parser を使う場合は `OCR_PROCESSOR` を `FORM_PARSER_PROCESSOR` に置き換える。
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -d '{"type": "OCR_PROCESSOR", "displayName": "career-compass-ocr-production"}' \
+  "https://us-documentai.googleapis.com/v1/projects/ukarun-483616/locations/us/processors"
+```
+
+レスポンスの `name` フィールド（`projects/ukarun-483616/locations/us/processors/PROCESSOR_ID`）の末尾が processor ID。これを `GOOGLE_DOCUMENT_AI_PROCESSOR_ID` に設定する。後から一覧で確認する場合:
+
+```bash
+curl -X GET \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  "https://us-documentai.googleapis.com/v1/projects/ukarun-483616/locations/us/processors"
+```
+
+> 公式: gcloud にはプロセッサ作成コマンドが無く、REST または client library で作成する。`OCR_PROCESSOR` / `FORM_PARSER_PROCESSOR` は汎用プロセッサ。参考: https://cloud.google.com/document-ai/docs/create-processor / https://cloud.google.com/document-ai/docs/processors-list
+
+#### 3. サービスアカウントを作成し最小権限を付与する
+
+Document AI はサービスアカウントでアクセストークンを発行して呼び出す。処理（OCR）のみを行うため、付与するロールは `roles/documentai.apiUser`（文書処理のみを許可）に限定する。これは `documentai.processors.processOnline` / `documentai.processors.processBatch` を含み、プロセッサ管理権限を持たない最小ロール。
+
+```bash
+# サービスアカウントを作成（email は SA_NAME@PROJECT_ID.iam.gserviceaccount.com になる）
+gcloud iam service-accounts create career-compass-documentai \
+  --project=ukarun-483616 \
+  --display-name="career-compass Document AI"
+
+# 処理のみの最小ロールを付与
+gcloud projects add-iam-policy-binding ukarun-483616 \
+  --member="serviceAccount:career-compass-documentai@ukarun-483616.iam.gserviceaccount.com" \
+  --role="roles/documentai.apiUser"
+```
+
+> 公式: `roles/documentai.apiUser` は文書処理のみを許可する最小ロール。最小権限の原則に従い、必要以上の権限を付与しない。参考: https://cloud.google.com/document-ai/docs/access-control/iam-roles / https://cloud.google.com/iam/docs/service-accounts-create
+
+#### 4. JSON 鍵を発行する
+
+```bash
+gcloud iam service-accounts keys create key.json \
+  --iam-account=career-compass-documentai@ukarun-483616.iam.gserviceaccount.com
+```
+
+発行した鍵は再ダウンロードできない。`key.json` の中身を `GOOGLE_DOCUMENT_AI_SERVICE_ACCOUNT_JSON` に設定する。
+
+- **1 行 JSON にする**: 環境変数として扱うため、改行を含まない 1 行の JSON 文字列にする。
+- **実鍵はリポジトリに置かない**: 実ファイルは `.secrets/`（gitignored）に保管し、チャット・ログ・issue・共有メモに鍵本体を貼らない。
+- **漏洩時は無効化して再発行**: 鍵が露出した可能性がある場合は、その鍵を削除し、新しい鍵を発行して差し替える。発行済み鍵の一覧・削除は次のとおり。
+
+```bash
+# 既存鍵の一覧（KEY_ID を確認）
+gcloud iam service-accounts keys list \
+  --iam-account=career-compass-documentai@ukarun-483616.iam.gserviceaccount.com
+
+# 漏洩した鍵を削除
+gcloud iam service-accounts keys delete KEY_ID \
+  --iam-account=career-compass-documentai@ukarun-483616.iam.gserviceaccount.com
+```
+
+> 公式: サービスアカウント鍵はダウンロード後に再取得できない。漏洩時は速やかに削除する。参考: https://cloud.google.com/iam/docs/keys-create-delete
+
+#### 5. 動作確認（任意）
+
+プロセッサと権限が正しく設定されているかは、同期処理（`:process`）の curl で確認できる。`content` は対象 PDF を base64 エンコードした文字列、`mimeType` は `application/pdf`。
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -d '{"rawDocument": {"mimeType": "application/pdf", "content": "BASE64_PDF_CONTENT"}}' \
+  "https://us-documentai.googleapis.com/v1/projects/ukarun-483616/locations/us/processors/PROCESSOR_ID:process"
+```
+
+> 公式: 同期処理は `processors.process` を呼ぶ。`rawDocument` に base64 の `content` と `mimeType` を渡す。参考: https://cloud.google.com/document-ai/docs/send-request
 
 > 公式: Document AI REST API は `documentai.googleapis.com`。参考: https://cloud.google.com/document-ai/docs/reference/rest
 
@@ -173,9 +273,9 @@ OAuth クライアントは環境別に分ける。
 
 | 環境 | クライアント名 | 用途 |
 |---|---|---|
-| local | `shupass-local` | ローカル開発 |
-| staging | `shupass-staging` | staging |
-| production | `shupass-production` | 本番 |
+| local | `career-compass-local` | ローカル開発 |
+| staging | `career-compass-staging` | staging |
+| production | `career-compass-production` | 本番 |
 
 | 設定項目 | 値 | 説明 |
 |---|---|---|

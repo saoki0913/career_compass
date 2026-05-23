@@ -170,7 +170,7 @@ staging / production は別 Railway project を使い、各 project の既定 `p
 
 **Firecrawl のコスト監視について:**
 - `FIRECRAWL_API_KEY` は `[任意]`。未設定時は HTML+LLM による直接抽出にフォールバック
-- コスト: 約 $0.01-0.05/回。選考スケジュール抽出で使用
+- コスト: scrape 1 クレジット/ページ・無料枠 月 1,000 ページ（目安）。詳細は [FIRECRAWL.md](../../../docs/release/FIRECRAWL.md) §7
 - 利用量はダッシュボードで監視推奨
 
 ### 4. supabase.env
@@ -181,6 +181,34 @@ staging / production は別 Railway project を使い、各 project の既定 `p
 ### 5. github-actions.env
 
 CI の E2E テストで使うシークレットです。`CI_E2E_AUTH_SECRET` は staging Vercel にも overlay されます。
+
+## 外部サービスの取得手順（CLI 優先・各 doc が正本）
+
+各キーの取得手順は `docs/release/` のサービス別 doc にある（CLI コマンドを優先して記述）。「ローカル値の流用」列は、`.env.local` で使っている値をそのまま staging / production に貼ってよいか（`[共通可]`）、環境ごとに取得・生成が必要か（`[環境別]`）を示す。
+
+| サービス | 取得手順 | 主な変数 | 環境 | ローカル値の流用 |
+|---|---|---|---|---|
+| Google OAuth | [GOOGLE_CLOUD.md](../../../docs/release/GOOGLE_CLOUD.md) | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | `[環境別]` | 不可（OAuth client を環境別に分離） |
+| Google Gemini | [GOOGLE_CLOUD.md](../../../docs/release/GOOGLE_CLOUD.md) | `GOOGLE_API_KEY` | `[共通可]` | 可（本番は別キー推奨） |
+| Google Document AI | [GOOGLE_CLOUD.md](../../../docs/release/GOOGLE_CLOUD.md)（Document AI 管理 節） | `GOOGLE_DOCUMENT_AI_*` | `[共通可]` | 可 |
+| Stripe | [STRIPE.md](../../../docs/release/STRIPE.md) | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_*` | `[環境別]` | 不可（test/live・webhook が環境別） |
+| Supabase | [SUPABASE.md](../../../docs/release/SUPABASE.md) | `DATABASE_URL` / `DIRECT_URL` / `SUPABASE_*_PROJECT_REF` | `[環境別]` | 不可（project 分離） |
+| Vercel | [VERCEL.md](../../../docs/release/VERCEL.md) | `VERCEL_PROJECT_ID` / `VERCEL_TEAM_ID` | `[環境別]`/`[共通可]` | project ID は不可・team ID は可 |
+| Railway | [RAILWAY.md](../../../docs/release/RAILWAY.md) | `RAILWAY_PROJECT_ID` / `RAILWAY_SERVICE_NAME` | `[環境別]`/`[共通可]` | project ID は不可 |
+| Upstash Redis | [UPSTASH_REDIS.md](../../../docs/release/UPSTASH_REDIS.md) | `UPSTASH_REDIS_*` / `REDIS_URL` / `REDIS_NAMESPACE` | `[環境別]` | 不可（namespace 検査あり） |
+| Sentry | [SENTRY.md](../../../docs/release/SENTRY.md) | `SENTRY_*` DSN / `SENTRY_ORG` / `SENTRY_AUTH_TOKEN` | `[環境別]`/`[共通可]` | DSN は不可・org/token は可 |
+| Cloudflare | [DOMAIN_OPERATIONS.md](../../../docs/release/DOMAIN_OPERATIONS.md) | `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` | `[共通可]` | 可（bootstrap 専用） |
+| OpenAI | [OPENAI.md](../../../docs/release/OPENAI.md) | `OPENAI_API_KEY` | `[共通可]` | 可 |
+| Anthropic | [ANTHROPIC.md](../../../docs/release/ANTHROPIC.md) | `ANTHROPIC_API_KEY` | `[共通可]` | 可 |
+| Mistral | [MISTRAL.md](../../../docs/release/MISTRAL.md) | `MISTRAL_API_KEY` | `[共通可]` | 可 |
+| Firecrawl | [FIRECRAWL.md](../../../docs/release/FIRECRAWL.md) | `FIRECRAWL_API_KEY` | `[共通可]` | 可 |
+| Resend | [RESEND.md](../../../docs/release/RESEND.md) | `RESEND_API_KEY` / `CONTACT_*` | `[共通可]` | 可（送信ドメイン認証は本番ドメイン固有） |
+| Logo.dev | [LOGO_DEV.md](../../../docs/release/LOGO_DEV.md) | `LOGO_DEV_TOKEN` / `LOGO_DEV_SECRET_KEY` | `[共通可]` | 可 |
+| Brandfetch | [BRANDFETCH.md](../../../docs/release/BRANDFETCH.md) | `BRANDFETCH_CLIENT_ID` | `[共通可]` | 可 |
+
+> 「ローカル値の流用」が「可」の外部 API キーのうち、`OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `RESEND_API_KEY` は漏洩時の影響範囲・quota・監査分離のため **production は別キーを推奨**（ローカル/staging は流用可）。Mistral / Firecrawl / Logo.dev / Brandfetch は本番も同値でよい。詳細は [ENVIRONMENT_VARIABLES.md](../../../docs/operations/platform/ENVIRONMENT_VARIABLES.md) §2-2。
+>
+> 内部署名鍵（`INTERNAL_API_JWT_SECRET` / `CAREER_PRINCIPAL_HMAC_SECRET` / `TENANT_KEY_SECRET`）・`BETTER_AUTH_SECRET` / `ENCRYPTION_KEY` / `CRON_SECRET` は外部取得ではなく `openssl rand` で生成する（`[環境別]`・原則別値）。生成方法は [ENVIRONMENT_VARIABLES.md](../../../docs/operations/platform/ENVIRONMENT_VARIABLES.md) §1-1。
 
 ## Redis (Upstash) セットアップ
 
