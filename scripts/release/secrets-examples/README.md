@@ -7,6 +7,30 @@
 - `.secrets/` ディレクトリ（gitignored）がプロジェクトルートに存在すること
 - Vercel CLI / Railway CLI / gh CLI がインストール済みであること
 
+## タグ凡例
+
+各 `.env.example` ファイルのコメントに以下のタグを記載しています。
+
+### 重要度タグ（ファイルの環境を基準）
+
+| タグ | 意味 |
+|---|---|
+| `[必須]` | この環境で未設定だとアプリが起動しない |
+| `[推奨]` | 動くが、セキュリティ・安定性・運用上のリスクがある |
+| `[任意]` | 未設定でも影響なし。特定機能が無効になるだけ |
+
+### 環境タグ
+
+| タグ | 意味 |
+|---|---|
+| `[環境別]` | staging と production で異なる値が必要 |
+| `[共通可]` | staging と production で同じ値でよい |
+
+### テンプレート表示ルール
+
+- **コメントアウトなし**: 値の入力が必要、またはユーザーが有効にしたいサービス
+- **コメントアウト（`#`）**: その環境では未導入 / 設定しなくてよいもの
+
 ## クイックスタート
 
 ```bash
@@ -76,14 +100,14 @@ staging と production で**異なる値**を設定してください。
 
 ### 1.1 環境別値と重複ルール
 
-`staging/` と `production/` は別 project 用の正本です。変数名が同じでも、値まで同じにしてよいとは限りません。
+`staging/` と `production/` は別 project 用の正本です。変数名が同じでも、値まで同じにしてよいとは限りません。各 `.env.example` に `[環境別]` / `[共通可]` タグで記載しています。
 
-| 分類 | 代表例 | staging / production の同値 |
+| 分類 | 代表例 | `[環境別]` / `[共通可]` |
 |---|---|---|
-| 必ず別値 | `APP_ENV`, `NEXT_PUBLIC_APP_ENV`, URL 類, `DATABASE_URL`, `DIRECT_URL`, Redis namespace, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_*`, `VERCEL_PROJECT_ID`, `RAILWAY_PROJECT_ID`, `SUPABASE_*_PROJECT_REF` | 不可 |
-| 同一環境内では同値、環境間は別値 | `INTERNAL_API_JWT_SECRET`, `CAREER_PRINCIPAL_HMAC_SECRET`, `TENANT_KEY_SECRET` | 不可 |
-| 原則別値 | `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`, `STRIPE_WEBHOOK_SECRET`, OAuth / LLM / mail / Sentry の secret key | 原則不可。dev/staging 共有は例外扱い、production は分ける |
-| 同値でもよい | `VERCEL_TEAM_ID`, `SUPABASE_ORG_ID`, `SENTRY_ORG`, `LEGAL_*`, 連絡先メール、モデル ID / チューニング値 | 可 |
+| 必ず別値 `[環境別]` | `APP_ENV`, URL 類, `DATABASE_URL`, Redis namespace, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_*`, `VERCEL_PROJECT_ID`, `RAILWAY_PROJECT_ID`, `SUPABASE_*_PROJECT_REF` | `[環境別]` |
+| 同一環境内では同値、環境間は別値 `[環境別]` | `INTERNAL_API_JWT_SECRET`, `CAREER_PRINCIPAL_HMAC_SECRET`, `TENANT_KEY_SECRET` | `[環境別]` |
+| 原則別値 `[環境別]` | `BETTER_AUTH_SECRET`, `ENCRYPTION_KEY`, `CRON_SECRET`, `STRIPE_WEBHOOK_SECRET`, OAuth secret | `[環境別]` |
+| 同値でもよい `[共通可]` | `VERCEL_TEAM_ID`, `SENTRY_ORG`, `SENTRY_AUTH_TOKEN`, `LEGAL_*`, LLM API キー, モデル ID | `[共通可]` |
 | 用途限定 | `CI_E2E_*`, `PLAYWRIGHT_BASE_URL`, `RAILWAY_ENVIRONMENT_NAME` | `CI_E2E_*` は staging 専用。`RAILWAY_ENVIRONMENT_NAME` は別 Railway project 構成なら両方 `production` |
 
 sync スクリプトは、重複定義、provider project ID の重複、`APP_ENV` / Redis namespace / Stripe key prefix の不一致を同期前に検査します。
@@ -94,7 +118,7 @@ Vercel の環境変数として同期されます。
 staging / production ともそれぞれ別の Vercel project の `production` 環境に同期し、論理環境は `APP_ENV` で分けます。
 staging には `ci/github-actions.env` から `CI_E2E_AUTH_SECRET` / `CI_E2E_AUTH_ENABLED` / `PLAYWRIGHT_BASE_URL` も追加で同期されます。
 
-**必ず設定が必要なもの:**
+**`[必須]` — この環境で未設定だとアプリが起動しない:**
 - `VERCEL_PROJECT_ID` / `VERCEL_TEAM_ID` — sync スクリプトのメタキー
 - `DATABASE_URL` — Supabase PostgreSQL 接続URL
 - `BETTER_AUTH_*` — 認証設定
@@ -104,14 +128,27 @@ staging には `ci/github-actions.env` から `CI_E2E_AUTH_SECRET` / `CI_E2E_AUT
 - `CRON_SECRET` — Cron 認証トークン
 - `FASTAPI_URL` — FastAPI バックエンドURL
 - `NEXT_PUBLIC_APP_URL` — アプリ公開URL
-- `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` — Redis REST 接続情報
-- `UPSTASH_REDIS_NAMESPACE` — `staging` / `production`。同じ Redis を共有する場合も必ず環境ごとに分ける。
-- `APP_ENV` / `NEXT_PUBLIC_APP_ENV` — 論理環境。`APP_ENV` が全スタック（Vercel / Railway 両方）の正本です。
+- `APP_ENV` / `NEXT_PUBLIC_APP_ENV` — 論理環境
+
+**`[推奨]` — 未設定でも起動するが、運用上リスクがある:**
+- `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` / `UPSTASH_REDIS_NAMESPACE` — 未設定時はレートリミットとトークン制限が無効
+- Sentry 関連（`SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` / `SENTRY_NEXTJS_DSN` / `NEXT_PUBLIC_SENTRY_DSN`）— **本番のみ導入推奨**。staging では `[任意]`（コメントアウト）
+
+**Stripe staging テストモードについて:**
+- staging では `sk_test_...` キーで Stripe テストモードが使えます
+- `STRIPE_PRICE_*` は staging では `[推奨]`（テスト用 Price ID を設定するとチェックアウトのテストが可能）
+- `STRIPE_PORTAL_CONFIGURATION_ID` は staging では `[任意]`（コメントアウト）
+
+**LEGAL_* 特商法表示:**
+- 公開情報のため `.env.example` に値を事前入力済み
+- 未設定時は `src/lib/legal/commerce-disclosure.ts` のデフォルト値が使用される
+- `LEGAL_BUSINESS_ADDRESS` / `LEGAL_PHONE_NUMBER` は未設定時に開示請求案内にフォールバック
 
 **staging と production の違い:**
 - URL: `stg.shupass.jp` vs `www.shupass.jp`
 - 論理環境: `staging` vs `production`
-- Stripe: `sk_test_...` vs `sk_live_...`
+- Stripe: `sk_test_...` vs `sk_live_...`（`STRIPE_PRICE_*` は staging で `[推奨]`、production で `[必須]`）
+- Sentry: staging は `[任意]`（コメントアウト）、production は `[推奨]`
 - `BETTER_AUTH_TRUSTED_ORIGINS`: staging は 1 origin、production は 2 origin
 
 ### 3. fastapi.env
@@ -119,14 +156,22 @@ staging には `ci/github-actions.env` から `CI_E2E_AUTH_SECRET` / `CI_E2E_AUT
 Railway の環境変数として同期されます。
 staging / production は別 Railway project を使い、各 project の既定 `production` 環境へ同期します。したがって staging でも `RAILWAY_ENVIRONMENT_NAME=production` が正です。
 
-**必ず設定が必要なもの:**
+**`[必須]` — この環境で未設定だとアプリが起動しない:**
 - `RAILWAY_PROJECT_ID` / `RAILWAY_SERVICE_NAME` / `RAILWAY_ENVIRONMENT_NAME` — sync メタキー
 - `APP_ENV` — `staging` or `production`。FastAPI も `APP_ENV` を設定します。`RAILWAY_ENVIRONMENT_NAME` は Railway CLI 用の同期メタキーで、アプリの環境判定には使いません。
 - `CORS_ORIGINS` — CORS 許可オリジン
 - `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` — LLM API キー
-- `REDIS_URL` — FastAPI 側 Redis 接続情報
-- `REDIS_NAMESPACE` — `staging` / `production`。`APP_ENV` と同じ値にします。
+- `REDIS_URL` / `REDIS_NAMESPACE` — FastAPI 側 Redis 接続情報。`APP_ENV` と同じ値にします。
+- `FRONTEND_URL` — フロントエンド URL（CORS 判定・リダイレクト先に使用）
 - `BACKEND_TRUSTED_HOSTS` — FastAPI が受け付ける Host 名
+
+**`[推奨]` — 本番のみ導入推奨:**
+- Sentry 関連（`SENTRY_DSN` / `SENTRY_FASTAPI_DSN` / `BACKEND_SENTRY_DSN`）— 3 alias はいずれか 1 つ設定すれば OK。staging では `[任意]`（コメントアウト）
+
+**Firecrawl のコスト監視について:**
+- `FIRECRAWL_API_KEY` は `[任意]`。未設定時は HTML+LLM による直接抽出にフォールバック
+- コスト: 約 $0.01-0.05/回。選考スケジュール抽出で使用
+- 利用量はダッシュボードで監視推奨
 
 ### 4. supabase.env
 
