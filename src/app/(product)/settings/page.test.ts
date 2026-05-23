@@ -60,3 +60,18 @@ describe("settings billing extraction", () => {
     expect(source).not.toContain("isActiveSubscriptionStatus");
   });
 });
+
+
+describe("settings dense layout", () => {
+  it("uses the shared header action for saving all settings", () => {
+    expect(source).toContain("handleSaveAll");
+    expect(source).toContain("設定を保存しました");
+    expect(source).toContain("actions={");
+  });
+
+  it("uses the desktop two-column settings layout", () => {
+    expect(source).toContain("max-w-[96rem]");
+    expect(source).toContain("xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]");
+    expect(source).toContain("aria-pressed={selected}");
+  });
+});

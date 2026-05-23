@@ -3,6 +3,11 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 
+import { ProductBackButton } from "@/components/shared/ProductBackButton";
+import {
+  PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET,
+  PRODUCT_PAGE_TITLE_CLASS,
+} from "@/components/shared/product-page-header-layout";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -20,14 +25,6 @@ type HeaderAction =
       disabled?: boolean;
       variant?: "outline" | "ghost";
     };
-
-function BackIcon() {
-  return (
-    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-    </svg>
-  );
-}
 
 export function ConversationSidebarCard({
   title,
@@ -80,29 +77,22 @@ export function ConversationWorkspaceShell({
 }) {
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
-      <main className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-3 py-4 sm:px-6 lg:px-8">
-        <div className="mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div className="flex items-center gap-3">
-            {backHref ? (
-              <Link
-                href={backHref}
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 transition-colors hover:bg-secondary"
-                aria-label={backLabel || "戻る"}
-              >
-                <BackIcon />
-              </Link>
-            ) : null}
-            <div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h1 className="text-xl font-bold">{title}</h1>
+      <main className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-8">
+        <div className={cn("mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between", PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET)}>
+          <div className="flex min-w-0 items-start gap-3">
+            {backHref ? <ProductBackButton href={backHref} label={backLabel || "戻る"} /> : null}
+            <div className="min-w-0 pt-0.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <h1 className={cn(PRODUCT_PAGE_TITLE_CLASS, "truncate")}>{title}</h1>
                 {subtitle ? (
                   <>
-                    <div className="hidden h-1.5 w-1.5 rounded-full bg-muted-foreground/30 lg:block" />
-                    <p className="text-sm text-muted-foreground">{subtitle}</p>
+                    <div className="hidden h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/30 lg:block" />
+                    <p className="hidden max-w-[18rem] truncate text-sm text-muted-foreground lg:block xl:max-w-[22rem]">{subtitle}</p>
                   </>
                 ) : null}
-                {titleExtra}
+                {titleExtra ? <div className="shrink-0">{titleExtra}</div> : null}
               </div>
+              {subtitle ? <p className="mt-0.5 max-w-full truncate text-sm text-muted-foreground lg:hidden">{subtitle}</p> : null}
             </div>
           </div>
 

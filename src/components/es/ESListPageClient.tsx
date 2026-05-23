@@ -33,6 +33,7 @@ import { ListPageSkeleton } from "@/components/shared/ListPageSkeleton";
 import { ListPageEmptyState } from "@/components/shared/ListPageEmptyState";
 import { FavoritesSection } from "@/components/shared/FavoritesSection";
 import { ViewToggle } from "@/components/shared/ViewToggle";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
 import {
   Select,
@@ -570,35 +571,34 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mb-8 flex flex-col gap-4 pl-14 sm:flex-row sm:items-center sm:justify-between lg:pl-0">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold tracking-tight">ES作成</h1>
-              <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                {activeDocuments.length}件の文書
-              </span>
-            </div>
-            <p className="mt-1 hidden text-muted-foreground sm:block">
-              エントリーシートの作成・管理ができます
-            </p>
-          </div>
-          <div className="flex gap-2 sm:self-start">
-            <Button variant="outline" onClick={() => setShowTrash((current) => !current)}>
-              <Trash2 className="w-4 h-4" />
-              <span className="ml-1.5">{showTrash ? "通常表示" : "ゴミ箱"}</span>
-              {trashedDocuments.length > 0 && !showTrash && (
-                <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-xs">{trashedDocuments.length}</span>
-              )}
-            </Button>
-            {!showTrash && (
-              <Button onClick={() => setShowNewModal(true)}>
-                <Plus className="w-5 h-5" />
-                <span className="ml-1.5">新規作成</span>
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+        <ProductPageHeader
+          title="ES作成"
+          description="エントリーシートの作成・管理ができます"
+          backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+          badge={
+            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+              {activeDocuments.length}件の文書
+            </span>
+          }
+          actions={
+            <>
+              <Button variant="outline" onClick={() => setShowTrash((current) => !current)}>
+                <Trash2 className="w-4 h-4" />
+                <span className="ml-1.5">{showTrash ? "通常表示" : "ゴミ箱"}</span>
+                {trashedDocuments.length > 0 && !showTrash && (
+                  <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-xs">{trashedDocuments.length}</span>
+                )}
               </Button>
-            )}
-          </div>
-        </div>
+              {!showTrash && (
+                <Button onClick={() => setShowNewModal(true)}>
+                  <Plus className="w-5 h-5" />
+                  <span className="ml-1.5">新規作成</span>
+                </Button>
+              )}
+            </>
+          }
+        />
 
         {gakuchikaContext && (
           <div className="mb-6 rounded-lg border border-primary/20 bg-primary/5 p-4">

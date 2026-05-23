@@ -5,6 +5,7 @@ import {
   SkeletonPill,
 } from "@/components/ui/skeleton";
 import { ListPageFilterBarSkeleton } from "@/components/shared/ListPageFilterBarSkeleton";
+import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 
 function TaskGridSkeleton() {
   return (
@@ -93,24 +94,12 @@ export function TasksPageSkeleton({ embedded = false }: { embedded?: boolean }) 
 
   return (
     <div
-      className="mx-auto max-w-[1600px] px-4 pb-10 pt-20 sm:px-6 lg:px-8 lg:pt-10"
+      className="mx-auto max-w-[1600px] px-4 pb-10 pt-8 sm:px-6 sm:pt-10 lg:px-8 lg:pt-10"
       role="status"
       aria-busy="true"
     >
       <span className="sr-only">タスクを読み込んでいます</span>
-      <div className="mb-7 flex flex-col gap-5 sm:mb-8 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <Skeleton className="h-10 w-24 rounded-lg md:h-9" />
-            <Skeleton className="h-7 w-14 rounded-full md:h-5" />
-          </div>
-          <Skeleton className="mt-3 hidden h-5 w-[36rem] max-w-full rounded-md sm:block md:mt-2" />
-        </div>
-        <div className="grid grid-cols-2 gap-3 md:flex">
-          <SkeletonButton className="h-12 w-full rounded-xl md:h-10 md:w-32" />
-          <SkeletonButton className="h-12 w-full rounded-xl md:h-10 md:w-32" />
-        </div>
-      </div>
+      <ProductPageHeaderSkeleton actionCount={2} showBackLink />
 
       <ListPageFilterBarSkeleton variant="tasks" />
 

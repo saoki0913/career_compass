@@ -7,7 +7,8 @@ describe("TasksPageSkeleton", () => {
       new URL("./TasksPageSkeleton.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("pt-20");
+    expect(source).toContain("pt-8");
+    expect(source).toContain("sm:pt-10");
     expect(source).toContain("lg:pt-10");
   });
 

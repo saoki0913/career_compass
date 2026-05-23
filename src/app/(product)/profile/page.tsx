@@ -3,14 +3,9 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { getProfilePageData } from "@/lib/server/account-loaders";
-
-const ArrowLeftIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
 
 const UserIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -131,26 +126,28 @@ export default async function ProfilePage() {
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-        <Link
-          href="/dashboard"
-          className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeftIcon />
-          ダッシュボードへ戻る
-        </Link>
-
-        <Card className="mb-6">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div className="flex items-center gap-2">
-              <UserIcon />
-              <CardTitle>プロフィール</CardTitle>
-            </div>
+        <ProductPageHeader
+          title="プロフィール"
+          description="登録情報、利用状況、志望情報を確認できます"
+          descriptionMode="always"
+          variant="form"
+          backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+          actions={
             <Button variant="outline" size="sm" asChild>
               <Link href="/settings" className="flex items-center gap-1.5">
                 <SettingsIcon />
                 設定を編集
               </Link>
             </Button>
+          }
+        />
+
+        <Card className="mb-6">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <UserIcon />
+              <CardTitle className="text-base">基本情報</CardTitle>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-4">

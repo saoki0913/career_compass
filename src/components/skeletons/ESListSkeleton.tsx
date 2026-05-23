@@ -1,27 +1,18 @@
 import { ListPageFilterBarSkeleton } from "@/components/shared/ListPageFilterBarSkeleton";
-import { Skeleton, SkeletonButton, SkeletonText } from "@/components/ui/skeleton";
+import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 import { EsDocumentCardSkeleton } from "@/components/skeletons/EsDocumentCardSkeleton";
 
 export function ESListSkeleton() {
   return (
     <div className="min-h-screen bg-background">
       <div
-        className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8"
+        className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8"
         role="status"
         aria-busy="true"
         aria-live="polite"
       >
         <span className="sr-only">ES一覧を読み込んでいます</span>
-        <div className="mb-8 flex flex-col gap-4 pl-14 sm:flex-row sm:items-center sm:justify-between lg:pl-0">
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-40" />
-            <SkeletonText lines={1} widths={["10rem"]} className="hidden sm:block" />
-          </div>
-          <div className="flex gap-2">
-            <SkeletonButton className="h-10 w-28 sm:h-11" />
-            <SkeletonButton className="h-10 w-32 sm:h-11" />
-          </div>
-        </div>
+        <ProductPageHeaderSkeleton actionCount={2} showBackLink />
 
         <ListPageFilterBarSkeleton variant="es" />
 

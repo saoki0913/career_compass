@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import {
   Dialog,
   DialogContent,
@@ -72,31 +73,32 @@ export function NotificationsPageClient({
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-6 lg:px-8">
-        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">通知</h1>
-            <p className="mt-1 text-muted-foreground">
-              {unreadCount > 0 ? `${unreadCount}件の未読があります` : "すべて既読です"}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {unreadCount > 0 && (
-              <Button variant="outline" onClick={() => void markAllAsRead()}>
-                すべて既読にする
-              </Button>
-            )}
-            {notifications.length > 0 && (
-              <Button
-                variant="outline"
-                className="border-destructive/40 text-destructive hover:bg-destructive/10"
-                onClick={() => setConfirmDeleteAllOpen(true)}
-              >
-                <Trash2 className="mr-1.5 h-4 w-4" />
-                すべて削除
-              </Button>
-            )}
-          </div>
-        </div>
+        <ProductPageHeader
+          title="通知"
+          description={unreadCount > 0 ? `${unreadCount}件の未読があります` : "すべて既読です"}
+          descriptionMode="always"
+          variant="compact"
+          backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+          actions={
+            <>
+              {unreadCount > 0 && (
+                <Button variant="outline" onClick={() => void markAllAsRead()}>
+                  すべて既読にする
+                </Button>
+              )}
+              {notifications.length > 0 && (
+                <Button
+                  variant="outline"
+                  className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                  onClick={() => setConfirmDeleteAllOpen(true)}
+                >
+                  <Trash2 className="mr-1.5 h-4 w-4" />
+                  すべて削除
+                </Button>
+              )}
+            </>
+          }
+        />
 
         <Dialog open={confirmDeleteAllOpen} onOpenChange={setConfirmDeleteAllOpen}>
           <DialogContent className="sm:max-w-md">

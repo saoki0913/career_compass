@@ -35,6 +35,7 @@ import {
   ListPageEmptyState,
   FavoritesSection,
   ViewToggle,
+  ProductPageHeader,
 } from "@/components/shared";
 import { GakuchikaListPageHeaderSkeleton } from "@/components/skeletons/GakuchikaListPageHeaderSkeleton";
 import type { FilterTab, SortOption } from "@/components/shared";
@@ -775,7 +776,7 @@ export default function GakuchikaListPage() {
   if (!isReady) {
     return (
       <div className="min-h-screen bg-background">
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
           <GakuchikaListPageHeaderSkeleton />
           <ListPageFilterBarSkeleton variant="gakuchika" />
           <ListPageSkeleton variant="gakuchika" />
@@ -800,37 +801,33 @@ export default function GakuchikaListPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
         {/* Header（取得中は実データのチラ見えを避けスケルトン） */}
         {isLoading ? (
           <GakuchikaListPageHeaderSkeleton />
         ) : (
-          <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-bold tracking-tight">ガクチカ作成</h1>
-                {maxCount > 0 && (
-                  <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                    {currentCount}/{maxCount} 素材使用中
-                  </span>
-                )}
-              </div>
-              <p className="mt-1 text-muted-foreground">AIと対話しながら、面接やESで使えるガクチカ文章に整えます</p>
-            </div>
-            <Button
-              onClick={() => setShowNewModal(true)}
-              disabled={isAtLimit}
-              className="sm:self-start"
-              title={
-                isAtLimit
-                  ? "上限に達しました。プランをアップグレードしてください。"
-                  : ""
-              }
-            >
-              <Plus className="w-5 h-5" />
-              <span className="ml-1.5">新規作成</span>
-            </Button>
-          </div>
+          <ProductPageHeader
+            title="ガクチカ作成"
+            description="AIと対話しながら、面接やESで使えるガクチカ文章に整えます"
+            backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+            badge={
+              maxCount > 0 ? (
+                <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+                  {currentCount}/{maxCount} 素材使用中
+                </span>
+              ) : null
+            }
+            actions={
+              <Button
+                onClick={() => setShowNewModal(true)}
+                disabled={isAtLimit}
+                title={isAtLimit ? "上限に達しました。プランをアップグレードしてください。" : ""}
+              >
+                <Plus className="w-5 h-5" />
+                <span className="ml-1.5">新規作成</span>
+              </Button>
+            }
+          />
         )}
 
         {/* Limit warning */}

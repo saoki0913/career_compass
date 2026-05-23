@@ -14,6 +14,7 @@ import {
   getStatusConfig,
 } from "@/lib/constants/status";
 import { StatusDropdown } from "@/components/companies/StatusDropdown";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { notifySuccess } from "@/lib/notifications";
 import {
   useCompanyDeadlines,
@@ -42,7 +43,6 @@ import { CompanyDetailSkeleton } from "@/components/skeletons/CompanyDetailSkele
 import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 import {
-  ArrowLeftIcon,
   EditIcon,
   TrashIcon,
   ExternalLinkIcon,
@@ -126,7 +126,7 @@ interface CompanyDetailPageClientProps {
 type DeadlineListFilter = "all" | "active" | "week" | "completed";
 
 const companyDetailShellClassName =
-  "mx-auto max-w-[90rem] px-5 pb-6 pt-20 sm:px-6 md:px-7 lg:px-8 lg:py-6";
+  "mx-auto max-w-[90rem] px-5 pb-6 pt-8 sm:px-6 sm:pt-10 md:px-7 lg:px-8 lg:py-6";
 
 const detailCardClassName = "border-border/50 shadow-sm";
 const primaryActionClassName =
@@ -675,68 +675,65 @@ export default function CompanyDetailPageClient({
     <NavigationGuard />
     <div className="min-h-screen bg-background">
       <main className={companyDetailShellClassName}>
-        {/* Back button */}
-        <Link
-          href="/companies"
-          className="mb-5 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeftIcon />
-          企業一覧に戻る
-        </Link>
-
-        {/* Error message */}
         {error && (
-          <div className="p-3 rounded-lg bg-red-50 border border-red-200 mb-4">
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
             <p className="text-sm text-red-800">{error}</p>
           </div>
         )}
 
-        {/* Company Header with Quick Actions */}
-        <div className="mb-5 space-y-4 border-b border-border/50 pb-5">
-          {/* Left: Company Info */}
-          <div className="flex flex-col gap-4 min-[1180px]:flex-row min-[1180px]:items-start min-[1180px]:justify-between">
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-                  <h1 className="min-w-0 break-words text-3xl font-bold tracking-normal text-slate-950 sm:text-4xl lg:text-3xl">
-                    {company.name}
-                  </h1>
-                  {company.recruitmentUrl && (
-                    <a
-                      href={company.recruitmentUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                    >
-                      <ExternalLinkIcon />
-                      採用ページ
-                    </a>
-                  )}
-                </div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <StatusDropdown
-                    currentStatus={company.status}
-                    onStatusChange={handleStatusChange}
-                  />
-                  {company.industry && (
-                    <span className="rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground">
-                      {company.industry}
-                    </span>
-                  )}
-                  {company.corporateUrl && (
-                    <a
-                      href={company.corporateUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
-                    >
-                      <ExternalLinkIcon />
-                      企業HP
-                    </a>
-                  )}
-                </div>
-              </div>
-              <div className="flex shrink-0 gap-2">
+        <ProductPageHeader
+          title={company.name}
+          variant="detail"
+          backLink={{ href: "/companies", label: "企業一覧に戻る" }}
+          badge={
+            company.recruitmentUrl ? (
+              <a
+                href={company.recruitmentUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+              >
+                <ExternalLinkIcon />
+                採用ページ
+              </a>
+            ) : null
+          }
+          metadata={
+            <>
+              <StatusDropdown currentStatus={company.status} onStatusChange={handleStatusChange} />
+              {company.industry && (
+                <span className="rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground">
+                  {company.industry}
+                </span>
+              )}
+              {company.corporateUrl && (
+                <a
+                  href={company.corporateUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  <ExternalLinkIcon />
+                  企業HP
+                </a>
+              )}
+              {company.mypageUrl && (
+                <a
+                  href={company.mypageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  <ExternalLinkIcon />
+                  マイページ
+                </a>
+              )}
+              {company.hasCredentials && <PasswordDisplay companyId={company.id} />}
+            </>
+          }
+          actions={
+            <div className="flex w-full flex-col gap-2 min-[1180px]:max-w-[52rem]">
+              <div className="flex justify-end gap-2">
                 <Button
                   variant="outline"
                   size="icon-sm"
@@ -756,66 +753,40 @@ export default function CompanyDetailPageClient({
                   <TrashIcon />
                 </Button>
               </div>
-            </div>
-
-            {/* Right: Quick Actions */}
-            <div className="min-[1180px]:max-w-[52rem]">
               <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-start min-[1180px]:justify-end">
-              <Link
-                href={`/companies/${company.id}/motivation`}
-                className={cn(
-                  primaryActionClassName,
-                  "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
-                )}
-              >
-                <SparklesIcon />
-                志望動機
-              </Link>
-              <Link
-                href={`/es?companyId=${company.id}`}
-                className={cn(primaryActionClassName, "border-border bg-background hover:bg-muted/50")}
-              >
-                <FileTextIcon />
-                ES作成/添削
-              </Link>
-              <Link
-                href={`/companies/${company.id}/interview`}
-                className={cn(primaryActionClassName, "border-border bg-background hover:bg-muted/50")}
-              >
-                <SparklesIcon />
-                面接対策
-              </Link>
-              <div className="col-span-2 [&>button]:min-h-14 [&>button]:w-full [&>button]:justify-center [&>button]:rounded-xl [&>button]:px-3 [&>button]:py-2 sm:col-span-1 sm:[&>button]:min-h-11 sm:[&>button]:w-auto lg:[&>button]:min-h-10">
-                <FetchInfoButton
-                  companyId={company.id}
-                  companyName={company.name}
-                  hasRecruitmentUrl={!!company.recruitmentUrl}
-                  onSuccess={refreshDeadlines}
-                />
+                <Link
+                  href={`/companies/${company.id}/motivation`}
+                  className={cn(primaryActionClassName, "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10")}
+                >
+                  <SparklesIcon />
+                  志望動機
+                </Link>
+                <Link
+                  href={`/es?companyId=${company.id}`}
+                  className={cn(primaryActionClassName, "border-border bg-background hover:bg-muted/50")}
+                >
+                  <FileTextIcon />
+                  ES作成/添削
+                </Link>
+                <Link
+                  href={`/companies/${company.id}/interview`}
+                  className={cn(primaryActionClassName, "border-border bg-background hover:bg-muted/50")}
+                >
+                  <SparklesIcon />
+                  面接対策
+                </Link>
+                <div className="col-span-2 [&>button]:min-h-14 [&>button]:w-full [&>button]:justify-center [&>button]:rounded-xl [&>button]:px-3 [&>button]:py-2 sm:col-span-1 sm:[&>button]:min-h-11 sm:[&>button]:w-auto lg:[&>button]:min-h-10">
+                  <FetchInfoButton
+                    companyId={company.id}
+                    companyName={company.name}
+                    hasRecruitmentUrl={!!company.recruitmentUrl}
+                    onSuccess={refreshDeadlines}
+                  />
+                </div>
               </div>
             </div>
-            {/* マイページ情報（コンパクト表示） */}
-            {(company.mypageUrl || company.hasCredentials) && (
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground min-[1180px]:justify-end">
-                {company.mypageUrl && (
-                  <a
-                    href={company.mypageUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-primary hover:underline"
-                  >
-                    <ExternalLinkIcon />
-                    マイページ
-                  </a>
-                )}
-                {company.hasCredentials && (
-                  <PasswordDisplay companyId={company.id} />
-                )}
-              </div>
-            )}
-            </div>
-          </div>
-        </div>
+          }
+        />
 
 	        {/* Top cards: Deadlines + Applications + ES */}
 	        <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-2 lg:gap-5 xl:grid-cols-3">

@@ -4,6 +4,7 @@ import {
   SkeletonText,
 } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
+import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 
 /** Notification rows only; use inside `/notifications` `main` below the real page header. */
 export function NotificationsListSkeleton() {
@@ -39,12 +40,7 @@ export function NotificationsListSkeleton() {
 export function NotificationsPageSkeleton() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-6 lg:px-8">
-      <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-24 rounded-xl" />
-          <SkeletonText lines={1} widths={["11rem"]} />
-        </div>
-      </div>
+      <ProductPageHeaderSkeleton variant="compact" actionCount={0} showBadge={false} showDescription descriptionMode="always" showBackLink />
       <NotificationsListSkeleton />
     </div>
   );

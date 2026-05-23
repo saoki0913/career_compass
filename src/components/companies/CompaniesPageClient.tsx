@@ -1,20 +1,19 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { Plus, Building2, LayoutGrid, Layers, Columns3 } from "lucide-react";
 import { CompanyGrid } from "@/components/companies/CompanyGrid";
 import { CompanyKanbanBoard } from "@/components/companies/CompanyKanbanBoard";
 import { IndustryGroup } from "@/components/companies/IndustryGroup";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { ListPageFilterBar } from "@/components/shared/ListPageFilterBar";
 import { CompaniesKanbanSkeleton, CompaniesListContentSkeleton } from "@/components/skeletons/CompaniesListContentSkeleton";
 import { ListPageEmptyState } from "@/components/shared/ListPageEmptyState";
 import { FavoritesSection } from "@/components/shared/FavoritesSection";
 import { ViewToggle } from "@/components/shared/ViewToggle";
 import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
+import { CompaniesPageHeader } from "@/components/companies/CompaniesPageHeader";
 import { useCompanies, type Company } from "@/hooks/useCompanies";
 import { getStatusCategory, type StatusCategory } from "@/lib/constants/status";
 import { INDUSTRIES } from "@/lib/constants/industries";
@@ -145,34 +144,7 @@ export function CompaniesPageClient({ initialData, showHeader = true }: Companie
           showHeader ? <CompaniesListContentSkeleton /> : <CompaniesKanbanSkeleton />
         ) : (
           <>
-            {showHeader && (
-              <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <h1 className="text-2xl font-bold tracking-tight">登録企業</h1>
-                    <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                      {limit ? `${count} / ${limit} 社` : `${count} 社`}
-                    </span>
-                  </div>
-                  <p className="mt-1 hidden text-muted-foreground sm:block">
-                    選考状況、締切、企業研究への導線を同じ画面で確認できます
-                  </p>
-                </div>
-                <Button asChild className="sm:self-start">
-                  <Link href="/companies/new">
-                    <Plus className="w-5 h-5" />
-                    <span className="ml-1.5">企業を追加</span>
-                  </Link>
-                </Button>
-              </div>
-            )}
-            {!showHeader && (
-              <div className="mb-4 flex justify-end">
-                <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-                  {limit ? `${count} / ${limit} 社` : `${count} 社`}
-                </span>
-              </div>
-            )}
+            {showHeader ? <CompaniesPageHeader count={count} limit={limit} /> : null}
 
             <ListPageFilterBar
               searchQuery={searchQuery}
@@ -282,7 +254,7 @@ export function CompaniesPageClient({ initialData, showHeader = true }: Companie
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-[96rem] px-4 pb-7 pt-24 sm:px-6 sm:pb-9 sm:pt-24 lg:px-8 lg:py-9 xl:px-10">
+      <main className="mx-auto max-w-[96rem] px-4 pb-7 pt-8 sm:px-6 sm:pb-9 sm:pt-10 lg:px-8 lg:py-9 xl:px-10">
         {body}
       </main>
     </div>

@@ -12,6 +12,7 @@ import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { WorkBlockSuggestionsModal } from "@/components/calendar/WorkBlockSuggestionsModal";
 import { WorkBlockFAB } from "@/components/calendar/WorkBlockFAB";
 import { EventDetailModal, type DisplayEvent } from "@/components/calendar/EventDetailModal";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import {
   notifyCalendarEventCreated,
   notifyCalendarEventDeleted,
@@ -557,36 +558,21 @@ export default function CalendarPageContent() {
   };
 
   return (
-    <div className="min-h-dvh bg-slate-50/80 text-slate-950">
-      <main className="mx-auto flex w-full max-w-[96rem] flex-col gap-4 px-4 py-4 pb-mobile-tab sm:gap-5 sm:px-6 sm:py-5 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:py-7">
-        {/* Header */}
-        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div className="order-2 min-w-0 sm:order-1 sm:pl-14 lg:pl-0">
-            <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-xs font-semibold text-slate-500 shadow-sm sm:mb-3 sm:px-4 sm:py-1.5">
-              スケジュール
-            </p>
-            <h1 className="text-3xl font-bold tracking-normal text-slate-950 sm:text-5xl lg:text-4xl">
-              カレンダー
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 sm:mt-3 sm:text-base sm:leading-7 lg:text-sm">
-              締切と作業ブロックを月単位で確認し、Google カレンダー連携の状態もここで管理します。
-            </p>
-          </div>
-          <div className="order-1 flex w-full min-w-0 flex-wrap items-center gap-2 pl-14 sm:order-2 sm:w-auto sm:justify-end sm:gap-3 sm:pl-0">
-            <Button variant="ghost" asChild className="h-11 shrink-0 rounded-2xl px-4 text-slate-600 hover:bg-white">
-              <Link href="/dashboard">
-                <span className="sm:hidden">ホーム</span>
-                <span className="hidden sm:inline">ホームに戻る</span>
-              </Link>
-            </Button>
-            <Button variant="outline" asChild className="h-11 shrink-0 rounded-2xl border-slate-200 bg-white px-4 shadow-sm">
+    <div className="min-h-dvh bg-background text-foreground">
+      <main className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 px-4 pb-mobile-tab pt-8 sm:px-6 sm:pt-10 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:pb-7 lg:pt-9">
+        <ProductPageHeader
+          title="カレンダー"
+          description="締切と作業ブロックを月単位で確認し、Google カレンダー連携の状態もここで管理します。"
+          backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+          actions={
+            <Button variant="outline" asChild className="h-10 shrink-0 rounded-xl border-slate-200 bg-white px-4 shadow-sm">
               <Link href="/calendar/settings">
                 <SettingsIcon />
                 <span className="ml-1.5">{connectionStatus?.needsReconnect ? "再連携" : "設定"}</span>
               </Link>
             </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* Error */}
         {error && dismissedError !== error && (

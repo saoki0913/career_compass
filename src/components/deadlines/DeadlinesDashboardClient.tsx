@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ViewToggle } from "@/components/shared/ViewToggle";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { cn } from "@/lib/utils";
 import {
   useDeadlinesDashboard,
@@ -133,20 +134,17 @@ export function DeadlinesDashboardClient({
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_48%,#ffffff_100%)]">
-      <main className="mx-auto max-w-[92rem] px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-6 sm:px-8 sm:py-10 lg:px-10 xl:px-12">
-        <div className="mb-5 flex flex-col gap-4 pl-14 sm:mb-7 sm:flex-row sm:items-center sm:justify-between lg:pl-0">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-3xl font-bold tracking-normal text-slate-950 sm:text-3xl">締切管理</h1>
-              <span className="rounded-full bg-sky-50 px-3 py-1 text-sm font-semibold text-slate-600">
-                {deadlines.length}件
-              </span>
-            </div>
-            <p className="mt-2 hidden max-w-3xl text-base leading-relaxed text-slate-600 sm:block sm:text-sm">
-              未着手、進行中、期限切れを同じ画面で確認し、今日動くべき締切を絞り込めます
-            </p>
-          </div>
-        </div>
+      <main className="mx-auto max-w-[92rem] px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-8 sm:py-10 lg:px-10 xl:px-12">
+        <ProductPageHeader
+          title="締切管理"
+          description="未着手、進行中、期限切れを同じ画面で確認し、今日動くべき締切を絞り込めます"
+          backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+          badge={
+            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+              {deadlines.length}件
+            </span>
+          }
+        />
 
         <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.5)] backdrop-blur-xl sm:mb-8 sm:p-4">
           <div className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-[minmax(18rem,1.4fr)_minmax(11rem,0.7fr)_minmax(11rem,0.7fr)_auto]">

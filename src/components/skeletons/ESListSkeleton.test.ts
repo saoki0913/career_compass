@@ -6,14 +6,10 @@ async function readSource() {
 }
 
 describe("ESListSkeleton", () => {
-  it("mirrors the real header sidebar-toggle clearance", async () => {
+  it("delegates the header skeleton to the shared product header skeleton", async () => {
     const source = await readSource();
-    expect(source).toContain("pl-14");
-    expect(source).toContain("lg:pl-0");
-  });
-
-  it("hides the description skeleton on mobile to match the page", async () => {
-    const source = await readSource();
-    expect(source).toContain('className="hidden sm:block"');
+    expect(source).toContain("ProductPageHeaderSkeleton");
+    expect(source).toContain("actionCount={2}");
+    expect(source).toContain("showBackLink");
   });
 });

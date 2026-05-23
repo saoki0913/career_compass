@@ -6,16 +6,22 @@ async function readSource() {
 }
 
 describe("CompaniesPageHeader", () => {
-  it("hides the description paragraph on mobile and shows it from sm up", async () => {
+  it("delegates title spacing to the shared product header", async () => {
     const source = await readSource();
-    // 説明文はスマホでは非表示、sm 以上で表示する
-    expect(source).toContain("hidden text-sm leading-6");
-    expect(source).toContain("sm:block sm:text-base");
+    expect(source).toContain("ProductPageHeader");
+    expect(source).not.toContain("sm:text-3xl");
   });
 
   it("keeps the page title and add-company link", async () => {
     const source = await readSource();
     expect(source).toContain("登録企業");
     expect(source).toContain("/companies/new");
+  });
+
+  it("renders the company count as the shared header badge", async () => {
+    const source = await readSource();
+    expect(source).toContain("formatCompanyCount");
+    expect(source).toContain('typeof count === "number"');
+    expect(source).toContain("badge={");
   });
 });

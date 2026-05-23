@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -61,6 +62,44 @@ interface NotificationSettings {
   dailySummaryHourJst: number;
   reminderTiming: Array<{ type: string; hours?: number }>;
 }
+
+const NOTIFICATION_SETTING_ITEMS = [
+  {
+    id: "deadline-reminder",
+    key: "deadlineReminder",
+    label: "締切リマインド",
+    description: "締切が近づいたときに通知を受け取る",
+  },
+  {
+    id: "deadline-near",
+    key: "deadlineNear",
+    label: "締切が近い",
+    description: "締切24時間以内の緊急通知を受け取る",
+  },
+  {
+    id: "company-fetch",
+    key: "companyFetch",
+    label: "企業情報取得",
+    description: "企業情報の取得完了時に通知を受け取る",
+  },
+  {
+    id: "es-review",
+    key: "esReview",
+    label: "ES添削完了",
+    description: "ES添削の完了時に通知を受け取る",
+  },
+  {
+    id: "daily-summary",
+    key: "dailySummary",
+    label: "デイリーサマリー",
+    description: "毎日1回、選んだ時刻（日本時間）に進捗サマリーを通知します",
+  },
+] satisfies Array<{
+  id: string;
+  key: keyof Pick<NotificationSettings, "deadlineReminder" | "deadlineNear" | "companyFetch" | "esReview" | "dailySummary">;
+  label: string;
+  description: string;
+}>;
 
 export default function SettingsPage() {
   const { isAuthenticated, isLoading: isAuthLoading, userPlan, refreshPlan } = useAuth();
@@ -221,10 +260,10 @@ export default function SettingsPage() {
     };
   }, [isAuthLoading, isAuthenticated]);
 
-  const handleSave = async () => {
+  const saveProfile = async (showToast = true) => {
     if (!name.trim()) {
       setError("名前を入力してください");
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -256,12 +295,16 @@ export default function SettingsPage() {
 
       const data = await response.json();
       setProfile(data.profile);
-      notifySuccess({ title: "プロフィールを保存しました" });
+      if (showToast) {
+        notifySuccess({ title: "プロフィールを保存しました" });
+      }
+      return true;
     } catch (err) {
       setError(reportUserFacingError(err, {
         code: "SETTINGS_PROFILE_UPDATE_FAILED",
         userMessage: "プロフィールを保存できませんでした。",
       }, "SettingsPage:saveProfile"));
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -283,8 +326,8 @@ export default function SettingsPage() {
     );
   };
 
-  const handleSaveNotifications = async () => {
-    if (!notificationSettings) return;
+  const saveNotificationSettings = async (showToast = true) => {
+    if (!notificationSettings) return true;
 
     setIsSavingNotifications(true);
     setError(null);
@@ -307,16 +350,32 @@ export default function SettingsPage() {
       }
 
       const data = await response.json();
-      setNotificationSettings(data.settings);
-      notifySuccess({ title: "通知設定を保存しました" });
+      setNotificationSettings({
+        ...data.settings,
+        dailySummaryHourJst: data.settings.dailySummaryHourJst ?? 9,
+      });
+      if (showToast) {
+        notifySuccess({ title: "通知設定を保存しました" });
+      }
+      return true;
     } catch (err) {
       setError(reportUserFacingError(err, {
         code: "SETTINGS_NOTIFICATIONS_UPDATE_FAILED",
         userMessage: "通知設定を保存できませんでした。",
       }, "SettingsPage:saveNotifications"));
+      return false;
     } finally {
       setIsSavingNotifications(false);
     }
+  };
+
+  const handleSaveAll = async () => {
+    if (isSaving || isSavingNotifications) return;
+    const profileSaved = await saveProfile(false);
+    if (!profileSaved) return;
+    const notificationsSaved = await saveNotificationSettings(false);
+    if (!notificationsSaved) return;
+    notifySuccess({ title: "設定を保存しました" });
   };
 
   const toggleNotificationSetting = (key: keyof NotificationSettings) => {
@@ -426,335 +485,265 @@ export default function SettingsPage() {
       }
     : null;
 
+  const isSavingAny = isSaving || isSavingNotifications;
+
   return (
     <div className="min-h-screen bg-background">
+      <main className="mx-auto w-full max-w-[96rem] px-4 py-8 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-6 lg:px-8">
+        <ProductPageHeader
+          title="設定"
+          description="プロフィールや通知設定を管理"
+          descriptionMode="always"
+          variant="form"
+          backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+          actions={
+            <Button onClick={() => void handleSaveAll()} disabled={isSavingAny} className="min-w-32">
+              {isSavingAny ? (
+                <>
+                  <LoadingSpinner />
+                  <span className="ml-2">保存中...</span>
+                </>
+              ) : (
+                "保存する"
+              )}
+            </Button>
+          }
+        />
 
-      <main className="mx-auto max-w-3xl px-4 py-8 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold">設定</h1>
-          <p className="text-muted-foreground mt-1">プロフィールや通知設定を管理</p>
-        </div>
-
-        {/* Error message */}
         {error && (
-          <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-200">
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-4">
             <p className="text-sm text-red-800">{error}</p>
           </div>
         )}
 
-        {/* Profile Section */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>プロフィール</CardTitle>
-            <CardDescription>基本情報を編集</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Avatar and email */}
-            <div className="flex items-center gap-4">
-              {profile?.image ? (
-                <img
-                  src={profile.image}
-                  alt=""
-                  className="w-16 h-16 rounded-full ring-2 ring-border"
-                />
-              ) : (
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                  <span className="text-2xl font-medium text-muted-foreground">
-                    {name.charAt(0).toUpperCase()}
-                  </span>
-                </div>
-              )}
-              <div>
-                <p className="font-medium">{profile?.email}</p>
-                <p className="text-sm text-muted-foreground">
-                  {profile?.plan === "pro"
-                    ? "Proプラン"
-                    : profile?.plan === "standard"
-                    ? "Standardプラン"
-                    : "Freeプラン"}
-                </p>
-              </div>
-            </div>
-
-            {/* Name */}
-            <div className="space-y-2">
-              <Label htmlFor="name">名前 *</Label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="プロフィールに表示する名前（任意）"
-              />
-            </div>
-
-            {/* University */}
-            <div className="space-y-2">
-              <Label htmlFor="university">大学</Label>
-              <Input
-                id="university"
-                value={university}
-                onChange={(e) => setUniversity(e.target.value)}
-                placeholder="〇〇大学"
-              />
-            </div>
-
-            {/* Faculty */}
-            <div className="space-y-2">
-              <Label htmlFor="faculty">学部・学科</Label>
-              <Input
-                id="faculty"
-                value={faculty}
-                onChange={(e) => setFaculty(e.target.value)}
-                placeholder="〇〇学部 〇〇学科"
-              />
-            </div>
-
-            {/* Graduation Year */}
-            <div className="space-y-2">
-              <Label htmlFor="graduationYear">卒業予定年</Label>
-              <Input
-                id="graduationYear"
-                type="number"
-                value={graduationYear}
-                onChange={(e) => setGraduationYear(e.target.value)}
-                placeholder="2026"
-                min={2020}
-                max={2040}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Target Industries */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>志望業界</CardTitle>
-            <CardDescription>興味のある業界を選択（複数可）</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {INDUSTRIES.map((industry) => (
-                <button
-                  key={industry}
-                  type="button"
-                  onClick={() => toggleIndustry(industry)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-full text-sm font-medium transition-all",
-                    selectedIndustries.includes(industry)
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+        <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] xl:items-start">
+          <div className="min-w-0 space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">プロフィール</CardTitle>
+                <CardDescription>基本情報を編集</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex min-w-0 items-center gap-4">
+                  {profile?.image ? (
+                    <img
+                      src={profile.image}
+                      alt=""
+                      className="h-14 w-14 rounded-full ring-2 ring-border"
+                    />
+                  ) : (
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-muted">
+                      <span className="text-xl font-medium text-muted-foreground">
+                        {name.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
                   )}
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{profile?.email}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {profile?.plan === "pro"
+                        ? "Proプラン"
+                        : profile?.plan === "standard"
+                        ? "Standardプラン"
+                        : "Freeプラン"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">名前 *</Label>
+                    <Input
+                      id="name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="プロフィールに表示する名前（任意）"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="university">大学</Label>
+                    <Input
+                      id="university"
+                      value={university}
+                      onChange={(e) => setUniversity(e.target.value)}
+                      placeholder="〇〇大学"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="faculty">学部・学科</Label>
+                    <Input
+                      id="faculty"
+                      value={faculty}
+                      onChange={(e) => setFaculty(e.target.value)}
+                      placeholder="〇〇学部 〇〇学科"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="graduationYear">卒業予定年</Label>
+                    <Input
+                      id="graduationYear"
+                      type="number"
+                      value={graduationYear}
+                      onChange={(e) => setGraduationYear(e.target.value)}
+                      placeholder="2026"
+                      min={2020}
+                      max={2040}
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <BillingSection
+              profile={billingProfile}
+              isOpeningPortal={isOpeningPortal}
+              onOpenBillingPortal={handleOpenBillingPortal}
+              className="mt-0"
+              compact
+            />
+
+            <Card className="border-red-200 bg-red-50/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base text-red-700">アカウント削除</CardTitle>
+                <CardDescription className="text-red-600">
+                  この操作は取り消せません。すべてのデータが完全に削除されます。
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="bg-red-600 text-white hover:bg-red-700"
                 >
-                  {industry}
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                  アカウントを削除
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
 
-        {/* Target Job Types */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>志望職種</CardTitle>
-            <CardDescription>興味のある職種を選択（複数可）</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {PROFILE_JOB_TYPES.map((jobType) => (
-                <button
-                  key={jobType}
-                  type="button"
-                  onClick={() => toggleJobType(jobType)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-full text-sm font-medium transition-all",
-                    selectedJobTypes.includes(jobType)
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  )}
-                >
-                  {jobType}
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Save Button */}
-        <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={isSaving}>
-            {isSaving ? (
-              <>
-                <LoadingSpinner />
-                <span className="ml-2">保存中...</span>
-              </>
-            ) : (
-              "保存する"
-            )}
-          </Button>
-        </div>
-
-        {/* Plan Management */}
-        <BillingSection
-          profile={billingProfile}
-          isOpeningPortal={isOpeningPortal}
-          onOpenBillingPortal={handleOpenBillingPortal}
-        />
-
-        <Card className="mt-12 mb-6">
-          <CardHeader>
-            <CardTitle>通知設定</CardTitle>
-            <CardDescription>受け取る通知の種類を選択</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {notificationSettings ? (
-              <>
-                {/* Deadline Reminder */}
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="deadline-reminder">締切リマインド</Label>
-                    <p className="text-sm text-muted-foreground">
-                      締切が近づいたときに通知を受け取る
-                    </p>
+          <div className="min-w-0 space-y-4">
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">志望業界・志望職種</CardTitle>
+                <CardDescription>興味のある業界・職種を選択（複数可）</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <section>
+                  <p className="mb-2 text-sm font-medium text-foreground">志望業界</p>
+                  <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto pr-1">
+                    {INDUSTRIES.map((industry) => {
+                      const selected = selectedIndustries.includes(industry);
+                      return (
+                        <button
+                          key={industry}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => toggleIndustry(industry)}
+                          className={cn(
+                            "rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:text-sm",
+                            selected
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          )}
+                        >
+                          {industry}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <Switch
-                    id="deadline-reminder"
-                    checked={notificationSettings.deadlineReminder}
-                    onCheckedChange={() => toggleNotificationSetting("deadlineReminder")}
-                  />
-                </div>
+                </section>
 
-                {/* Deadline Near */}
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="deadline-near">締切が近い</Label>
-                    <p className="text-sm text-muted-foreground">
-                      締切24時間以内の緊急通知を受け取る
-                    </p>
+                <div className="border-t border-border/60 pt-4">
+                  <p className="mb-2 text-sm font-medium text-foreground">志望職種</p>
+                  <div className="flex flex-wrap gap-2">
+                    {PROFILE_JOB_TYPES.map((jobType) => {
+                      const selected = selectedJobTypes.includes(jobType);
+                      return (
+                        <button
+                          key={jobType}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => toggleJobType(jobType)}
+                          className={cn(
+                            "rounded-full px-3 py-1.5 text-xs font-medium transition-all sm:text-sm",
+                            selected
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          )}
+                        >
+                          {jobType}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <Switch
-                    id="deadline-near"
-                    checked={notificationSettings.deadlineNear}
-                    onCheckedChange={() => toggleNotificationSetting("deadlineNear")}
-                  />
                 </div>
+              </CardContent>
+            </Card>
 
-                {/* Company Fetch */}
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="company-fetch">企業情報取得</Label>
-                    <p className="text-sm text-muted-foreground">
-                      企業情報の取得完了時に通知を受け取る
-                    </p>
-                  </div>
-                  <Switch
-                    id="company-fetch"
-                    checked={notificationSettings.companyFetch}
-                    onCheckedChange={() => toggleNotificationSetting("companyFetch")}
-                  />
-                </div>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">通知設定</CardTitle>
+                <CardDescription>受け取る通知の種類を選択</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {notificationSettings ? (
+                  <>
+                    {NOTIFICATION_SETTING_ITEMS.map((item) => (
+                      <div key={item.id} className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <Label htmlFor={item.id}>{item.label}</Label>
+                          <p className="text-sm text-muted-foreground">{item.description}</p>
+                        </div>
+                        <Switch
+                          id={item.id}
+                          className="shrink-0"
+                          checked={Boolean(notificationSettings[item.key])}
+                          onCheckedChange={() => toggleNotificationSetting(item.key)}
+                        />
+                      </div>
+                    ))}
 
-                {/* ES Review */}
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="es-review">ES添削完了</Label>
-                    <p className="text-sm text-muted-foreground">
-                      ES添削の完了時に通知を受け取る
-                    </p>
-                  </div>
-                  <Switch
-                    id="es-review"
-                    checked={notificationSettings.esReview}
-                    onCheckedChange={() => toggleNotificationSetting("esReview")}
-                  />
-                </div>
-
-                {/* Daily Summary */}
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-0.5 min-w-0 flex-1">
-                    <Label htmlFor="daily-summary">デイリーサマリー</Label>
-                    <p className="text-sm text-muted-foreground">
-                      毎日1回、選んだ時刻（日本時間）に進捗サマリーを通知します
-                    </p>
-                  </div>
-                  <Switch
-                    id="daily-summary"
-                    className="shrink-0"
-                    checked={notificationSettings.dailySummary}
-                    onCheckedChange={() => toggleNotificationSetting("dailySummary")}
-                  />
-                </div>
-                {notificationSettings.dailySummary && (
-                  <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
-                    <Label htmlFor="daily-summary-hour" className="text-sm">
-                      送信時刻（JST）
-                    </Label>
-                    <Select
-                      value={String(notificationSettings.dailySummaryHourJst ?? 9)}
-                      onValueChange={(v) =>
-                        setNotificationSettings((prev) =>
-                          prev ? { ...prev, dailySummaryHourJst: parseInt(v, 10) } : prev
-                        )
-                      }
-                    >
-                      <SelectTrigger id="daily-summary-hour" className="mt-2 w-full max-w-[200px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {DAILY_SUMMARY_HOURS_JST.map((h) => (
-                          <SelectItem key={h} value={String(h)}>
-                            {h}:00
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {notificationSettings.dailySummary && (
+                      <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                        <Label htmlFor="daily-summary-hour" className="text-sm">
+                          送信時刻（JST）
+                        </Label>
+                        <Select
+                          value={String(notificationSettings.dailySummaryHourJst ?? 9)}
+                          onValueChange={(v) =>
+                            setNotificationSettings((prev) =>
+                              prev ? { ...prev, dailySummaryHourJst: parseInt(v, 10) } : prev
+                            )
+                          }
+                        >
+                          <SelectTrigger id="daily-summary-hour" className="w-full sm:w-40">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DAILY_SUMMARY_HOURS_JST.map((h) => (
+                              <SelectItem key={h} value={String(h)}>
+                                {h}:00
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center py-8">
+                    <LoadingSpinner />
                   </div>
                 )}
-
-                {/* Save Notifications Button */}
-                <div className="flex justify-end pt-4">
-                  <Button onClick={handleSaveNotifications} disabled={isSavingNotifications}>
-                    {isSavingNotifications ? (
-                      <>
-                        <LoadingSpinner />
-                        <span className="ml-2">保存中...</span>
-                      </>
-                    ) : (
-                      "通知設定を保存"
-                    )}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-center py-8">
-                <LoadingSpinner />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Danger Zone - Account Deletion */}
-        <Card className="mt-12 border-red-200 bg-red-50/50">
-          <CardHeader>
-            <CardTitle className="text-red-700">アカウント削除</CardTitle>
-            <CardDescription className="text-red-600">
-              この操作は取り消せません。すべてのデータが完全に削除されます。
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button
-              onClick={() => setShowDeleteModal(true)}
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              アカウントを削除
-            </Button>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
 
         {/* Delete Confirmation Modal */}
+
         {showDeleteModal && (
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="w-full max-w-md rounded-lg bg-card p-6 text-card-foreground shadow-xl">
               <h2 className="text-xl font-bold text-red-700 mb-4">
                 アカウントを削除しますか？
               </h2>
@@ -777,7 +766,7 @@ export default function SettingsPage() {
                     setDeleteConfirmText("");
                     setError(null);
                   }}
-                  className="bg-muted text-muted-foreground hover:bg-muted/80"
+                  variant="outline"
                   disabled={isDeleting}
                 >
                   キャンセル

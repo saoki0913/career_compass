@@ -6,7 +6,8 @@ import { useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
+import { Card, CardContent } from "@/components/ui/card";
 import { getSafeRelativeReturnPath } from "@/lib/security/safe-return-path";
 
 const GoogleIcon = () => (
@@ -32,29 +33,21 @@ export default function CalendarConnectPage() {
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-        <Link
-          href={returnTo}
-          className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <span aria-hidden>←</span>
-          設定に戻る
-        </Link>
+        <ProductPageHeader
+          title="Googleカレンダーを連携"
+          description="ログイン済みでも、Google カレンダーへの予定追加と空き時間取得には追加の Google 認証が必要です。"
+          descriptionMode="always"
+          variant="form"
+          backLink={{ href: returnTo, label: "設定に戻る" }}
+          metadata={
+            <span className="flex h-12 w-12 items-center justify-center rounded-full border bg-white">
+              <GoogleIcon />
+            </span>
+          }
+        />
 
         <Card className="border-border/50">
-          <CardHeader className="space-y-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full border bg-white">
-              <GoogleIcon />
-            </div>
-            <div className="space-y-2">
-              <CardTitle className="text-2xl">Googleカレンダーを連携</CardTitle>
-              <CardDescription className="text-sm leading-6">
-                ログイン済みでも、Google カレンダーへの予定追加と空き時間取得には追加の Google 認証が必要です。
-                この画面から連携した場合にだけ、Google 側の権限付与へ進みます。
-              </CardDescription>
-            </div>
-          </CardHeader>
-
-          <CardContent className="space-y-6">
+          <CardContent className="space-y-6 pt-6">
             <div className="rounded-2xl border bg-muted/30 p-4">
               <p className="text-sm font-medium">この連携で使う権限</p>
               <ul className="mt-3 space-y-2 text-sm text-muted-foreground">

@@ -5,52 +5,34 @@ import {
   SkeletonPill,
   SkeletonText,
 } from "@/components/ui/skeleton";
+import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 
 const shellClassName =
-  "mx-auto max-w-[90rem] px-5 pb-6 pt-20 sm:px-6 md:px-7 lg:px-8 lg:py-6";
+  "mx-auto max-w-[90rem] px-5 pb-6 pt-8 sm:px-6 sm:pt-10 md:px-7 lg:px-8 lg:py-6";
 
 /** `/companies/[id]` の `CompanyDetailPageClient` 読み込み完了後レイアウトに合わせる */
 export function CompanyDetailSkeleton() {
   return (
     <div className="min-h-screen bg-background">
       <div className={shellClassName}>
-        <Skeleton className="mb-5 h-4 w-36 rounded-md" />
-
-        {/* 企業ヘッダー + クイックアクション */}
-        <div className="mb-5 space-y-4 border-b border-border/50 pb-5">
-          <div className="flex flex-col gap-4 min-[1180px]:flex-row min-[1180px]:items-start min-[1180px]:justify-between">
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <div className="min-w-0 space-y-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Skeleton className="h-10 w-52 max-w-full rounded-md sm:h-11 sm:w-64 lg:h-10" />
-                  <Skeleton className="h-4 w-24 rounded-md" />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <SkeletonPill className="h-8 w-24" />
-                  <SkeletonPill className="h-8 w-16" />
-                  <SkeletonPill className="h-8 w-20" />
-                </div>
+        <ProductPageHeaderSkeleton
+          variant="detail"
+          actionCount={0}
+          showBackLink
+          actionsSkeleton={
+            <div className="flex w-full min-w-0 flex-col gap-2 min-[1180px]:w-auto min-[1180px]:min-w-[24rem]">
+              <div className="flex justify-end gap-2">
+                <SkeletonButton className="h-10 w-10 rounded-lg lg:h-8 lg:w-8" />
+                <SkeletonButton className="h-10 w-10 rounded-lg lg:h-8 lg:w-8" />
               </div>
-              <div className="flex shrink-0 gap-2">
-                <SkeletonButton className="h-10 w-10 rounded-lg" />
-                <SkeletonButton className="h-10 w-10 rounded-lg" />
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <SkeletonButton key={i} className="h-11 w-full rounded-xl lg:h-9" />
+                ))}
               </div>
             </div>
-
-            <div className="min-[1180px]:max-w-[52rem]">
-              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-start min-[1180px]:justify-end">
-                <SkeletonButton className="h-14 w-full rounded-xl sm:h-11 sm:w-[7rem] lg:h-10" />
-                <SkeletonButton className="h-14 w-full rounded-xl sm:h-11 sm:w-[8rem] lg:h-10" />
-                <SkeletonButton className="h-14 w-full rounded-xl sm:h-11 sm:w-[7rem] lg:h-10" />
-                <SkeletonButton className="col-span-2 h-14 w-full rounded-xl sm:col-span-1 sm:h-11 sm:w-[13.5rem] lg:h-10" />
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2 min-[1180px]:justify-end">
-                <Skeleton className="h-3 w-24 rounded-md" />
-                <Skeleton className="h-3 w-32 rounded-md" />
-              </div>
-            </div>
-          </div>
-        </div>
+          }
+        />
 
         {/* 締切・予定 | 応募枠 | この企業のES */}
         <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-2 lg:gap-5 xl:grid-cols-3">

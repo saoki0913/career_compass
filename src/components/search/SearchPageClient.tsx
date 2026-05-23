@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 import { SearchResults } from "@/components/search";
 import { Input } from "@/components/ui/input";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { useSearch } from "@/hooks/useSearch";
 import { sanitizeSearchInput, type SearchResponse } from "@/lib/search/utils";
 
@@ -75,6 +76,13 @@ export function SearchPageClient({
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+      <ProductPageHeader
+        title="検索"
+        description="企業名、ES内容、締切タイトルなどを横断して検索できます"
+        descriptionMode="always"
+        variant="compact"
+        backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+      />
       <div className="mb-8">
         <form onSubmit={handleSubmit} className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />

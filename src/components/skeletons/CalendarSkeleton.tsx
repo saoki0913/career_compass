@@ -1,30 +1,18 @@
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   Skeleton,
-  SkeletonButton,
   SkeletonCircle,
   SkeletonPill,
   SkeletonText,
 } from "@/components/ui/skeleton";
+import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 
 /** Matches `/calendar`: responsive header, card-wrapped month grid, mobile summary cards, and desktop side rail. */
 export function CalendarSkeleton() {
   return (
-    <div className="min-h-dvh bg-slate-50/80">
-      <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-4 px-4 py-4 pb-mobile-tab sm:gap-5 sm:px-6 sm:py-5 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:py-7">
-        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-          <div className="order-2 min-w-0 sm:order-1 sm:pl-14 lg:pl-0">
-            <Skeleton className="h-6 w-28 rounded-full bg-white sm:h-7 sm:w-32" />
-            <Skeleton className="mt-2 h-9 w-44 rounded-2xl sm:mt-3 sm:h-14 sm:w-64 lg:h-11 lg:w-48" />
-            <div className="mt-2 max-w-[22rem] sm:mt-3">
-              <SkeletonText lines={1} widths={["100%"]} />
-            </div>
-          </div>
-          <div className="order-1 flex w-full flex-wrap gap-2 pl-14 sm:order-2 sm:w-auto sm:justify-end sm:gap-3 sm:pl-0">
-            <SkeletonButton className="h-11 w-24 rounded-2xl sm:w-28" />
-            <SkeletonButton className="h-11 w-28 rounded-2xl sm:w-32" />
-          </div>
-        </div>
+    <div className="min-h-dvh bg-background">
+      <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 px-4 pb-mobile-tab pt-8 sm:px-6 sm:pt-10 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:pb-7 lg:pt-9">
+        <ProductPageHeaderSkeleton actionCount={1} showBackLink />
 
         <div className="lg:hidden">
           <div className="flex min-h-10 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:min-h-11 sm:px-4">

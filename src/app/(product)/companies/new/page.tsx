@@ -9,8 +9,9 @@ import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
 import { trackEvent } from "@/lib/analytics/client";
 import { notifySuccess } from "@/lib/notifications";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CompanyAutocomplete } from "@/components/companies/CompanyAutocomplete";
@@ -46,12 +47,6 @@ function normalizeIndustry(input: string | null | undefined) {
 }
 
 // Icons
-const ArrowLeftIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
-
 const EyeIcon = () => (
   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -245,25 +240,17 @@ export default function NewCompanyPage() {
         </DialogContent>
       </Dialog>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 pb-[calc(5rem+env(safe-area-inset-bottom,0px))]">
-        {/* Back button */}
-        <Link
-          href="/companies"
-          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
-        >
-          <ArrowLeftIcon />
-          企業一覧に戻る
-        </Link>
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-[calc(5rem+env(safe-area-inset-bottom,0px))]">
+        <ProductPageHeader
+          title="企業を追加"
+          description="志望企業の情報を登録して、選考状況を管理しましょう"
+          descriptionMode="always"
+          variant="form"
+          backLink={{ href: "/companies", label: "企業一覧に戻る" }}
+        />
 
         <Card className="border-border/50">
-          <CardHeader>
-            <CardTitle className="text-xl">企業を追加</CardTitle>
-            <CardDescription>
-              志望企業の情報を登録して、選考状況を管理しましょう
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent>
+          <CardContent className="pt-6">
             {isFirstCompany ? (
               <div className="mb-5 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
                 初回は企業名と業界だけで始められます。登録後、そのまま志望動機の AI 作成に進みます。

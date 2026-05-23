@@ -5,12 +5,19 @@ import {
   SkeletonPill,
 } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 
 /** Matches `/profile`: back link, profile Card, 2-col stats, education & target Cards. */
 export function ProfilePageSkeleton() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      <Skeleton className="mb-6 h-4 w-48 rounded-md" />
+      <ProductPageHeaderSkeleton
+        variant="form"
+        actionCount={1}
+        showBadge={false}
+        showBackLink
+        descriptionMode="always"
+      />
 
       <Card className="mb-6">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">

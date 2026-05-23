@@ -1,4 +1,5 @@
-import { Skeleton, SkeletonText } from "@/components/ui/skeleton";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 
 function DeadlinesFilterSkeleton() {
   return (
@@ -91,11 +92,8 @@ export function DeadlinesDashboardSkeleton() {
  */
 export function DeadlinesDashboardPageSkeleton() {
   return (
-    <div className="mx-auto max-w-[92rem] px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-6 sm:px-8 sm:py-10 lg:px-10 xl:px-12">
-      <div className="mb-6 space-y-2">
-        <Skeleton className="h-7 w-28 rounded-lg" />
-        <SkeletonText lines={1} widths={["14rem"]} className="hidden sm:block" />
-      </div>
+    <div className="mx-auto max-w-[92rem] px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-8 sm:py-10 lg:px-10 xl:px-12">
+      <ProductPageHeaderSkeleton actionCount={0} showBackLink />
 
       <DeadlinesFilterSkeleton />
 

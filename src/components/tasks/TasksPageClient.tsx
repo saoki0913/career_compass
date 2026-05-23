@@ -38,6 +38,7 @@ import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import { notifyError } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 import { ListPageFilterBar } from "@/components/shared/ListPageFilterBar";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { ViewToggle } from "@/components/shared/ViewToggle";
 import { TaskKanbanBoard } from "@/components/tasks/TaskKanbanBoard";
 import {
@@ -607,42 +608,34 @@ export function TasksPageClient({
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-[1600px] px-4 pb-10 pt-20 sm:px-6 lg:px-8 lg:pt-10">
-        <div className="mb-7 flex flex-col gap-5 sm:mb-8 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-4xl font-bold tracking-tight text-slate-950 md:text-3xl lg:text-4xl">
-                タスク
-              </h1>
-              <span className="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-slate-700 md:text-xs">
-                {tasks.length}件
-              </span>
-            </div>
-            <p className="mt-3 hidden max-w-3xl text-base leading-7 text-muted-foreground sm:block md:mt-2">
-              締切に近いものから片付けられるように、未完了タスクを期限別に整理します
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 md:flex md:self-start">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={exportingDeadlines}
-              onClick={() => void handleExportDeadlinesCsv()}
-              className="h-12 rounded-xl px-4 md:h-10"
-            >
-              <Download className="h-4 w-4 shrink-0" />
-              <span className="ml-1.5">締切をCSV</span>
-            </Button>
-            <Button
-              type="button"
-              onClick={() => setShowModal(true)}
-              className="h-12 rounded-xl bg-slate-950 px-4 text-white hover:bg-slate-800 md:h-10"
-            >
-              <Plus className="h-5 w-5" />
-              <span className="ml-1.5">タスクを追加</span>
-            </Button>
-          </div>
-        </div>
+      <main className="mx-auto max-w-[1600px] px-4 pb-10 pt-8 sm:px-6 sm:pt-10 lg:px-8 lg:pt-10">
+        <ProductPageHeader
+          title="タスク"
+          description="締切に近いものから片付けられるように、未完了タスクを期限別に整理します"
+          backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+          badge={
+            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+              {tasks.length}件
+            </span>
+          }
+          actions={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={exportingDeadlines}
+                onClick={() => void handleExportDeadlinesCsv()}
+              >
+                <Download className="h-4 w-4 shrink-0" />
+                <span className="ml-1.5">締切をCSV</span>
+              </Button>
+              <Button type="button" onClick={() => setShowModal(true)}>
+                <Plus className="h-5 w-5" />
+                <span className="ml-1.5">タスクを追加</span>
+              </Button>
+            </>
+          }
+        />
 
         <ListPageFilterBar
           searchQuery={searchQuery}

@@ -9,8 +9,9 @@ describe("ConversationWorkspaceShellSkeleton", () => {
     );
     expect(source).toContain("h-screen bg-background flex flex-col overflow-hidden");
     expect(source).toContain(
-      "mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-3 py-4 sm:px-6 lg:px-8",
+      "mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-8",
     );
+    expect(source).toContain("PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET");
   });
 
   it("uses exact grid columns from the shell", async () => {

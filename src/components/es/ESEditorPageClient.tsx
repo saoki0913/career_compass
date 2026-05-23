@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ProductBackButton } from "@/components/shared/ProductBackButton";
 import {
   Select,
   SelectContent,
@@ -45,13 +46,6 @@ function getServerSnapshotLg() {
 function useIsDesktop() {
   return useSyncExternalStore(subscribeLg, getSnapshotLg, getServerSnapshotLg);
 }
-
-// Icons
-const ArrowLeftIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
 
 const PlusIcon = () => (
   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -836,13 +830,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-14 flex-col gap-2 py-2 lg:h-14 lg:flex-row lg:items-center lg:justify-between lg:gap-0 lg:py-0">
             <div className="flex min-w-0 items-center gap-2 sm:gap-4">
-              <Link
-                href="/es"
-                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ArrowLeftIcon />
-                <span className="hidden sm:inline">ES一覧</span>
-              </Link>
+              <ProductBackButton href="/es" label="ES一覧に戻る" />
               <span className="text-muted-foreground/30 max-lg:hidden">|</span>
               <div className="flex min-w-0 items-center gap-2">
                 {document?.company && (

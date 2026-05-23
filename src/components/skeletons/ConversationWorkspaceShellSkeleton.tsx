@@ -1,10 +1,14 @@
 import type { ReactNode } from "react";
 
 import {
+  PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET,
+} from "@/components/shared/product-page-header-layout";
+import {
   Skeleton,
   SkeletonButton,
   SkeletonText,
 } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 interface ConversationWorkspaceShellSkeletonProps {
   accent?: string;
@@ -38,24 +42,25 @@ export function ConversationWorkspaceShellSkeleton({
       aria-busy="true"
       aria-live="polite"
     >
-      <main className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-3 py-4 sm:px-6 lg:px-8">
+      <main className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-8">
         {/* ---- Header ---- */}
-        <div className="mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className={cn("mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between", PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET)}>
           {/* Left: back button + title + subtitle */}
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-start gap-3">
             <Skeleton
-              className="min-h-[44px] min-w-[44px] rounded-lg"
+              className="h-11 w-11 shrink-0 rounded-xl"
               shimmerDelayMs={0}
             />
-            <div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <Skeleton className="h-6 w-32 rounded-lg" shimmerDelayMs={15} />
-                <div className="hidden h-1.5 w-1.5 rounded-full bg-muted-foreground/30 lg:block" />
+            <div className="min-w-0 pt-0.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <Skeleton className="h-7 w-40 rounded-lg sm:h-8" shimmerDelayMs={15} />
+                <div className="hidden h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/30 lg:block" />
                 <Skeleton
-                  className="h-4 w-48 rounded-lg"
+                  className="hidden h-4 w-48 rounded-lg lg:block"
                   shimmerDelayMs={30}
                 />
               </div>
+              <Skeleton className="mt-1 h-4 w-44 rounded-lg lg:hidden" shimmerDelayMs={30} />
             </div>
           </div>
 

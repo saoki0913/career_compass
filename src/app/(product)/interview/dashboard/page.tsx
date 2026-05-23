@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { getHeadersIdentity } from "@/bff/identity/request-identity";
 import { LoginRequiredForAi } from "@/components/auth/LoginRequiredForAi";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { CompanyHeatmap } from "@/components/interview/dashboard/CompanyHeatmap";
 import { FormatHeatmap } from "@/components/interview/dashboard/FormatHeatmap";
 import { RecurringIssuesList } from "@/components/interview/dashboard/RecurringIssuesList";
@@ -79,25 +80,23 @@ export default async function InterviewDashboardPage() {
   return (
     <div className="min-h-screen bg-background">
       <main className="mx-auto w-full max-w-5xl space-y-6 px-4 py-8 sm:px-6">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">面接 成長ダッシュボード</h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                過去の最終講評を企業 / 方式 / 軸 / 改善キーワードで集計し、弱点の偏りと変化を一目で把握できます。
-              </p>
-            </div>
-            <div className="text-xs text-muted-foreground">
+        <ProductPageHeader
+          title="面接 成長ダッシュボード"
+          description="過去の最終講評を企業 / 方式 / 軸 / 改善キーワードで集計し、弱点の偏りと変化を一目で把握できます。"
+          descriptionMode="always"
+          variant="compact"
+          backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
+          badge={
+            <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
               集計セッション数: <span className="font-medium text-foreground">{payload.totalSessions}</span>
-            </div>
-          </div>
-          <Link
-            href="/companies"
-            className="text-xs text-primary underline-offset-2 hover:underline"
-          >
-            企業一覧から面接対策を開始する →
-          </Link>
-        </div>
+            </span>
+          }
+          actions={
+            <Link href="/companies" className="text-xs text-primary underline-offset-2 hover:underline">
+              企業一覧から面接対策を開始する →
+            </Link>
+          }
+        />
 
         <Card className="border-border/60">
           <CardHeader>

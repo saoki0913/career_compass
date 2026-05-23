@@ -1,16 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ProductBackButton } from "@/components/shared/ProductBackButton";
 import { cn } from "@/lib/utils";
 import { STAR_EXPLANATIONS } from "@/components/gakuchika";
-
-const ArrowLeftIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
 
 const LoadingSpinner = () => (
   <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -40,18 +34,14 @@ export function GakuchikaStartScreen({
 }) {
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <Link
-        href="/gakuchika"
-        className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
-      >
-        <ArrowLeftIcon />
-        戻る
-      </Link>
+      <div className="mb-6 flex items-start gap-3 pl-14 lg:pl-0">
+        <ProductBackButton href="/gakuchika" label="ガクチカ一覧に戻る" />
+        <h1 className="min-w-0 break-words text-2xl font-bold tracking-tight text-foreground">{title}</h1>
+      </div>
 
       <div className="space-y-6 max-w-3xl">
         <Card>
           <CardContent className="pt-6">
-            <h1 className="text-xl font-bold mb-2">{title}</h1>
             {content ? (
               <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
                 {content}

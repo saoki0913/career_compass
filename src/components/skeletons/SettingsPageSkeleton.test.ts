@@ -8,15 +8,16 @@ describe("SettingsPageSkeleton", () => {
       "utf8",
     );
     expect(source).toContain("length: 5");
-    // Switch toggle approximation
     expect(source).toContain("h-6 w-11");
   });
 
-  it("uses max-w-3xl layout matching settings page", async () => {
+  it("uses the dense two-column settings layout", async () => {
     const source = await readFile(
       new URL("./SettingsPageSkeleton.tsx", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("max-w-3xl");
+    expect(source).toContain("max-w-[96rem]");
+    expect(source).toContain("xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]");
+    expect(source).toContain("ProductPageHeaderSkeleton");
   });
 });

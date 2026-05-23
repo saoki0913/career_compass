@@ -83,7 +83,7 @@ describe("CalendarSidebar - selected date details", () => {
 describe("CalendarSkeleton - responsive parity", () => {
   it("uses responsive text width, compact connection strip, and enough summary cards", async () => {
     const source = await readFile(new URL("../skeletons/CalendarSkeleton.tsx", import.meta.url), "utf8");
-    expect(source).toContain('widths={["100%"]}');
+    expect(source).toContain('widths={["100%", "72%"]}');
     expect(source).toContain("min-h-10");
     expect(source).toContain("lg:grid-cols-[minmax(0,1fr)_20rem]");
     expect(source).toContain("Array.from({ length: 4 })");

@@ -3,20 +3,12 @@ import {
   SkeletonButton,
   SkeletonCircle,
   SkeletonPill,
-  SkeletonText,
 } from "@/components/ui/skeleton";
 import { ListPageFilterBarSkeleton } from "@/components/shared/ListPageFilterBarSkeleton";
+import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 
 export function CompaniesListHeaderSkeleton() {
-  return (
-    <div className="mb-6 flex flex-col gap-5 sm:mb-8 sm:flex-row sm:items-start sm:justify-between">
-      <div className="space-y-2">
-        <Skeleton className="h-8 w-40" shimmerDelayMs={0} />
-        <SkeletonText lines={1} widths={["18rem"]} staggerShimmerMs={40} className="hidden sm:block" />
-      </div>
-      <SkeletonButton className="h-12 w-full rounded-xl sm:w-40" shimmerDelayMs={35} />
-    </div>
-  );
+  return <ProductPageHeaderSkeleton actionCount={1} showBackLink />;
 }
 
 type CompaniesKanbanSkeletonProps = {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,12 +20,6 @@ interface GoogleCalendar {
   name: string;
   isPrimary: boolean;
 }
-
-const ArrowLeftIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-  </svg>
-);
 
 const GoogleIcon = () => (
   <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -328,12 +323,13 @@ export default function CalendarSettingsPage() {
   return (
     <div className="min-h-screen bg-background">
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Link href="/calendar" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
-          <ArrowLeftIcon />
-          カレンダーに戻る
-        </Link>
-
-        <h1 className="text-2xl font-bold mb-8">カレンダー設定</h1>
+        <ProductPageHeader
+          title="カレンダー設定"
+          description="Google カレンダー連携と通知先カレンダーを管理します"
+          descriptionMode="always"
+          variant="form"
+          backLink={{ href: "/calendar", label: "カレンダーに戻る" }}
+        />
 
         {(error || saveError) && (
           <div className="p-4 rounded-lg bg-red-50 border border-red-200 mb-6">
