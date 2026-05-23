@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -29,6 +29,52 @@ function runHookWithEnv(relativePath, input, env) {
     input,
     encoding: "utf8",
   });
+}
+
+
+function withStagedRootFiles(count, callback) {
+  const dirName = `.codex-harness-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const dir = path.join(repoRoot, dirName);
+  const indexFile = path.join(tmpdir(), `${dirName}.index`);
+  const objectsDir = path.join(tmpdir(), `${dirName}.objects`);
+  const gitEnv = {
+    ...process.env,
+    GIT_INDEX_FILE: indexFile,
+    GIT_OBJECT_DIRECTORY: objectsDir,
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(repoRoot, ".git/objects"),
+  };
+  mkdirSync(dir, { recursive: true });
+  mkdirSync(objectsDir, { recursive: true });
+  const files = Array.from({ length: count }, (_, index) => path.join(dir, `fixture-${index}.md`));
+  try {
+    const readTree = spawnSync("git", ["read-tree", "HEAD"], { cwd: repoRoot, env: gitEnv, encoding: "utf8" });
+    assert.equal(readTree.status, 0, readTree.stderr);
+    for (const file of files) {
+      writeFileSync(file, `fixture ${file}
+`, "utf8");
+    }
+    const relativeFiles = files.map((file) => path.relative(repoRoot, file));
+    const add = spawnSync("git", ["add", "--", ...relativeFiles], { cwd: repoRoot, env: gitEnv, encoding: "utf8" });
+    assert.equal(add.status, 0, add.stderr);
+    return callback(relativeFiles, { GIT_INDEX_FILE: indexFile });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(indexFile, { force: true });
+    rmSync(objectsDir, { recursive: true, force: true });
+  }
+}
+
+function writeCommitAutonomyIntent(stateDir, sessionId) {
+  writeFileSync(path.join(stateDir, `autonomy-intent-${sessionId}.json`), JSON.stringify({
+    schemaVersion: 1,
+    kind: "codex-autonomy-intent",
+    decision: "approved",
+    issuer: "codex-user-prompt-router",
+    createdAt: "2026-05-23T00:00:00Z",
+    promptHash: "test",
+    actions: ["test", "commit"],
+    releaseModes: [],
+  }, null, 2), "utf8");
 }
 
 function writeAutonomyIntent(stateDir, sessionId, { production = true } = {}) {
@@ -425,6 +471,57 @@ test("codex pre-tool dispatcher blocks compound staging and commit commands", ()
     assert.equal(result.status, 2, command);
     assert.match(result.stderr, /大きなコミット|対象ファイルを明示/);
   }
+});
+
+test("codex user-prompt router grants commit-only autonomy for local split commits", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "codex-commit-intent-"));
+  const result = runHookWithEnv(".codex/hooks/user-prompt-submit-router.sh", JSON.stringify({
+    session_id: "sess-commit-intent",
+    prompt: "ローカルの変更を分割してコミットして。push はしない。",
+  }), { HOME: homeDir });
+
+  assert.equal(result.status, 0);
+  const intentPath = path.join(homeDir, ".codex/sessions/career_compass/autonomy-intent-sess-commit-intent.json");
+  const intent = JSON.parse(readFileSync(intentPath, "utf8"));
+  assert.deepEqual(intent.actions, ["test", "commit"]);
+  assert.deepEqual(intent.releaseModes, []);
+
+  const pushHomeDir = mkdtempSync(path.join(tmpdir(), "codex-commit-push-intent-"));
+  const pushResult = runHookWithEnv(".codex/hooks/user-prompt-submit-router.sh", JSON.stringify({
+    session_id: "sess-commit-push-intent",
+    prompt: "ローカル変更をコミットしてから push して。",
+  }), { HOME: pushHomeDir });
+  assert.equal(pushResult.status, 0);
+  const pushIntent = JSON.parse(readFileSync(
+    path.join(pushHomeDir, ".codex/sessions/career_compass/autonomy-intent-sess-commit-push-intent.json"),
+    "utf8",
+  ));
+  assert.deepEqual(pushIntent.actions, ["test", "push", "commit"]);
+  assert.deepEqual(pushIntent.releaseModes, []);
+});
+
+test("codex commit autonomy creates staged checkpoints for large local split commits", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "codex-commit-auto-"));
+  const stateDir = path.join(homeDir, ".codex/sessions/career_compass");
+  mkdirSync(stateDir, { recursive: true });
+  writeCommitAutonomyIntent(stateDir, "sess-local-commit");
+
+  withStagedRootFiles(10, (_relativeFiles, gitEnv) => {
+    const result = runHookWithEnv(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+      session_id: "sess-local-commit",
+      cwd: repoRoot,
+      tool_name: "Bash",
+      tool_input: { command: "git commit -m local-split" },
+    }), { HOME: homeDir, ...gitEnv });
+
+    assert.equal(result.status, 0, result.stderr);
+    const review = JSON.parse(readFileSync(path.join(stateDir, "codex-commit-delegation-sess-local-commit"), "utf8"));
+    const categories = JSON.parse(readFileSync(path.join(stateDir, "test-categories-sess-local-commit"), "utf8"));
+    assert.equal(review.kind, "commit-review");
+    assert.equal(review.decision, "codex-autonomy-local-commit");
+    assert.equal(categories.categories["e2e-functional"], "skip:all");
+    assert.match(review.commandHash, /^[a-f0-9]{64}$/);
+  });
 });
 
 test("codex pre-tool dispatcher blocks provider CLI but auto-allows direct static checks", () => {

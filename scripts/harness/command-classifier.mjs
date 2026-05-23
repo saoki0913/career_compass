@@ -1143,10 +1143,10 @@ function classifyChangePath(files, { totalLines = 0 } = {}) {
     };
   }
 
-  if (fileCount >= 10 || lineCount >= 500 || hasHotspot) {
+  if (hasHotspot) {
     return {
       changePath: "EXTENDED_PATH",
-      reason: hasHotspot ? "hotspot" : fileCount >= 10 ? "file_count" : "line_count",
+      reason: "hotspot",
       fileCount,
       totalLines: lineCount,
       files: normalizedFiles,
@@ -1157,6 +1157,16 @@ function classifyChangePath(files, { totalLines = 0 } = {}) {
     return {
       changePath: "FAST_PATH",
       reason: "docs_or_static_metadata",
+      fileCount,
+      totalLines: lineCount,
+      files: normalizedFiles,
+    };
+  }
+
+  if (fileCount >= 10 || lineCount >= 500) {
+    return {
+      changePath: "EXTENDED_PATH",
+      reason: fileCount >= 10 ? "file_count" : "line_count",
       fileCount,
       totalLines: lineCount,
       files: normalizedFiles,

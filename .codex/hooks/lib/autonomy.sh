@@ -160,6 +160,29 @@ codex_autonomy_is_safe_release() {
   printf '%s' "$segment" | grep -Eq '^(make[[:space:]][^;&|]*(deploy-staging|deploy-production)[^;&|]*|zsh[[:space:]]+scripts/release/release-career-compass\.sh[[:space:]].*(--staging-only|--production)([^;&|]*)?|bash[[:space:]]+scripts/release/release-career-compass\.sh[[:space:]].*(--staging-only|--production)([^;&|]*)?|zsh[[:space:]]+scripts/release/deploy-production\.sh([^;&|]*)?|bash[[:space:]]+scripts/release/deploy-production\.sh([^;&|]*)?)$'
 }
 
+
+codex_autonomy_is_safe_commit() {
+  local project_dir="$1"
+  local command="$2"
+
+  codex_autonomy_classifier_predicate "$project_dir" "$command" "gitCommit" || return 1
+  codex_autonomy_classifier_predicate "$project_dir" "$command" "gitPush" && return 1
+  codex_autonomy_classifier_predicate "$project_dir" "$command" "forcePush" && return 1
+  codex_autonomy_classifier_predicate "$project_dir" "$command" "releaseProvider" && return 1
+  codex_autonomy_classifier_predicate "$project_dir" "$command" "migrationApply" && return 1
+  codex_autonomy_classifier_predicate "$project_dir" "$command" "productionPromotion" && return 1
+  codex_autonomy_classifier_predicate "$project_dir" "$command" "secretApplyProduction" && return 1
+  codex_autonomy_classifier_predicate "$project_dir" "$command" "readsSensitivePath" && return 1
+  codex_autonomy_classifier_predicate "$project_dir" "$command" "destructiveDelete" && return 1
+
+  local segment_count
+  segment_count=$(node "$project_dir/scripts/harness/command-classifier.mjs" "$command" | jq -r '(.segments // []) | length' 2>/dev/null || echo 0)
+  [ "$segment_count" = "1" ] || return 1
+
+  printf '%s' "$command" | grep -qE '(^|[^a-zA-Z_])git[[:space:]]+commit([^;&|]*[[:space:]])?(-[A-Za-z]*a[A-Za-z]*|--all|--amend)([[:space:]=;&|]|$)' && return 1
+  ! git -C "$project_dir" diff --cached --quiet --exit-code
+}
+
 # NOTE: codex_autonomy_can_create was a byte-identical duplicate of
 # codex_autonomy_action_is_safe (only the parameter order differed). It was
 # removed; codex_autonomy_allows_action now calls codex_autonomy_action_is_safe
@@ -179,6 +202,10 @@ codex_autonomy_action_is_safe() {
     push)
       codex_autonomy_has_intent "$state_dir" "$session_id" "$action" "$release_mode" || return 1
       codex_autonomy_is_safe_push "$project_dir" "$command"
+      ;;
+    commit)
+      codex_autonomy_has_intent "$state_dir" "$session_id" "$action" "$release_mode" || return 1
+      codex_autonomy_is_safe_commit "$project_dir" "$command"
       ;;
     release)
       codex_autonomy_has_intent "$state_dir" "$session_id" "$action" "$release_mode" || return 1
@@ -215,7 +242,7 @@ codex_autonomy_create_manifest() {
       command_option=(--command "$command")
       actions="production-promotion,release"
       ;;
-    push|release)
+    push|release|commit)
       command_option=(--command "$command")
       ;;
   esac

@@ -297,6 +297,10 @@ test("classifies docs and metadata changes as fast path without weakening infra 
   assert.equal(fast.changePath, "FAST_PATH");
   assert.equal(fast.reason, "docs_or_static_metadata");
 
+  const manyDocs = classifyChangePath(Array.from({ length: 12 }, (_, index) => `docs/plan/task-${index}.md`), 1200);
+  assert.equal(manyDocs.changePath, "FAST_PATH");
+  assert.equal(manyDocs.reason, "docs_or_static_metadata");
+
   const infra = classifyChangePath([".claude/hooks/pre-tool-dispatcher.sh", "docs/plan/tasks.json"], 5);
   assert.equal(infra.changePath, "INFRA_PATH");
   assert.equal(infra.reason, "infra_path");
