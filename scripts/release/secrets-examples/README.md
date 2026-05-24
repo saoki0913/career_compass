@@ -112,6 +112,24 @@ staging と production で**異なる値**を設定してください。
 
 sync スクリプトは、重複定義、provider project ID の重複、`APP_ENV` / Redis namespace / Stripe key prefix の不一致を同期前に検査します。
 
+### 1.2 staging / production 機能有効化マトリクス
+
+任意機能は「production は全有効、staging は本番同等を目指すが**プラン上限が厳しい / 単一インスタンスのものは本番のみ**」で配布する。各サービスの現行プラン（2026-05）に基づく判断:
+
+| サービス | production | staging | 根拠 |
+|---|---|---|---|
+| Stripe テスト Price(4) | 有効(必須) | **有効** | test mode は同一アカウントで別物・制限なし |
+| Document AI(OCR) | 有効 | **有効**（processor 流用） | 同一 GCP project の processor を流用。永久無料枠なし・$300 後従量だが検証は僅少 |
+| Mistral(OCR) | 有効 | **有効**（キー流用） | Free Experiment 1B tokens/月。`[共通可]` |
+| Gemini(`GOOGLE_API_KEY`) | 有効 | **有効**（キー流用） | Free はモデル別 RPD をプロジェクト共有。`[共通可]`（routing が gemini を使う時のみ実利用） |
+| Resend | 有効 | **有効**（同一キー/ドメイン流用） | Free は検証ドメイン1個。staging も同じ `shupass.jp` から送るので追加ドメイン不要 |
+| Logo.dev/Brandfetch | 有効 | **有効**（トークン流用） | 単一トークン・環境制限なし。`[共通可]` |
+| Sentry(Next/FastAPI) | 有効 | **本番のみ** | Free Developer は 5k events/月・1 user。staging はコメントアウト |
+| Firecrawl | 有効 | **本番のみ** | Free 1,000 credits/月が共有で逼迫。HTML+LLM fallback あり |
+| GA + Search Console | 任意(opt-in) | **本番のみ・任意** | GA は2000プロパティ可だが staging 解析不要・検証はドメイン別。本番でも opt-in |
+
+staging で本番のみのサービス（Sentry / Firecrawl / GA）はテンプレ上コメントアウト済み。使う場合は解除して値を入れる。
+
 ### 2. nextjs.env
 
 Vercel の環境変数として同期されます。
@@ -130,8 +148,10 @@ staging には `ci/github-actions.env` から `CI_E2E_AUTH_SECRET` / `CI_E2E_AUT
 - `NEXT_PUBLIC_APP_URL` — アプリ公開URL
 - `APP_ENV` / `NEXT_PUBLIC_APP_ENV` — 論理環境
 
+**`[必須]`（sync ゲート）:**
+- `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` — sync スクリプトが `require_env_keys` で必須化するため**未設定だと同期が通らない**。アプリ単体は起動するがレート制限/トークン制限は無効。`UPSTASH_REDIS_NAMESPACE` は `APP_ENV` と一致させる
+
 **`[推奨]` — 未設定でも起動するが、運用上リスクがある:**
-- `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` / `UPSTASH_REDIS_NAMESPACE` — 未設定時はレートリミットとトークン制限が無効
 - Sentry 関連（`SENTRY_ORG` / `SENTRY_PROJECT` / `SENTRY_AUTH_TOKEN` / `SENTRY_NEXTJS_DSN` / `NEXT_PUBLIC_SENTRY_DSN`）— **本番のみ導入推奨**。staging では `[任意]`（コメントアウト）
 
 **Stripe staging テストモードについて:**
@@ -149,6 +169,8 @@ staging には `ci/github-actions.env` から `CI_E2E_AUTH_SECRET` / `CI_E2E_AUT
 - 論理環境: `staging` vs `production`
 - Stripe: `sk_test_...` vs `sk_live_...`（`STRIPE_PRICE_*` は staging で `[推奨]`、production で `[必須]`）
 - Sentry: staging は `[任意]`（コメントアウト）、production は `[推奨]`
+- GA / Search Console（`NEXT_PUBLIC_GA_MEASUREMENT_ID` / `NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION`）: **本番のみ・任意**（staging はコメントアウト）
+- Resend / Logo.dev: staging も同一キー/ドメインを流用して有効
 - `BETTER_AUTH_TRUSTED_ORIGINS`: staging は 1 origin、production は 2 origin
 
 ### 3. fastapi.env
@@ -168,9 +190,12 @@ staging / production は別 Railway project を使い、各 project の既定 `p
 **`[推奨]` — 本番のみ導入推奨:**
 - Sentry 関連（`SENTRY_DSN` / `SENTRY_FASTAPI_DSN` / `BACKEND_SENTRY_DSN`）— 3 alias はいずれか 1 つ設定すれば OK。staging では `[任意]`（コメントアウト）
 
-**Firecrawl のコスト監視について:**
-- `FIRECRAWL_API_KEY` は `[任意]`。未設定時は HTML+LLM による直接抽出にフォールバック
-- コスト: scrape 1 クレジット/ページ・無料枠 月 1,000 ページ（目安）。詳細は [FIRECRAWL.md](../../../docs/release/FIRECRAWL.md) §7
+**OCR / Gemini（staging も有効）:**
+- `GOOGLE_API_KEY`（Gemini）・`GOOGLE_DOCUMENT_AI_*`（PDF OCR）・`MISTRAL_API_KEY`（OCR）は `[共通可]`。staging も同一キー/processor を流用して有効化する（本番同等動作の検証用）
+
+**Firecrawl（本番のみ）:**
+- `FIRECRAWL_API_KEY` は `[任意]`・**本番のみ**。無料枠 月 1,000 credits（JSON mode は 4-9 credits/page）が staging と共有になり逼迫するため staging ではコメントアウト
+- 未設定時は HTML+LLM による直接抽出にフォールバックするので staging でも抽出機能は動く。詳細は [FIRECRAWL.md](../../../docs/release/FIRECRAWL.md) §7
 - 利用量はダッシュボードで監視推奨
 
 ### 4. supabase.env
@@ -269,7 +294,7 @@ npm run dev
 3. **Redis namespace は `APP_ENV` と一致させる** — staging / production で同じ Redis を共有する場合もキー空間を分ける。
 4. **Vercel/Railway/Supabase の project ID は staging と production で分ける** — 同じ project ID を使うと同期前にエラーで止める
 5. **Stripe key prefix を環境と一致させる** — staging は `sk_test_`、production は `sk_live_`
-6. **Placeholder 値（`changeme`, `dummy`, `test` 等）は拒否される** — 実際の値を設定すること
+6. **Placeholder 値（`changeme`, `dummy`, `test` 等）と空値は拒否される** — `validate_env_file()` はコメント解除された全 non-meta キーを走査し、値が空 or placeholder なら `--check` で停止する。**使わない任意機能のキーはコメントアウトのまま**にする（解除して空のまま残すと通らない）。テンプレは「使う機能だけ解除」で配布しているので、`[必須]` と有効化する機能だけ埋めればよい
 
 ## キー差分確認の注意
 

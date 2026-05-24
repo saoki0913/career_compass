@@ -95,8 +95,10 @@ for f in .secrets/**/*.example; do mv "$f" "${f%.example}"; done
 | **`fastapi.env`**（Railway） | Railway メタ（`RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_NAME`, `RAILWAY_ENVIRONMENT_NAME`）／`APP_ENV`／`CORS_ORIGINS`／`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`／`REDIS_URL`／`FRONTEND_URL`, `BACKEND_TRUSTED_HOSTS` |
 | **`supabase.env`** | `SUPABASE_STAGING_PROJECT_REF` / `SUPABASE_PRODUCTION_PROJECT_REF`（bootstrap 専用） |
 
-**deployed（staging / production 共通）で追加必須**（`capabilities.ts` / `config.py` が fail-fast）:
-`FASTAPI_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`（HTTPS 強制）, `REDIS_URL`, `CORS_ORIGINS`（localhost / `*` 不可）, `BACKEND_TRUSTED_HOSTS`。
+**deployed（staging / production 共通）で追加必須**（層ごとに別ファイルが fail-fast する）:
+- **BFF（Next.js, `capabilities.ts` が fail-fast）**: `FASTAPI_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`（HTTPS 強制）
+- **FastAPI（`config.py` が fail-fast）**: `REDIS_URL`, `CORS_ORIGINS`（localhost / `*` 不可）, `BACKEND_TRUSTED_HOSTS`
+- **sync ゲート（`sync-career-compass-secrets.sh`）が追加で必須化**: Next.js 側 `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`（`require_env_keys`）。アプリ単体は未設定でも起動するがレート制限/トークン制限が無効になり、**provider への同期は通らない**。
 
 **production 限定で追加必須**（`capabilities.ts` の production profile）:
 `STRIPE_PRICE_{STANDARD,PRO}_{MONTHLY,ANNUAL}`, `STRIPE_PORTAL_CONFIGURATION_ID`（`bpc_`）, さらに `BETTER_AUTH_TRUSTED_ORIGINS` に `https://www.shupass.jp,https://shupass.jp` を含めること。
@@ -122,6 +124,8 @@ SYNC_MODE=--apply TARGET=all make ops-secrets-sync
 ```
 
 `--check` は provider drift では key の追加/削除のみを判定し、secret 値は表示しない。ローカル bundle については、同期前事故を防ぐため `APP_ENV`、Stripe key prefix、namespace、provider project ID の重複などの形式検査だけ行う（§3-1 参照）。
+
+> **空値も placeholder 扱い**: `is_placeholder_value()` は空文字列を placeholder とみなすため、`validate_env_file()` が**コメント解除された全 non-meta キー**を走査し、値が空なら `--check` で停止する（`changeme`/`dummy`/`test` 等も拒否）。**使わない任意機能のキーはコメントアウトしたまま**にする（解除して空のまま残すと `--check` を通せない）。テンプレ（`secrets-examples/**`）は「使う機能だけ解除・使わない機能はコメント」の状態で配布しているので、`[必須]` と有効化する機能だけ埋めれば `--check` が通る。
 
 ---
 
