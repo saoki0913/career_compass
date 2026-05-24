@@ -5,10 +5,7 @@ import {
   CalendarDays,
   LayoutGrid,
   List,
-  Search,
-  X,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -16,9 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ListPageFilterBar } from "@/components/shared/ListPageFilterBar";
 import { ViewToggle } from "@/components/shared/ViewToggle";
 import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
-import { cn } from "@/lib/utils";
 import {
   useDeadlinesDashboard,
   type DeadlineDashboardData,
@@ -68,9 +65,6 @@ const deadlineViewOptions = [
   { key: "list", icon: <List className="h-4 w-4" />, label: "リスト表示" },
 ];
 
-const controlClassName =
-  "h-10 rounded-xl border-slate-200 bg-white text-sm shadow-[0_10px_26px_-22px_rgba(15,23,42,0.55)]";
-
 interface DeadlinesDashboardClientProps {
   initialData?: DeadlineDashboardData;
 }
@@ -78,7 +72,7 @@ interface DeadlinesDashboardClientProps {
 export function DeadlinesDashboardClient({
   initialData,
 }: DeadlinesDashboardClientProps) {
-  const [typeFilter, setTypeFilter] = useState<string | undefined>();
+  const [typeFilter, setTypeFilter] = useState<DeadlineType | undefined>();
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("kanban");
   const [sortMode, setSortMode] = useState<SortMode>("dueDate");
@@ -100,7 +94,7 @@ export function DeadlinesDashboardClient({
   });
 
   const handleTypeChange = useCallback((value: string) => {
-    setTypeFilter(value === "all" ? undefined : value);
+    setTypeFilter(value === "all" ? undefined : (value as DeadlineType));
   }, []);
 
   const handleSortChange = useCallback((value: string) => {
@@ -146,38 +140,20 @@ export function DeadlinesDashboardClient({
           }
         />
 
-        <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.5)] backdrop-blur-xl sm:mb-8 sm:p-4">
-          <div className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-[minmax(18rem,1.4fr)_minmax(11rem,0.7fr)_minmax(11rem,0.7fr)_auto]">
-            <div className="relative col-span-2 min-w-0 xl:col-span-1">
-              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-              <input
-                type="text"
-                aria-label="締切を検索..."
-                placeholder="締切を検索..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-10 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm shadow-[0_10px_26px_-22px_rgba(15,23,42,0.55)] outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/15"
-              />
-            </div>
-
-            <Select value={sortMode} onValueChange={handleSortChange}>
-              <SelectTrigger className={cn(controlClassName, "min-w-0")} aria-label="並び順">
-                <SelectValue placeholder="並び順" />
-              </SelectTrigger>
-              <SelectContent>
-                {deadlineSortOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select
-              value={typeFilter ?? "all"}
-              onValueChange={handleTypeChange}
-            >
-              <SelectTrigger className={cn(controlClassName, "min-w-0")} aria-label="種類で絞り込み">
+        <ListPageFilterBar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchPlaceholder="締切を検索..."
+          filterTabs={deadlineFilterTabs}
+          activeFilter={statusFilter}
+          onFilterChange={(key) => setStatusFilter(key)}
+          tabCounts={tabCounts}
+          sortOptions={deadlineSortOptions}
+          sortBy={sortMode}
+          onSortChange={(value) => handleSortChange(value as SortMode)}
+          extraFilter={
+            <Select value={typeFilter ?? "all"} onValueChange={handleTypeChange}>
+              <SelectTrigger className="h-12 w-full rounded-xl lg:h-9 lg:w-[160px]" aria-label="種類で絞り込み">
                 <SelectValue placeholder="種類" />
               </SelectTrigger>
               <SelectContent>
@@ -189,62 +165,35 @@ export function DeadlinesDashboardClient({
                 ))}
               </SelectContent>
             </Select>
-
-            <div className="col-span-2 flex min-w-0 items-center gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80 xl:col-span-1 xl:overflow-visible xl:pb-0">
-              <ViewToggle
-                options={deadlineViewOptions}
-                activeKey={viewMode}
-                onChange={(key) => setViewMode(key as ViewMode)}
-              />
-              {hasFilters ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
+          }
+          extraFilterLayout="pair"
+          viewToggle={
+            <ViewToggle
+              options={deadlineViewOptions}
+              activeKey={viewMode}
+              onChange={(key) => setViewMode(key as ViewMode)}
+            />
+          }
+          clearAction={
+            hasFilters
+              ? {
+                  label: "クリア",
+                  onClear: () => {
                     setTypeFilter(undefined);
                     setSearchQuery("");
                     setStatusFilter("all");
-                  }}
-                  className="h-10 shrink-0 rounded-xl text-muted-foreground"
-                >
-                  <X className="h-4 w-4" />
-                  クリア
-                </Button>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="mt-3 flex min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 [-ms-overflow-style:none] [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/80">
-            {deadlineFilterTabs.map((tab) => {
-              const tabCount = tabCounts[tab.key] ?? 0;
-              const isActive = statusFilter === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setStatusFilter(tab.key)}
-                  className={cn(
-                    "flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-[13px] font-semibold transition-all duration-200 sm:h-10 sm:gap-2 sm:px-4 sm:text-sm",
-                    isActive
-                      ? "bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(30,41,59,0.98))] text-white shadow-[0_18px_36px_-26px_rgba(15,23,42,0.7)]"
-                      : "border border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-900",
-                  )}
-                >
-                  {tab.label}
-                  <span
-                    className={cn(
-                      "rounded-full px-2 py-0.5 text-xs font-semibold",
-                      isActive ? "bg-white/16 text-white" : "bg-slate-100 text-slate-500",
-                    )}
-                  >
-                    {tabCount}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+                  },
+                }
+              : undefined
+          }
+          activeFilters={[
+            statusFilter !== "all"
+              ? `状態: ${deadlineFilterTabs.find((tab) => tab.key === statusFilter)?.label ?? statusFilter}`
+              : "",
+            typeFilter ? `種類: ${DEADLINE_TYPE_LABELS[typeFilter]}` : "",
+            searchQuery.trim() ? `検索: ${searchQuery.trim()}` : "",
+          ].filter(Boolean)}
+        />
 
         {/* Error state */}
         {error && (

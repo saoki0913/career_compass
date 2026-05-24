@@ -163,10 +163,10 @@ export function CompaniesPageClient({ initialData, showHeader = true }: Companie
                   selected={selectedIndustries}
                   onChange={setSelectedIndustries}
                   placeholder="業界"
-                  className="h-10 w-full rounded-xl md:w-[130px] lg:w-[170px]"
+                  className="h-12 w-full rounded-xl lg:h-9 lg:w-[170px]"
                 />
               }
-              viewToggle={<ViewToggle options={viewOptions} activeKey={viewMode} onChange={setViewMode} className="h-10 w-full md:w-auto" />}
+              viewToggle={<ViewToggle options={viewOptions} activeKey={viewMode} onChange={setViewMode} />}
               variant="companies"
               activeFilters={[
                 selectedIndustries.length > 0 ? `業界: ${selectedIndustries.length}件` : "",

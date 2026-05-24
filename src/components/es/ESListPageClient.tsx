@@ -658,13 +658,14 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
             sortBy={sortBy}
             onSortChange={(value) => setSortBy(value as SortKey)}
             variant="es"
+            extraFilterLayout={companyOptions.length > 0 ? "full" : "pair"}
             extraFilter={
               <Fragment>
                 <Select
                   value={selectedEsCategory}
                   onValueChange={(v) => setSelectedEsCategory(v as "all" | EsDocumentCategory)}
                 >
-                  <SelectTrigger className="h-10 w-[150px] rounded-xl font-normal text-sm md:h-9 md:w-[170px]">
+                  <SelectTrigger className="h-12 w-full rounded-xl font-normal text-sm lg:h-9 lg:w-[170px]">
                     <span className="min-w-0 flex-1 truncate text-left">
                       {selectedEsCategory === "all" ? "分類: すべて" : ES_DOCUMENT_CATEGORY_LABELS[selectedEsCategory]}
                     </span>
@@ -684,7 +685,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                     selected={selectedCompanies}
                     onChange={setSelectedCompanies}
                     placeholder="企業"
-                    className="h-10 w-[132px] rounded-xl md:w-[160px]"
+                    className="h-12 w-full rounded-xl lg:h-9 lg:w-[160px]"
                   />
                 ) : null}
               </Fragment>

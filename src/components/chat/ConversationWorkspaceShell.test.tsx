@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 describe("ConversationWorkspaceShell", () => {
   it("uses the compact shared product title size", async () => {
     const source = await readFile(new URL("./ConversationWorkspaceShell.tsx", import.meta.url), "utf8");
-    expect(source).toContain("PRODUCT_PAGE_TITLE_CLASS");
+    expect(source).toContain("PRODUCT_PAGE_TITLE_CLASS.workspace");
     expect(source).not.toContain("sm:text-3xl");
     expect(source).not.toContain("text-xl font-bold tracking-tight text-foreground sm:text-2xl");
   });

@@ -28,8 +28,8 @@ type ProductPageHeaderProps = {
 };
 
 const descriptionClassByMode = {
-  desktop: "mt-1 hidden text-sm leading-6 text-muted-foreground sm:block",
-  always: "mt-1 text-sm leading-6 text-muted-foreground",
+  desktop: "mt-1.5 hidden text-sm leading-5 text-muted-foreground sm:block",
+  always: "mt-1.5 text-sm leading-5 text-muted-foreground",
 } satisfies Record<NonNullable<ProductPageHeaderProps["descriptionMode"]>, string>;
 
 export function ProductPageHeader({
@@ -52,18 +52,22 @@ export function ProductPageHeader({
           avoidSidebarToggle && PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET,
         )}
       >
-        <div className="flex min-w-0 items-start gap-3">
+        <div className="flex min-w-0 items-start gap-2.5">
           {backLink ? <ProductBackButton href={backLink.href} label={backLink.label} /> : null}
           <div className="min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-              <h1 className={PRODUCT_PAGE_TITLE_CLASS}>{title}</h1>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+              <h1 className={PRODUCT_PAGE_TITLE_CLASS[variant]}>{title}</h1>
               {badge}
             </div>
             {description ? <p className={descriptionClassByMode[descriptionMode]}>{description}</p> : null}
             {metadata ? <div className="mt-2 flex flex-wrap items-center gap-2">{metadata}</div> : null}
           </div>
         </div>
-        {actions ? <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">{actions}</div> : null}
+        {actions ? (
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 lg:w-auto lg:shrink-0">
+            {actions}
+          </div>
+        ) : null}
       </div>
     </div>
   );

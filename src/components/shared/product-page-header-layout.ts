@@ -1,28 +1,33 @@
 export type ProductPageHeaderVariant = "list" | "form" | "detail" | "workspace" | "compact";
 
 export const PRODUCT_PAGE_HEADER_SPACING: Record<ProductPageHeaderVariant, string> = {
-  list: "mb-8",
-  form: "mb-8",
-  detail: "mb-5 border-b border-border/50 pb-5",
-  workspace: "mb-4",
-  compact: "mb-6",
+  list: "mb-4 sm:mb-5",
+  form: "mb-5 sm:mb-6",
+  detail: "mb-4 border-b border-border/50 pb-4",
+  workspace: "mb-3",
+  compact: "mb-4",
 };
 
 export const PRODUCT_PAGE_HEADER_ROW_CLASS: Record<ProductPageHeaderVariant, string> = {
-  list: "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between",
-  form: "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between",
-  detail: "flex flex-col gap-4 min-[1180px]:flex-row min-[1180px]:items-start min-[1180px]:justify-between",
-  workspace: "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between",
-  compact: "flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between",
+  list: "flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between",
+  form: "flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between",
+  detail: "flex flex-col gap-3 min-[1180px]:flex-row min-[1180px]:items-center min-[1180px]:justify-between",
+  workspace: "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between",
+  compact: "flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between",
 };
 
-export const PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-14 lg:pl-0";
+export const PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-[4.25rem] lg:pl-0";
 
-export const PRODUCT_PAGE_TITLE_CLASS =
-  "min-w-0 break-words text-2xl font-bold tracking-tight text-foreground";
+export const PRODUCT_PAGE_TITLE_CLASS: Record<ProductPageHeaderVariant, string> = {
+  list: "min-w-0 break-words text-[1.375rem] font-bold leading-[1.18] text-foreground",
+  form: "min-w-0 break-words text-[1.375rem] font-bold leading-[1.18] text-foreground",
+  detail: "min-w-0 break-words text-[1.5rem] font-bold leading-[1.18] text-foreground",
+  workspace: "min-w-0 break-words text-[1.375rem] font-bold leading-[1.18] text-foreground",
+  compact: "min-w-0 break-words text-[1.375rem] font-bold leading-[1.18] text-foreground",
+};
 
 export const PRODUCT_BACK_BUTTON_TOUCH_CLASS =
-  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40";
+  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 lg:h-9 lg:w-9";
 
 export const PRODUCT_BACK_BUTTON_VISUAL_CLASS =
-  "flex h-9 w-9 items-center justify-center rounded-lg border border-border/60 bg-background text-muted-foreground shadow-sm transition-colors group-hover:bg-muted/70 group-hover:text-foreground";
+  "flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200/80 bg-white/92 text-slate-700 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)] transition-colors group-hover:bg-slate-50 group-hover:text-slate-950 lg:h-8 lg:w-8";

@@ -6,24 +6,34 @@ async function readSource() {
 }
 
 describe("ListPageFilterBar", () => {
-  it("uses compact h-10 controls on mobile (no oversized h-12)", async () => {
+  it("uses large mobile search controls and compact desktop controls", async () => {
     const source = await readSource();
-    // companies variant の検索/Select もモバイルから h-10 に統一する
-    expect(source).toContain('isCompanies ? "h-10 w-full rounded-xl md:w-[165px] lg:w-[210px]"');
-    expect(source).not.toContain("h-12 md:h-10");
+    expect(source).toContain("h-[52px] lg:h-9");
+    expect(source).toContain('"h-12 min-w-0 shrink-0 rounded-xl lg:h-9"');
+    expect(source).toContain('variant?: "default" | "companies" | "search" | "es"');
   });
 
   it("shrinks the tasks padding and status tabs on mobile", async () => {
     const source = await readSource();
-    expect(source).toContain("p-3 sm:p-4 xl:p-5");
-    // 状態タブはモバイルで詰めて sm 以上で従来サイズに戻す
+    expect(source).toContain('"rounded-[1.1rem] border border-slate-200/80 bg-white/92 p-3');
+    expect(source).toContain('density === "tasks" && "sm:p-4 xl:p-5"');
     expect(source).toContain("text-[13px]");
-    expect(source).toContain("sm:px-4 sm:py-2");
+    expect(source).toContain("lg:h-8 lg:px-3 lg:text-xs");
   });
 
   it("preserves accessible search and tab handlers", async () => {
     const source = await readSource();
     expect(source).toContain("aria-label={searchPlaceholder}");
     expect(source).toContain("onClick={() => onFilterChange?.(tab.key)}");
+    expect(source).toContain("aria-pressed={isActive}");
+  });
+
+  it("keeps status tabs in a separate responsive row", async () => {
+    const source = await readSource();
+    expect(source).not.toContain("if (isEs)");
+    expect(source).toContain("{statusControls}");
+    expect(source).toContain("FILTER_BAR_CONTROL_ROW_CLASS");
+    expect(source).toContain("lg:min-w-[11rem] lg:max-w-[15rem] lg:flex-[0_1_14rem]");
+    expect(source).toContain('<div className="min-w-0 space-y-2">');
   });
 });

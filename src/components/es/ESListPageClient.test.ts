@@ -22,7 +22,9 @@ describe("ESListPageClient", () => {
   it("uses the ES-specific filter layout", async () => {
     const source = await readSource();
     expect(source).toContain('variant="es"');
-    expect(source).toContain('className="h-10 w-[150px] rounded-xl font-normal text-sm md:h-9 md:w-[170px]"');
+    expect(source).toContain('extraFilterLayout={companyOptions.length > 0 ? "full" : "pair"}');
+    expect(source).toContain('className="h-12 w-full rounded-xl font-normal text-sm lg:h-9 lg:w-[170px]"');
+    expect(source).toContain('className="h-12 w-full rounded-xl lg:h-9 lg:w-[160px]"');
     expect(source).not.toContain("ProductBackButton");
     expect(source).toContain('aria-label={showTrash ? "通常表示に戻す" : "ゴミ箱を表示"}');
     expect(source).toContain('aria-label="新規ESを作成"');

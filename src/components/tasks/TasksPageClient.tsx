@@ -657,7 +657,7 @@ export function TasksPageClient({
               }
             >
               <SelectTrigger
-                className="h-10 w-40 xl:w-[220px]"
+                className="h-12 w-full rounded-xl lg:h-9 lg:w-40 xl:w-[220px]"
                 aria-label="種類で絞り込み"
               >
                 <span className="min-w-0 flex-1 truncate text-left">
@@ -677,24 +677,22 @@ export function TasksPageClient({
             </Select>
           }
           viewToggle={
-            <div className="hidden md:block">
-              <ViewToggle
-                options={[
-                  {
-                    key: "kanban",
-                    icon: <LayoutGrid className="h-4 w-4" />,
-                    label: "ボード表示",
-                  },
-                  {
-                    key: "list",
-                    icon: <List className="h-4 w-4" />,
-                    label: "リスト表示",
-                  },
-                ]}
-                activeKey={viewMode}
-                onChange={(key) => setViewMode(key as "kanban" | "list")}
-              />
-            </div>
+            <ViewToggle
+              options={[
+                {
+                  key: "kanban",
+                  icon: <LayoutGrid className="h-4 w-4" />,
+                  label: "ボード表示",
+                },
+                {
+                  key: "list",
+                  icon: <List className="h-4 w-4" />,
+                  label: "リスト表示",
+                },
+              ]}
+              activeKey={viewMode}
+              onChange={(key) => setViewMode(key as "kanban" | "list")}
+            />
           }
           clearAction={
             hasFilters

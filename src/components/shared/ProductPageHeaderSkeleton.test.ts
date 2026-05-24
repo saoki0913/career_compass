@@ -11,10 +11,10 @@ async function layoutSource() {
 describe("ProductPageHeaderSkeleton", () => {
   it("matches the product title height without oversized controls", async () => {
     const text = await source();
-    expect(text).toContain('Skeleton className="h-8 w-40 rounded-lg"');
+    expect(text).toContain('Skeleton className="h-7 w-36 rounded-lg lg:w-44"');
     expect(text).toContain("SkeletonButton");
-    expect(text).toContain("h-10 min-w-0 flex-1 sm:w-32 sm:flex-none");
-    expect(text).not.toContain("h-12");
+    expect(text).toContain("flex w-full min-w-0 flex-wrap justify-end gap-2 lg:w-auto");
+    expect(text).toContain("h-11 min-w-0 flex-1 rounded-xl lg:h-9 lg:w-32 lg:flex-none");
   });
 
   it("uses the same sidebar toggle offset as the real header", async () => {
@@ -22,12 +22,12 @@ describe("ProductPageHeaderSkeleton", () => {
     const layout = await layoutSource();
     expect(text).toContain("avoidSidebarToggle = true");
     expect(text).toContain("PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET");
-    expect(layout).toContain('PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-14 lg:pl-0"');
+    expect(layout).toContain('PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-[4.25rem] lg:pl-0"');
   });
 
   it("places the optional back skeleton beside the title", async () => {
     const text = await source();
-    expect(text).toContain('showBackLink ? <Skeleton className="h-11 w-11 shrink-0 rounded-xl" /> : null');
+    expect(text).toContain('showBackLink ? <Skeleton className="h-11 w-11 shrink-0 rounded-xl lg:h-9 lg:w-9" /> : null');
     expect(text).not.toContain("mb-4 h-5 w-28");
   });
 

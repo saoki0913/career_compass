@@ -9,10 +9,12 @@ async function layoutSource() {
 }
 
 describe("ProductPageHeader", () => {
-  it("keeps product page titles at a single text-2xl size", async () => {
+  it("keeps product page titles compact without responsive title scaling", async () => {
     const text = await layoutSource();
-    expect(text).toContain("text-2xl font-bold tracking-tight text-foreground");
+    expect(text).toContain('list: "min-w-0 break-words text-[1.375rem] font-bold leading-[1.18] text-foreground"');
+    expect(text).toContain('detail: "min-w-0 break-words text-[1.5rem] font-bold leading-[1.18] text-foreground"');
     expect(text).not.toMatch(/(?:sm|md|lg|xl):text-[2345]xl/);
+    expect(text).not.toContain("tracking-tight");
   });
 
   it("keeps route decisions out of the shared header", async () => {
@@ -27,14 +29,16 @@ describe("ProductPageHeader", () => {
     const layout = await layoutSource();
     expect(text).toContain("avoidSidebarToggle = true");
     expect(text).toContain("PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET");
-    expect(layout).toContain('PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-14 lg:pl-0"');
+    expect(layout).toContain('PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-[4.25rem] lg:pl-0"');
   });
 
   it("keeps detail headers stacked until the action area has enough room", async () => {
     const text = await source();
     const layout = await layoutSource();
     expect(text).toContain("PRODUCT_PAGE_HEADER_ROW_CLASS[variant]");
-    expect(layout).toContain("detail: \"flex flex-col gap-4 min-[1180px]:flex-row");
+    expect(layout).toContain('list: "flex flex-col gap-2.5 lg:flex-row');
+    expect(layout).toContain("detail: \"flex flex-col gap-3 min-[1180px]:flex-row");
+    expect(text).toContain("lg:w-auto lg:shrink-0");
   });
 
   it("renders back links in the title row with the shared icon button", async () => {

@@ -83,7 +83,7 @@ export function ConversationWorkspaceShell({
             {backHref ? <ProductBackButton href={backHref} label={backLabel || "戻る"} /> : null}
             <div className="min-w-0 pt-0.5">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                <h1 className={cn(PRODUCT_PAGE_TITLE_CLASS, "truncate")}>{title}</h1>
+                <h1 className={cn(PRODUCT_PAGE_TITLE_CLASS.workspace, "truncate")}>{title}</h1>
                 {subtitle ? (
                   <>
                     <div className="hidden h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/30 lg:block" />

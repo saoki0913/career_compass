@@ -13,21 +13,21 @@ describe("DeadlinesDashboardClient", () => {
     expect(source).not.toContain("text-3xl");
   });
 
-  it("uses compact h-10 filter controls", async () => {
+  it("uses responsive shared filter controls", async () => {
     const source = await readSource();
-    // 検索・Select の controlClassName をモバイルから h-10 に
-    expect(source).toContain("h-10 rounded-xl border-slate-200");
-    expect(source).toContain("h-10 w-full rounded-xl border border-slate-200");
+    expect(source).toContain("ListPageFilterBar");
+    expect(source).toContain('searchPlaceholder="締切を検索..."');
+    expect(source).toContain('className="h-12 w-full rounded-xl lg:h-9 lg:w-[160px]"');
   });
 
   it("shrinks the status tabs on mobile", async () => {
     const source = await readSource();
-    expect(source).toContain("sm:px-4 sm:text-sm");
-    expect(source).toContain("text-[13px]");
+    expect(source).toContain("filterTabs={deadlineFilterTabs}");
+    expect(source).toContain("tabCounts={tabCounts}");
   });
 
   it("keeps the status handlers", async () => {
     const source = await readSource();
-    expect(source).toContain("onClick={() => setStatusFilter(tab.key)}");
+    expect(source).toContain("onFilterChange={(key) => setStatusFilter(key)}");
   });
 });
