@@ -9,7 +9,7 @@ describe("DeadlinesDashboardClient", () => {
   it("uses the shared product page header for the title block", async () => {
     const source = await readSource();
     expect(source).toContain("ProductPageHeader");
-    expect(source).toContain("未着手、進行中、期限切れを同じ画面で確認");
+    expect(source).toContain("選考の締切をまとめて管理できます");
     expect(source).not.toContain("text-3xl");
   });
 

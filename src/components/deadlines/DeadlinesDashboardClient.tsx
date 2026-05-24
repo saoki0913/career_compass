@@ -131,7 +131,7 @@ export function DeadlinesDashboardClient({
       <main className="mx-auto max-w-[92rem] px-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-8 sm:py-10 lg:px-10 xl:px-12">
         <ProductPageHeader
           title="締切管理"
-          description="未着手、進行中、期限切れを同じ画面で確認し、今日動くべき締切を絞り込めます"
+          description="選考の締切をまとめて管理できます"
           backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
           badge={
             <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">

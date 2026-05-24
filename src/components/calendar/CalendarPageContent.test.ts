@@ -7,6 +7,11 @@ describe("CalendarPageContent - AddEventModal", () => {
     expect(source).toContain("notifyError");
   });
 
+  it("renders the page header subtitle", async () => {
+    const source = await readFile(new URL("./CalendarPageContent.tsx", import.meta.url), "utf8");
+    expect(source).toContain("締切や予定をカレンダーで確認できます");
+  });
+
   it("keeps inline error banner for validation errors only", async () => {
     const source = await readFile(new URL("./CalendarPageContent.tsx", import.meta.url), "utf8");
     // Validation errors still use inline display

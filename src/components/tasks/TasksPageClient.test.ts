@@ -7,6 +7,11 @@ describe("TasksPageClient - TaskModal", () => {
     expect(source).toContain("notifyError");
   });
 
+  it("renders the page header subtitle", async () => {
+    const source = await readFile(new URL("./TasksPageClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain("やることを期限順に整理できます");
+  });
+
   it("keeps inline error banner for validation errors only", async () => {
     const source = await readFile(new URL("./TasksPageClient.tsx", import.meta.url), "utf8");
     // Validation error still uses inline display

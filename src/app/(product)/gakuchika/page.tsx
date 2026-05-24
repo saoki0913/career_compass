@@ -808,7 +808,7 @@ export default function GakuchikaListPage() {
         ) : (
           <ProductPageHeader
             title="ガクチカ作成"
-            description="AIと対話しながら、面接やESで使えるガクチカ文章に整えます"
+            description="AIとの会話でガクチカを作成できます"
             backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
             badge={
               maxCount > 0 ? (

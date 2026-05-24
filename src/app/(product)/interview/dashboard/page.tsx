@@ -82,7 +82,7 @@ export default async function InterviewDashboardPage() {
       <main className="mx-auto w-full max-w-5xl space-y-6 px-4 py-8 sm:px-6">
         <ProductPageHeader
           title="面接 成長ダッシュボード"
-          description="過去の最終講評を企業 / 方式 / 軸 / 改善キーワードで集計し、弱点の偏りと変化を一目で把握できます。"
+          description="模擬面接の講評と成長の推移を確認できます"
           descriptionMode="always"
           variant="compact"
           backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}

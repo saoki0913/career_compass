@@ -611,7 +611,7 @@ export function TasksPageClient({
       <main className="mx-auto max-w-[1600px] px-4 pb-10 pt-8 sm:px-6 sm:pt-10 lg:px-8 lg:pt-10">
         <ProductPageHeader
           title="タスク"
-          description="締切に近いものから片付けられるように、未完了タスクを期限別に整理します"
+          description="やることを期限順に整理できます"
           backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
           badge={
             <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">

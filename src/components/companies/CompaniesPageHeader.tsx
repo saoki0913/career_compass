@@ -16,7 +16,7 @@ export function CompaniesPageHeader({ count, limit }: CompaniesPageHeaderProps) 
   return (
     <ProductPageHeader
       title="登録企業"
-      description="選考状況、締切、企業研究への導線を同じ画面で確認できます"
+      description="志望企業の情報や選考状況を管理できます"
       backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
       badge={
         typeof count === "number" ? (

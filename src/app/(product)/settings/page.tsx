@@ -492,7 +492,7 @@ export default function SettingsPage() {
       <main className="mx-auto w-full max-w-[96rem] px-4 py-8 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:px-6 lg:px-8">
         <ProductPageHeader
           title="設定"
-          description="プロフィールや通知設定を管理"
+          description="プロフィールや通知の設定ができます"
           descriptionMode="always"
           variant="form"
           backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}

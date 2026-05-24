@@ -15,6 +15,7 @@ describe("CompaniesPageHeader", () => {
   it("keeps the page title and add-company link", async () => {
     const source = await readSource();
     expect(source).toContain("登録企業");
+    expect(source).toContain("志望企業の情報や選考状況を管理できます");
     expect(source).toContain("/companies/new");
   });
 

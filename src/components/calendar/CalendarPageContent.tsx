@@ -562,7 +562,7 @@ export default function CalendarPageContent() {
       <main className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 px-4 pb-mobile-tab pt-8 sm:px-6 sm:pt-10 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:pb-7 lg:pt-9">
         <ProductPageHeader
           title="カレンダー"
-          description="締切と作業ブロックを月単位で確認し、Google カレンダー連携の状態もここで管理します。"
+          description="締切や予定をカレンダーで確認できます"
           backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
           actions={
             <Button variant="outline" asChild className="h-10 shrink-0 rounded-xl border-slate-200 bg-white px-4 shadow-sm">

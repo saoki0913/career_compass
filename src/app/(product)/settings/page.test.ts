@@ -74,4 +74,8 @@ describe("settings dense layout", () => {
     expect(source).toContain("xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]");
     expect(source).toContain("aria-pressed={selected}");
   });
+
+  it("renders the page header subtitle", () => {
+    expect(source).toContain("プロフィールや通知の設定ができます");
+  });
 });
