@@ -39,6 +39,16 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.codex/hooks/post-bash-output-guard.sh\"",
+            "timeout": 15
+          }
+        ]
+      },
+      {
         "matcher": "apply_patch|Edit|Write",
         "hooks": [
           {

@@ -112,13 +112,14 @@ Codex hook 配線:
 | `SessionStart` | `startup\|resume` | `session-orientation.sh` |
 | `PreToolUse` | `Bash\|Read\|mcp__filesystem__.*\|apply_patch\|Edit\|Write` | `pre-tool-dispatcher.sh` |
 | `PermissionRequest` | `Bash\|Read\|mcp__filesystem__.*` | `permission-request-guard.sh` |
+| `PostToolUse` | `Bash` | `post-bash-output-guard.sh` |
 | `PostToolUse` | `apply_patch\|Edit\|Write` | `post-edit-dispatcher.sh` |
 | `UserPromptSubmit` | all | `user-prompt-submit-router.sh` |
 | `Stop` | all | `stop-summary.sh` |
 
 `pre-tool-dispatcher.sh` は tool input を先に軽量判定し、該当する場合だけ個別 guard を呼び出す。これにより通常の `Bash` 実行で no-op guard が毎回直列表示される状態を避けつつ、危険操作は fail-close する。分類は `scripts/harness/command-classifier.mjs` を使い、quoted path、nested shell、wrapper command を含む secrets / push / release / destructive delete を検出する。
 
-Codex では `Bash` の `PostToolUse` を常時配線しない。成功した shell command の後にも hook runner が表示されて UX と latency が悪化するため、PostToolUse は編集後リマインダに限定する。Bash の safety gate は `PreToolUse` と `PermissionRequest` 側で維持する。
+Codex では `Bash` の `PostToolUse` を秘密情報漏えい検知の補助線に限定する。`post-bash-output-guard.sh` は fail-open で、通常出力には何も出さず、疑わしい secret pattern が出た場合だけ警告する。Bash の実行制御は `PreToolUse` と `PermissionRequest` 側で維持する。
 
 Codex では最終メッセージの自然文を `Stop` でブロックしない。Default mode では `AskUserQuestion` 相当のツールが常に使えるとは限らず、closeout の通常文確認を hook で止めると安全停止そのものが deadlock するため。commit / push / release / provider / secrets / destructive delete の実行制御は `PreToolUse` と `PermissionRequest` に集約する。
 
@@ -129,6 +130,8 @@ Test category gate は「実行」を止めない。Codex は static / security 
 Push / release / production promotion は、UserPromptSubmit で production / release intent が記録された session かつ matching `codex-autonomy` manifest がある場合にだけ自動通過する。通常 push は `git push origin develop` に限定し、release は repo script / Make target に限定する。本番反映は staging checkpoint が current `HEAD` に一致する場合のみ許可する。direct provider mutation は manifest があっても許可しない。
 
 Hard deny は残す。force push、secret/env/key の直接読み取り、production/all secret apply、unsafe recursive delete、rollback、contract/destructive migration、direct provider mutating CLI は Codex autonomy manifest で上書きできない。
+
+危険操作を許可する checkpoint の自己発行も hard deny として扱う。`push`、`release`、`migration`、`production-promotion`、`secret-apply`、`staging-verified`、`codex-autonomy` は、通常の Codex Bash から `diff-snapshot.mjs checkpoint` を直接実行して作成できない。これらは対応する guard、review 結果、または Codex 自律 manifest の内部処理が生成する。`prompt-quality-verification`、`commit-review`、`test-categories` は危険操作の許可ではなく品質確認記録なので、この hard deny には含めない。
 
 Prompt / LLM edit は Codex では次の edit を止めない。`post-edit-dispatcher.sh` が prompt quality debt を JSON で記録し、commit 前に `prompt-quality-verification-$SESSION_ID` を要求する。これにより修正ループは止めず、参考 ES 漏洩、AI-smell、日本語品質、token/cost の確認は commit gate に集約する。
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# PreToolUse (apply_patch/Edit/Write): keep prompt/LLM edit debt visible without blocking Codex.
+# PreToolUse (apply_patch/Edit/Write): keep prompt/LLM edit debt visible while Codex keeps editing.
 set -euo pipefail
 
 INPUT=$(cat)
@@ -37,12 +37,11 @@ else
   EDITED_FILE=$(head -1 "$PENDING_FLAG" 2>/dev/null || echo "(unknown)")
 fi
 
-PROJECT_DIR=$(codex_project_dir "$INPUT")
-# shellcheck source=../../scripts/harness/guard-runtime.sh
-. "$PROJECT_DIR/scripts/harness/guard-runtime.sh"
-GR_HOOK=prompt-edit-confirm-guard
-gr_init "$INPUT" codex
-gr_enforce high "Codex prompt/LLM verification debt is pending.
+cat >&2 <<EOF
+Codex prompt/LLM verification debt is pending.
 $EDITED_FILE was changed. Continue fixing if needed, but record deterministic prompt checks and AI writing quality review before commit.
 Expected final record:
-  $STATE_DIR/prompt-quality-verification-$SESSION_ID"
+  $STATE_DIR/prompt-quality-verification-$SESSION_ID
+EOF
+
+exit 0

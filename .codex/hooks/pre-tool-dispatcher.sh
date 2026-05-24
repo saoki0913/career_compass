@@ -45,6 +45,14 @@ EOF
       exit 2
     fi
 
+    if guard_command_creates_protected_checkpoint "$CMD"; then
+      cat >&2 <<'EOF'
+⛔ Codex から承認系 checkpoint を直接作成することはできません。
+push / release / migration / production-promotion / secret-apply / staging-verified / codex-autonomy など危険操作を許可する記録は、該当ガードまたは Codex 自律 manifest の内部処理に任せてください。
+EOF
+      exit 2
+    fi
+
     if guard_command_reads_sensitive_path "$CMD"; then
       run_hook "secrets-guard.sh"
     fi

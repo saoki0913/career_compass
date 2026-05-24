@@ -79,6 +79,19 @@ const CODEX_HARDSTOP_PREDICATES = Object.freeze([
   "protectedCheckpoint",
 ]);
 
+const PROTECTED_CHECKPOINT_KINDS = new Set([
+  "codex-autonomy",
+  "migration",
+  "production-promotion",
+  "push",
+  "release",
+  "secret-apply",
+  "staging-verified",
+]);
+
+const PROTECTED_STATE_FILE_RE = /(?:^|[/"'` ])(?:\.codex\/sessions\/career_compass|\.codex\/state|[^ ]*\/\.codex\/sessions\/career_compass)\/(?:autonomy-manifest-|push-approved-|release-approved-|migration-approved-|production-promotion-approved-|staging-verified-|secret-apply-approved-)/u;
+const STATE_WRITE_RE = /(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|>|>>|\btee\b|\bcp\b|\bmv\b|\brsync\b)/u;
+
 function splitSegments(command) {
   const segments = [];
   let current = "";
@@ -968,24 +981,18 @@ function classifyTokens(tokens, actions, depth = 0) {
   if (unwrapped.some(isSensitivePath) && ["source", "."].includes(first)) {
     actions.readsSensitivePath = true;
   }
+  const checkpointKind =
+    flagValue(unwrapped, "--kind", "") ||
+    (/--kind(?:=|["'`,\]\s]+)([A-Za-z0-9-]+)/u.exec(commandText)?.[1] ?? "");
   if (
-    first === "node" &&
-    unwrapped.some((token) => token.includes("scripts/harness/diff-snapshot.mjs")) &&
-    unwrapped.includes("checkpoint")
+    commandText.includes("scripts/harness/diff-snapshot.mjs") &&
+    /\bcheckpoint\b/u.test(commandText) &&
+    PROTECTED_CHECKPOINT_KINDS.has(checkpointKind)
   ) {
-    const kind = flagValue(unwrapped, "--kind", "");
-    if (["push", "release", "migration", "secret-apply", "production-promotion", "staging-verified"].includes(kind)) {
-      actions.protectedCheckpoint = true;
-    }
+    actions.protectedCheckpoint = true;
   }
-  if (
-    normalizePathToken(unwrapped[0] || "").endsWith("scripts/harness/diff-snapshot.mjs") &&
-    unwrapped.includes("checkpoint")
-  ) {
-    const kind = flagValue(unwrapped, "--kind", "");
-    if (["push", "release", "migration", "secret-apply", "production-promotion", "staging-verified"].includes(kind)) {
-      actions.protectedCheckpoint = true;
-    }
+  if (PROTECTED_STATE_FILE_RE.test(commandText) && STATE_WRITE_RE.test(commandText)) {
+    actions.protectedCheckpoint = true;
   }
 
   classifyGit(unwrapped, actions);

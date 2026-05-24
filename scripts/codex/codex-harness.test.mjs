@@ -64,6 +64,38 @@ function withStagedRootFiles(count, callback) {
   }
 }
 
+function withStagedFiles(relativeFiles, callback) {
+  const id = `.codex-harness-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const indexFile = path.join(tmpdir(), `${id}.index`);
+  const objectsDir = path.join(tmpdir(), `${id}.objects`);
+  const gitEnv = {
+    ...process.env,
+    GIT_INDEX_FILE: indexFile,
+    GIT_OBJECT_DIRECTORY: objectsDir,
+    GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(repoRoot, ".git/objects"),
+  };
+  mkdirSync(objectsDir, { recursive: true });
+  try {
+    const readTree = spawnSync("git", ["read-tree", "HEAD"], { cwd: repoRoot, env: gitEnv, encoding: "utf8" });
+    assert.equal(readTree.status, 0, readTree.stderr);
+    for (const relativeFile of relativeFiles) {
+      const file = path.join(repoRoot, relativeFile);
+      assert.equal(existsSync(file), false, `fixture must not overwrite an existing file: ${relativeFile}`);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, `fixture ${relativeFile}\n`, "utf8");
+    }
+    const add = spawnSync("git", ["add", "--", ...relativeFiles], { cwd: repoRoot, env: gitEnv, encoding: "utf8" });
+    assert.equal(add.status, 0, add.stderr);
+    return callback(relativeFiles, { GIT_INDEX_FILE: indexFile });
+  } finally {
+    for (const relativeFile of relativeFiles) {
+      rmSync(path.join(repoRoot, relativeFile), { force: true });
+    }
+    rmSync(indexFile, { force: true });
+    rmSync(objectsDir, { recursive: true, force: true });
+  }
+}
+
 function writeCommitAutonomyIntent(stateDir, sessionId) {
   writeFileSync(path.join(stateDir, `autonomy-intent-${sessionId}.json`), JSON.stringify({
     schemaVersion: 1,
@@ -261,6 +293,17 @@ test("codex bash output guard scans tool_response output", () => {
   assert.match(result.stderr, /leaked secret material/i);
 });
 
+test("codex bash output guard stays quiet for ordinary output", () => {
+  const result = runHook(".codex/hooks/post-bash-output-guard.sh", JSON.stringify({
+    tool_name: "Bash",
+    tool_response: { stdout: "build completed\nno secret-like values here", stderr: "" },
+  }));
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr, "");
+});
+
 test("secrets-guard allows non-secret private project files", () => {
   const result = runHook(".codex/hooks/secrets-guard.sh", JSON.stringify({
     tool_name: "Bash",
@@ -389,13 +432,14 @@ test("codex user-prompt router allows questions about secret file procedures", (
   assert.equal(result.stderr, "");
 });
 
-test("codex post-tool hooks stay limited to edit follow-ups", () => {
+test("codex post-tool hooks scan Bash output and keep edit follow-ups", () => {
   const source = readFileSync(path.join(repoRoot, ".codex/hooks.json"), "utf8");
   const config = JSON.parse(source);
   const bashPostToolEntry = config.hooks.PostToolUse.find((entry) => entry.matcher === "Bash");
   const editPostToolEntry = config.hooks.PostToolUse.find((entry) => entry.matcher === "apply_patch|Edit|Write");
 
-  assert.equal(bashPostToolEntry, undefined);
+  assert.ok(bashPostToolEntry);
+  assert.match(bashPostToolEntry.hooks[0].command, /post-bash-output-guard\.sh/);
   assert.ok(editPostToolEntry);
   assert.match(editPostToolEntry.hooks[0].command, /post-edit-dispatcher\.sh/);
 });
@@ -521,6 +565,25 @@ test("codex commit autonomy creates staged checkpoints for large local split com
     assert.equal(review.decision, "codex-autonomy-local-commit");
     assert.equal(categories.categories["e2e-functional"], "skip:all");
     assert.match(review.commandHash, /^[a-f0-9]{64}$/);
+  });
+});
+
+test("codex commit gate still blocks prompt changes without quality verification", () => {
+  const homeDir = mkdtempSync(path.join(tmpdir(), "codex-prompt-commit-"));
+  const stateDir = path.join(homeDir, ".codex/sessions/career_compass");
+  mkdirSync(stateDir, { recursive: true });
+  writeCommitAutonomyIntent(stateDir, "sess-prompt-commit");
+
+  withStagedFiles(["backend/app/prompts/codex_harness_prompt_fixture.py"], (_relativeFiles, gitEnv) => {
+    const result = runHookWithEnv(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+      session_id: "sess-prompt-commit",
+      cwd: repoRoot,
+      tool_name: "Bash",
+      tool_input: { command: "git commit -m prompt-quality" },
+    }), { HOME: homeDir, ...gitEnv });
+
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /prompt quality verification|プロンプト\/LLM/);
   });
 });
 
@@ -807,6 +870,79 @@ test("codex pre-tool dispatcher blocks production secret apply through make vari
 
   assert.equal(result.status, 2);
   assert.match(result.stderr, /本番向けシークレット/);
+});
+
+test("codex pre-tool dispatcher blocks direct protected checkpoint creation", () => {
+  for (const kind of [
+    "codex-autonomy",
+    "migration",
+    "production-promotion",
+    "push",
+    "release",
+    "secret-apply",
+    "staging-verified",
+  ]) {
+    const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+      session_id: "sess-protected-checkpoint",
+      tool_name: "Bash",
+      tool_input: {
+        command: `node scripts/harness/diff-snapshot.mjs checkpoint --kind ${kind} --decision approved --project .`,
+      },
+    }));
+
+    assert.equal(result.status, 2, kind);
+    assert.match(result.stderr, /checkpoint/i, kind);
+  }
+});
+
+test("codex pre-tool dispatcher allows quality checkpoints but blocks protected checkpoint wrappers", () => {
+  for (const kind of ["prompt-quality-verification", "commit-review", "test-categories"]) {
+    const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+      session_id: "sess-quality-checkpoint",
+      tool_name: "Bash",
+      tool_input: {
+        command: `node scripts/harness/diff-snapshot.mjs checkpoint --kind ${kind} --decision approved --project .`,
+      },
+    }));
+
+    assert.equal(result.status, 0, kind);
+  }
+
+  for (const command of [
+    "time node scripts/harness/diff-snapshot.mjs checkpoint --kind push --decision approved --project .",
+    "npx node scripts/harness/diff-snapshot.mjs checkpoint --kind release --decision approved --project .",
+    "node -e \"require('node:child_process').execFileSync('node',['scripts/harness/diff-snapshot.mjs','checkpoint','--kind','push'])\"",
+    "node -e \"require('node:fs').writeFileSync('/tmp/.codex/sessions/career_compass/push-approved-sess','{}')\"",
+  ]) {
+    const result = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+      session_id: "sess-protected-checkpoint-wrapper",
+      tool_name: "Bash",
+      tool_input: { command },
+    }));
+
+    assert.equal(result.status, 2, command);
+    assert.match(result.stderr, /checkpoint/i, command);
+  }
+});
+
+test("codex pre-tool dispatcher blocks npm db commands and deploy migrations", () => {
+  for (const command of ["npm run db:migrate", "npm run db:push"]) {
+    const localDb = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+      session_id: "sess-local-db",
+      tool_name: "Bash",
+      tool_input: { command },
+    }));
+    assert.equal(localDb.status, 2, command);
+    assert.match(localDb.stderr, /DB変更|MIGRATION_|ESCALATION_REQUIRED/, command);
+  }
+
+  const deploy = runHook(".codex/hooks/pre-tool-dispatcher.sh", JSON.stringify({
+    session_id: "sess-deploy-db",
+    tool_name: "Bash",
+    tool_input: { command: "scripts/release/run-migrations.mjs --env production --json" },
+  }));
+  assert.equal(deploy.status, 2);
+  assert.match(deploy.stderr, /DB変更|MIGRATION_|ESCALATION_REQUIRED/);
 });
 
 test("codex pre-tool dispatcher runs later guards after a satisfied migration gate", () => {
@@ -1131,7 +1267,7 @@ test("codex band-aid guard blocks apply_patch additions", () => {
   assert.match(result.stderr, /as any/);
 });
 
-test("codex prompt edit dispatcher records blocking quality debt", () => {
+test("codex prompt edit dispatcher records non-blocking quality debt", () => {
   const homeDir = mkdtempSync(path.join(tmpdir(), "codex-hook-home-"));
   const sessionId = "sess-prompt";
   const editInput = JSON.stringify({
@@ -1181,7 +1317,7 @@ test("codex prompt edit dispatcher records blocking quality debt", () => {
     env: { ...process.env, HOME: homeDir },
   });
 
-  assert.equal(guard.status, 2);
+  assert.equal(guard.status, 0);
   assert.match(guard.stderr, /verification debt is pending/i);
 });
 
@@ -1326,9 +1462,15 @@ test("pre-tool dispatchers block expansion-hidden dangerous ops, allow benign ex
 
   for (const rt of ["codex", "claude"]) {
     // forged-checkpoint via expansion must hard-block; literal checkpoint
-    // creation remains available after the confirmation flow.
+    // creation is also blocked in Codex because approval records must be
+    // produced by the owning guard/autonomy path. Claude keeps the legacy
+    // confirmation flow outside this Codex harness change.
     assert.equal(dispatch(rt, 'K=push; node scripts/harness/diff-snapshot.mjs checkpoint --kind $K --decision approved --project .'), 2, `${rt} $K checkpoint`);
-    assert.equal(dispatch(rt, 'node scripts/harness/diff-snapshot.mjs checkpoint --kind push --decision approved --project .'), 0, `${rt} literal checkpoint`);
+    assert.equal(
+      dispatch(rt, 'node scripts/harness/diff-snapshot.mjs checkpoint --kind push --decision approved --project .'),
+      rt === "codex" ? 2 : 0,
+      `${rt} literal checkpoint`,
+    );
     // dangerous op hidden behind $VAR / $()
     assert.equal(dispatch(rt, 'G=deploy-production; make $G'), 2, `${rt} make $G`);
     assert.equal(dispatch(rt, 'G=git; $G push origin main'), 2, `${rt} $G push`);

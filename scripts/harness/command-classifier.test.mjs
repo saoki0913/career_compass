@@ -208,6 +208,29 @@ test("detects secret path movement and protected checkpoint creation", () => {
     classify("node scripts/harness/diff-snapshot.mjs checkpoint --kind prompt-quality-verification --decision verified").protectedCheckpoint,
     false,
   );
+  assert.equal(
+    classify("node scripts/harness/diff-snapshot.mjs checkpoint --kind commit-review --decision plugin-reviewed").protectedCheckpoint,
+    false,
+  );
+  assert.equal(
+    classify("node scripts/harness/diff-snapshot.mjs checkpoint --kind test-categories --decision approved").protectedCheckpoint,
+    false,
+  );
+  assert.equal(
+    classify("node scripts/harness/diff-snapshot.mjs checkpoint --kind codex-autonomy --decision approved").protectedCheckpoint,
+    true,
+  );
+  assert.equal(classify("node scripts/harness/diff-snapshot.mjs checkpoint --kind generic --decision noted").protectedCheckpoint, false);
+  assert.equal(classify("time node scripts/harness/diff-snapshot.mjs checkpoint --kind push --decision approved").protectedCheckpoint, true);
+  assert.equal(classify("npx node scripts/harness/diff-snapshot.mjs checkpoint --kind release --decision approved").protectedCheckpoint, true);
+  assert.equal(
+    classify("node -e \"require('node:child_process').execFileSync('node',['scripts/harness/diff-snapshot.mjs','checkpoint','--kind','push'])\"").protectedCheckpoint,
+    true,
+  );
+  assert.equal(
+    classify("node -e \"require('node:fs').writeFileSync('/tmp/.codex/sessions/career_compass/push-approved-sess','{}')\"").protectedCheckpoint,
+    true,
+  );
   assert.equal(classify("vercel env add FOO production").secretApplyProduction, true);
   assert.equal(classify("railway variables --set FOO=bar").secretApplyProduction, true);
 });
@@ -344,6 +367,7 @@ test("taxonomy subcommand returns the frozen Codex autonomy-budget sets", () => 
     "provider",
   ]);
   assert.ok(taxonomy.hardStop.includes("forcePush"));
+  assert.ok(taxonomy.hardStop.includes("protectedCheckpoint"));
   assert.ok(taxonomy.hardStop.includes("secretApplyProduction"));
   assert.ok(taxonomy.hardStop.includes("productionPromotion"));
 });
