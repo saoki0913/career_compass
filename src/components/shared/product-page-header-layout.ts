@@ -9,11 +9,11 @@ export const PRODUCT_PAGE_HEADER_SPACING: Record<ProductPageHeaderVariant, strin
 };
 
 export const PRODUCT_PAGE_HEADER_ROW_CLASS: Record<ProductPageHeaderVariant, string> = {
-  list: "flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between",
-  form: "flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between",
+  list: "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:items-center",
+  form: "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:items-center",
   detail: "flex flex-col gap-3 min-[1180px]:flex-row min-[1180px]:items-center min-[1180px]:justify-between",
   workspace: "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between",
-  compact: "flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between",
+  compact: "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:items-center",
 };
 
 export const PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-[4.25rem] lg:pl-0";
@@ -27,7 +27,7 @@ export const PRODUCT_PAGE_TITLE_CLASS: Record<ProductPageHeaderVariant, string> 
 };
 
 export const PRODUCT_BACK_BUTTON_TOUCH_CLASS =
-  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 lg:h-9 lg:w-9";
+  "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 lg:h-9 lg:w-9 lg:rounded-xl";
 
 export const PRODUCT_BACK_BUTTON_VISUAL_CLASS =
-  "flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200/80 bg-white/92 text-slate-700 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)] transition-colors group-hover:bg-slate-50 group-hover:text-slate-950 lg:h-8 lg:w-8";
+  "flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200/80 bg-white/92 text-slate-700 shadow-[0_14px_30px_-24px_rgba(15,23,42,0.5)] transition-colors group-hover:bg-slate-50 group-hover:text-slate-950 lg:h-8 lg:w-8 lg:rounded-lg";

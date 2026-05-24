@@ -36,7 +36,7 @@ describe("ProductPageHeader", () => {
     const text = await source();
     const layout = await layoutSource();
     expect(text).toContain("PRODUCT_PAGE_HEADER_ROW_CLASS[variant]");
-    expect(layout).toContain('list: "flex flex-col gap-2.5 lg:flex-row');
+    expect(layout).toContain('list: "grid grid-cols-[minmax(0,1fr)_auto]');
     expect(layout).toContain("detail: \"flex flex-col gap-3 min-[1180px]:flex-row");
     expect(text).toContain("lg:w-auto lg:shrink-0");
   });

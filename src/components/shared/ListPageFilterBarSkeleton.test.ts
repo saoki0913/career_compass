@@ -8,11 +8,11 @@ async function readSource() {
 describe("ListPageFilterBarSkeleton", () => {
   it("mirrors the mobile stacked filter controls", async () => {
     const source = await readSource();
-    expect(source).toContain('variant: "es" | "companies" | "gakuchika" | "tasks" | "deadlines" | "search"');
-    expect(source).toContain("col-span-2 h-[52px] w-full rounded-[1.1rem] lg:h-9");
-    expect(source).toContain("grid w-full min-w-0 grid-cols-2 gap-2 lg:flex");
-    expect(source).toContain("lg:min-w-[11rem] lg:max-w-[15rem] lg:flex-[0_1_14rem]");
-    expect(source).toContain("SKELETON_CONTROL_ROW_CLASS");
-    expect(source).toContain('const extraFilterSlots = variant === "es" ? 2 : hasExtraFilter ? 1 : 0');
+    expect(source).toContain("type FilterBarSkeletonVariant");
+    expect(source).toContain("FILTER_BAR_CONTROL_ROW_CLASS");
+    expect(source).toContain("FILTER_BAR_SEARCH_CLASS");
+    expect(source).toContain("FILTER_BAR_STATUS_ROW_CLASS");
+    expect(source).toContain("FILTER_BAR_SKELETON_PROFILES");
+    expect(source).toContain("profile.extraFilterSlots");
   });
 });

@@ -40,10 +40,10 @@ export function ProductPageHeaderSkeleton({
         )}
       >
         <div className="flex min-w-0 items-start gap-2.5">
-          {showBackLink ? <Skeleton className="h-11 w-11 shrink-0 rounded-xl lg:h-9 lg:w-9" /> : null}
+          {showBackLink ? <Skeleton className="h-12 w-12 shrink-0 rounded-2xl lg:h-9 lg:w-9 lg:rounded-xl" /> : null}
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2.5">
-              <Skeleton className="h-7 w-36 rounded-lg lg:w-44" />
+              <Skeleton className="h-7 w-36 rounded-lg lg:w-40" />
               {showBadge ? <Skeleton className="h-6 w-24 rounded-full" /> : null}
             </div>
             {showDescription ? (
@@ -57,9 +57,9 @@ export function ProductPageHeaderSkeleton({
           </div>
         </div>
         {actionsSkeleton ?? (actionCount > 0 ? (
-          <div className="flex w-full min-w-0 flex-wrap justify-end gap-2 lg:w-auto">
+          <div className="col-start-2 row-start-1 flex min-w-0 shrink-0 flex-wrap justify-end gap-2 justify-self-end lg:w-auto">
             {Array.from({ length: actionCount }, (_, index) => (
-              <SkeletonButton key={index} className="h-11 min-w-0 flex-1 rounded-xl lg:h-9 lg:w-32 lg:flex-none" />
+              <SkeletonButton key={index} className="h-11 min-w-0 flex-1 rounded-xl lg:h-9 lg:w-28 lg:flex-none" />
             ))}
           </div>
         ) : null)}

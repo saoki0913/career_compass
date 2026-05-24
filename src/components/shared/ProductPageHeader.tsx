@@ -55,7 +55,7 @@ export function ProductPageHeader({
         <div className="flex min-w-0 items-start gap-2.5">
           {backLink ? <ProductBackButton href={backLink.href} label={backLink.label} /> : null}
           <div className="min-w-0">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 [&>span]:shrink-0 [&>span]:whitespace-nowrap">
               <h1 className={PRODUCT_PAGE_TITLE_CLASS[variant]}>{title}</h1>
               {badge}
             </div>
@@ -64,7 +64,7 @@ export function ProductPageHeader({
           </div>
         </div>
         {actions ? (
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 lg:w-auto lg:shrink-0">
+          <div className="col-start-2 row-start-1 flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2 justify-self-end max-[430px]:gap-1.5 max-[430px]:[&_[data-slot=button]]:h-12 max-[430px]:[&_[data-slot=button]]:gap-1.5 max-[430px]:[&_[data-slot=button]]:px-3 max-[430px]:[&_[data-slot=button]]:text-[13px] lg:w-auto lg:shrink-0">
             {actions}
           </div>
         ) : null}

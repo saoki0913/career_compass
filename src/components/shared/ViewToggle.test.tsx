@@ -8,5 +8,7 @@ describe("ViewToggle", () => {
     expect(source).toContain('type="button"');
     expect(source).toContain("aria-pressed={activeKey === option.key}");
     expect(source).toContain('role="group"');
+    expect(source).toContain("lg:h-8 lg:w-fit");
+    expect(source).toContain("lg:h-7 lg:w-[1.625rem]");
   });
 });
