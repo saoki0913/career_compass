@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType } from "react";
-import { Activity, Check, ClipboardList, FileClock, MoreHorizontal } from "lucide-react";
+import { Activity, Check, ClipboardList, FileClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DeadlineKanbanCard } from "./DeadlineKanbanCard";
 import { DEADLINE_STATUS_META } from "./deadline-display";
@@ -113,7 +113,7 @@ export function DeadlineKanbanBoard({
                 ))
               ) : (
                 <div className="flex min-h-[6.25rem] items-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] md:min-h-[16rem] md:justify-center md:p-6 xl:min-h-[32rem]">
-                  <div className="flex w-full items-center gap-4 md:flex-col md:gap-4 md:text-center">
+                  <div className="flex w-full flex-col items-center gap-3 text-center">
                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-dashed border-slate-300 bg-white/80 md:h-16 md:w-16">
                       <EmptyIcon
                         className={cn("h-5 w-5 md:h-7 md:w-7", meta.emptyIconClass)}
@@ -124,14 +124,10 @@ export function DeadlineKanbanBoard({
                       <p className="text-sm font-medium text-slate-700 md:text-sm">
                         {meta.emptyLabel}
                       </p>
-                      <p className="mt-1 hidden text-sm leading-relaxed text-muted-foreground md:block">
+                      <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                         {meta.emptyDescription}
                       </p>
                     </div>
-                    <MoreHorizontal
-                      className="h-5 w-5 shrink-0 text-muted-foreground/50 md:hidden"
-                      aria-hidden="true"
-                    />
                   </div>
                 </div>
               )}

@@ -36,6 +36,7 @@ import {
   FavoritesSection,
   ViewToggle,
   ProductPageHeader,
+  ProductFloatingActionButton,
 } from "@/components/shared";
 import { GakuchikaListPageHeaderSkeleton } from "@/components/skeletons/GakuchikaListPageHeaderSkeleton";
 import type { FilterTab, SortOption } from "@/components/shared";
@@ -801,7 +802,7 @@ export default function GakuchikaListPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+      <main className="max-w-7xl mx-auto px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-6 sm:py-10 lg:px-8">
         {/* Header（取得中は実データのチラ見えを避けスケルトン） */}
         {isLoading ? (
           <GakuchikaListPageHeaderSkeleton />
@@ -822,10 +823,21 @@ export default function GakuchikaListPage() {
                 onClick={() => setShowNewModal(true)}
                 disabled={isAtLimit}
                 title={isAtLimit ? "上限に達しました。プランをアップグレードしてください。" : ""}
+                className="hidden sm:inline-flex"
               >
                 <Plus className="w-5 h-5" />
                 <span className="ml-1.5">新規作成</span>
               </Button>
+            }
+            mobilePrimaryAction={
+              !(loadError && gakuchikas.length === 0) ? (
+                <ProductFloatingActionButton
+                  label="新規作成"
+                  onClick={() => setShowNewModal(true)}
+                  disabled={isAtLimit}
+                  title={isAtLimit ? "上限に達しました" : "新規作成"}
+                />
+              ) : null
             }
           />
         )}
@@ -868,16 +880,19 @@ export default function GakuchikaListPage() {
                     key: "grid",
                     icon: <LayoutGrid className="w-4 h-4" />,
                     label: "グリッド表示",
+                    mobileLabel: "カード",
                   },
                   {
                     key: "status",
                     icon: <Layers className="w-4 h-4" />,
                     label: "ステータス別表示",
+                    mobileLabel: "グリッド",
                   },
                   {
                     key: "reorder",
                     icon: <List className="w-4 h-4" />,
                     label: "並び替え",
+                    mobileLabel: "リスト",
                   },
                 ]}
                 activeKey={viewMode}
@@ -984,19 +999,6 @@ export default function GakuchikaListPage() {
               </section>
             )}
           </div>
-        )}
-
-        {/* Mobile FAB */}
-        {!isLoading && !(loadError && gakuchikas.length === 0) && (
-          <Button
-            onClick={() => setShowNewModal(true)}
-            disabled={isAtLimit}
-            className="fixed right-4 z-40 h-14 w-14 rounded-full shadow-lg bottom-4 sm:hidden"
-            size="icon"
-            title={isAtLimit ? "上限に達しました" : "新規作成"}
-          >
-            <Plus className="w-6 h-6" />
-          </Button>
         )}
 
         {/* New Modal */}

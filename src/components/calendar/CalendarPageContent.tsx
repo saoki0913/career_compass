@@ -12,6 +12,7 @@ import { CalendarSidebar } from "@/components/calendar/CalendarSidebar";
 import { WorkBlockSuggestionsModal } from "@/components/calendar/WorkBlockSuggestionsModal";
 import { WorkBlockFAB } from "@/components/calendar/WorkBlockFAB";
 import { EventDetailModal, type DisplayEvent } from "@/components/calendar/EventDetailModal";
+import { ProductFloatingActionButton } from "@/components/shared/ProductFloatingActionButton";
 import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import {
   notifyCalendarEventCreated,
@@ -486,6 +487,11 @@ export default function CalendarPageContent() {
     setShowAddModal(true);
   };
 
+  const handleAddEventFromFab = () => {
+    setAddEventDate(focusedDate ?? new Date());
+    setShowAddModal(true);
+  };
+
   const handleSuggestWorkBlocks = async (day: Date) => {
     setSuggestionDate(day);
     setShowSuggestionsModal(true);
@@ -559,7 +565,7 @@ export default function CalendarPageContent() {
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
-      <main className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 px-4 pb-mobile-tab pt-8 sm:px-6 sm:pt-10 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:pb-7 lg:pt-9">
+      <main className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-6 sm:pb-8 sm:pt-10 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:pb-7 lg:pt-9">
         <ProductPageHeader
           title="カレンダー"
           description="締切や予定をカレンダーで確認できます"
@@ -572,6 +578,7 @@ export default function CalendarPageContent() {
               </Link>
             </Button>
           }
+          mobilePrimaryAction={<ProductFloatingActionButton label="予定を追加" onClick={handleAddEventFromFab} />}
         />
 
         {/* Error */}
@@ -615,13 +622,13 @@ export default function CalendarPageContent() {
               <CardHeader className="shrink-0 px-4 pb-2 pt-4 sm:px-8 sm:pb-3 sm:pt-6 lg:px-8">
                 <div className="flex items-center justify-center">
                   <div className="flex items-center gap-4 sm:gap-8">
-                    <Button variant="ghost" size="icon" onClick={prevMonth} aria-label="前の月を表示" className="h-10 w-10 rounded-full text-slate-600 sm:h-11 sm:w-11">
+                    <Button variant="ghost" size="icon" onClick={prevMonth} aria-label="前の月を表示" className="h-11 w-11 rounded-full text-slate-600 sm:h-11 sm:w-11">
                       <ChevronLeftIcon />
                     </Button>
                     <CardTitle className="min-w-32 text-center text-xl font-bold text-slate-950 sm:text-3xl lg:text-2xl">
                       {currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月
                     </CardTitle>
-                    <Button variant="ghost" size="icon" onClick={nextMonth} aria-label="次の月を表示" className="h-10 w-10 rounded-full text-slate-600 sm:h-11 sm:w-11">
+                    <Button variant="ghost" size="icon" onClick={nextMonth} aria-label="次の月を表示" className="h-11 w-11 rounded-full text-slate-600 sm:h-11 sm:w-11">
                       <ChevronRightIcon />
                     </Button>
                   </div>
@@ -716,7 +723,7 @@ export default function CalendarPageContent() {
                                         setShowDetailModal(true);
                                       }}
                                       className={cn(
-                                        "pointer-events-auto flex h-6 w-full cursor-pointer items-center truncate rounded px-0.5 text-left text-[8px] font-semibold leading-4 ring-1 transition-opacity hover:opacity-80 sm:h-5 sm:rounded-md sm:px-1.5 sm:text-[11px] sm:leading-5",
+                                        "pointer-events-auto flex h-6 w-full cursor-pointer items-center truncate rounded px-0.5 text-left text-[10px] font-semibold leading-4 ring-1 transition-opacity hover:opacity-80 sm:h-5 sm:rounded-md sm:px-1.5 sm:text-[11px] sm:leading-5",
                                         getEventChipClassName(event),
                                         isCompleted && "opacity-50 line-through"
                                       )}
@@ -823,7 +830,7 @@ export default function CalendarPageContent() {
         <WorkBlockFAB
           onClick={() => handleSuggestWorkBlocks(new Date())}
           isVisible={canUseGoogleCalendar}
-          className="max-lg:bottom-[calc(1rem+env(safe-area-inset-bottom))]"
+          className="max-lg:bottom-[calc(6rem+env(safe-area-inset-bottom,0px))]"
         />
 
         {/* Add event modal */}

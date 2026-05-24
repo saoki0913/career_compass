@@ -22,7 +22,7 @@ describe("ProductPageHeaderSkeleton", () => {
     const layout = await layoutSource();
     expect(text).toContain("avoidSidebarToggle = true");
     expect(text).toContain("PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET");
-    expect(layout).toContain('PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-[4.25rem] lg:pl-0"');
+    expect(layout).toContain('PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-[3.75rem] sm:pl-[4.25rem] lg:pl-0"');
   });
 
   it("places the optional back skeleton beside the title", async () => {

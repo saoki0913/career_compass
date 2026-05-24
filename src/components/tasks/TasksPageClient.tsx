@@ -38,6 +38,7 @@ import { notifyUserFacingAppError } from "@/lib/client-error-ui";
 import { notifyError } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 import { ListPageFilterBar } from "@/components/shared/ListPageFilterBar";
+import { ProductFloatingActionButton } from "@/components/shared/ProductFloatingActionButton";
 import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { ViewToggle } from "@/components/shared/ViewToggle";
 import { TaskKanbanBoard } from "@/components/tasks/TaskKanbanBoard";
@@ -608,7 +609,7 @@ export function TasksPageClient({
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-[1600px] px-4 pb-10 pt-8 sm:px-6 sm:pt-10 lg:px-8 lg:pt-10">
+      <main className="mx-auto max-w-[1600px] px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-6 sm:pb-10 sm:pt-10 lg:px-8 lg:pt-10">
         <ProductPageHeader
           title="タスク"
           description="やることを期限順に整理できます"
@@ -629,12 +630,13 @@ export function TasksPageClient({
                 <Download className="h-4 w-4 shrink-0" />
                 <span className="ml-1.5">締切をCSV</span>
               </Button>
-              <Button type="button" onClick={() => setShowModal(true)}>
+              <Button type="button" onClick={() => setShowModal(true)} className="hidden sm:inline-flex">
                 <Plus className="h-5 w-5" />
                 <span className="ml-1.5">タスクを追加</span>
               </Button>
             </>
           }
+          mobilePrimaryAction={<ProductFloatingActionButton label="タスクを追加" onClick={() => setShowModal(true)} />}
         />
 
         <ListPageFilterBar
@@ -683,11 +685,13 @@ export function TasksPageClient({
                   key: "kanban",
                   icon: <LayoutGrid className="h-4 w-4" />,
                   label: "ボード表示",
+                  mobileLabel: "カード",
                 },
                 {
                   key: "list",
                   icon: <List className="h-4 w-4" />,
                   label: "リスト表示",
+                  mobileLabel: "リスト",
                 },
               ]}
               activeKey={viewMode}

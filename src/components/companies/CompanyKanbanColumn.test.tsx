@@ -13,4 +13,13 @@ describe("CompanyKanbanColumn", () => {
     expect(source).toContain("useDroppable");
     expect(source).toContain("setNodeRef");
   });
+
+  it("supports collapsible card list via isCollapsed state", async () => {
+    const source = await readFile(new URL("./CompanyKanbanColumn.tsx", import.meta.url), "utf8");
+    expect(source).toContain("isCollapsed");
+    expect(source).toContain("setIsCollapsed");
+    expect(source).toContain("ChevronUp");
+    expect(source).toContain("ChevronDown");
+    expect(source).toContain("cursor-pointer");
+  });
 });

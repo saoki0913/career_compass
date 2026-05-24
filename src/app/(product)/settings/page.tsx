@@ -529,11 +529,11 @@ export default function SettingsPage() {
                     <img
                       src={profile.image}
                       alt=""
-                      className="h-14 w-14 rounded-full ring-2 ring-border"
+                      className="h-20 w-20 rounded-full ring-2 ring-border sm:h-14 sm:w-14"
                     />
                   ) : (
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-muted">
-                      <span className="text-xl font-medium text-muted-foreground">
+                    <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-muted sm:h-14 sm:w-14">
+                      <span className="text-2xl font-medium text-muted-foreground sm:text-xl">
                         {name.charAt(0).toUpperCase()}
                       </span>
                     </div>
@@ -558,6 +558,7 @@ export default function SettingsPage() {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       placeholder="プロフィールに表示する名前（任意）"
+                      className="h-12 rounded-xl text-base sm:h-10 sm:rounded-lg sm:text-sm"
                     />
                   </div>
                   <div className="space-y-2">
@@ -567,6 +568,7 @@ export default function SettingsPage() {
                       value={university}
                       onChange={(e) => setUniversity(e.target.value)}
                       placeholder="〇〇大学"
+                      className="h-12 rounded-xl text-base sm:h-10 sm:rounded-lg sm:text-sm"
                     />
                   </div>
                   <div className="space-y-2">
@@ -576,6 +578,7 @@ export default function SettingsPage() {
                       value={faculty}
                       onChange={(e) => setFaculty(e.target.value)}
                       placeholder="〇〇学部 〇〇学科"
+                      className="h-12 rounded-xl text-base sm:h-10 sm:rounded-lg sm:text-sm"
                     />
                   </div>
                   <div className="space-y-2">
@@ -588,6 +591,7 @@ export default function SettingsPage() {
                       placeholder="2026"
                       min={2020}
                       max={2040}
+                      className="h-12 rounded-xl text-base sm:h-10 sm:rounded-lg sm:text-sm"
                     />
                   </div>
                 </div>

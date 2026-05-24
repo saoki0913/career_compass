@@ -63,7 +63,7 @@ function GakuchikaCardComponent({
   return (
     <Link href={`/gakuchika/${gakuchika.id}`}>
       <Card className="h-full hover:shadow-md transition-all duration-200 hover:border-primary/30 hover:-translate-y-0.5 active:scale-[0.99] cursor-pointer group">
-        <CardContent className="p-2.5 flex flex-col h-full">
+        <CardContent className="p-3 sm:p-2.5 flex flex-col h-full">
           {/* Header: Star + Title + Status Badge */}
           <div className="flex items-center justify-between gap-2 mb-1">
             <div className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -78,7 +78,7 @@ function GakuchikaCardComponent({
                   className={cn(
                     "flex-shrink-0 p-1 -ml-1 rounded-md transition-all duration-200",
                     "hover:scale-110 active:scale-95",
-                    "min-w-[28px] min-h-[28px] flex items-center justify-center",
+                    "min-w-11 min-h-11 sm:min-w-[28px] sm:min-h-[28px] flex items-center justify-center",
                     isPinned
                       ? "text-amber-500 hover:text-amber-600"
                       : "text-muted-foreground/50 hover:text-amber-400"
@@ -104,7 +104,7 @@ function GakuchikaCardComponent({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  className="h-11 w-11 sm:h-9 sm:w-9 shrink-0 rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -139,7 +139,7 @@ function GakuchikaCardComponent({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="h-11 w-11 sm:h-7 sm:w-7 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();

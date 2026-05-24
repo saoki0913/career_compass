@@ -30,4 +30,10 @@ describe("DeadlinesDashboardClient", () => {
     const source = await readSource();
     expect(source).toContain("onFilterChange={(key) => setStatusFilter(key)}");
   });
+
+  it("provides mobile labels for the view toggle", async () => {
+    const source = await readSource();
+    expect(source).toContain('mobileLabel: "カード"');
+    expect(source).toContain('mobileLabel: "リスト"');
+  });
 });

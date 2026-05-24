@@ -35,6 +35,7 @@ import { ListPageEmptyState } from "@/components/shared/ListPageEmptyState";
 import { FavoritesSection } from "@/components/shared/FavoritesSection";
 import { ViewToggle } from "@/components/shared/ViewToggle";
 import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
+import { ProductFloatingActionButton } from "@/components/shared/ProductFloatingActionButton";
 import { DeleteConfirmDialog } from "@/components/shared/DeleteConfirmDialog";
 import {
   Select,
@@ -572,7 +573,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+      <main className="mx-auto max-w-7xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-6 sm:py-10 lg:px-8">
         <ProductPageHeader
           title="ES作成"
           description="エントリーシートの作成・管理ができます"
@@ -599,7 +600,7 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
               {!showTrash && (
                 <Button
                   onClick={() => setShowNewModal(true)}
-                  className="h-11 rounded-xl px-4 text-sm font-semibold lg:h-9"
+                  className="hidden h-11 rounded-xl px-4 text-sm font-semibold sm:inline-flex lg:h-9"
                   aria-label="新規ESを作成"
                 >
                   <Plus className="h-5 w-5" />
@@ -607,6 +608,9 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
                 </Button>
               )}
             </>
+          }
+          mobilePrimaryAction={
+            !showTrash ? <ProductFloatingActionButton label="新規ESを作成" onClick={() => setShowNewModal(true)} /> : null
           }
         />
 
@@ -693,8 +697,8 @@ function ESListPageContent({ initialDocuments, initialCompanies }: ESListPageCli
             viewToggle={
               <ViewToggle
                 options={[
-                  { key: "grid", icon: <LayoutGrid className="w-4 h-4" />, label: "グリッド表示" },
-                  { key: "company", icon: <Layers className="w-4 h-4" />, label: "企業別表示" },
+                  { key: "grid", icon: <LayoutGrid className="w-4 h-4" />, label: "グリッド表示", mobileLabel: "カード" },
+                  { key: "company", icon: <Layers className="w-4 h-4" />, label: "企業別表示", mobileLabel: "リスト" },
                 ]}
                 activeKey={groupByCompany ? "company" : "grid"}
                 onChange={(key) => setGroupByCompany(key === "company")}

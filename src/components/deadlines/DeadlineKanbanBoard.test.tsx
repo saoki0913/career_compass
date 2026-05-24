@@ -62,4 +62,17 @@ describe("DeadlineKanbanBoard", () => {
     expect(source).toContain("md:grid-cols-2");
     expect(source).toContain("xl:grid-cols-4");
   });
+
+  it("uses vertical centered layout for empty states on mobile", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DeadlineKanbanBoard.tsx", import.meta.url), "utf8");
+    expect(source).toContain("flex-col items-center gap-3 text-center");
+  });
+
+  it("always shows empty state description text", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./DeadlineKanbanBoard.tsx", import.meta.url), "utf8");
+    expect(source).not.toContain("hidden text-sm");
+    expect(source).toContain("mt-1 text-sm");
+  });
 });

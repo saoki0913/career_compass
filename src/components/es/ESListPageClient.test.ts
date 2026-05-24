@@ -41,4 +41,10 @@ describe("ESListPageClient", () => {
     expect(source).toContain('aria-label="その他のES"');
     expect(source).toContain("ES_LIST_SECTION_STACK_CLASS");
   });
+
+  it("provides mobile labels for the view toggle", async () => {
+    const source = await readSource();
+    expect(source).toContain('mobileLabel: "カード"');
+    expect(source).toContain('mobileLabel: "リスト"');
+  });
 });

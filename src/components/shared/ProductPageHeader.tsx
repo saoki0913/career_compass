@@ -20,6 +20,7 @@ type ProductPageHeaderProps = {
   badge?: ReactNode;
   metadata?: ReactNode;
   actions?: ReactNode;
+  mobilePrimaryAction?: ReactNode;
   backLink?: ProductPageHeaderBackLink;
   variant?: ProductPageHeaderVariant;
   descriptionMode?: "desktop" | "always";
@@ -38,6 +39,7 @@ export function ProductPageHeader({
   badge,
   metadata,
   actions,
+  mobilePrimaryAction,
   backLink,
   variant = "list",
   descriptionMode = "desktop",
@@ -52,7 +54,7 @@ export function ProductPageHeader({
           avoidSidebarToggle && PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET,
         )}
       >
-        <div className="flex min-w-0 items-start gap-2.5">
+        <div className="flex min-w-0 items-start gap-1.5 sm:gap-2.5">
           {backLink ? <ProductBackButton href={backLink.href} label={backLink.label} /> : null}
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 [&>span]:shrink-0 [&>span]:whitespace-nowrap">
@@ -69,6 +71,7 @@ export function ProductPageHeader({
           </div>
         ) : null}
       </div>
+      {mobilePrimaryAction}
     </div>
   );
 }

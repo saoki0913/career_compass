@@ -61,7 +61,7 @@ function ESCardComponent({
                 type="button"
                 onClick={() => onTogglePin(doc.id)}
                 className={cn(
-                  "-ml-1.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200",
+                  "-ml-1.5 flex h-11 w-11 sm:h-9 sm:w-9 shrink-0 items-center justify-center rounded-lg transition-all duration-200",
                   "hover:scale-110 active:scale-95",
                   isPinned
                     ? "text-amber-500 hover:text-amber-600"
@@ -90,7 +90,7 @@ function ESCardComponent({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-9 w-9 shrink-0 rounded-xl text-slate-500 hover:bg-destructive/10 hover:text-destructive"
+                className="h-11 w-11 sm:h-9 sm:w-9 shrink-0 rounded-xl text-slate-500 hover:bg-destructive/10 hover:text-destructive"
                 onClick={() => onDeleteStart(doc.id)}
                 aria-label={`${doc.title} をゴミ箱に移動`}
               >
@@ -133,7 +133,7 @@ function ESCardComponent({
               onClick={() => onToggleStatus(doc.id, doc.status)}
               disabled={statusUpdatingId === doc.id}
               className={cn(
-                "min-h-8 min-w-[6.75rem] rounded-lg px-3 py-1 text-xs font-semibold transition-colors",
+                "min-h-11 sm:min-h-8 min-w-[6.75rem] rounded-lg px-3 py-1 text-xs font-semibold transition-colors",
                 doc.status === "published"
                   ? "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   : "bg-sky-100 text-sky-700 hover:bg-sky-200"

@@ -42,9 +42,9 @@ const industryOptions = INDUSTRIES.map((industry) => ({
 }));
 
 const viewOptions = [
-  { key: "kanban", icon: <Columns3 className="w-4 h-4" />, label: "選考ボード" },
-  { key: "grid", icon: <LayoutGrid className="w-4 h-4" />, label: "グリッド表示" },
-  { key: "industry", icon: <Layers className="w-4 h-4" />, label: "業界別表示" },
+  { key: "kanban", icon: <Columns3 className="w-4 h-4" />, label: "選考ボード", mobileLabel: "カード" },
+  { key: "grid", icon: <LayoutGrid className="w-4 h-4" />, label: "グリッド表示", mobileLabel: "グリッド" },
+  { key: "industry", icon: <Layers className="w-4 h-4" />, label: "業界別表示", mobileLabel: "リスト" },
 ];
 
 type ViewMode = typeof viewOptions[number]["key"];
@@ -254,7 +254,7 @@ export function CompaniesPageClient({ initialData, showHeader = true }: Companie
 
   return (
     <div className="min-h-screen bg-background">
-      <main className="mx-auto max-w-[96rem] px-4 pb-7 pt-8 sm:px-6 sm:pb-9 sm:pt-10 lg:px-8 lg:py-9 xl:px-10">
+      <main className="mx-auto max-w-[96rem] px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-6 sm:pb-9 sm:pt-10 lg:px-8 lg:py-9 xl:px-10">
         {body}
       </main>
     </div>

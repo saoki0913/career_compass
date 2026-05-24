@@ -61,8 +61,8 @@ const deadlineFilterTabs = [
 ];
 
 const deadlineViewOptions = [
-  { key: "kanban", icon: <LayoutGrid className="h-4 w-4" />, label: "ボード表示" },
-  { key: "list", icon: <List className="h-4 w-4" />, label: "リスト表示" },
+  { key: "kanban", icon: <LayoutGrid className="h-4 w-4" />, label: "ボード表示", mobileLabel: "カード" },
+  { key: "list", icon: <List className="h-4 w-4" />, label: "リスト表示", mobileLabel: "リスト" },
 ];
 
 interface DeadlinesDashboardClientProps {

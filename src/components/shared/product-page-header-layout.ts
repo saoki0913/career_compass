@@ -16,7 +16,7 @@ export const PRODUCT_PAGE_HEADER_ROW_CLASS: Record<ProductPageHeaderVariant, str
   compact: "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 lg:items-center",
 };
 
-export const PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-[4.25rem] lg:pl-0";
+export const PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET = "pl-[3.75rem] sm:pl-[4.25rem] lg:pl-0";
 
 export const PRODUCT_PAGE_TITLE_CLASS: Record<ProductPageHeaderVariant, string> = {
   list: "min-w-0 break-words text-[1.375rem] font-bold leading-[1.18] text-foreground",

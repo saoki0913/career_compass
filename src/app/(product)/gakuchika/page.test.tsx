@@ -12,4 +12,11 @@ describe("GakuchikaPage login gate", () => {
     const source = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
     expect(source).toContain("AIとの会話でガクチカを作成できます");
   });
+
+  it("provides mobile labels for the view toggle", async () => {
+    const source = await readFile(new URL("./page.tsx", import.meta.url), "utf8");
+    expect(source).toContain('mobileLabel: "カード"');
+    expect(source).toContain('mobileLabel: "グリッド"');
+    expect(source).toContain('mobileLabel: "リスト"');
+  });
 });

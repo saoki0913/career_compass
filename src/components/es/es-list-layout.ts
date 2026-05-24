@@ -13,7 +13,7 @@ export const ES_CARD_CLASS =
 
 export const ES_CARD_SKELETON_CLASS = `${ES_CARD_SURFACE_CLASS} flex flex-col`;
 
-export const ES_CARD_CONTENT_CLASS = "flex h-full flex-col p-2.5 sm:p-3";
+export const ES_CARD_CONTENT_CLASS = "flex h-full flex-col p-3";
 
 export const ES_CARD_LINK_FOCUS_CLASS =
   "rounded-md outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2";

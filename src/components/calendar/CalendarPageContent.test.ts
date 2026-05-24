@@ -64,8 +64,13 @@ describe("CalendarPageContent - responsive calendar safeguards", () => {
     const source = await readFile(new URL("./CalendarPageContent.tsx", import.meta.url), "utf8");
     expect(source).toContain("auto-rows-[minmax(5.5rem,auto)]");
     expect(source).toContain("h-6 w-full");
-    expect(source).toContain("text-[8px]");
+    expect(source).toContain("text-[10px]");
     expect(source).not.toContain("pointer-events-auto hidden h-5");
+  });
+
+  it("uses slightly larger month navigation buttons for mobile tap targets", async () => {
+    const source = await readFile(new URL("./CalendarPageContent.tsx", import.meta.url), "utf8");
+    expect(source).toContain("h-11 w-11");
   });
 
   it("does not show work block suggestions while Google needs reconnect", async () => {

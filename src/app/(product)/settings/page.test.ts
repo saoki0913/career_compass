@@ -62,6 +62,22 @@ describe("settings billing extraction", () => {
 });
 
 
+describe("settings mobile-optimised profile form", () => {
+  it("uses enlarged avatar on mobile with sm: breakpoint fallback", () => {
+    expect(source).toContain("h-20 w-20");
+    expect(source).toContain("sm:h-14 sm:w-14");
+  });
+
+  it("uses larger initials text on mobile", () => {
+    expect(source).toContain("text-2xl");
+    expect(source).toContain("sm:text-xl");
+  });
+
+  it("applies mobile-friendly height and rounding to profile form inputs", () => {
+    expect(source).toContain("h-12 rounded-xl text-base sm:h-10 sm:rounded-lg sm:text-sm");
+  });
+});
+
 describe("settings dense layout", () => {
   it("uses the shared header action for saving all settings", () => {
     expect(source).toContain("handleSaveAll");

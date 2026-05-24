@@ -30,4 +30,10 @@ describe("TasksPageClient - TodayPriorityTaskCard extraction", () => {
     // The old inline <Star> icon was part of the priority card; it should be gone
     expect(source).not.toContain("Star");
   });
+
+  it("provides mobile labels for the view toggle", async () => {
+    const source = await readFile(new URL("./TasksPageClient.tsx", import.meta.url), "utf8");
+    expect(source).toContain('mobileLabel: "カード"');
+    expect(source).toContain('mobileLabel: "リスト"');
+  });
 });

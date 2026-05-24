@@ -6,6 +6,7 @@ interface ViewToggleOption {
   key: string;
   icon: React.ReactNode;
   label: string;
+  mobileLabel?: string;
 }
 
 interface ViewToggleProps {
@@ -33,6 +34,11 @@ export function ViewToggle({ options, activeKey, onChange, className }: ViewTogg
           aria-label={option.label}
         >
           {option.icon}
+          {option.mobileLabel != null && (
+            <span className="truncate text-[11px] leading-none lg:hidden">
+              {option.mobileLabel}
+            </span>
+          )}
         </button>
       ))}
     </div>
