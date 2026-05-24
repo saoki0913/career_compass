@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ProgressStage } from "@/components/chat";
 import {
@@ -12,11 +11,13 @@ import {
   ChatInput,
   ConversationRestartConfirmDialog,
   ConversationMobileStatus,
-  EsDraftSettingsDialog,
   ReadyOutputBar,
 } from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
-import { DraftPreviewModal } from "@/components/chat/DraftPreviewModal";
+import { GenerationModal } from "@/components/chat/GenerationModal";
+import { resolveGenerationStatus } from "@/components/chat/generation-modal-status";
+import { EsCharLimitField } from "@/components/chat/EsCharLimitField";
+import { DraftResultView } from "@/components/chat/DraftResultView";
 import { ConversationWorkspaceShell } from "@/components/chat/ConversationWorkspaceShell";
 import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
 import { MotivationConversationSidebar } from "@/components/motivation/MotivationConversationSidebar";
@@ -136,7 +137,6 @@ export function MotivationConversationContent({ companyId }: { companyId: string
     showSetupScreen,
     disableSetupEditing,
     isCustomRoleActive,
-    isPostDraftMode,
     motivationModeLabel,
     canGenerateDraft,
     activeStage,
@@ -149,46 +149,37 @@ export function MotivationConversationContent({ companyId }: { companyId: string
   const isDeepDive = conversationMode === "deepdive";
   type SlotKey = Exclude<MotivationStageKey, "closing">;
   const mobileProgressStages = useMemo<ProgressStage[]>(() => {
-    if (isDeepDive && causalGaps.length > 0) return [];
+    // deepdive 中は材料収集が完了済みのため、causalGaps の有無に関わらず slot pill を全 done で維持する
+    // (右パネルの MotivationConversationSidebar と挙動を統一し、再生成で進捗が消えないようにする)。
+    if (isDeepDive) {
+      return (STAGE_ORDER as SlotKey[]).map((slot) => ({
+        key: slot,
+        label: SLOT_PILL_LABELS[slot],
+        status: "done" as const,
+      }));
+    }
     return (STAGE_ORDER as SlotKey[]).map((slot) => ({
       key: slot,
       label: SLOT_PILL_LABELS[slot],
       status: getMotivationSlotPillStatus(slot, stageStatus),
     }));
-  }, [causalGaps.length, isDeepDive, stageStatus]);
+  }, [isDeepDive, stageStatus]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [esDraftDialogOpen, setEsDraftDialogOpen] = useState(false);
   const readyOutputActions = [
     {
       key: "draft",
       label: "ES作成",
-      description:
-        canGenerateDraft || generatedDraft
-          ? generatedDraft
-            ? "生成済みESを開く"
-            : "文字数を選んで生成"
-          : "材料が揃うと利用できます",
       icon: "draft" as const,
-      disabled: (!canGenerateDraft && !generatedDraft) || isLocked || isGeneratingDraft,
       pending: isGeneratingDraft,
-      onClick: () => {
-        if (generatedDraft) {
-          setIsDraftModalOpen(true);
-          return;
-        }
-        setEsDraftDialogOpen(true);
-      },
-    },
-    {
-      key: "feedback",
-      label: "フィードバック生成",
-      description: generatedDraft ? "面接向けの整理は次の工程で有効化" : "ES作成後に利用できます",
-      icon: "feedback" as const,
-      disabled: true,
-      onClick: () => undefined,
+      onClick: () => setIsDraftModalOpen(true),
     },
   ];
+  const draftStatus = resolveGenerationStatus({
+    hasResult: Boolean(generatedDraft),
+    canGenerate: canGenerateDraft,
+    isGenerating: isGeneratingDraft,
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -225,19 +216,8 @@ export function MotivationConversationContent({ companyId }: { companyId: string
         backHref={`/companies/${companyId}`}
         title="志望動機を作成"
         subtitle={company.name}
-        titleExtra={
-          !showSetupScreen ? (
-            <Badge variant={isPostDraftMode ? "soft-info" : "outline"} className="px-3 py-1 text-[11px]">
-              {motivationModeLabel}
-            </Badge>
-          ) : null
-        }
         actionBar={
-          <ReadyOutputBar
-            actions={readyOutputActions}
-            compact
-            helperText={generatedDraft ? "生成済みのESを確認できます。チャットは続けられます。" : undefined}
-          />
+          <ReadyOutputBar actions={readyOutputActions} compact />
         }
         mobileStatus={
           <ConversationMobileStatus
@@ -309,24 +289,6 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                 <ThinkingIndicator text={streamingLabel || "次の質問を考え中"} />
               ) : showStandaloneQuestion ? (
                 <div className="space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    <div className="inline-flex items-center rounded-full border border-border/60 bg-background px-3 py-1 text-[11px] text-muted-foreground">
-                      {motivationModeLabel}
-                    </div>
-                    {coachingFocus && (
-                      <div className="inline-flex items-center rounded-full border border-border/60 bg-background px-3 py-1 text-[11px] text-muted-foreground">
-                        今回の狙い: <span className="ml-1 font-medium text-foreground/80">{coachingFocus}</span>
-                      </div>
-                    )}
-                  </div>
-                  {(currentSlotLabel || nextAdvanceCondition || currentIntentLabel) ? (
-                    <div className="rounded-2xl border border-border/60 bg-muted/20 px-4 py-3 text-xs leading-6 text-muted-foreground">
-                      {currentSlotLabel ? <p>今確認していること: <span className="font-medium text-foreground/80">{currentSlotLabel}</span></p> : null}
-                      {currentIntentLabel ? <p>今回知りたいこと: <span className="font-medium text-foreground/80">{currentIntentLabel}</span></p> : null}
-                      {nextAdvanceCondition ? <p>次に進む条件: <span className="font-medium text-foreground/80">{nextAdvanceCondition}</span></p> : null}
-                      <p>回答の目安: <span className="font-medium text-foreground/80">{answerGuide}</span></p>
-                    </div>
-                  ) : null}
                   {nextQuestion && <ChatMessage role="assistant" content={nextQuestion} />}
                   {(evidenceCards.length > 0 || evidenceSummary) && (
                     <div className="xl:hidden">
@@ -469,16 +431,36 @@ export function MotivationConversationContent({ companyId }: { companyId: string
         isConfirming={isResetting}
       />
 
-      {generatedDraft ? (
-        <DraftPreviewModal
-          isOpen={isDraftModalOpen}
-          title="生成した志望動機ES"
-          description="内容を確認して保存するか、深掘りして改善できます。"
-          draft={generatedDraft}
-          charLimit={charLimit}
-          isSaving={isSavingDraft}
-          primaryLabel="ESエディタを開く"
-          onPrimary={() => {
+      <GenerationModal
+        open={isDraftModalOpen}
+        onOpenChange={(next) => {
+          if (!next) handleCloseDraftModal();
+        }}
+        status={draftStatus}
+        icon="draft"
+        title="ES作成"
+        description="志望動機の深掘り内容からESを生成します。"
+        lockedReason="深掘りで材料が揃うと、ESを生成できます。質問に答えて志望動機の要素を具体化してください。"
+        requirements={[{ label: "業界理由・企業理由・差別化などの整理", met: canGenerateDraft }]}
+        settingsSlot={
+          <EsCharLimitField
+            value={charLimit}
+            onValueChange={setCharLimit}
+            materialItems={[
+              { title: "深掘り会話", description: "この会話で確認した内容" },
+              { title: "業界理由・企業理由・差別化", description: "志望動機の主要な構成要素" },
+              { title: "入社後にやりたいこと", description: "将来像と貢献内容" },
+            ]}
+          />
+        }
+        resultSlot={
+          generatedDraft ? <DraftResultView draft={generatedDraft} charLimit={charLimit} /> : null
+        }
+        generateAction={{ label: "ESを生成", onGenerate: () => void handleGenerateDraft() }}
+        primaryAction={{
+          label: "ESエディタを開く",
+          loading: isSavingDraft,
+          onClick: () => {
             if (generatedDocumentId) {
               handleCloseDraftModal();
               router.push(`/es/${generatedDocumentId}`);
@@ -491,30 +473,15 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                 router.push(`/es/${docId}`);
               }
             })();
-          }}
-          onDeepDive={async () => {
+          },
+        }}
+        secondaryAction={{
+          label: "もっと深掘りして再生成する",
+          onClick: async () => {
             handleCloseDraftModal();
             await handleResumeDeepDive();
-          }}
-          onClose={handleCloseDraftModal}
-        />
-      ) : null}
-      <EsDraftSettingsDialog
-        open={esDraftDialogOpen}
-        onOpenChange={setEsDraftDialogOpen}
-        description="志望動機の深掘り内容からESを生成します。"
-        value={charLimit}
-        onValueChange={setCharLimit}
-        isGenerating={isGeneratingDraft}
-        onGenerate={() => {
-          setEsDraftDialogOpen(false);
-          void handleGenerateDraft();
+          },
         }}
-        materialItems={[
-          { title: "深掘り会話", description: "この会話で確認した内容" },
-          { title: "業界理由・企業理由・差別化", description: "志望動機の主要な構成要素" },
-          { title: "入社後にやりたいこと", description: "将来像と貢献内容" },
-        ]}
       />
     </>
   );

@@ -25,6 +25,7 @@ import {
   type ConversationState,
 } from "@/features/gakuchika/domain/conversation-state";
 import { parseGakuchikaSummary } from "@/lib/gakuchika/summary";
+import { buildConversationStatePatch } from "@/lib/gakuchika/conversation-state";
 import {
   normalizeGakuchikaMessages,
   PROCESSING_LABELS,
@@ -338,7 +339,10 @@ export function useGakuchikaConversationController({
     setQuestionCount(data.questionCount || 0);
     setIsCompleted(Boolean(data.isCompleted));
     setIsInterviewReadyState(Boolean(data.isInterviewReady));
-    setConversationState(data.conversationState || getDefaultConversationState());
+    if (data.conversationState) {
+      const incoming = data.conversationState;
+      setConversationState((prev) => (prev ? buildConversationStatePatch(prev, incoming) : incoming));
+    }
     setSessions(data.sessions || []);
     setIsAIPowered(data.isAIPowered ?? true);
   }, []);

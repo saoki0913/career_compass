@@ -2,12 +2,12 @@ import type { Feedback } from "@/lib/interview/ui";
 import type { InterviewStageStatus } from "@/lib/interview/session";
 import {
   buildInterviewTopicStages,
-  buildInterviewPhases,
   buildInterviewQuestionDisplay,
   buildInterviewCoachingNarrative,
   type TopicStage,
-  type LifecyclePhase,
 } from "@/lib/interview/ui";
+import { computeInterviewPhaseItems } from "@/lib/shared/conversation-lifecycle";
+import type { PhaseItem } from "@/components/chat";
 
 // ---------------------------------------------------------------------------
 // Input: subset of controller state consumed by business derivations
@@ -34,7 +34,7 @@ export interface InterviewViewModel {
   /** Topic progress stages for ConversationProgressBar */
   topicStages: TopicStage[];
   /** Interview lifecycle phases for ConversationPhaseBar */
-  interviewPhases: LifecyclePhase[];
+  interviewPhases: PhaseItem[];
   /** Formatted question count display string */
   questionDisplay: string;
   /** Coaching narrative for the progress footer */
@@ -51,7 +51,7 @@ export function useInterviewViewModel(input: InterviewViewModelInput): Interview
   const normalizedCompanyId = normalizeInterviewCompanyId(companyId);
   const weakestAxis = feedback ? deriveInterviewWeakestAxis(feedback.scores) : null;
   const topicStages = buildInterviewTopicStages(stageStatus, questionFlowCompleted);
-  const interviewPhases = buildInterviewPhases(hasStarted, questionFlowCompleted, !!feedback);
+  const interviewPhases = computeInterviewPhaseItems({ hasStarted, questionFlowCompleted, hasFeedback: !!feedback });
   const questionDisplay = buildInterviewQuestionDisplay(questionCount, stageStatus);
   const coachingNarrative = buildInterviewCoachingNarrative(stageStatus, questionCount);
 

@@ -41,6 +41,7 @@ import {
   type RoleSelectionSource,
   type SetupState,
 } from "@/lib/interview/ui";
+import { captureRollback } from "@/lib/shared/state-preservation";
 import {
   mergeContinueCompletePayload,
   mergeFeedbackCompletePayload,
@@ -675,22 +676,25 @@ export function useInterviewConversationController({
 
   const handleContinue = useCallback(async () => {
     if (!canContinue) return;
-    const previousFeedback = feedback;
+    // continue 失敗時に「完了済みなのに質問が無い」状態で固着しないよう、
+    // feedback と questionFlowCompleted を snapshot し、エラー時に両方復旧する。
+    const rollback = captureRollback(controllerStateRef.current, ["feedback", "questionFlowCompleted"]);
     setIsContinuing(true);
     setTransitionLine(null);
     setFeedback(null);
     setStreamingFeedback(null);
-    setQuestionFlowCompleted(false);
     try {
       await runStream("continue");
     } catch (streamError) {
-      setFeedback(previousFeedback);
+      setFeedback(rollback.fields.feedback ?? null);
+      setQuestionFlowCompleted(rollback.fields.questionFlowCompleted ?? false);
+      setStreamingFeedback(null);
       const context = getStreamErrorContext("continue");
       reportError(streamError, context, context.source);
     } finally {
       setIsContinuing(false);
     }
-  }, [canContinue, feedback, reportError, runStream]);
+  }, [canContinue, reportError, runStream]);
 
   const handleReset = useCallback(async () => {
     if (!companyId || isInteractionBlocked || isBusy) return;

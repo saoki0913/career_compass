@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { STANDARD_PHASES, computePhaseItems } from "./conversation-lifecycle";
+import {
+  STANDARD_PHASES,
+  INTERVIEW_PHASES,
+  computePhaseItems,
+  computePhaseItemsFrom,
+  computeInterviewPhaseItems,
+} from "./conversation-lifecycle";
 
 describe("conversation-lifecycle", () => {
   describe("STANDARD_PHASES", () => {
@@ -42,7 +48,7 @@ describe("conversation-lifecycle", () => {
       expect(items[0].status).toBe("done");
       expect(items[1].status).toBe("done");
       expect(items[2].status).toBe("done");
-      expect(items[3].status).toBe("current");
+      expect(items[3].status).toBe("done");
     });
 
     it("uses doneLabel for draft_ready when hasDraft is true and phase is done", () => {
@@ -68,6 +74,95 @@ describe("conversation-lifecycle", () => {
         expect(item).toHaveProperty("label");
         expect(item).toHaveProperty("status");
       }
+    });
+  });
+
+  describe("computePhaseItemsFrom", () => {
+    it("marks the final phase as current (not done) when not terminal", () => {
+      const items = computePhaseItemsFrom(STANDARD_PHASES, STANDARD_PHASES.length - 1, {
+        isTerminal: false,
+      });
+      expect(items[3].status).toBe("current");
+    });
+
+    it("forces the final phase to done when terminal", () => {
+      const items = computePhaseItemsFrom(STANDARD_PHASES, STANDARD_PHASES.length - 1, {
+        isTerminal: true,
+      });
+      expect(items[3].status).toBe("done");
+    });
+
+    it("does not affect non-final phases when terminal", () => {
+      const items = computePhaseItemsFrom(STANDARD_PHASES, 1, { isTerminal: true });
+      expect(items[0].status).toBe("done");
+      expect(items[1].status).toBe("current");
+      expect(items[2].status).toBe("pending");
+      expect(items[3].status).toBe("done");
+    });
+
+    it("applies doneLabel for a custom draftLabelKey when current", () => {
+      const phases = [
+        { key: "first", label: "First" },
+        { key: "draft", label: "Draft", doneLabel: "Generated" },
+      ];
+      const items = computePhaseItemsFrom(phases, 1, { hasDraft: true, draftLabelKey: "draft" });
+      expect(items[1].status).toBe("current");
+      expect(items[1].label).toBe("Generated");
+    });
+  });
+
+  describe("computeInterviewPhaseItems", () => {
+    it("defines 4 interview phases in order", () => {
+      expect(INTERVIEW_PHASES.map((p) => p.key)).toEqual([
+        "setup",
+        "questions",
+        "feedback",
+        "complete",
+      ]);
+    });
+
+    it("marks setup as current when not started", () => {
+      const items = computeInterviewPhaseItems({
+        hasStarted: false,
+        questionFlowCompleted: false,
+        hasFeedback: false,
+      });
+      expect(items).toHaveLength(4);
+      expect(items[0]).toMatchObject({ key: "setup", status: "current" });
+      expect(items[1]).toMatchObject({ key: "questions", status: "pending" });
+      expect(items[2]).toMatchObject({ key: "feedback", status: "pending" });
+      expect(items[3]).toMatchObject({ key: "complete", status: "pending" });
+    });
+
+    it("marks questions as current when started", () => {
+      const items = computeInterviewPhaseItems({
+        hasStarted: true,
+        questionFlowCompleted: false,
+        hasFeedback: false,
+      });
+      expect(items[0]).toMatchObject({ key: "setup", status: "done" });
+      expect(items[1]).toMatchObject({ key: "questions", status: "current" });
+      expect(items[2]).toMatchObject({ key: "feedback", status: "pending" });
+    });
+
+    it("marks feedback as current when question flow completed", () => {
+      const items = computeInterviewPhaseItems({
+        hasStarted: true,
+        questionFlowCompleted: true,
+        hasFeedback: false,
+      });
+      expect(items[1]).toMatchObject({ key: "questions", status: "done" });
+      expect(items[2]).toMatchObject({ key: "feedback", status: "current" });
+      expect(items[3]).toMatchObject({ key: "complete", status: "pending" });
+    });
+
+    it("marks all phases done when feedback received", () => {
+      const items = computeInterviewPhaseItems({
+        hasStarted: true,
+        questionFlowCompleted: true,
+        hasFeedback: true,
+      });
+      expect(items.every((p) => p.status === "done")).toBe(true);
     });
   });
 });

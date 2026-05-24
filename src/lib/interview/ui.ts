@@ -252,12 +252,6 @@ export interface TopicStage {
   status: "done" | "current" | "pending";
 }
 
-export interface LifecyclePhase {
-  key: string;
-  label: string;
-  status: "done" | "current" | "pending";
-}
-
 export function buildInterviewTopicStages(
   stageStatus: InterviewStageStatus | null,
   questionFlowCompleted: boolean,
@@ -287,32 +281,6 @@ export function buildInterviewTopicStages(
           ? "done"
           : "pending",
   }));
-}
-
-export function buildInterviewPhases(
-  hasStarted: boolean,
-  questionFlowCompleted: boolean,
-  hasFeedback: boolean,
-): LifecyclePhase[] {
-  const getStatus = (phase: string): "done" | "current" | "pending" => {
-    if (phase === "setup") return hasStarted ? "done" : "current";
-    if (phase === "questions") {
-      if (questionFlowCompleted) return "done";
-      return hasStarted ? "current" : "pending";
-    }
-    if (phase === "feedback") {
-      if (hasFeedback) return "done";
-      return questionFlowCompleted ? "current" : "pending";
-    }
-    return hasFeedback ? "done" : "pending";
-  };
-
-  return [
-    { key: "setup", label: "面接設定", status: getStatus("setup") },
-    { key: "questions", label: "質問フェーズ", status: getStatus("questions") },
-    { key: "feedback", label: "まとめシート", status: getStatus("feedback") },
-    { key: "complete", label: "面接完了", status: getStatus("complete") },
-  ];
 }
 
 export function buildInterviewQuestionDisplay(

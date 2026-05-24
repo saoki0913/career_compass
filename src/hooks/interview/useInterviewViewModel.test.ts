@@ -56,8 +56,9 @@ describe("useInterviewViewModel derivations", () => {
     expect(vm.topicStages[1]).toMatchObject({ label: "リーダーシップ", status: "current" });
     expect(vm.topicStages[2]).toMatchObject({ label: "チームワーク", status: "pending" });
     expect(vm.interviewPhases).toHaveLength(4);
+    // feedback 受領済みのため面接ライフサイクルは terminal（全フェーズ done になる）
     expect(vm.interviewPhases[0]).toMatchObject({ key: "setup", status: "done" });
-    expect(vm.interviewPhases[1]).toMatchObject({ key: "questions", status: "current" });
+    expect(vm.interviewPhases[1]).toMatchObject({ key: "questions", status: "done" });
     expect(vm.questionDisplay).toBe("3問目 / 約15問");
     expect(vm.coachingNarrative).toBe("リーダーシップについて確認しています。");
   });
@@ -78,5 +79,28 @@ describe("useInterviewViewModel derivations", () => {
     expect(vm.interviewPhases[0]).toMatchObject({ key: "setup", status: "current" });
     expect(vm.questionDisplay).toBe("開始前");
     expect(vm.coachingNarrative).toBe("初回質問を準備中");
+  });
+
+  it("marks the complete phase as done when feedback is received (terminal done, bug1)", () => {
+    const vm = useInterviewViewModel({
+      companyId: "company-5",
+      feedback: {
+        overall_comment: "",
+        scores: { logic: 4 },
+        strengths: [],
+        improvements: [],
+        consistency_risks: [],
+        improved_answer: "",
+        next_preparation: [],
+      },
+      stageStatus: null,
+      questionCount: 10,
+      questionFlowCompleted: true,
+      hasStarted: true,
+    });
+
+    expect(vm.interviewPhases).toHaveLength(4);
+    expect(vm.interviewPhases[2]).toMatchObject({ key: "feedback", status: "done" });
+    expect(vm.interviewPhases[3]).toMatchObject({ key: "complete", status: "done" });
   });
 });

@@ -43,11 +43,12 @@ describe("InterviewPageContent module", () => {
     expect(source).not.toContain("function feedbackFromHistory");
   });
 
-  it("uses SheetViewerDialog for feedback display instead of InterviewFeedbackCard", async () => {
+  it("uses GenerationModal for feedback generation and SheetViewerDialog for history", async () => {
     const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
 
-    expect(source).toContain("SheetViewerDialog");
+    expect(source).toContain("GenerationModal");
     expect(source).toContain("SheetViewer");
+    expect(source).toContain("SheetViewerDialog");
     expect(source).not.toContain("InterviewFeedbackCard");
   });
 
@@ -111,7 +112,7 @@ describe("InterviewPageContent module", () => {
   it("keeps the started conversation branch free of non-chat panels", async () => {
     const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
     const startedBranchStart = source.indexOf("<div ref={conversationRef}");
-    const startedBranchEnd = source.indexOf("conversationFooter=", startedBranchStart);
+    const startedBranchEnd = source.indexOf("composer=", startedBranchStart);
     const startedConversationBranch = source.slice(startedBranchStart, startedBranchEnd);
 
     expect(startedConversationBranch).toContain("<ChatMessage");

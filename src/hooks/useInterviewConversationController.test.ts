@@ -137,4 +137,26 @@ describe("useInterviewConversationController module", () => {
       expect(returnBlock).toContain("conversationId,");
     });
   });
+
+  describe("handleContinue rollback (bug2)", () => {
+    const handleContinueBlock = source.slice(
+      source.indexOf("const handleContinue"),
+      source.indexOf("const handleReset"),
+    );
+
+    it("does not unconditionally reset questionFlowCompleted before the stream", () => {
+      // 成功時は merge reducer が questionFlowCompleted を設定するため、開始前の無条件 false は行わない
+      expect(handleContinueBlock).not.toContain("setQuestionFlowCompleted(false)");
+    });
+
+    it("captures rollback and restores feedback and questionFlowCompleted on error", () => {
+      expect(handleContinueBlock).toContain("captureRollback");
+      expect(handleContinueBlock).toContain("setFeedback(");
+      expect(handleContinueBlock).toContain("setQuestionFlowCompleted(");
+    });
+
+    it("imports captureRollback from shared state-preservation", () => {
+      expect(source).toMatch(/captureRollback[\s\S]*from\s+["']@\/lib\/shared/);
+    });
+  });
 });

@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { FileText, PenLine, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +18,6 @@ export type ReadyOutputAction = {
 
 type ReadyOutputBarProps = {
   actions: ReadyOutputAction[];
-  helperText?: ReactNode;
   compact?: boolean;
   className?: string;
 };
@@ -32,7 +30,6 @@ const iconMap = {
 
 export function ReadyOutputBar({
   actions,
-  helperText,
   compact = false,
   className,
 }: ReadyOutputBarProps) {
@@ -47,9 +44,6 @@ export function ReadyOutputBar({
         className,
       )}
     >
-      {helperText ? (
-        <div className="text-right text-xs leading-5 text-muted-foreground max-xl:text-left">{helperText}</div>
-      ) : null}
       <div className="flex w-full flex-wrap items-center justify-end gap-2 max-xl:justify-start">
         {visibleActions.map((action) => {
           const Icon = iconMap[action.icon ?? "draft"];

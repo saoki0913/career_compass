@@ -71,10 +71,13 @@ describe("MotivationConversationSidebar causalGap labels", () => {
 });
 
 describe("MotivationConversationSidebar deepdive completion", () => {
-  it("shows all-done progress stages when deepdive has no remaining gaps", async () => {
+  it("keeps all-done progress stages whenever deepdive is active (no reset on regenerate, bug2)", async () => {
     const { readFile } = await import("node:fs/promises");
     const source = await readFile(new URL("./MotivationConversationSidebar.tsx", import.meta.url), "utf8");
-    expect(source).toContain('isDeepDive && causalGaps.length === 0');
+    // deepdive 中は causalGaps の有無に関わらず slot pill を全 done で維持し、再生成で進捗が消えないようにする
+    expect(source).toContain("if (isDeepDive)");
     expect(source).toContain('"done"');
+    // progressStages から旧 `=== 0` 分岐が消えていること（`> 0` は progressChildren の CausalGapSteps 表示条件として正当に残る）
+    expect(source).not.toContain("isDeepDive && causalGaps.length === 0");
   });
 });

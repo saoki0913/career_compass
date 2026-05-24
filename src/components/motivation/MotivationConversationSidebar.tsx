@@ -208,10 +208,7 @@ export function MotivationConversationSidebar({
   const questionDisplay = formatQuestionDisplay(questionCount, conversationMode);
 
   const progressStages = useMemo<ProgressStage[]>(() => {
-    if (isDeepDive && causalGaps.length > 0) {
-      return [];
-    }
-    if (isDeepDive && causalGaps.length === 0) {
+    if (isDeepDive) {
       return (STAGE_ORDER as SlotKey[]).map((slot) => ({
         key: slot,
         label: SLOT_PILL_LABELS[slot],
@@ -223,7 +220,7 @@ export function MotivationConversationSidebar({
       label: SLOT_PILL_LABELS[slot],
       status: getMotivationSlotPillStatus(slot, stageStatus),
     }));
-  }, [causalGaps.length, isDeepDive, stageStatus]);
+  }, [isDeepDive, stageStatus]);
 
   const phases = useMemo(() => {
     const standardPhase = toStandardPhase(

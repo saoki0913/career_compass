@@ -11,17 +11,18 @@ import {
   ChatMessage,
   ConversationMobileStatus,
   ConversationRestartConfirmDialog,
-  ConversationSummaryDialog,
-  EsDraftSettingsDialog,
   ReadyOutputBar,
   ThinkingIndicator,
 } from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { ConversationWorkspaceShell } from "@/components/chat/ConversationWorkspaceShell";
+import { GenerationModal } from "@/components/chat/GenerationModal";
+import { resolveGenerationStatus } from "@/components/chat/generation-modal-status";
+import { EsCharLimitField } from "@/components/chat/EsCharLimitField";
+import { DraftResultView } from "@/components/chat/DraftResultView";
 import { useGakuchikaConversationController } from "@/features/gakuchika/hooks/useGakuchikaConversationController";
 import { useGakuchikaViewModel } from "@/features/gakuchika/hooks/useGakuchikaViewModel";
 import { CompletionSummary } from "@/components/gakuchika";
-import { DraftPreviewModal } from "@/components/chat/DraftPreviewModal";
 import { GakuchikaStartScreen } from "@/components/gakuchika/GakuchikaStartScreen";
 import { GakuchikaConversationSidebar } from "@/components/gakuchika/GakuchikaConversationSidebar";
 import { notifyGakuchikaDraftSaved } from "@/lib/notifications";
@@ -44,7 +45,6 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
     gakuchikaId,
   });
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [esDraftDialogOpen, setEsDraftDialogOpen] = useState(false);
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
   const {
     messages,
@@ -117,42 +117,32 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
   );
   const pausedQuestion = conversationState?.pausedQuestion?.trim() || null;
   const displayedNextQuestion = nextQuestion || pausedQuestion;
-  const openSummaryDialog = () => {
-    setSummaryDialogOpen(true);
-    if (!summaryRequested && !summary && !isSummaryLoading) {
-      void handleRetrySummary();
-    }
-  };
   const readyOutputActions = [
     {
       key: "draft",
       label: "ES作成",
-      description: draftReady
-        ? generatedDraftText && generatedDocumentId
-          ? "生成済みESを開く"
-          : "文字数を選んで生成"
-        : "材料が揃うと利用できます",
       icon: "draft" as const,
-      disabled: !draftReady || isGeneratingDraft || isSending || isResumingSession,
       pending: isGeneratingDraft,
-      onClick: () => {
-        if (generatedDraftText && generatedDocumentId) {
-          setIsDraftModalOpen(true);
-          return;
-        }
-        setEsDraftDialogOpen(true);
-      },
+      onClick: () => setIsDraftModalOpen(true),
     },
     {
       key: "feedback",
       label: "フィードバック生成",
-      description: interviewReady ? "面接で話す要点を整理" : "面接向けの深掘り完了後に利用できます",
       icon: "feedback" as const,
-      disabled: !interviewReady || isSummaryLoading || isSending || isResumingSession,
       pending: isSummaryLoading,
-      onClick: openSummaryDialog,
+      onClick: () => setSummaryDialogOpen(true),
     },
   ];
+  const draftStatus = resolveGenerationStatus({
+    hasResult: Boolean(generatedDraftText && generatedDocumentId),
+    canGenerate: draftReady,
+    isGenerating: isGeneratingDraft,
+  });
+  const summaryStatus = resolveGenerationStatus({
+    hasResult: summaryRequested && Boolean(summary),
+    canGenerate: interviewReady,
+    isGenerating: isSummaryLoading,
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -188,11 +178,7 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       title="ガクチカを作成"
       subtitle={gakuchikaTitle || "作成セッション"}
       actionBar={
-        <ReadyOutputBar
-          actions={readyOutputActions}
-          compact
-          helperText={generatedDraftText && generatedDocumentId ? "生成済みのESを確認できます。" : undefined}
-        />
+        <ReadyOutputBar actions={readyOutputActions} compact />
       }
       mobileStatus={
         <ConversationMobileStatus
@@ -309,7 +295,7 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                 aria-label="回答のヒント"
               >
                 <HelpCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary/70" aria-hidden />
-                <span>{conversationState.answerHint}</span>
+                <span className="line-clamp-2">{conversationState.answerHint}</span>
               </div>
             ) : null}
 
@@ -367,70 +353,88 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       onConfirm={handleConfirmRestartConversation}
       isConfirming={isStarting && restartDialogOpen}
     />
-    <DraftPreviewModal
-      isOpen={isDraftModalOpen}
-      title="生成したガクチカES"
-      description="内容を確認して開くか、現在の下書きを削除して深掘りから作り直せます。"
-      draft={generatedDraftText ?? ""}
-      charLimit={draftCharLimit}
-      draftQuality={generatedDraftQuality}
-      isSaving={false}
-      primaryLabel="ESを開く"
-      onPrimary={() => {
-        setIsDraftModalOpen(false);
-        if (generatedDocumentId) {
-          notifyGakuchikaDraftSaved();
-          router.push(`/es/${generatedDocumentId}`);
-        }
+    <GenerationModal
+      open={isDraftModalOpen}
+      onOpenChange={(next) => {
+        if (!next) setIsDraftModalOpen(false);
       }}
-      onDeepDive={async () => {
-        setIsDraftModalOpen(false);
-        await handleDiscardDraftAndResumeSession();
-      }}
-      onClose={() => setIsDraftModalOpen(false)}
-      deepDiveConfirm={{
-        title: "このES下書きを削除しますか？",
-        description: "深掘りを再開すると、今表示しているES下書きは削除されます。削除後は会話を続けてから再生成します。",
-        confirmLabel: "削除して深掘りする",
-      }}
-      preBodyNotice={
-        <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
-          「もっと深掘りして再生成する」を選ぶと、今表示しているES下書きは削除されます。残したい場合は先にESを開いてください。
-        </div>
-      }
-    />
-    <EsDraftSettingsDialog
-      open={esDraftDialogOpen}
-      onOpenChange={setEsDraftDialogOpen}
+      status={draftStatus}
+      icon="draft"
+      title="ES作成"
       description="ガクチカの深掘り内容からESを生成します。"
-      value={draftCharLimit}
-      onValueChange={setDraftCharLimit}
-      isGenerating={isGeneratingDraft}
-      onGenerate={() => {
-        setEsDraftDialogOpen(false);
-        void handleGenerateDraft();
-      }}
-      materialItems={[
-        { title: "深掘り会話", description: "これまでの対話内容" },
-        { title: "状況・課題・行動・結果", description: "整理されたエピソードの構成要素" },
-        { title: "数字・成果", description: "定量的な実績や具体的な数値" },
+      lockedReason="深掘りで材料が揃うと、ESを生成できます。会話を続けて状況・課題・行動・結果を具体化してください。"
+      requirements={[
+        { label: "状況・課題・行動・結果の整理", met: draftReady },
+        { label: "深掘り会話を開始", met: questionCount > 0 },
       ]}
+      settingsSlot={
+        <EsCharLimitField
+          value={draftCharLimit}
+          onValueChange={setDraftCharLimit}
+          materialItems={[
+            { title: "深掘り会話", description: "これまでの対話内容" },
+            { title: "状況・課題・行動・結果", description: "整理されたエピソードの構成要素" },
+            { title: "数字・成果", description: "定量的な実績や具体的な数値" },
+          ]}
+        />
+      }
+      resultSlot={
+        <DraftResultView
+          draft={generatedDraftText ?? ""}
+          charLimit={draftCharLimit}
+          draftQuality={generatedDraftQuality}
+        />
+      }
+      generateAction={{ label: "ESを生成", onGenerate: () => void handleGenerateDraft() }}
+      primaryAction={{
+        label: "ESを開く",
+        onClick: () => {
+          setIsDraftModalOpen(false);
+          if (generatedDocumentId) {
+            notifyGakuchikaDraftSaved();
+            router.push(`/es/${generatedDocumentId}`);
+          }
+        },
+      }}
+      secondaryAction={{
+        label: "もっと深掘りして再生成する",
+        onClick: async () => {
+          setIsDraftModalOpen(false);
+          await handleDiscardDraftAndResumeSession();
+        },
+        confirm: {
+          title: "このES下書きを削除しますか？",
+          description: "深掘りを再開すると、今表示しているES下書きは削除されます。削除後は会話を続けてから再生成します。",
+          confirmLabel: "削除して深掘りする",
+        },
+        notice: (
+          <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
+            「もっと深掘りして再生成する」を選ぶと、今表示しているES下書きは削除されます。残したい場合は先にESを開いてください。
+          </div>
+        ),
+      }}
     />
-    <ConversationSummaryDialog
+    <GenerationModal
       open={summaryDialogOpen}
       onOpenChange={setSummaryDialogOpen}
-      title="フィードバック生成結果"
-      description="面接で使える話す核と補足材料を整理しました。"
-    >
-      <CompletionSummary
-        summary={summary}
-        isLoading={isSummaryLoading}
-        gakuchikaId={gakuchikaId}
-        onRetrySummary={handleRetrySummary}
-        summaryRequested={summaryRequested}
-        hideGenerateAction
-      />
-    </ConversationSummaryDialog>
+      status={summaryStatus}
+      icon="feedback"
+      title="フィードバック生成"
+      description="面接で話す要点（核・強み・改善ポイント・次に向けて）を整理します。"
+      lockedReason="面接向けの深掘りが完了すると、フィードバックを生成できます。"
+      requirements={[{ label: "面接準備（深掘り完了）", met: interviewReady }]}
+      generateAction={{ label: "フィードバックを生成", onGenerate: () => void handleRetrySummary() }}
+      resultSlot={
+        <CompletionSummary
+          summary={summary}
+          isLoading={isSummaryLoading}
+          gakuchikaId={gakuchikaId}
+          onRetrySummary={handleRetrySummary}
+          summaryRequested={summaryRequested}
+          hideGenerateAction
+        />
+      }
+    />
     </>
   );
 }

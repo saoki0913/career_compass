@@ -37,4 +37,15 @@ describe("useGakuchikaConversationController", () => {
     expect(source).toContain("restoredState?.draftQuality");
     expect(source).toContain("setGeneratedDraftQuality");
   });
+
+  it("merges resume payload into existing state without resetting progress (bug2)", () => {
+    // 深掘り再開時、サーバーが conversationState を返さなくても既存進捗を保持する
+    expect(source).toContain("buildConversationStatePatch");
+    const applyBlock = source.slice(
+      source.indexOf("const applySessionPayload"),
+      source.indexOf("const resumeSession"),
+    );
+    expect(applyBlock).toContain("buildConversationStatePatch");
+    expect(applyBlock).not.toContain("|| getDefaultConversationState()");
+  });
 });

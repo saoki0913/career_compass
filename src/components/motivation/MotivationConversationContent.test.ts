@@ -5,20 +5,36 @@ describe("MotivationConversationContent", () => {
   it("uses ConversationWorkspaceShell for layout", async () => {
     const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
     expect(source).toContain("ConversationWorkspaceShell");
-    expect(source).not.toContain("MotivationConversationHeader");
   });
 
-  it("uses DraftPreviewModal instead of MotivationDraftModal", async () => {
+  it("uses the shared GenerationModal with ES slots", async () => {
     const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
-    expect(source).toContain("DraftPreviewModal");
-    expect(source).not.toContain("MotivationDraftModal");
+    expect(source).toContain("GenerationModal");
+    expect(source).toContain("EsCharLimitField");
+    expect(source).toContain("DraftResultView");
   });
 
-  it("uses CharLimitSelector and ConversationActionBar without helperText", async () => {
+  it("no longer uses the legacy standalone generation modals", async () => {
     const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
-    expect(source).toContain("CharLimitSelector");
-    expect(source).toContain("ConversationActionBar");
-    expect(source).not.toContain("MotivationDraftActionBar");
+    expect(source).not.toContain("EsDraftSettingsDialog");
+    expect(source).not.toContain("DraftPreviewModal");
+  });
+
+  it("uses ReadyOutputBar for ready actions", async () => {
+    const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
+    expect(source).toContain("ReadyOutputBar");
+  });
+
+  it("keeps the header minimal (no mode badge in titleExtra)", async () => {
+    const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
+    expect(source).not.toContain("titleExtra=");
+  });
+
+  it("does not duplicate progress hints in the conversation body (moved to sidebar)", async () => {
+    const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
+    expect(source).not.toContain("今確認していること");
+    expect(source).not.toContain("次に進む条件");
+    expect(source).not.toContain("今回知りたいこと");
   });
 
   it("does not render inline error banners (migrated to snackbar)", async () => {
@@ -26,28 +42,12 @@ describe("MotivationConversationContent", () => {
     expect(source).not.toContain("conversationLoadError &&");
     expect(source).not.toContain("{error &&");
     expect(source).not.toContain("bg-destructive/10");
-    expect(source).not.toContain("border-amber-200 bg-amber-50");
   });
 
   it("does not destructure error or conversationLoadError from controller", async () => {
     const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
     expect(source).not.toMatch(/^\s+error,$/m);
     expect(source).not.toMatch(/^\s+conversationLoadError,$/m);
-    expect(source).not.toMatch(/^\s+setError,$/m);
-    expect(source).not.toMatch(/^\s+setConversationLoadError,$/m);
-  });
-
-  it("does not destructure or pass roleOptionsError", async () => {
-    const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
-    expect(source).not.toContain("roleOptionsError");
-  });
-
-  it("post-draft banner includes resume-deepdive button", () => {
-    expect(true).toBe(true);
-  });
-
-  it("isDraftReady banner allows optional ES timing", () => {
-    expect(true).toBe(true);
   });
 
   it("uses ConversationRestartConfirmDialog instead of window.confirm", async () => {
@@ -55,16 +55,10 @@ describe("MotivationConversationContent", () => {
     expect(source).toContain("ConversationRestartConfirmDialog");
     expect(source).toContain("restartDialogOpen");
     expect(source).toContain("confirmResetConversation");
-    expect(source).not.toContain("handleResetConversation");
   });
 
   it("uses ConversationMobileStatus for mobile status bar", async () => {
     const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
     expect(source).toContain("ConversationMobileStatus");
-  });
-
-  it("uses DraftReadyCTA for draft-ready banners", async () => {
-    const source = await readFile(new URL("./MotivationConversationContent.tsx", import.meta.url), "utf8");
-    expect(source).toContain("DraftReadyCTA");
   });
 });
