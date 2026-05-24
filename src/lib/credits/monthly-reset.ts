@@ -96,8 +96,8 @@ export async function grantMonthlyCredits(userId: string) {
         update credits
         set
           balance = locked.monthly_allocation,
-          last_reset_at = ${now},
-          updated_at = ${now}
+          last_reset_at = now(),
+          updated_at = now()
         from locked
         where credits.user_id = ${userId}
         returning locked.balance as previous_balance, credits.balance as balance
@@ -152,6 +152,9 @@ export async function updatePlanAllocationCoreTx(
 ) {
   const allocation = PLAN_CREDITS[newPlan];
   const now = new Date();
+  const hasExpectedCurrentAllocation =
+    typeof expectedCurrentAllocation === "number" &&
+    Number.isInteger(expectedCurrentAllocation);
   const [userCredits] = await tx
     .select()
     .from(credits)
@@ -164,11 +167,15 @@ export async function updatePlanAllocationCoreTx(
       return;
     }
   } else if (
-    expectedCurrentAllocation === null
+    !hasExpectedCurrentAllocation
     && userCredits.monthlyAllocation === allocation
   ) {
     return;
   }
+
+  const expectedAllocationGuard = hasExpectedCurrentAllocation
+    ? sql`and locked.monthly_allocation = ${expectedCurrentAllocation}`
+    : sql``;
 
   const updatedRows = await tx.execute(sql`
     with locked as (
@@ -182,14 +189,11 @@ export async function updatePlanAllocationCoreTx(
       set
         balance = greatest(credits.balance + (${allocation} - locked.monthly_allocation), 0),
         monthly_allocation = ${allocation},
-        last_reset_at = ${now},
-        updated_at = ${now}
+        last_reset_at = now(),
+        updated_at = now()
       from locked
       where credits.user_id = ${userId}
-        and (
-          ${expectedCurrentAllocation}::integer is null
-          or locked.monthly_allocation = ${expectedCurrentAllocation}
-        )
+        ${expectedAllocationGuard}
       returning locked.balance as previous_balance, credits.balance as balance
     )
     select previous_balance, balance from updated
@@ -197,7 +201,7 @@ export async function updatePlanAllocationCoreTx(
 
   const [updatedCredits] = Array.from(updatedRows as Iterable<Record<string, unknown>>);
   if (!updatedCredits) {
-    if (expectedCurrentAllocation !== null) {
+    if (hasExpectedCurrentAllocation) {
       return;
     }
     throw new Error(`Cannot update plan allocation without credits row: ${userId}`);
