@@ -7,8 +7,9 @@
 - **対話モデル**: スロットフィル状態機械（6 要素 x 4 段階）+ deepdive 補強
 - **プロトコル**: SSE (Server-Sent Events) によるリアルタイムストリーミング
 - **認証**: ログインユーザー専用（ゲストは利用不可。BFF の `conversation/stream` が `!userId` で 401 を返す）
-- **課金**: 会話は 1 ターン 1 クレジット消費（post-success 型）。下書き生成は 6 クレジット予約 (Reserve/Confirm/Cancel)。深掘り再開は 1 クレジット予約
+- **課金**: 会話は 1 ターン 1 クレジット消費（post-success 型）。下書き生成は 6 クレジット予約 (Reserve/Confirm/Cancel)。深掘り再開は 1 クレジット予約。フィードバック整理（要点整理）は 6 クレジット予約
 - **二ルート**: (A) 会話ありの `generate-draft`、(B) 会話なしの `generate-draft-from-profile`（ログイン必須、プロフィール・ガクチカ由来の fallback 専用）
+- **フィードバック整理（FB）**: 完成した志望動機 ES から、面接で話す要点（核となる語り・強み・改善ポイント・次に向けて・想定質問）を整理する。`POST /api/motivation/[companyId]/feedback-summary`、Claude Sonnet、ログイン必須、成功時のみ 6 クレジット消費
 
 ---
 
@@ -68,6 +69,7 @@
 | Backend Validation | `backend/app/services/motivation/validation.py` | 重複防止 + フォーカス正規化 + 前提検証 | ~665 |
 | Backend Retry | `backend/app/services/motivation/retry.py` | 失敗分類 + 品質リトライ + AI smell | ~583 |
 | Backend Draft | `backend/app/services/motivation/draft.py` | 下書き生成 + grounding 解決 | ~594 |
+| Backend Feedback Summary | `backend/app/services/motivation/feedback_summary.py` | フィードバック整理（面接で話す要点）の生成・正規化 | ~127 |
 | Backend Company | `backend/app/services/motivation/company.py` | 企業 RAG 連携 + エビデンスカード | ~505 |
 | Backend Planner | `backend/app/services/motivation/planner.py` | ターンプランナー + causal gap 計算 | ~209 |
 | Backend Stream | `backend/app/services/motivation/stream_service.py` | SSE 生成 + progress イベント | ~227 |
@@ -439,9 +441,10 @@ MotivationConversationContent
 |   +-- CausalGapSteps / ProgressDetailSection (progressChildren)
 |   +-- MotivationEvidenceSection (参考企業情報 + ユーザー情報)
 +-- ConversationMobileStatus (共通モバイルステータス)
-+-- DraftReadyCTA (共通、材料揃い CTA)
++-- ReadyOutputBar (共通、出力アクションバー: ES作成 / FB整理)
 +-- ConversationRestartConfirmDialog (共通、会話やり直し確認)
-+-- DraftPreviewModal (shared、ES生成完了後のモーダル)
++-- GenerationModal (共通、ES下書き生成モーダル: locked/ready/generating/done)
++-- GenerationModal (共通、フィードバック整理モーダル: locked/ready/generating/done)
 ```
 
 ### 8.2 進捗パネル (ピルバッジ + フェーズトラッカー)
@@ -461,17 +464,33 @@ MotivationConversationContent
 
 **deepdive 時の補強フェーズ**: `conversationMode === "deepdive"` 時に各 causal gap をカード形式で全件表示（日本語スロット名 + 理由）。gap 残数バッジまたは「完了」バッジを表示する。
 
-### 8.3 MotivationDraftModal
+### 8.3 共通生成モーダル (GenerationModal)
 
-ES 生成成功後のフロー:
+ES 作成・フィードバック整理は、ガクチカ・面接対策と共通の `GenerationModal`（`src/components/chat/GenerationModal.tsx`）に統合されている。出力アクションは `ReadyOutputBar` に「ES作成」「FB整理」ボタンとして常時表示し、押すと対応するモーダルが開く。
 
-1. スナックバー -> モーダル (`MotivationDraftModal`) が表示される
-2. 「ESエディタを開く」(primary) -> 生成時に作成済みの ES ドキュメント `/es/{docId}` に遷移
-3. 「もっと深堀りして再生成する」(outline) -> モーダルを閉じ -> deepdive 会話が再開される
-4. X ボタン / オーバーレイクリックは閉じるだけで、深掘り質問は開始しない
-5. ES 生成は毎回新規 draft ドキュメントとして作成される
+**状態機械**: `resolveGenerationStatus()`（`src/components/chat/generation-modal-status.ts`）が呼び出し側の controller state（`hasResult` / `canGenerate` / `isGenerating`）から 4 状態を導出する。
+
+- `locked`: 生成条件が未達。モーダル内で未達理由（`lockedReason`）と達成条件チェックリスト（`requirements`）を表示する
+- `ready`: 生成可能。設定 UI（ES の文字数選択 `EsCharLimitField` など）と生成ボタンを表示する
+- `generating`: 生成中。モーダルは開いたまま処理中インジケータを表示する
+- `done`: 生成済み。結果（`DraftResultView` / `MotivationFeedbackSummary`）と次アクションを表示する
+
+ボタンは常時有効で、条件未達でもモーダルは開き、未達理由はモーダル内に表示する（補助文言もモーダル内）。
+
+**ES 作成モーダル**:
+
+1. 「ESエディタを開く」(primary) -> 生成時に作成済みの ES ドキュメント `/es/{docId}` に遷移
+2. 「もっと深掘りして再生成する」(secondary) -> モーダルを閉じ -> deepdive 会話が再開される
+3. ES 生成は毎回新規 draft ドキュメントとして作成される
 
 `resume-deepdive` で FastAPI が失敗した場合: モーダルは表示され（保存は可能）、エラーメッセージとリトライボタンが表示される。
+
+**フィードバック整理モーダル (FB)**:
+
+1. 志望動機の下書きが作成済みのとき `ready`。未作成時は `locked`（「志望動機の下書きを先に作成すると、面接で話す要点を整理できます。」）
+2. 「フィードバックを整理」で `useMotivationFeedbackSummary`（`src/hooks/motivation/useMotivationFeedbackSummary.ts`）が `POST /api/motivation/[companyId]/feedback-summary` を呼ぶ
+3. 補助文言「生成に成功すると 6 クレジットを消費します。」をモーダル内に表示する
+4. 結果は `MotivationFeedbackSummary`（核となる一文・強み・改善ポイント・次に向けて・想定質問）で描画する
 
 ---
 
@@ -531,8 +550,9 @@ ES 生成成功後のフロー:
 | 下書き生成（会話あり） | `motivation_draft` | 6 credits | Reserve -> Confirm / Cancel |
 | 下書き生成（会話なし） | `motivation_draft` | 6 credits | Reserve -> Confirm / Cancel |
 | 深掘り再開 | `motivation_resume_deepdive` | 1 credit | Reserve -> Confirm / Cancel |
+| フィードバック整理（FB） | `motivation_summary` | 6 credits | Reserve -> Confirm / Cancel |
 
-失敗時は消費しない（成功時のみ消費のビジネスルールに従う）。
+失敗時は消費しない（成功時のみ消費のビジネスルールに従う）。フィードバック整理は、キャッシュ命中（同一 draft の保存済みサマリ）・LLM 失敗・空応答・DB 保存失敗・confirm 失敗のいずれも非課金。予約は認可・準備不足判定・キャッシュ判定をすべて通過した後にのみ行う。
 
 ---
 
