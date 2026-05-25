@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 
 import {
+  CONVERSATION_WORKSPACE_HEADER_ROW,
+  CONVERSATION_WORKSPACE_OUTER_PADDING,
   PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET,
 } from "@/components/shared/product-page-header-layout";
 import {
@@ -42,9 +44,9 @@ export function ConversationWorkspaceShellSkeleton({
       aria-busy="true"
       aria-live="polite"
     >
-      <main className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-8">
+      <main className={cn("mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden", CONVERSATION_WORKSPACE_OUTER_PADDING)}>
         {/* ---- Header ---- */}
-        <div className={cn("mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between", PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET)}>
+        <div className={cn(CONVERSATION_WORKSPACE_HEADER_ROW, PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET)}>
           {/* Left: back button + title + subtitle */}
           <div className="flex min-w-0 items-start gap-3">
             <Skeleton
@@ -65,7 +67,7 @@ export function ConversationWorkspaceShellSkeleton({
           </div>
 
           {/* Right: optional action bar */}
-          <div className="flex w-full flex-col gap-2 xl:max-w-[820px] xl:items-end">
+          <div className="flex w-full flex-col gap-2 lg:max-w-[820px] lg:items-end">
             {actionBarSkeleton}
           </div>
         </div>

@@ -8,10 +8,10 @@ describe("ConversationWorkspaceShellSkeleton", () => {
       "utf8",
     );
     expect(source).toContain("h-screen bg-background flex flex-col overflow-hidden");
-    expect(source).toContain(
-      "mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-8",
-    );
+    expect(source).toContain("CONVERSATION_WORKSPACE_OUTER_PADDING");
+    expect(source).toContain("mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden");
     expect(source).toContain("PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET");
+    expect(source).toContain("CONVERSATION_WORKSPACE_HEADER_ROW");
   });
 
   it("uses exact grid columns from the shell", async () => {

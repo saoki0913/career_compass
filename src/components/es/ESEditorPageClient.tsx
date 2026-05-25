@@ -830,9 +830,9 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
     >
       {/* Header Bar */}
       <div className="sticky top-0 z-40 border-b border-border/70 bg-background/92 backdrop-blur-xl print:hidden">
-        <div className="mx-auto max-w-[1600px] pl-16 pr-3 sm:px-6 lg:px-7 xl:px-8">
-          <div className="flex min-h-[4.25rem] flex-col gap-2 py-2 lg:h-16 lg:min-h-16 lg:flex-row lg:items-center lg:justify-between lg:gap-4 lg:py-0">
-            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+        <div className="mx-auto max-w-[1600px] pl-[3.75rem] pr-3 sm:pl-[4.25rem] sm:pr-6 lg:px-7 xl:px-8">
+          <div className="flex min-h-[3rem] flex-col gap-1.5 py-1.5 lg:h-12 lg:min-h-12 lg:flex-row lg:items-center lg:justify-between lg:gap-3 lg:py-0">
+            <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
               <ProductBackButton href="/es" label="ES一覧に戻る" />
               <span className="text-muted-foreground/30 max-lg:hidden">|</span>
               <div className="flex min-w-0 items-center gap-2">
@@ -852,7 +852,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
                 </span>
               </div>
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3 lg:flex-nowrap lg:justify-end">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2 lg:flex-nowrap lg:justify-end">
               <span className="text-xs sm:text-sm text-muted-foreground">{totalCharCount}文字</span>
               <span className="text-xs sm:text-sm flex items-center gap-1 min-w-[4rem]">
                 {isSaving ? (

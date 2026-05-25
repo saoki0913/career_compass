@@ -5,6 +5,8 @@ import Link from "next/link";
 
 import { ProductBackButton } from "@/components/shared/ProductBackButton";
 import {
+  CONVERSATION_WORKSPACE_HEADER_ROW,
+  CONVERSATION_WORKSPACE_OUTER_PADDING,
   PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET,
   PRODUCT_PAGE_TITLE_CLASS,
 } from "@/components/shared/product-page-header-layout";
@@ -77,8 +79,8 @@ export function ConversationWorkspaceShell({
 }) {
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
-      <main className="mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden px-4 py-8 sm:px-6 sm:py-10 lg:px-8 lg:py-8">
-        <div className={cn("mb-4 flex shrink-0 flex-col gap-3 xl:flex-row xl:items-start xl:justify-between", PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET)}>
+      <main className={cn("mx-auto flex w-full max-w-[96rem] flex-1 flex-col overflow-hidden", CONVERSATION_WORKSPACE_OUTER_PADDING)}>
+        <div className={cn(CONVERSATION_WORKSPACE_HEADER_ROW, PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET)}>
           <div className="flex min-w-0 items-start gap-3">
             {backHref ? <ProductBackButton href={backHref} label={backLabel || "戻る"} /> : null}
             <div className="min-w-0 pt-0.5">
@@ -96,7 +98,7 @@ export function ConversationWorkspaceShell({
             </div>
           </div>
 
-          <div className="flex w-full flex-col gap-2 xl:max-w-[820px] xl:items-end">
+          <div className="flex w-full flex-col gap-2 lg:max-w-[820px] lg:items-end">
             {headerActions && headerActions.length > 0 ? (
               <div className="flex w-full flex-wrap items-center justify-end gap-2">
                 {headerActions.map((action) =>

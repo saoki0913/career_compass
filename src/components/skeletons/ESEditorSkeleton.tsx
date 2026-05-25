@@ -15,9 +15,9 @@ export function ESEditorSkeleton() {
   return (
     <div className="es-editor-print-scope flex h-screen flex-col overflow-hidden bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.22))]">
       <div className="sticky top-0 z-40 border-b border-border/70 bg-background/92 backdrop-blur-xl print:hidden">
-        <div className="mx-auto max-w-[1600px] pl-16 pr-3 sm:px-6 lg:px-7 xl:px-8">
-          <div className="flex min-h-[4.25rem] flex-col justify-center gap-2 py-2 lg:h-16 lg:min-h-16 lg:flex-row lg:items-center lg:justify-between lg:gap-4 lg:py-0">
-            <div className="flex min-w-0 flex-1 items-center gap-4">
+        <div className="mx-auto max-w-[1600px] pl-[3.75rem] pr-3 sm:pl-[4.25rem] sm:pr-6 lg:px-7 xl:px-8">
+          <div className="flex min-h-[3rem] flex-col justify-center gap-1.5 py-1.5 lg:h-12 lg:min-h-12 lg:flex-row lg:items-center lg:justify-between lg:gap-3 lg:py-0">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
               <div className="flex shrink-0 items-center gap-2">
                 <Skeleton className="h-5 w-5 rounded" shimmerDelayMs={0} />
                 <Skeleton className="hidden h-4 w-14 rounded sm:block" shimmerDelayMs={15} />
@@ -36,7 +36,7 @@ export function ESEditorSkeleton() {
                 <Skeleton className="h-4 w-36 max-w-[150px] rounded sm:hidden" shimmerDelayMs={35} />
               </div>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 sm:gap-4">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
               <Skeleton className="h-4 w-10 sm:w-14" shimmerDelayMs={55} />
               <Skeleton className="h-4 w-16 sm:w-20" shimmerDelayMs={65} />
               <SkeletonButton className="hidden h-8 min-w-[6.5rem] sm:inline-flex" shimmerDelayMs={80} />

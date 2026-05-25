@@ -22,6 +22,12 @@ describe("ConversationWorkspaceShell", () => {
     expect(source).toContain("PRODUCT_PAGE_HEADER_SIDEBAR_OFFSET");
   });
 
+  it("uses shared layout tokens for compact outer padding and header row", async () => {
+    const source = await readFile(new URL("./ConversationWorkspaceShell.tsx", import.meta.url), "utf8");
+    expect(source).toContain("CONVERSATION_WORKSPACE_OUTER_PADDING");
+    expect(source).toContain("CONVERSATION_WORKSPACE_HEADER_ROW");
+  });
+
   it("keeps subtitles on one line instead of wrapping into two columns", async () => {
     const source = await readFile(new URL("./ConversationWorkspaceShell.tsx", import.meta.url), "utf8");
     expect(source).toContain("truncate text-sm text-muted-foreground");

@@ -26,6 +26,12 @@ export const PRODUCT_PAGE_TITLE_CLASS: Record<ProductPageHeaderVariant, string> 
   compact: "min-w-0 break-words text-[1.375rem] font-bold leading-[1.18] text-foreground",
 };
 
+export const CONVERSATION_WORKSPACE_OUTER_PADDING =
+  "px-4 py-4 sm:px-6 sm:py-5 lg:px-8 lg:py-4";
+
+export const CONVERSATION_WORKSPACE_HEADER_ROW =
+  "mb-3 flex shrink-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between";
+
 export const PRODUCT_BACK_BUTTON_TOUCH_CLASS =
   "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 lg:h-9 lg:w-9 lg:rounded-xl";
 
