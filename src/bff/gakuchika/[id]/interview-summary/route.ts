@@ -11,6 +11,13 @@ import { getRequestId, logAiCreditCostSummary } from "@/lib/ai/cost-summary-log"
 import { getCsrfFailureReason } from "@/lib/csrf";
 import { computeTotalTokens, incrementDailyTokenCount } from "@/lib/llm-cost-limit";
 import {
+  cancelReservation,
+  confirmReservation,
+  FEEDBACK_SUMMARY_CREDIT_COST,
+  reserveCredits,
+} from "@/lib/credits";
+import { logError } from "@/lib/logger";
+import {
   getIdentity,
   isInterviewReady,
   safeParseConversationState,
@@ -48,6 +55,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  // 成功時のみ消費: 予約はキャッシュ判定の後に行い、失敗系の経路で必ず cancel する。
+  let reservationId: string | null = null;
   try {
     const csrfFailure = getCsrfFailureReason(request);
     if (csrfFailure) {
@@ -120,6 +129,7 @@ export async function POST(
     const isSameSummarySource =
       sourceSessionId === sessionId &&
       sourceDraftDocumentId === (conversationState.draftDocumentId ?? null);
+    // キャッシュ命中は予約より前に return するため非課金。
     if (existingSummary && !conversationState.summaryStale && isSameSummarySource) {
       logAiCreditCostSummary({
         feature: "gakuchika_interview_summary",
@@ -142,8 +152,33 @@ export async function POST(
     );
     if (rateLimited) return rateLimited;
 
+    // 認可・準備不足・キャッシュ判定をすべて通過したので、ここで初めて予約する。
+    const reservation = await reserveCredits(
+      identity.userId,
+      FEEDBACK_SUMMARY_CREDIT_COST,
+      "gakuchika_summary",
+      gakuchikaId,
+      `ガクチカ要点整理: ${gakuchika.title}`,
+    );
+    if (!reservation.success) {
+      logAiCreditCostSummary({
+        feature: "gakuchika_interview_summary",
+        requestId,
+        status: "failed",
+        creditsUsed: 0,
+        telemetry: null,
+      });
+      return createApiErrorResponse(request, {
+        status: 402,
+        code: "GAKUCHIKA_INTERVIEW_SUMMARY_CREDIT_SHORTAGE",
+        userMessage: "クレジットが不足しています。",
+        action: "プランをご確認のうえ、もう一度お試しください。",
+      });
+    }
+    reservationId = reservation.reservationId;
+
     const messages = safeParseMessages(conversation.messages);
-    const { summary, telemetry } = await generateGakuchikaSummaryWithTelemetry(
+    const { summary, telemetry, source } = await generateGakuchikaSummaryWithTelemetry(
       gakuchika.title,
       conversationState.draftText,
       messages,
@@ -153,6 +188,13 @@ export async function POST(
         plan: "free",
       },
     );
+
+    // fallback（LLM 失敗による代替生成）は成果物を保存しても課金しない。
+    if (source !== "llm" && reservationId) {
+      await cancelReservation(reservationId);
+      reservationId = null;
+    }
+
     const persistedSummary = {
       ...summary,
       source_session_id: sessionId,
@@ -162,29 +204,67 @@ export async function POST(
       ...conversationState,
       summaryStale: false,
     };
-    await db.transaction(async (tx) => {
-      await tx
-        .update(gakuchikaContents)
-        .set({
-          summary: JSON.stringify(persistedSummary),
-          updatedAt: new Date(),
-        })
-        .where(eq(gakuchikaContents.id, gakuchikaId));
+    try {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(gakuchikaContents)
+          .set({
+            summary: JSON.stringify(persistedSummary),
+            updatedAt: new Date(),
+          })
+          .where(eq(gakuchikaContents.id, gakuchikaId));
 
-      await tx
-        .update(gakuchikaConversations)
-        .set({
-          starScores: serializeConversationState(nextState),
-          updatedAt: new Date(),
-        })
-        .where(eq(gakuchikaConversations.id, sessionId));
-    });
+        await tx
+          .update(gakuchikaConversations)
+          .set({
+            starScores: serializeConversationState(nextState),
+            updatedAt: new Date(),
+          })
+          .where(eq(gakuchikaConversations.id, sessionId));
+      });
+    } catch (dbError) {
+      // DB 保存失敗は非課金。
+      if (reservationId) {
+        await cancelReservation(reservationId);
+        reservationId = null;
+      }
+      throw dbError;
+    }
+
+    // 生成成功かつ保存成功のときだけ confirm する。confirm 失敗は cancel して非課金扱い。
+    let creditsUsed = 0;
+    if (reservationId) {
+      try {
+        await confirmReservation(reservationId);
+        creditsUsed = FEEDBACK_SUMMARY_CREDIT_COST;
+      } catch (error) {
+        logError("gakuchika-interview-summary:confirm-reservation", error, {
+          gakuchikaId,
+          userId: identity.userId,
+          requestId,
+          reservationId,
+        });
+        try {
+          await cancelReservation(reservationId);
+        } catch (cancelError) {
+          logError("gakuchika-interview-summary:cancel-after-confirm-failure", cancelError, {
+            gakuchikaId,
+            userId: identity.userId,
+            requestId,
+            reservationId,
+          });
+        }
+      } finally {
+        reservationId = null;
+      }
+    }
+
     void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
     logAiCreditCostSummary({
       feature: "gakuchika_interview_summary",
       requestId,
       status: "success",
-      creditsUsed: 0,
+      creditsUsed,
       telemetry,
     });
 
@@ -194,6 +274,13 @@ export async function POST(
       conversationState: nextState,
     });
   } catch (error) {
+    if (reservationId) {
+      try {
+        await cancelReservation(reservationId);
+      } catch (cancelError) {
+        logError("gakuchika-interview-summary:cancel-on-error", cancelError, { reservationId });
+      }
+    }
     logAiCreditCostSummary({
       feature: "gakuchika_interview_summary",
       requestId: getRequestId(request),

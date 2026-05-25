@@ -85,6 +85,8 @@ export interface MotivationViewModel {
   motivationModeLabel: string;
   /** Whether the "generate draft" button should be enabled */
   canGenerateDraft: boolean;
+  /** 下書き作成済みで面接フィードバックを生成できるか */
+  canGenerateFeedback: boolean;
   /** The currently-active stage slot (excluding closing) */
   activeStage: Exclude<MotivationStageKey, "closing"> | null;
   /** Answer guide text for the current stage */
@@ -176,6 +178,8 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
 
   const canGenerateDraft =
     isDraftReady && (messages.length >= 2 || Boolean(generatedDraft)) && !showSetupScreen;
+  // 面接フィードバックは下書き作成後に生成できる（isPostDraftMode と同基準）。
+  const canGenerateFeedback = isPostDraftMode;
 
   // --- Stage context ---
   const activeStage: Exclude<MotivationStageKey, "closing"> | null =
@@ -223,6 +227,7 @@ export function useMotivationViewModel(input: MotivationViewModelInput): Motivat
     isPostDraftMode,
     motivationModeLabel,
     canGenerateDraft,
+    canGenerateFeedback,
     activeStage,
     answerGuide,
     currentIntentLabel,

@@ -42,6 +42,8 @@ from app.services.motivation.summarize import (
     maybe_summarize_older_messages,
 )
 from app.services.motivation.models import (
+    FeedbackSummaryRequest,
+    FeedbackSummaryResponse,
     GenerateDraftFromProfileRequest,
     GenerateDraftRequest,
     GenerateDraftResponse,
@@ -49,6 +51,7 @@ from app.services.motivation.models import (
     NextQuestionRequest,
     NextQuestionResponse,
 )
+from app.services.motivation.feedback_summary import generate_feedback_summary_response
 from app.services.motivation.sanitizers import (
     format_conversation as _format_conversation,
     prompt_safety_http_error as _prompt_safety_http_error,
@@ -796,3 +799,22 @@ async def generate_draft_from_profile(
         company_keywords=company_keywords,
         internal_telemetry=base_telemetry,
     )
+
+
+@router.post("/feedback-summary", response_model=FeedbackSummaryResponse)
+@limiter.limit("60/minute")
+async def generate_feedback_summary(
+    payload: FeedbackSummaryRequest,
+    request: Request,
+    principal: CareerPrincipal = Depends(require_career_principal("company")),
+):
+    request = payload
+    if not request.company_name:
+        raise HTTPException(status_code=400, detail="企業名が指定されていません")
+    if not request.conversation_history:
+        raise HTTPException(status_code=400, detail="会話履歴がありません")
+    if principal.company_id != request.company_id:
+        raise HTTPException(status_code=403, detail="career principal company_id mismatch")
+    # company scope の整合確認（RAG 未使用でも安全側で tenant_key を取得する）
+    require_tenant_key(principal)
+    return await generate_feedback_summary_response(request)

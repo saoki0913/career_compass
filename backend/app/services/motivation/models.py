@@ -253,9 +253,39 @@ class GenerateDraftFromProfileRequest(BaseModel):
     profile_context: Optional[dict[str, Any]] = None
 
 
+class FeedbackSummaryRequest(BaseModel):
+    """志望動機フィードバックサマリ（面接で話す要点整理）の生成リクエスト。"""
+
+    company_id: str = Field(max_length=100)
+    company_name: str = Field(max_length=200)
+    industry: Optional[str] = Field(default=None, max_length=100)
+    selected_role: Optional[str] = Field(default=None, max_length=200)
+    conversation_history: list[Message] = Field(max_length=60)
+    slot_summaries: Optional[dict[str, Optional[str]]] = None
+    slot_evidence_sentences: Optional[dict[str, list[str]]] = None
+    draft_text: str = Field(default="", max_length=2000)
+
+
+class FeedbackTitledItem(BaseModel):
+    title: str
+    description: str = ""
+
+
+class FeedbackSummaryResponse(BaseModel):
+    one_line_core_answer: str = ""
+    strengths: list[FeedbackTitledItem] = Field(default_factory=list)
+    improvements: list[FeedbackTitledItem] = Field(default_factory=list)
+    next_preparation: list[str] = Field(default_factory=list)
+    likely_followup_questions: list[str] = Field(default_factory=list)
+    internal_telemetry: Optional[dict[str, Any]] = None
+
+
 __all__ = [
     "DeepDiveGap",
     "EvidenceCard",
+    "FeedbackSummaryRequest",
+    "FeedbackSummaryResponse",
+    "FeedbackTitledItem",
     "GenerateDraftFromProfileRequest",
     "GenerateDraftRequest",
     "GenerateDraftResponse",

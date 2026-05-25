@@ -7,6 +7,7 @@ from app.utils.llm_client_registry import get_circuit_breaker, reset_registry
 from app.utils.llm_model_routing import (
     _capability_class,
     _feature_cross_fallback_model,
+    get_model_config,
 )
 
 
@@ -94,3 +95,15 @@ def test_feature_cross_fallback_unknown_feature(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(settings, "openai_api_key", "sk-oai")
     reset_registry()
     assert _feature_cross_fallback_model("not_a_real_feature_key", "anthropic") is None
+
+
+def test_summary_features_registered_and_resolve_to_sonnet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 志望動機FB・ガクチカ要点整理は高性能モデル（Sonnet）で生成する
+    reset_registry()
+    config = get_model_config()
+    assert config.get("motivation_summary") == settings.model_motivation_summary
+    assert config.get("gakuchika_summary") == settings.model_gakuchika_summary
+    assert _capability_class(config["motivation_summary"]) == "sonnet_tier"
+    assert _capability_class(config["gakuchika_summary"]) == "sonnet_tier"

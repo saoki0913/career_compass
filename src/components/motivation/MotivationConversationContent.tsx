@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { GenerationModal } from "@/components/chat/GenerationModal";
 import { resolveGenerationStatus } from "@/components/chat/generation-modal-status";
 import { EsCharLimitField } from "@/components/chat/EsCharLimitField";
 import { DraftResultView } from "@/components/chat/DraftResultView";
+import { MotivationFeedbackSummary } from "@/components/motivation/MotivationFeedbackSummary";
 import { ConversationWorkspaceShell } from "@/components/chat/ConversationWorkspaceShell";
 import { MotivationEvidenceSection } from "@/components/motivation/MotivationEvidenceSection";
 import { MotivationConversationSidebar } from "@/components/motivation/MotivationConversationSidebar";
@@ -25,6 +26,7 @@ import { MotivationSetupPanel } from "@/components/motivation/MotivationSetupPan
 import { ConversationPageSkeleton } from "@/components/skeletons/ConversationPageSkeleton";
 import { useMotivationConversationController } from "@/features/motivation/hooks/useMotivationConversationController";
 import { useMotivationViewModel } from "@/features/motivation/hooks/useMotivationViewModel";
+import { useMotivationFeedbackSummary } from "@/hooks/motivation/useMotivationFeedbackSummary";
 import {
   getMotivationSlotPillStatus,
   SLOT_PILL_LABELS,
@@ -144,7 +146,15 @@ export function MotivationConversationContent({ companyId }: { companyId: string
     currentIntentLabel,
     currentSlotLabel,
     draftHelperText,
+    canGenerateFeedback,
   } = vm;
+
+  const {
+    summary: feedbackSummary,
+    isSummaryLoading: isGeneratingFeedback,
+    handleGenerateMotivationSummary,
+  } = useMotivationFeedbackSummary({ companyId });
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
 
   const isDeepDive = conversationMode === "deepdive";
   type SlotKey = Exclude<MotivationStageKey, "closing">;
@@ -174,11 +184,23 @@ export function MotivationConversationContent({ companyId }: { companyId: string
       pending: isGeneratingDraft,
       onClick: () => setIsDraftModalOpen(true),
     },
+    {
+      key: "feedback",
+      label: "FB整理",
+      icon: "feedback" as const,
+      pending: isGeneratingFeedback,
+      onClick: () => setIsFeedbackModalOpen(true),
+    },
   ];
   const draftStatus = resolveGenerationStatus({
     hasResult: Boolean(generatedDraft),
     canGenerate: canGenerateDraft,
     isGenerating: isGeneratingDraft,
+  });
+  const feedbackStatus = resolveGenerationStatus({
+    hasResult: Boolean(feedbackSummary),
+    canGenerate: canGenerateFeedback,
+    isGenerating: isGeneratingFeedback,
   });
 
   useEffect(() => {
@@ -482,6 +504,30 @@ export function MotivationConversationContent({ companyId }: { companyId: string
             await handleResumeDeepDive();
           },
         }}
+      />
+
+      <GenerationModal
+        open={isFeedbackModalOpen}
+        onOpenChange={(next) => {
+          if (!next) setIsFeedbackModalOpen(false);
+        }}
+        status={feedbackStatus}
+        icon="feedback"
+        size="standard"
+        title="フィードバック整理"
+        description="作成した志望動機をもとに、面接で話す要点を整理します。"
+        helperText="生成に成功すると 6 クレジットを消費します。"
+        lockedReason="志望動機の下書きを先に作成すると、面接で話す要点を整理できます。"
+        requirements={[{ label: "志望動機の下書きが作成済み", met: canGenerateFeedback }]}
+        generatingLabel="面接で話す要点を整理しています"
+        resultSlot={
+          feedbackSummary ? <MotivationFeedbackSummary summary={feedbackSummary} /> : null
+        }
+        generateAction={{
+          label: "フィードバックを整理",
+          onGenerate: () => void handleGenerateMotivationSummary(),
+        }}
+        primaryAction={{ label: "閉じる", onClick: () => setIsFeedbackModalOpen(false) }}
       />
     </>
   );

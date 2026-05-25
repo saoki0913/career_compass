@@ -136,11 +136,15 @@ export async function generateGakuchikaSummaryWithTelemetry(
   draftText: string,
   messages: Message[],
   principal: CreateCareerPrincipalInput,
-): Promise<{ summary: GakuchikaSummary; telemetry: InternalCostTelemetry | null }> {
+): Promise<{
+  summary: GakuchikaSummary;
+  telemetry: InternalCostTelemetry | null;
+  source: "llm" | "fallback";
+}> {
   try {
     const result = await requestStructuredSummary(gakuchikaTitle, draftText, messages, principal);
     if (result) {
-      return result;
+      return { ...result, source: "llm" };
     }
   } catch (error) {
     logError("gakuchika-summary:consume-credits", error, {
@@ -148,5 +152,5 @@ export async function generateGakuchikaSummaryWithTelemetry(
     });
   }
 
-  return { summary: buildFallbackSummary(messages), telemetry: null };
+  return { summary: buildFallbackSummary(messages), telemetry: null, source: "fallback" };
 }

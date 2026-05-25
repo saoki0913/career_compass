@@ -87,3 +87,7 @@ export async function resetMotivationConversation(companyId: string) {
     headers: buildJsonHeaders(),
   });
 }
+
+export async function generateMotivationFeedbackSummary(companyId: string) {
+  return postJson(`/api/motivation/${companyId}/feedback-summary`);
+}

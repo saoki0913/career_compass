@@ -927,7 +927,7 @@ async def generate_structured_summary(
         user_message="上記の内容をSTAR構造と面接メモに整理してください。",
         max_tokens=1600,
         temperature=0.3,
-        feature="gakuchika",
+        feature="gakuchika_summary",
         retry_on_parse=True,
         disable_fallback=True,
     )

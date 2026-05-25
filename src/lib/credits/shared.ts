@@ -24,6 +24,8 @@ export type TransactionType =
   | "motivation_resume_deepdive"
   | "interview"
   | "interview_feedback"
+  | "motivation_summary"
+  | "gakuchika_summary"
   | "refund";
 
 export const CONVERSATION_CREDITS_PER_TURN = 1;
@@ -31,6 +33,8 @@ export const INTERVIEW_START_CREDIT_COST = 2;
 export const INTERVIEW_TURN_CREDIT_COST = 1;
 export const INTERVIEW_CONTINUE_CREDIT_COST = 1;
 export const DEFAULT_INTERVIEW_SESSION_CREDIT_COST = 6;
+/** 志望動機・ガクチカのフィードバック生成（要点整理）の消費クレジット。成功時のみ消費。 */
+export const FEEDBACK_SUMMARY_CREDIT_COST = 6;
 
 export async function getCreditRow(userId: string) {
   const [row] = await db.select().from(credits).where(eq(credits.userId, userId)).limit(1);

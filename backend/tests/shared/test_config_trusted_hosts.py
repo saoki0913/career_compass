@@ -43,3 +43,10 @@ def test_deployed_rejects_wildcard_trusted_hosts() -> None:
             cors_origins=["https://www.shupass.jp"],
             trusted_hosts=["*"],
         )
+
+
+def test_summary_models_default_to_sonnet() -> None:
+    # 志望動機FB・ガクチカ要点整理は高性能モデル（Sonnet）を既定にする
+    settings = Settings(_env_file=None)
+    assert settings.model_motivation_summary == "claude-sonnet"
+    assert settings.model_gakuchika_summary == "claude-sonnet"

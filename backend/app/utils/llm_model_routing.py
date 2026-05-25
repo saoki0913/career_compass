@@ -27,6 +27,8 @@ def _build_model_config() -> dict[str, LLMModel]:
         "interview_feedback": settings.model_interview_feedback,
         "gakuchika_draft": settings.model_gakuchika_draft,
         "motivation_draft": settings.model_motivation_draft,
+        "gakuchika_summary": settings.model_gakuchika_summary,
+        "motivation_summary": settings.model_motivation_summary,
         "selection_schedule": settings.model_selection_schedule,
         "company_info": settings.model_company_info,
         "rag_query_expansion": settings.model_rag_query_expansion,

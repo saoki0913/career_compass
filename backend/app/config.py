@@ -264,6 +264,14 @@ class Settings(BaseSettings):
         default="claude-sonnet",
         validation_alias=AliasChoices("MODEL_MOTIVATION_DRAFT"),
     )
+    model_gakuchika_summary: str = Field(
+        default="claude-sonnet",
+        validation_alias=AliasChoices("MODEL_GAKUCHIKA_SUMMARY"),
+    )
+    model_motivation_summary: str = Field(
+        default="claude-sonnet",
+        validation_alias=AliasChoices("MODEL_MOTIVATION_SUMMARY"),
+    )
     # ===== ガクチカ チューニング =====
     gakuchika_min_user_answers_for_es_draft_ready: int = Field(
         default=4,
