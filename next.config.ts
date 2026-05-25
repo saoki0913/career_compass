@@ -7,6 +7,10 @@ const nextConfig: NextConfig = {
   experimental: {
     viewTransition: true,
     turbopackFileSystemCacheForDev: enableDevFilesystemCache,
+    // dev/build 双方でバレル import のモジュール解決を間引き、コンパイル負荷を抑える。
+    // framer-motion は sideEffects:false の barrel で 4 ファイルから利用。lucide-react は
+    // Next 16 が既定で最適化済みのため列挙不要（重複指定は no-op）。
+    optimizePackageImports: ["framer-motion"],
   },
   images: {
     remotePatterns: [

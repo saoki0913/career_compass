@@ -15,6 +15,7 @@ import { getViewerPlan } from "@/lib/server/loader-helpers";
 import { logAiCreditCostSummary } from "@/lib/ai/cost-summary-log";
 import { incrementDailyTokenCount, computeTotalTokens } from "@/lib/llm-cost-limit";
 import { createGakuchikaStreamStateMachine } from "@/lib/gakuchika/stream-state-machine";
+import { reopenGakuchikaConversationState } from "@/lib/gakuchika/conversation-reopen";
 import { createConversationStreamHandler } from "@/bff/api/stream-handler";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import type { SSEProxyProgressResult } from "@/lib/fastapi/sse-proxy";
@@ -131,17 +132,20 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
         userMessage: "会話が見つかりません",
       });
     }
-    if (conversation.status === "completed") {
-      return createApiErrorResponse(request, {
-        status: 409,
-        code: "GAKUCHIKA_SESSION_COMPLETED",
-        userMessage: "このセッションは完了しています。新しいセッションを開始してください。",
-      });
-    }
-
     const messages = safeParseMessages(conversation.messages);
     const currentQuestionCount = conversation.questionCount ?? 0;
-    const curState = safeParseConversationState(conversation.starScores, conversation.status);
+    let curState = safeParseConversationState(conversation.starScores, conversation.status);
+    const pausedQuestion = curState.pausedQuestion?.trim();
+    if (getGakuchikaNextAction(curState) !== "ask" && pausedQuestion) {
+      const alreadyLastAssistant =
+        messages.length > 0 &&
+        messages[messages.length - 1].role === "assistant" &&
+        messages[messages.length - 1].content.trim() === pausedQuestion;
+      if (!alreadyLastAssistant) {
+        messages.push({ id: crypto.randomUUID(), role: "assistant", content: pausedQuestion });
+      }
+    }
+    curState = reopenGakuchikaConversationState(curState);
     const lastAssistant = messages.filter((m) => m.role === "assistant").pop();
     if (!lastAssistant || messages[messages.length - 1].role !== "assistant") {
       messages.push({

@@ -23,8 +23,8 @@ function CapabilityCard({
   description: string;
 }) {
   return (
-    <div className="rounded-[22px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+    <div className="rounded-[22px] border border-border/60 bg-background/92 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
         {icon}
       </div>
       <p className="mt-4 text-sm font-semibold text-foreground">{title}</p>
@@ -50,7 +50,7 @@ export function ReviewEmptyState({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[28px] border border-border/70 bg-background p-5 shadow-sm",
+        "overflow-hidden rounded-[26px] border border-border/70 bg-background/95 p-5 shadow-sm sm:p-6",
         className,
       )}
     >
@@ -62,7 +62,7 @@ export function ReviewEmptyState({
               AI添削
             </Badge>
             <div>
-              <h3 className="text-base font-semibold text-foreground">{title}</h3>
+              <h3 className="max-w-[560px] text-lg font-semibold leading-8 text-foreground sm:text-xl">{title}</h3>
               <p className="mt-2 max-w-[460px] text-sm leading-6 text-muted-foreground">
                 {description}
               </p>

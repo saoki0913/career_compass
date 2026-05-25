@@ -132,6 +132,9 @@ make db-local-status
 
 # Next.js dev server のメモリやディスク使用量を見る
 npm run dev:memory-report
+
+# メモリ逼迫の診断（逼迫源の特定 + 対処コマンド提示）
+make dev-doctor
 ```
 
 ## 開発コマンド

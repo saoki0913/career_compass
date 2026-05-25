@@ -72,7 +72,7 @@ export function DashboardHeader({ viewer }: DashboardHeaderProps) {
     <div className="flex min-h-9 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-x-3 lg:gap-y-2 xl:flex-nowrap">
       <DashboardPurchaseSuccessEffect />
       <div className="flex min-w-0 items-baseline gap-x-2 pl-14 lg:pl-0 xl:shrink">
-        <h1 className="truncate text-lg font-bold tracking-tight sm:text-xl lg:text-lg">
+        <h1 className="truncate text-2xl font-bold tracking-tight">
           {greeting}、{viewer.displayName}さん
         </h1>
         {viewer.isGuest && (

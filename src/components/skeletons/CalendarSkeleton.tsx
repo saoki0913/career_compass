@@ -11,8 +11,8 @@ import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeader
 export function CalendarSkeleton() {
   return (
     <div className="min-h-dvh bg-background">
-      <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 px-4 pb-mobile-tab pt-8 sm:px-6 sm:pt-10 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:pb-7 lg:pt-9">
-        <ProductPageHeaderSkeleton actionCount={1} showBackLink />
+      <div className="mx-auto flex w-full max-w-[96rem] flex-col gap-5 px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-6 sm:pb-8 sm:pt-10 md:px-7 lg:h-dvh lg:overflow-hidden lg:px-8 lg:pb-7 lg:pt-9">
+        <ProductPageHeaderSkeleton actionCount={1} showBackLink showMobilePrimaryAction />
 
         <div className="lg:hidden">
           <div className="flex min-h-10 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:min-h-11 sm:px-4">

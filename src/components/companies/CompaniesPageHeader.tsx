@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
+import { ProductFloatingActionButton } from "@/components/shared/ProductFloatingActionButton";
 
 type CompaniesPageHeaderProps = {
   count?: number;
@@ -26,13 +27,14 @@ export function CompaniesPageHeader({ count, limit }: CompaniesPageHeaderProps) 
         ) : undefined
       }
       actions={
-        <Button asChild>
+        <Button asChild className="hidden sm:inline-flex">
           <Link href="/companies/new">
             <Plus className="h-5 w-5" aria-hidden="true" />
             <span className="ml-1.5">企業を追加</span>
           </Link>
         </Button>
       }
+      mobilePrimaryAction={<ProductFloatingActionButton href="/companies/new" label="企業を追加" />}
     />
   );
 }

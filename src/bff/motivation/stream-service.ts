@@ -130,6 +130,8 @@ export async function completeMotivationStreamTurn(args: {
     {
       ...args.resolvedInputs.conversationContext,
       ...(args.fastApiData.captured_context || {}),
+      conversationMode: wasDraftReady ? "deepdive" : (args.fastApiData.conversation_mode || args.resolvedInputs.conversationContext.conversationMode),
+      postDraftAwaitingResume: wasDraftReady ? false : args.resolvedInputs.conversationContext.postDraftAwaitingResume,
       lastQuestionMeta: {
         ...(((args.resolvedInputs.conversationContext.lastQuestionMeta || {}) as LastQuestionMeta)),
         ...((((args.fastApiData.captured_context?.lastQuestionMeta as LastQuestionMeta | undefined) || {}))),

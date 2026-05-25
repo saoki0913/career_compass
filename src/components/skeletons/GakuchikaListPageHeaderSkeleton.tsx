@@ -2,5 +2,5 @@ import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeader
 
 /** `/gakuchika` 一覧の見出し行（タイトル・素材バッジ・説明・新規ボタン）のローディング用 */
 export function GakuchikaListPageHeaderSkeleton() {
-  return <ProductPageHeaderSkeleton actionCount={1} showBackLink />;
+  return <ProductPageHeaderSkeleton actionCount={1} showBackLink showMobilePrimaryAction />;
 }

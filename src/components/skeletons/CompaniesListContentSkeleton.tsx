@@ -8,7 +8,7 @@ import { ListPageFilterBarSkeleton } from "@/components/shared/ListPageFilterBar
 import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
 
 export function CompaniesListHeaderSkeleton() {
-  return <ProductPageHeaderSkeleton actionCount={1} showBackLink />;
+  return <ProductPageHeaderSkeleton actionCount={1} showBackLink showMobilePrimaryAction />;
 }
 
 type CompaniesKanbanSkeletonProps = {
@@ -40,23 +40,25 @@ export function CompaniesKanbanSkeleton({
                   key={itemIndex}
                   className="rounded-xl border border-border/60 bg-background"
                 >
-                  <div className="grid grid-cols-[auto_minmax(0,1fr)_minmax(5.3rem,0.62fr)_auto] items-center gap-2 px-2.5 py-2 md:hidden">
-                    <SkeletonCircle className="h-12 w-12 rounded-xl" shimmerDelayMs={columnIndex * 35 + itemIndex * 30} />
-                    <div className="min-w-0 space-y-2">
-                      <Skeleton className="h-4 w-28 max-w-full rounded-full" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 10} />
-                      <Skeleton className="h-4 w-20 rounded-full" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 20} />
-                    </div>
-                    <div className="min-w-0 space-y-1">
-                      <SkeletonPill className="h-6 w-full" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 35} />
-                      <div className="flex gap-1">
-                        <SkeletonPill className="h-6 w-9" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 45} />
-                        <SkeletonPill className="h-6 w-9" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 55} />
+                  <div className="p-3 md:hidden">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <SkeletonCircle className="h-12 w-12 rounded-xl" shimmerDelayMs={columnIndex * 35 + itemIndex * 30} />
+                      <div className="min-w-0 flex-1 space-y-2 pt-0.5">
+                        <Skeleton className="h-5 w-36 max-w-full rounded-full" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 10} />
+                        <Skeleton className="h-5 w-24 rounded-full" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 20} />
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <SkeletonButton className="h-11 w-11 rounded-xl" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 15} />
+                        <SkeletonButton className="h-11 w-11 rounded-xl" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 25} />
                       </div>
                     </div>
-                    <div className="flex min-w-[3.75rem] flex-col items-end gap-1">
-                      <SkeletonButton className="h-7 w-7 rounded-xl" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 15} />
-                      <Skeleton className="h-3 w-12 rounded-full" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 60} />
-                      <Skeleton className="h-5 w-5 rounded-full" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 70} />
+                    <SkeletonPill className="mt-3 h-9 w-full rounded-xl" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 35} />
+                    <div className="mt-3 flex items-end justify-between gap-3">
+                      <div className="flex gap-2">
+                        <SkeletonPill className="h-9 w-16 rounded-xl" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 45} />
+                        <SkeletonPill className="h-9 w-16 rounded-xl" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 55} />
+                      </div>
+                      <Skeleton className="h-3 w-14 rounded-full" shimmerDelayMs={columnIndex * 35 + itemIndex * 30 + 60} />
                     </div>
                   </div>
                   <div className="hidden p-3 md:block">

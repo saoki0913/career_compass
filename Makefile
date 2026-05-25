@@ -10,7 +10,7 @@
 	deploy deploy-stage-all deploy-staging deploy-production deploy-check deploy-migrate deploy-status release-pr rollback-prod ops-status ops-auth-check ops-release-check ops-secrets-sync stripe-preflight doctor doctor-check \
 	db-validate db-migrate-check db-migrate-check-staging db-drift-check db-drift-check-staging db-generate-rollback \
 	db-up db-down db-restart db-down-clean db-local-status \
-	supabase-start supabase-stop supabase-stop-clean supabase-status
+	supabase-start supabase-stop supabase-stop-clean supabase-status dev-doctor
 
 # ===========================================
 # フロントエンド (Next.js)
@@ -529,6 +529,10 @@ check:
 	@echo "Backend (port 8000):" && (lsof -i :8000 >/dev/null 2>&1 && echo "running" || echo "not running")
 	@echo "Frontend (port 3000):" && (lsof -i :3000 >/dev/null 2>&1 && echo "running" || echo "not running")
 
+## ローカル開発メモリの診断（逼迫源の特定 + 対処コマンド提示）
+dev-doctor:
+	node scripts/dev/dev-doctor.mjs
+
 ## 全依存パッケージをインストール（Frontend + Backend）
 deps:
 	@echo "Installing all dependencies..."
@@ -758,6 +762,7 @@ help:
 	@echo ""
 	@echo "  🔧 環境・セットアップ:"
 	@echo "    make check        - 開発環境の状態確認"
+	@echo "    make dev-doctor   - ローカル開発メモリの診断"
 	@echo "    make deps         - 全依存パッケージインストール"
 	@echo "    make setup        - 初期セットアップ"
 	@echo "    make clean        - ビルド成果物削除"

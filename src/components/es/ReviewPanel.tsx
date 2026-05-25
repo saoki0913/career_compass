@@ -178,7 +178,7 @@ function SetupField({
 
 function FreePlanEsReviewModelNotice() {
   return (
-    <div className="rounded-[26px] border border-border/60 bg-muted/30 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+    <div className="rounded-[22px] border border-border/60 bg-muted/25 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
       <p className="text-sm font-semibold text-foreground">添削モデル（Free）</p>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">
         Free プランでは <strong className="font-medium text-foreground">GPT-5.4 mini</strong>
@@ -200,7 +200,7 @@ function ReviewModeSelector({
 }) {
   const helperText = getStandardESReviewModelHelper(standardModel);
   return (
-    <div className="rounded-[26px] border border-border/60 bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+    <div className="rounded-[22px] border border-border/60 bg-background/94 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]">
       <div>
         <p className="text-sm font-semibold text-foreground">モデル選択</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -287,8 +287,11 @@ function ReviewActionFooter({
   );
 
   return (
-    <div className="border-t border-border/60 bg-muted/20 px-4 py-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+    <div
+      data-testid="es-review-action-footer"
+      className="shrink-0 border-t border-border/60 bg-background/95 px-4 py-3 shadow-[0_-14px_32px_rgba(15,23,42,0.06)] backdrop-blur pb-[calc(env(safe-area-inset-bottom)+0.75rem)]"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-medium text-foreground">成功時のみ消費</p>
@@ -807,10 +810,10 @@ export function ReviewPanel({
   }, [clearReview, onClearSectionReview]);
 
   return (
-    <div ref={panelRootRef} className={cn("flex min-h-0 flex-col", className)}>
+    <div ref={panelRootRef} data-testid="es-review-panel" className={cn("flex min-h-0 flex-col", className)}>
       <div
         ref={scrollContainerRef}
-        className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+        className="min-h-0 flex-1 overflow-y-auto px-1 pb-5 [overflow-anchor:none] sm:px-0"
       >
         <div className="space-y-4">
           {hasSelectedCompany ? (
@@ -832,11 +835,11 @@ export function ReviewPanel({
           ) : null}
 
           {sectionReviewRequest && !hasResponse && !error ? (
-            <div className="space-y-4">
+            <div className="space-y-4 xl:grid xl:grid-cols-2 xl:items-start xl:gap-4 xl:space-y-0">
               <div
                 ref={sectionBodyRef}
                 className={cn(
-                  "rounded-[26px] border bg-background p-4 shadow-sm",
+                  "rounded-[24px] border bg-background/95 p-4 shadow-sm xl:col-span-2",
                   fieldInvalid("section_content")
                     ? "border-destructive/60 ring-2 ring-destructive/20"
                     : "border-border/70",
@@ -844,7 +847,7 @@ export function ReviewPanel({
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                       <FileText className="size-4" />
                     </div>
                     <div>
@@ -895,7 +898,7 @@ export function ReviewPanel({
               <div
                 ref={templateSectionRef}
                 className={cn(
-                  "rounded-[26px] border bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]",
+                  "rounded-[24px] border bg-background/95 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)]",
                   fieldInvalid("intern_name")
                     ? "border-destructive/60 ring-2 ring-destructive/20"
                     : "border-border/60",
@@ -1024,7 +1027,7 @@ export function ReviewPanel({
                 <div
                 ref={industrySectionRef}
                 className={cn(
-                  "rounded-[26px] border bg-background/90 p-4 shadow-[0_10px_30px_rgba(15,23,42,0.05)]",
+                  "rounded-[24px] border bg-background/95 p-4 shadow-[0_10px_28px_rgba(15,23,42,0.04)] xl:col-span-2",
                     industrySectionInvalid
                       ? "border-destructive/60 ring-2 ring-destructive/20"
                       : "border-border/60",
@@ -1215,7 +1218,7 @@ export function ReviewPanel({
               ) : null}
 
               {currentTemplateLabel || selectedIndustry || selectedRoleName || currentReviewModeLabel ? (
-                <div className="rounded-[22px] border border-border/60 bg-muted/30 px-4 py-3">
+                <div className="rounded-[22px] border border-border/60 bg-muted/25 px-4 py-3 xl:col-span-2">
                   <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
                     現在の設定
                   </p>

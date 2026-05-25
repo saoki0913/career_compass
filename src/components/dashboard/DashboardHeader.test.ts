@@ -6,6 +6,12 @@ async function readSource() {
 }
 
 describe("DashboardHeader", () => {
+  it("uses the shared product title size", async () => {
+    const source = await readSource();
+    expect(source).toContain("text-2xl font-bold tracking-tight");
+    expect(source).not.toContain("sm:text-xl");
+  });
+
   it("clears the sidebar toggle by indenting the greeting on mobile", async () => {
     const source = await readSource();
     // 左上トグル（右端 ~56px）と重ならないよう greeting を pl-14、lg で解除

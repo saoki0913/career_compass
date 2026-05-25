@@ -41,4 +41,21 @@ describe("CompanyCard", () => {
     const source = await readFile(new URL("./CompanyCard.tsx", import.meta.url), "utf8");
     expect(source).toContain("h-10 w-10");
   });
+
+  it("keeps card navigation keyboard accessible without nesting controls inside a link", async () => {
+    const source = await readFile(new URL("./CompanyCard.tsx", import.meta.url), "utf8");
+    expect(source).toContain('role="link"');
+    expect(source).toContain("tabIndex={0}");
+    expect(source).toContain("onKeyDown={handleCardKeyDown}");
+    expect(source).toContain("target.closest(\"button, a, [role='button'], [data-radix-popper-content-wrapper]\")");
+    expect(source).not.toContain("<Link href={`/companies/${company.id}`}>");
+  });
+
+  it("labels independent actions with the company name and pressed state", async () => {
+    const source = await readFile(new URL("./CompanyCard.tsx", import.meta.url), "utf8");
+    expect(source).toContain("aria-pressed={company.isPinned}");
+    expect(source).toContain("`${company.name} をお気に入りに追加`");
+    expect(source).toContain("`${company.name} のお気に入りを解除`");
+    expect(source).toContain("e.stopPropagation(); }");
+  });
 });

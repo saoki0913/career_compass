@@ -1,29 +1,9 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { ProductPageHeaderSkeleton } from "@/components/shared/ProductPageHeaderSkeleton";
+import { ListPageFilterBarSkeleton } from "@/components/shared/ListPageFilterBarSkeleton";
 
 function DeadlinesFilterSkeleton() {
-  return (
-    <div className="mb-6 rounded-2xl border border-slate-200/80 bg-white/90 p-3 shadow-[0_18px_42px_-34px_rgba(15,23,42,0.5)] sm:mb-8 sm:p-4">
-      <div className="grid min-w-0 grid-cols-2 gap-3 xl:grid-cols-[minmax(18rem,1.4fr)_minmax(11rem,0.7fr)_minmax(11rem,0.7fr)_auto]">
-        <Skeleton className="col-span-2 h-10 rounded-xl xl:col-span-1" />
-        <Skeleton className="h-10 rounded-xl" shimmerDelayMs={30} />
-        <Skeleton className="h-10 rounded-xl" shimmerDelayMs={60} />
-        <div className="col-span-2 flex items-center gap-2 xl:col-span-1">
-          <Skeleton className="h-10 w-24 rounded-xl" shimmerDelayMs={90} />
-        </div>
-      </div>
-      <div className="mt-3 flex gap-2 overflow-hidden">
-        {["5rem", "5.75rem", "6rem", "5rem", "6.5rem"].map((width, index) => (
-          <Skeleton
-            key={width}
-            className="h-9 shrink-0 rounded-full sm:h-10"
-            shimmerDelayMs={120 + index * 30}
-            style={{ width }}
-          />
-        ))}
-      </div>
-    </div>
-  );
+  return <ListPageFilterBarSkeleton variant="deadlines" />;
 }
 
 function KanbanColumnSkeleton({ delay }: { delay: number }) {

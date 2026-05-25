@@ -74,4 +74,10 @@ describe("BillingSection", () => {
   it("uses Link from next/link for upgrade navigation", () => {
     expect(source).toMatch(/from\s+["']next\/link["']/);
   });
+
+  it("supports compact layout overrides for dense settings screens", () => {
+    expect(source).toContain("className?: string");
+    expect(source).toContain("compact?: boolean");
+    expect(source).toContain('cn("mt-12", className)');
+  });
 });

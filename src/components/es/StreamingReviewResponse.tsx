@@ -503,7 +503,7 @@ export function StreamingReviewResponse({
   return (
     <section
       className={cn(
-        "rounded-[30px] border border-border/70 bg-background p-4 shadow-sm sm:p-5",
+        "rounded-[28px] border border-border/70 bg-background/96 p-4 shadow-sm sm:p-5",
         className,
       )}
     >
@@ -528,7 +528,7 @@ export function StreamingReviewResponse({
               ) : null}
             </div>
             <div>
-              <h3 className="text-base font-semibold text-foreground sm:text-lg">改善案</h3>
+              <h3 className="text-xl font-semibold leading-8 text-foreground">改善案</h3>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 改善した回答と出典リンクをこの順で表示します。
               </p>
@@ -570,7 +570,7 @@ export function StreamingReviewResponse({
         </div>
 
         {showProgress ? (
-          <div className="rounded-[24px] border border-border/70 bg-muted/20 p-4">
+          <div className="rounded-[22px] border border-border/70 bg-muted/18 p-4">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">
                 {progressTitle || "改善した回答を整えています"}
@@ -589,10 +589,10 @@ export function StreamingReviewResponse({
           </div>
         ) : null}
 
-        <div className="rounded-[26px] border border-border/70 bg-muted/20 p-4 sm:p-5">
+        <div className="rounded-[24px] border border-border/70 bg-muted/12 p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <Wand2 className="size-4" />
               </div>
               <div>
@@ -602,9 +602,9 @@ export function StreamingReviewResponse({
             </div>
           </div>
 
-          <div className="mt-4 min-h-[190px] rounded-[22px] border border-border/70 bg-background px-4 py-4 sm:px-5">
+          <div className="mt-4 min-h-[210px] rounded-[22px] border border-border/70 bg-background px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] sm:px-5">
             {hasRewrite ? (
-              <p className="whitespace-pre-wrap text-sm leading-7 text-foreground">
+              <p className="whitespace-pre-wrap text-[0.95rem] leading-8 text-foreground">
                 {visibleRewriteText}
                 {isRewriteTyping && <TypingCursor />}
               </p>
@@ -614,7 +614,7 @@ export function StreamingReviewResponse({
           </div>
 
           {showActions ? (
-            <div className="mt-3 rounded-2xl border border-border/70 bg-background p-4">
+            <div className="mt-3 rounded-[22px] border border-border/70 bg-background p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-foreground">反映準備</p>

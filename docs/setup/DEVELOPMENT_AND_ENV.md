@@ -695,30 +695,89 @@ npm run dev
 
 http://localhost:3000 でアクセス可能
 
-### ローカルメモリ運用
+### ローカル開発のメモリ管理
 
-通常の `npm run dev` は、Next.js dev の Turbopack filesystem cache を無効にして起動します。開発ビルドの再起動速度を優先したいときだけ、明示的に cache 有効モードを使います。
+ローカル開発では、Next.js dev server（Turbopack）と Docker 上の Supabase local が二大メモリ消費源です。32GB マシンでも、ブラウザ・エディタ・AI CLI を同時に開くと逼迫してスワップが多発しやすいため、以下の運用を推奨します。
+
+#### 推奨スペックと常駐プロセスの目安
+
+- 推奨メモリ: 16GB 以上（快適には 32GB）。Docker Desktop のメモリ上限は、ローカルが Postgres 専用構成なら 3GiB 程度で足ります（後述）。
+- 主な常駐プロセスの実測メモリ（参考値）:
+
+| プロセス | 実測 RSS | 備考 |
+|---|---|---|
+| `next-server`（`npm run dev`） | 2.7〜7.1GB | 長時間稼働で増加。肥大時は再起動でリセット |
+| Docker VM（Supabase local 一式） | ホスト RSS 約5.6GB | コンテナ実使用 約2.2GB + VM オーバーヘッド |
+| Supabase `analytics`（logflare/vector） | 約0.9〜1.0GB | ローカル開発では基本不要。無効化で解放 |
+| FastAPI（`make up`） | 起動時 数百MB〜 | reranker 等のモデルロード時に増加 |
+
+#### 逼迫時はまず `make dev-doctor`
+
+メモリが逼迫したと感じたら、最初に診断ツールを実行します。逼迫源（swap / 空きメモリ / next-server RSS / Supabase analytics / `.next/dev` 容量 / 重複 `next dev`）を特定し、具体的な対処コマンドを提示します。
 
 ```bash
-npm run dev:cache
+make dev-doctor          # 逼迫源の特定 + 対処コマンド提示（exit 0=逼迫なし / 1=検出）
+make dev-doctor 2>&1 | cat   # 出力を確実に全部見たいとき
+npm run dev:doctor --json    # 機械可読の JSON（dev 専用。CI ブロックには使わない）
 ```
 
-メモリやディスク使用量を確認する場合:
+生データを自分で読みたいときは従来の詳細レポートを使います（`.next/dev` の route manifest 整合も確認します）。
 
 ```bash
 npm run dev:memory-report
 ```
 
-このレポートは `.next/dev/server/app-paths-manifest.json` も確認します。`/api/documents/[id]/review/stream` の compiled artifact はあるのに manifest に登録されていない場合、Next dev の route metadata が壊れているため、次の cache reset を実行します。
+#### 逼迫時の対処手順（止める順序）
 
-`.next/dev` が肥大した場合は、Next.js dev server を停止してから以下を実行します。削除対象は開発用生成物だけで、DB、Docker volume、`node_modules`、`.env*` は触りません。
+1. `make dev-doctor` で逼迫源を特定する。
+2. 重複した `next dev` があれば、ターミナルを 1 つに統合する（自動停止はしない）。
+3. `next-server` の RSS が肥大（目安 4GB 超）していれば、`npm run dev` のターミナルで Ctrl+C 後に再起動する。これで Turbopack を含むメモリがリセットされる。
+4. AI/DB を触らない作業なら `make db-down` で Supabase local を止める。AI/検索を触る作業でも、ログ基盤の `analytics` は無効化できる（後述）。
+5. `.next/dev` が肥大していれば、dev server 停止後に cache をリセットする（削除対象は開発用生成物のみ。DB / Docker volume / `node_modules` / `.env*` は触らない）。
 
 ```bash
 npm run dev:reset-next-cache -- --dry-run
 npm run dev:reset-next-cache
 ```
 
-DB/Auth/API の確認が不要な作業では、作業後に `make db-down` で Supabase local を止めます。ローカル DB データを消す `make db-down-clean` や Docker volume 削除系は、通常のメモリ対策では使いません。
+6. それでも逼迫する場合は、ブラウザのタブや他アプリ（エディタ・チャット・AI CLI 等）を減らす。これらはコードでは解決できない運用要因。
+
+`make db-down-clean`（ローカル DB データ削除）や Docker volume 削除系は、通常のメモリ対策では使いません。
+
+#### Supabase local は「Postgres 専用」が標準
+
+本アプリは Supabase を Postgres としてのみ使い（接続は `DATABASE_URL` 経由の Drizzle 直結、認証は Better Auth）、Supabase の Auth(gotrue) / REST(PostgREST) / Realtime / Storage / Studio / analytics / inbucket には実行時依存がありません。そのため `supabase/config.toml` でこれらを `enabled = false` にし、`db` 中心の最小構成で起動するのがローカル標準です。最大の削減源は `analytics`（約0.9〜1.0GB）です。
+
+- 変更を反映するには再起動が必要です: `make db-restart`（`supabase stop && supabase start`。データは保持）。
+- ローカルで DB を GUI 確認したいときは Supabase Studio の代わりに `make db-studio`（Drizzle Studio）または `psql` を使います。
+- フルスタック（Auth/REST/Realtime/Studio 等）が必要になったら、`supabase/config.toml` の該当セクションを `enabled = true` に戻して `make db-restart` します。
+- 一部コンテナ（kong / postgres-meta / vector 等）が `enabled = false` でも連動起動として残る場合があります。`docker ps --filter name=supabase` で実状態を確認し、残ったものだけ CLI の実コンテナ名（`gotrue,postgrest,kong,postgres-meta,studio,logflare,vector,mailpit,edge-runtime`）で `supabase start -x <names>` 除外します。
+- `supabase status` の出力にはローカル用のキーが含まれます。ログや issue にそのまま貼らないでください。
+
+サービスを無効化したあとは、`anon` / `authenticated` / `service_role` ロールが残っていることを確認します（RLS / Data API hardening の migration がこれらに対して権限変更を行うため）。これらは Postgres の初期化で作成され Auth サービスには依存しませんが、念のため確認します。
+
+```bash
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "select rolname from pg_roles where rolname in ('anon','authenticated','service_role','authenticator') order by rolname"
+npm run db:migrate   # Postgres 直結でマイグレーションが通ることを確認
+```
+
+なお `supabase/config.toml` は `[db.seed] enabled = true` ですが `supabase/seed.sql` は存在せず、`make db-restart`（stop/start）は seed を実行しないため、上記の trim とは無関係です。
+
+#### Docker Desktop のメモリ上限
+
+Supabase を Postgres 専用に絞ったあとは、Docker Desktop のメモリ上限を下げてホストメモリを解放できます。
+
+- 設定: Docker Desktop の Settings → Resources → Memory limit を 3GiB 程度に下げ、Apply & restart。
+- 順序が重要: フル Supabase stack は 7GB+ を要するため、**先に Postgres 専用化が効いていることを確認してから**上限を下げます。OOM や起動失敗が出たら上限を 4GiB に戻します。
+- 確認: 上限変更 → Docker Desktop 再起動 → `make db-up` → `docker ps` で `db` が healthy → アクティビティモニタでスワップ使用が減ることを確認。
+
+#### Turbopack の filesystem cache（任意）
+
+通常の `npm run dev` は Turbopack filesystem cache を無効にして起動します。再起動速度を優先したいときだけ cache 有効モードを使います（メモリ削減目的ではありません）。
+
+```bash
+npm run dev:cache
+```
 
 ### FastAPI (AI バックエンド) - 必要な場合
 

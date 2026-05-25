@@ -217,7 +217,7 @@ function EditorBlock({
               value={block.content}
               onChange={(e) => onChange(index, e.target.value)}
               placeholder="設問を入力（例: 学生時代に頑張ったこと）"
-              className={cn(baseClass, "text-lg font-bold")}
+              className={cn(baseClass, "text-xl font-bold leading-8")}
               rows={1}
               disabled={readOnly}
             />
@@ -320,7 +320,7 @@ function EditorBlock({
               value={block.content}
               onChange={(e) => onChange(index, e.target.value)}
               placeholder="リストアイテム..."
-              className={cn(baseClass, "flex-1")}
+              className={cn(baseClass, "flex-1 text-base leading-8")}
               rows={1}
               disabled={readOnly}
             />
@@ -337,7 +337,7 @@ function EditorBlock({
               value={block.content}
               onChange={(e) => onChange(index, e.target.value)}
               placeholder="リストアイテム..."
-              className={cn(baseClass, "flex-1")}
+              className={cn(baseClass, "flex-1 text-base leading-8")}
               rows={1}
               disabled={readOnly}
             />
@@ -350,7 +350,7 @@ function EditorBlock({
             value={block.content}
             onChange={(e) => onChange(index, e.target.value)}
             placeholder="ここに回答を入力..."
-            className={baseClass}
+            className={cn(baseClass, "text-base leading-9")}
             rows={1}
             disabled={readOnly}
           />
@@ -824,12 +824,15 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
   return (
     <>
     <NavigationGuard />
-    <div className="es-editor-print-scope h-screen bg-background flex flex-col overflow-hidden print:block print:h-auto print:min-h-0 print:max-h-none print:overflow-visible">
+    <div
+      data-testid="es-editor-shell"
+      className="es-editor-print-scope h-screen bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.22))] flex flex-col overflow-hidden print:block print:h-auto print:min-h-0 print:max-h-none print:overflow-visible"
+    >
       {/* Header Bar */}
-      <div className="sticky top-0 z-40 bg-background/95 backdrop-blur border-b border-border print:hidden">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex min-h-14 flex-col gap-2 py-2 lg:h-14 lg:flex-row lg:items-center lg:justify-between lg:gap-0 lg:py-0">
-            <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+      <div className="sticky top-0 z-40 border-b border-border/70 bg-background/92 backdrop-blur-xl print:hidden">
+        <div className="mx-auto max-w-[1600px] pl-16 pr-3 sm:px-6 lg:px-7 xl:px-8">
+          <div className="flex min-h-[4.25rem] flex-col gap-2 py-2 lg:h-16 lg:min-h-16 lg:flex-row lg:items-center lg:justify-between lg:gap-4 lg:py-0">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <ProductBackButton href="/es" label="ES一覧に戻る" />
               <span className="text-muted-foreground/30 max-lg:hidden">|</span>
               <div className="flex min-w-0 items-center gap-2">
@@ -849,7 +852,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
                 </span>
               </div>
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-4 lg:flex-nowrap lg:justify-end">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3 lg:flex-nowrap lg:justify-end">
               <span className="text-xs sm:text-sm text-muted-foreground">{totalCharCount}文字</span>
               <span className="text-xs sm:text-sm flex items-center gap-1 min-w-[4rem]">
                 {isSaving ? (
@@ -943,12 +946,12 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
         <div
           className={cn(
             "flex-1 overflow-y-auto pb-mobile-tab transition-all duration-300 print:overflow-visible print:max-h-none print:min-h-0 print:h-auto print:w-full print:max-w-none print:pb-0",
-            isDesktop && showReviewPanel ? "w-[55%]" : "w-full"
+            isDesktop && showReviewPanel ? "w-[46%] xl:w-[48%]" : "w-full"
           )}
         >
-          <div className="es-print-body max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4 print:max-w-none print:w-full print:mx-0 print:px-16 print:py-0">
-            <Card className="print:shadow-none print:border-0 print:rounded-none print:bg-transparent print:py-0 print:gap-0">
-              <CardContent className="p-6 print:p-0 print:px-0">
+          <div className="es-print-body mx-auto max-w-[980px] px-3 py-3 sm:px-6 sm:py-5 lg:px-5 xl:px-7 print:max-w-none print:w-full print:mx-0 print:px-16 print:py-0">
+            <Card className="overflow-hidden rounded-[24px] border-border/60 bg-background/92 shadow-[0_18px_55px_rgba(15,23,42,0.06)] print:shadow-none print:border-0 print:rounded-none print:bg-transparent print:py-0 print:gap-0">
+              <CardContent className="p-5 sm:p-7 lg:p-8 print:p-0 print:px-0">
                 {/* Title */}
                 <input
                   type="text"
@@ -956,12 +959,12 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
                   onChange={(e) => handleTitleChange(e.target.value)}
                   placeholder="タイトルを入力..."
                   disabled={isLocked}
-                  className="w-full text-2xl font-bold bg-transparent focus:outline-none mb-6 placeholder:text-muted-foreground/50 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="mb-7 w-full bg-transparent text-[1.72rem] font-bold leading-tight tracking-normal placeholder:text-muted-foreground/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 sm:text-3xl lg:text-[2rem]"
                 />
 
                 {/* Company name + document category (ES): one row, category top-right of card */}
                 {(document.company || document.type === "es") && (
-                  <div className="mb-6 pb-4 border-b border-border print:border-border flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+                  <div className="mb-7 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-b border-border/70 pb-5 print:border-border">
                     <div className="min-w-0 shrink">
                       {document.company ? (
                         <Link
@@ -1028,7 +1031,7 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
                   type="button"
                   onClick={() => handleAddBlock(blocks.length - 1)}
                   disabled={isLocked}
-                  className="mt-4 w-full py-3 border-2 border-dashed border-border rounded-lg text-muted-foreground hover:border-primary hover:text-primary transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none print:hidden"
+                        className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-[14px] border border-dashed border-border/80 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:bg-primary/5 hover:text-primary disabled:pointer-events-none disabled:opacity-50 print:hidden"
                 >
                   <PlusIcon />
                   ブロックを追加
@@ -1048,8 +1051,11 @@ function ESEditorPageInner({ documentId, initialDocument }: ESEditorPageClientPr
 
         {/* Review Panel — desktop only (single useESReview instance) */}
         {isDesktop && showReviewPanel && (
-          <div className="flex w-[45%] flex-col border-l border-border bg-muted/20 overflow-hidden min-h-0 print:hidden">
-            <div className="flex min-h-0 flex-1 flex-col p-4">
+          <div
+            data-testid="es-review-desktop-panel"
+            className="flex min-h-0 w-[54%] flex-col overflow-hidden border-l border-border/60 bg-background/55 print:hidden xl:w-[52%]"
+          >
+            <div className="flex min-h-0 flex-1 flex-col p-3 lg:p-4 xl:p-5">
               <div className="min-h-0 flex-1">
                 <ReviewPanel
                   documentId={documentId}

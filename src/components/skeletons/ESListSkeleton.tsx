@@ -7,13 +7,13 @@ export function ESListSkeleton() {
   return (
     <div className="min-h-screen bg-background">
       <div
-        className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8"
+        className="mx-auto max-w-7xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-6 sm:py-10 lg:px-8"
         role="status"
         aria-busy="true"
         aria-live="polite"
       >
         <span className="sr-only">ES一覧を読み込んでいます</span>
-        <ProductPageHeaderSkeleton actionCount={2} showBackLink />
+        <ProductPageHeaderSkeleton actionCount={2} showBackLink showMobilePrimaryAction />
 
         <ListPageFilterBarSkeleton variant="es" />
 

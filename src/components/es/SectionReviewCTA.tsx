@@ -55,17 +55,17 @@ export function SectionReviewCTA({
       onClick={onReview}
       disabled={isDisabled}
       className={cn(
-        "w-full rounded-lg py-3 px-4 flex items-center justify-between gap-3",
-        "border transition-all duration-200 group",
+        "group flex min-h-[3.25rem] w-full items-center justify-between gap-3 rounded-[13px] border px-4 py-3",
+        "transition-all duration-200",
         isLoading
-          ? "bg-muted/50 border-border animate-pulse cursor-wait"
+          ? "cursor-wait animate-pulse border-border bg-muted/50"
           : isDisabled
-            ? "bg-muted/30 border-border/50 opacity-50 cursor-not-allowed"
-            : "bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 border-primary/20 hover:from-primary/10 hover:via-primary/15 hover:to-primary/10 hover:border-primary/30 hover:shadow-sm cursor-pointer"
+            ? "cursor-not-allowed border-border/50 bg-muted/30 opacity-55"
+            : "cursor-pointer border-primary/35 bg-primary/5 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] hover:border-primary/55 hover:bg-primary/8 hover:shadow-sm"
       )}
     >
       {/* Left: Icon + Label */}
-      <div className="flex items-center gap-2 min-w-0">
+      <div className="flex min-w-0 items-center gap-2.5">
         {isLoading ? (
           <LoadingSpinner />
         ) : (
@@ -78,7 +78,7 @@ export function SectionReviewCTA({
           </span>
         )}
         <span className={cn(
-          "text-sm font-medium truncate",
+          "min-w-0 truncate text-sm font-semibold",
           isLoading
             ? "text-muted-foreground"
             : isDisabled
@@ -94,7 +94,7 @@ export function SectionReviewCTA({
       {/* Right: Character count badge */}
       {charDisplay && !isLoading && (
         <span className={cn(
-          "text-xs px-2 py-0.5 rounded-full shrink-0",
+          "shrink-0 rounded-full px-3 py-1 text-xs font-semibold",
           charLimit
             ? charCount > charLimit
               ? "bg-red-100 text-red-600"

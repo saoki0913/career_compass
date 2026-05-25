@@ -71,9 +71,7 @@ export async function POST(
 
   if (
     context.conversation.isLegacySession ||
-    context.conversation.status !== "in_progress" ||
-    context.conversation.questionFlowCompleted ||
-    context.conversation.turnState?.nextAction === "feedback"
+    !["in_progress", "question_flow_completed"].includes(context.conversation.status)
   ) {
     return createApiErrorResponse(request, {
       status: 409,
@@ -103,6 +101,18 @@ export async function POST(
     });
   }
 
+  const conversationForTurn =
+    context.conversation.status === "question_flow_completed" || context.conversation.questionFlowCompleted
+      ? {
+          ...context.conversation,
+          status: "in_progress" as const,
+          questionFlowCompleted: false,
+          turnState: context.conversation.turnState
+            ? { ...context.conversation.turnState, nextAction: "ask" as const }
+            : context.conversation.turnState,
+        }
+      : context.conversation;
+
   const billingContext = {
     userId: identity.userId,
     companyId,
@@ -127,7 +137,7 @@ export async function POST(
   let streamPayload: Awaited<ReturnType<typeof buildInterviewTurnPayload>>;
   try {
     streamPayload = await buildInterviewTurnPayload({
-      context: { ...context, conversation: context.conversation },
+      context: { ...context, conversation: conversationForTurn },
       companyId,
       identity,
       answer,
@@ -154,7 +164,7 @@ export async function POST(
       try {
         return await completeInterviewTurnStream({
           upstreamData,
-          context: { ...context, conversation: context.conversation! },
+          context: { ...context, conversation: conversationForTurn },
           companyId,
           identity,
           answer,

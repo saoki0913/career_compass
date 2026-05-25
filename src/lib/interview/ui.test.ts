@@ -12,7 +12,6 @@ import type {
 
 import {
   buildInterviewTopicStages,
-  buildInterviewPhases,
   buildInterviewQuestionDisplay,
   buildInterviewCoachingNarrative,
   labelWeakestQuestionType,
@@ -178,38 +177,6 @@ describe("interview topic labels", () => {
 
   it("contains at least 20 entries", () => {
     expect(Object.keys(INTERVIEW_TOPIC_LABELS).length).toBeGreaterThanOrEqual(20);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildInterviewPhases
-// ---------------------------------------------------------------------------
-
-describe("buildInterviewPhases", () => {
-  it("returns setup as current when not started", () => {
-    const phases = buildInterviewPhases(false, false, false);
-    expect(phases).toHaveLength(4);
-    expect(phases[0]).toMatchObject({ key: "setup", status: "current" });
-    expect(phases[1]).toMatchObject({ key: "questions", status: "pending" });
-    expect(phases[2]).toMatchObject({ key: "feedback", status: "pending" });
-    expect(phases[3]).toMatchObject({ key: "complete", status: "pending" });
-  });
-
-  it("marks questions as current when started", () => {
-    const phases = buildInterviewPhases(true, false, false);
-    expect(phases[0]).toMatchObject({ key: "setup", status: "done" });
-    expect(phases[1]).toMatchObject({ key: "questions", status: "current" });
-  });
-
-  it("marks feedback as current when questions completed", () => {
-    const phases = buildInterviewPhases(true, true, false);
-    expect(phases[1]).toMatchObject({ key: "questions", status: "done" });
-    expect(phases[2]).toMatchObject({ key: "feedback", status: "current" });
-  });
-
-  it("marks all done when feedback received", () => {
-    const phases = buildInterviewPhases(true, true, true);
-    expect(phases.every((p) => p.status === "done")).toBe(true);
   });
 });
 

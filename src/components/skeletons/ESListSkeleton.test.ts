@@ -12,4 +12,9 @@ describe("ESListSkeleton", () => {
     expect(source).toContain("actionCount={2}");
     expect(source).toContain("showBackLink");
   });
+
+  it("uses the ES filter skeleton", async () => {
+    const source = await readSource();
+    expect(source).toContain('ListPageFilterBarSkeleton variant="es"');
+  });
 });

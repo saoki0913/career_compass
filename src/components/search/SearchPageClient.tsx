@@ -2,9 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Search, X } from "lucide-react";
+import { Search } from "lucide-react";
 import { SearchResults } from "@/components/search";
-import { Input } from "@/components/ui/input";
+import { ListPageFilterBar } from "@/components/shared/ListPageFilterBar";
 import { ProductPageHeader } from "@/components/shared/ProductPageHeader";
 import { useSearch } from "@/hooks/useSearch";
 import { sanitizeSearchInput, type SearchResponse } from "@/lib/search/utils";
@@ -83,32 +83,17 @@ export function SearchPageClient({
         variant="compact"
         backLink={{ href: "/dashboard", label: "ダッシュボードへ戻る" }}
       />
-      <div className="mb-8">
-        <form onSubmit={handleSubmit} className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-          <Input
-            type="search"
-            placeholder="企業・ES・締切を検索..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="h-12 pl-12 pr-12 text-lg"
-            autoFocus
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={handleClear}
-              className="absolute right-4 top-1/2 -translate-y-1/2"
-            >
-              {isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-              ) : (
-                <X className="w-5 h-5 text-muted-foreground hover:text-foreground" />
-              )}
-            </button>
-          )}
-        </form>
-      </div>
+      <ListPageFilterBar
+        searchQuery={query}
+        onSearchChange={setQuery}
+        searchPlaceholder="企業・ES・締切を検索..."
+        searchType="search"
+        searchAutoFocus
+        searchLoading={isLoading}
+        onSearchSubmit={handleSubmit}
+        onSearchClear={query ? handleClear : undefined}
+        variant="search"
+      />
 
       {query || results ? (
         <SearchResults results={results} query={query} isLoading={isLoading} error={error} />

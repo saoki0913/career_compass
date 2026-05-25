@@ -94,12 +94,12 @@ export function TasksPageSkeleton({ embedded = false }: { embedded?: boolean }) 
 
   return (
     <div
-      className="mx-auto max-w-[1600px] px-4 pb-10 pt-8 sm:px-6 sm:pt-10 lg:px-8 lg:pt-10"
+      className="mx-auto max-w-[1600px] px-4 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] pt-8 sm:px-6 sm:pb-10 sm:pt-10 lg:px-8 lg:pt-10"
       role="status"
       aria-busy="true"
     >
       <span className="sr-only">タスクを読み込んでいます</span>
-      <ProductPageHeaderSkeleton actionCount={2} showBackLink />
+      <ProductPageHeaderSkeleton actionCount={2} showBackLink showMobilePrimaryAction />
 
       <ListPageFilterBarSkeleton variant="tasks" />
 

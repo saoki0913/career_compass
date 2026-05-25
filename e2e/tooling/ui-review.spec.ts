@@ -8,6 +8,10 @@ import {
   mockAuthenticatedUser,
   mockCredits,
 } from "../fixtures/auth";
+import {
+  ES_EDITOR_UI_REVIEW_DOCUMENT_ID,
+  mockEsEditorUiReviewApis,
+} from "./es-editor-fixtures";
 import { parseUiReviewPaths, slugifyUiReviewPath } from "../../src/lib/ui-review-cli.mjs";
 
 const authMode = process.env.PLAYWRIGHT_UI_AUTH_MODE?.trim() || "none";
@@ -72,6 +76,135 @@ const UI_REVIEW_ES_DOCUMENT = {
   status: "draft",
   updatedAt: "2026-05-13T09:00:00.000Z",
 } as const;
+
+const UI_REVIEW_ES_COMPANIES = [
+  { id: "es-company-mitsubishi", name: "三菱商事" },
+  { id: "es-company-sagawa", name: "佐川急便" },
+  { id: "es-company-long", name: "東京海上日動火災保険" },
+  { id: "es-company-ui", name: "UI Review株式会社" },
+] as const;
+
+const UI_REVIEW_ES_LIST_DOCUMENTS = [
+  {
+    id: "ui-es-gakuchika-pinned",
+    title: "ガクチカ",
+    companyId: null,
+    company: null,
+    esCategory: "entry_sheet",
+    status: "draft",
+    updatedAt: "2026-05-05T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-mitsubishi",
+    title: "三菱商事 志望動機",
+    companyId: "es-company-mitsubishi",
+    company: { id: "es-company-mitsubishi", name: "三菱商事" },
+    esCategory: "entry_sheet",
+    status: "draft",
+    updatedAt: "2026-05-13T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-sagawa",
+    title: "佐川急便 志望動機",
+    companyId: "es-company-sagawa",
+    company: { id: "es-company-sagawa", name: "佐川急便" },
+    esCategory: "entry_sheet",
+    status: "draft",
+    updatedAt: "2026-05-13T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-intern-1",
+    title: "長期インターン ガクチカ",
+    companyId: null,
+    company: null,
+    esCategory: "entry_sheet",
+    status: "draft",
+    updatedAt: "2026-04-22T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-intern-2",
+    title: "長期インターン ガクチカ",
+    companyId: null,
+    company: null,
+    esCategory: "entry_sheet",
+    status: "draft",
+    updatedAt: "2026-04-18T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-sagawa-2",
+    title: "佐川急便 志望動機",
+    companyId: "es-company-sagawa",
+    company: { id: "es-company-sagawa", name: "佐川急便" },
+    esCategory: "entry_sheet",
+    status: "draft",
+    updatedAt: "2026-04-12T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-long-title",
+    title: "東京海上日動火災保険 エントリーシート長文設問",
+    companyId: "es-company-long",
+    company: { id: "es-company-long", name: "東京海上日動火災保険" },
+    esCategory: "motivation",
+    status: "draft",
+    updatedAt: "2026-04-08T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-self-pr",
+    title: "自己PR 400字",
+    companyId: "es-company-ui",
+    company: { id: "es-company-ui", name: "UI Review株式会社" },
+    esCategory: "self_pr",
+    status: "draft",
+    updatedAt: "2026-04-01T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-strength",
+    title: "強み弱み 設問",
+    companyId: "es-company-ui",
+    company: { id: "es-company-ui", name: "UI Review株式会社" },
+    esCategory: "entry_sheet",
+    status: "draft",
+    updatedAt: "2026-03-26T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-published",
+    title: "提出済み サンプルES",
+    companyId: "es-company-mitsubishi",
+    company: { id: "es-company-mitsubishi", name: "三菱商事" },
+    esCategory: "entry_sheet",
+    status: "published",
+    updatedAt: "2026-03-18T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-unset-2",
+    title: "企業未設定 メモ",
+    companyId: null,
+    company: null,
+    esCategory: "entry_sheet",
+    status: "draft",
+    updatedAt: "2026-03-12T09:00:00.000Z",
+  },
+  {
+    id: "ui-es-freeform",
+    title: "学生時代に力を入れたこと",
+    companyId: "es-company-long",
+    company: { id: "es-company-long", name: "東京海上日動火災保険" },
+    esCategory: "gakuchika",
+    status: "draft",
+    updatedAt: "2026-03-01T09:00:00.000Z",
+  },
+].map((document) => ({
+  ...document,
+  userId: "ui-review-user",
+  guestId: null,
+  applicationId: null,
+  jobTypeId: null,
+  type: "es",
+  content: null,
+  deletedAt: null,
+  createdAt: "2026-03-01T09:00:00.000Z",
+  application: null,
+}));
 
 const UI_REVIEW_CORPORATE_INFO_STATUS = {
   companyId: MOTIVATION_COMPANY_ID,
@@ -245,6 +378,93 @@ async function mockCompanyDetailRoute(
       contentType: "application/json",
       body: JSON.stringify({ mypagePassword: "ui-review-password" }),
     });
+  });
+}
+
+async function mockEsListRoute(
+  page: Page,
+  routePath: string,
+) {
+  if (routePath !== "/es") {
+    return;
+  }
+
+  await page.route("**/api/companies", async (route) => {
+    if (route.request().method() !== "GET") {
+      return route.continue();
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        companies: UI_REVIEW_ES_COMPANIES.map((company, index) => ({
+          ...UI_REVIEW_COMPANY,
+          id: company.id,
+          name: company.name,
+          isPinned: index === 0,
+          documentCount: UI_REVIEW_ES_LIST_DOCUMENTS.filter((document) => document.companyId === company.id).length,
+          esDocumentCount: UI_REVIEW_ES_LIST_DOCUMENTS.filter((document) => document.companyId === company.id).length,
+        })),
+        count: UI_REVIEW_ES_COMPANIES.length,
+        limit: null,
+        canAddMore: true,
+      }),
+    });
+  });
+
+  await page.route("**/api/documents**", async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+
+    if (method === "GET") {
+      if (url.searchParams.get("includeDeleted") === "true") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ documents: [] }),
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ documents: UI_REVIEW_ES_LIST_DOCUMENTS }),
+      });
+      return;
+    }
+
+    if (method === "PUT") {
+      const id = url.pathname.split("/").filter(Boolean).at(-1) ?? "";
+      const target = UI_REVIEW_ES_LIST_DOCUMENTS.find((document) => document.id === id) ?? UI_REVIEW_ES_LIST_DOCUMENTS[0];
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ document: { ...target, status: target.status === "draft" ? "published" : "draft" } }),
+      });
+      return;
+    }
+
+    if (method === "DELETE") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.route("**/api/pins**", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ pinnedIds: ["ui-es-gakuchika-pinned"] }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ success: true }) });
   });
 }
 
@@ -852,12 +1072,14 @@ async function prepareAuthForRoute(
   }
 
   if (authMode === "mock") {
-    await mockAuthenticatedUser(page, {
-      id: "ui-review-user",
-      name: "UI Review User",
-      email: "ui-review@example.com",
-      plan: "free",
-    });
+    if (routePath !== "/es") {
+      await mockAuthenticatedUser(page, {
+        id: "ui-review-user",
+        name: "UI Review User",
+        email: "ui-review@example.com",
+        plan: "free",
+      });
+    }
     await mockAuthPlanRoute(page);
     await mockGuestMigrationRoute(page);
     await mockCredits(page, {
@@ -871,6 +1093,7 @@ async function prepareAuthForRoute(
     });
     await mockNotifications(page);
     await mockCompaniesRoute(page, routePath);
+    await mockEsListRoute(page, routePath);
     await mockCompanyDetailRoute(page, routePath);
     await mockCalendarRoute(page, routePath);
     await mockDeadlinesRoute(page, routePath);
@@ -878,6 +1101,9 @@ async function prepareAuthForRoute(
     await mockTasksRoute(page, routePath);
     await mockMotivationRoute(page, routePath);
     await mockInterviewRoute(page, routePath);
+    if (routePath === `/es/${ES_EDITOR_UI_REVIEW_DOCUMENT_ID}`) {
+      await mockEsEditorUiReviewApis(page);
+    }
   }
 }
 
@@ -1049,6 +1275,50 @@ async function expectCalendarInteractions(page: Page) {
   await expect(detailDialog).toBeHidden();
 }
 
+async function expectEsListResponsiveContent(page: Page, viewportWidth: number) {
+  await expect(page.getByRole("heading", { name: "ES作成" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("12件の文書")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByPlaceholder("タイトル・企業名で検索...")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ガクチカ" }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "三菱商事 志望動機" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "グリッド表示" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "企業別表示" })).toBeVisible();
+
+  if (viewportWidth < 1024) {
+    const sidebarToggle = page.getByTestId("mobile-sidebar-toggle");
+    await expect(sidebarToggle).toBeVisible();
+    const boxes = await page.evaluate(() => {
+      const toggle = document.querySelector('[data-testid="mobile-sidebar-toggle"]')?.getBoundingClientRect();
+      const heading = Array.from(document.querySelectorAll("h1")).find((node) => node.textContent?.includes("ES作成"))?.getBoundingClientRect();
+      return toggle && heading ? { headingLeft: heading.left, toggleRight: toggle.right } : null;
+    });
+    expect(boxes).not.toBeNull();
+    expect(boxes!.toggleRight).toBeLessThanOrEqual(boxes!.headingLeft + 4);
+  }
+
+  if (viewportWidth <= 390) {
+    const currentUrl = page.url();
+    await page.getByRole("button", { name: "お気に入り解除" }).first().click();
+    await expect(page).toHaveURL(currentUrl);
+    await page.getByRole("button", { name: /をゴミ箱に移動/u }).first().click();
+    await expect(page).toHaveURL(currentUrl);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "提出済みにする" }).first().click();
+    await expect(page).toHaveURL(currentUrl);
+  }
+
+  await page.getByRole("button", { name: "企業別表示" }).click();
+  await expect(page.getByRole("heading", { name: "三菱商事", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "企業未設定", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "グリッド表示" }).click();
+
+  const searchInput = page.getByPlaceholder("タイトル・企業名で検索...");
+  await searchInput.fill("該当なしテスト");
+  await expect(page.getByText("該当する文書がありません")).toBeVisible();
+  await searchInput.fill("");
+  await expect(page.getByRole("heading", { name: "三菱商事 志望動機" }).first()).toBeVisible();
+}
+
 async function expectCompanyDetailResponsiveContent(page: Page, viewportWidth: number) {
   await expect(page.getByRole("heading", { name: "三菱商事" })).toBeVisible({
     timeout: 15_000,
@@ -1185,6 +1455,10 @@ for (const routePath of reviewPaths) {
 
       if (routePath === "/calendar" && authMode === "mock") {
         await expectCalendarInteractions(page);
+      }
+
+      if (routePath === "/es" && authMode === "mock") {
+        await expectEsListResponsiveContent(page, viewport.width);
       }
 
       if (routePath === `/companies/${MOTIVATION_COMPANY_ID}` && authMode === "mock") {

@@ -8,3 +8,4 @@ export { ViewToggle } from "./ViewToggle";
 export { ProductBackButton } from "./ProductBackButton";
 export { ProductPageHeader } from "./ProductPageHeader";
 export { ProductPageHeaderSkeleton } from "./ProductPageHeaderSkeleton";
+export { ProductFloatingActionButton } from "./ProductFloatingActionButton";

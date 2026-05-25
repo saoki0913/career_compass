@@ -32,7 +32,7 @@ function MobileSidebarToggle() {
     <button
       type="button"
       data-testid="mobile-sidebar-toggle"
-      className="fixed top-[max(0.75rem,env(safe-area-inset-top,0.75rem))] left-3 z-20 flex h-11 w-11 items-center justify-center rounded-lg border border-border/40 bg-background/80 shadow-sm backdrop-blur-sm transition-colors hover:bg-muted lg:hidden"
+      className="fixed left-4 top-[max(1rem,env(safe-area-inset-top,1rem))] z-20 flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200/80 bg-white/92 text-slate-900 shadow-[0_16px_36px_-24px_rgba(15,23,42,0.55)] backdrop-blur-xl transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 lg:hidden"
       onClick={() => setOpen(true)}
       aria-label="サイドバーを開く"
     >
@@ -42,7 +42,7 @@ function MobileSidebarToggle() {
 }
 
 function LayoutInner({ children }: { children: ReactNode }) {
-  const { isCollapsed } = useSidebar();
+  const { isCollapsed, isOpen } = useSidebar();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentRouteKey = `${pathname}?${searchParams.toString()}`;
@@ -78,8 +78,9 @@ function LayoutInner({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div onClick={handleShellClick}>
+    <div onClick={handleShellClick} className="group/product-shell">
       <AppSidebar />
+      <span data-mobile-sidebar={isOpen ? "open" : "closed"} className="hidden" aria-hidden="true" />
       <MobileSidebarToggle />
       <div
         className="min-h-screen transition-[margin-left,width] duration-200 ease-in-out lg:ml-[var(--sidebar-width)] lg:w-[calc(100vw_-_var(--sidebar-width))]"

@@ -26,7 +26,7 @@ export function CompanyStatusBanner({
 }) {
   if (status === "no_company_selected") {
     return density === "compact" ? (
-      <div className="rounded-[18px] border border-border/60 bg-background/85 px-4 py-3">
+        <div className="rounded-[18px] border border-border/60 bg-background/90 px-4 py-3">
         <div className="flex items-start gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <FileText className="size-4" />
@@ -42,7 +42,7 @@ export function CompanyStatusBanner({
         </div>
       </div>
     ) : (
-      <div className="rounded-[22px] border border-border/60 bg-background/90 p-4">
+        <div className="rounded-[22px] border border-border/60 bg-background/92 p-4">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <FileText className="size-4" />
@@ -136,7 +136,7 @@ export function CompanyStatusBanner({
 
     if (status === "company_fetched_but_not_ready") {
       return (
-        <div className="rounded-[18px] border border-info/20 bg-info/8 px-4 py-3">
+        <div className="rounded-[18px] border border-info/25 bg-info/8 px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-info/14 text-info">
@@ -226,7 +226,7 @@ export function CompanyStatusBanner({
 
   if (status === "company_fetched_but_not_ready") {
     return (
-      <div className="rounded-[22px] border border-info/20 bg-info/8 p-4">
+        <div className="rounded-[22px] border border-info/25 bg-info/8 p-4">
         <p className="text-sm font-semibold text-foreground">
           企業情報は取得済みですが、ES添削に使える情報がまだ不足しています。
         </p>

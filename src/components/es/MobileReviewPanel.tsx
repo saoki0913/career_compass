@@ -107,8 +107,8 @@ export function MobileReviewPanel({
       <SheetTrigger asChild>
         <Button
           className={cn(
-            "fixed right-4 z-40 flex h-14 min-h-11 w-14 items-center justify-center rounded-full border border-primary/20 bg-primary p-0 shadow-lg lg:hidden",
-            "bottom-[calc(5rem+env(safe-area-inset-bottom,0px))]",
+            "fixed right-4 z-40 flex h-14 min-h-11 w-14 items-center justify-center rounded-full border border-primary/25 bg-primary p-0 shadow-[0_16px_38px_rgba(15,23,42,0.24)] lg:hidden",
+            "bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] sm:right-6",
             className,
           )}
           size="icon"
@@ -119,14 +119,15 @@ export function MobileReviewPanel({
       </SheetTrigger>
       <SheetContent
         side="bottom"
-        className="flex h-[94vh] min-h-[70vh] flex-col overflow-hidden rounded-t-[30px] border-0 bg-background p-0 pb-[env(safe-area-inset-bottom)] lg:hidden"
+        data-testid="es-review-mobile-sheet"
+        className="mx-auto flex h-[94dvh] min-h-[70dvh] max-w-[1080px] flex-col overflow-hidden rounded-t-[30px] border border-border/50 bg-background p-0 pb-[env(safe-area-inset-bottom)] shadow-[0_-22px_70px_rgba(15,23,42,0.2)] sm:h-[92dvh] sm:rounded-t-[26px] lg:hidden"
       >
-        <SheetHeader className="border-b border-border/60 px-4 py-4 text-left">
-          <SheetTitle className="flex items-center gap-2 text-base">
+        <SheetHeader className="shrink-0 border-b border-border/60 px-4 py-4 text-left sm:px-6">
+          <SheetTitle className="flex items-center gap-2 text-lg">
             <Sparkles className="size-4 text-primary" />
             AI添削
           </SheetTitle>
-          <SheetDescription className="text-sm leading-6">
+          <SheetDescription className="text-sm leading-6 sm:max-w-[720px]">
             {headerDescription}
           </SheetDescription>
         </SheetHeader>

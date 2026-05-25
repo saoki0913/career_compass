@@ -6,8 +6,9 @@
 
 "use client";
 
-import { memo } from "react";
+import { memo, type KeyboardEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,13 +35,37 @@ interface CompanyCardProps {
 }
 
 function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCardProps) {
+  const router = useRouter();
   const status = company.status || "inbox";
   const statusConfig = getStatusConfig(status);
+  const companyHref = `/companies/${company.id}`;
+
+  const navigateToCompany = () => {
+    router.push(companyHref);
+  };
+
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.defaultPrevented || (event.key !== "Enter" && event.key !== " ")) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, a, [role='button'], [data-radix-popper-content-wrapper]")) return;
+    event.preventDefault();
+    navigateToCompany();
+  };
 
   return (
-    <Link href={`/companies/${company.id}`}>
-      <Card className="h-full py-0 hover:shadow-md transition-all duration-200 hover:border-primary/30 hover:-translate-y-0.5 active:scale-[0.99] cursor-pointer group">
-        <CardContent className="flex h-full flex-col p-2.5">
+    <Card
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest("button, a, [role='button'], [data-radix-popper-content-wrapper]")) return;
+        navigateToCompany();
+      }}
+      onKeyDown={handleCardKeyDown}
+      role="link"
+      tabIndex={0}
+      aria-label={`${company.name} の詳細を見る`}
+      className="group h-full cursor-pointer overflow-hidden rounded-[1.1rem] border-border/70 py-0 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md active:scale-[0.99]"
+    >
+      <CardContent className="flex h-full flex-col p-2.5">
           {/* Action row: Star + Delete */}
           <div className="flex items-center justify-between gap-1">
             <div className="flex shrink-0 items-center gap-0.5">
@@ -52,14 +77,15 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
                     e.preventDefault();
                     onTogglePin(company.id, !company.isPinned);
                   }}
+                  aria-pressed={company.isPinned}
                   className={cn(
-                    "flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all duration-200 hover:scale-110 active:scale-95",
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition-all duration-200 hover:bg-slate-100 hover:scale-105 active:scale-95",
                     company.isPinned
                       ? "text-amber-500 hover:text-amber-600"
                       : "text-muted-foreground/50 hover:text-amber-400"
                   )}
-                  title={company.isPinned ? "お気に入り解除" : "お気に入りに追加"}
-                  aria-label={company.isPinned ? "お気に入り解除" : "お気に入りに追加"}
+                  title={company.isPinned ? `${company.name} のお気に入りを解除` : `${company.name} をお気に入りに追加`}
+                  aria-label={company.isPinned ? `${company.name} のお気に入りを解除` : `${company.name} をお気に入りに追加`}
                 >
                   <Star className={cn("h-3.5 w-3.5 transition-all duration-200", company.isPinned && "fill-current")} />
                 </button>
@@ -70,7 +96,7 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6 shrink-0 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                className="h-11 w-11 shrink-0 rounded-xl text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
@@ -87,15 +113,16 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
           <div className="flex min-w-0 items-center gap-2.5 pb-1.5 pt-1">
             <CompanyLogo company={company} className="h-10 w-10 shrink-0 rounded-lg" imageClassName="h-7 w-7" />
             <div className="min-w-0 flex-1">
-              <h3
+              <Link
+                href={companyHref}
                 className={cn(
-                  "min-w-0 truncate whitespace-nowrap font-bold text-foreground transition-colors group-hover:text-primary",
+                  "block min-w-0 truncate whitespace-nowrap font-bold text-foreground underline-offset-2 transition-colors group-hover:text-primary hover:underline",
                   getCompanyNameClass(company.name)
                 )}
                 title={company.name}
               >
                 {company.name}
-              </h3>
+              </Link>
               <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                 <p className="text-[11px] text-muted-foreground">
                   {company.industry || "業界未設定"}
@@ -169,10 +196,11 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6 rounded text-muted-foreground hover:text-foreground"
-                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                    className="h-11 w-11 rounded-xl text-muted-foreground hover:text-foreground"
+                    onClick={(e) => { e.stopPropagation(); }}
+                    aria-label={`${company.name} の関連リンクを開く`}
                   >
-                    <MoreHorizontal className="h-3.5 w-3.5" />
+                    <MoreHorizontal className="h-4 w-4" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-48 p-1" onClick={(e) => e.stopPropagation()}>
@@ -203,12 +231,11 @@ function CompanyCardComponent({ company, onTogglePin, onDeleteStart }: CompanyCa
                 </PopoverContent>
               </Popover>
             ) : (
-              <div className="h-6 w-6" />
+              <div className="h-11 w-11" />
             )}
           </div>
-        </CardContent>
-      </Card>
-    </Link>
+      </CardContent>
+    </Card>
   );
 }
 

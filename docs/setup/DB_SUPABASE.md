@@ -154,14 +154,15 @@ supabase stop --no-backup
 supabase db reset
 ```
 
-### 2.5 ローカル Supabase Dashboard
+### 2.5 ローカルでの DB 確認とメモリ削減
 
-起動中は以下のURLでアクセスできます:
+本アプリは Supabase を Postgres としてのみ使います（`DATABASE_URL` 経由の Drizzle 直結 + Better Auth）。メモリ削減のため、ローカル標準は `supabase/config.toml` で `analytics`（最大・約1GB）/ `auth` / `realtime` / `studio` / `inbucket` / `api`(PostgREST) / `edge_runtime` を `enabled = false` にした **Postgres 専用構成**です（反映は `make db-restart`）。詳細な手順（ロール存在確認、連動コンテナの `-x` 除外、Docker VM 上限の引き下げ、逼迫時の playbook）は [DEVELOPMENT_AND_ENV.md](./DEVELOPMENT_AND_ENV.md) の「ローカル開発のメモリ管理」を参照してください。
 
-- **Dashboard**: http://127.0.0.1:54323
-  - Table Editor: テーブルの閲覧・編集
-  - SQL Editor: SQLの直接実行
-  - Authentication: ユーザー管理
+DB の中身を GUI で確認する手段:
+
+- **Drizzle Studio**（推奨）: `make db-studio`（`npx drizzle-kit studio`）
+- **psql**: `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres"`
+- **Supabase Studio**（http://127.0.0.1:54323 / Table Editor・SQL Editor）を使いたい場合は、`supabase/config.toml` の `[studio] enabled = true` に戻して `make db-restart` してください。
 
 ### 2.6 `.env.local` の設定例（ローカル開発）
 

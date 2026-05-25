@@ -12,7 +12,9 @@ files=("$STATE_DIR"/*-"$SESSION_ID")
 # Exclude persistent quality gate deferrals from cleanup
 PERSISTENT_DIR="$STATE_DIR/qg-deferrals-persistent"
 filtered=()
-for f in "${files[@]}"; do
+# bash 3.2 (macOS) treats "${files[@]}" as unbound under `set -u` when the
+# nullglob match is empty; ${files[@]+...} expands to nothing safely instead.
+for f in ${files[@]+"${files[@]}"}; do
   case "$f" in
     "$PERSISTENT_DIR"*) ;;
     *) filtered+=("$f") ;;

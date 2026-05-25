@@ -9,14 +9,14 @@ import {
 /**
  * `ESEditorPageClient` 表示後のシェルに合わせる:
  * sticky ツールバー（戻る・パンくず・文字数・保存系・提出/保存/印刷/添削）、
- * 左エディタ max-w-4xl、lg 時右 45% 添削列。
+ * 左エディタ、lg 時右添削列、モバイルのサイドバー開閉余白に合わせる。
  */
 export function ESEditorSkeleton() {
   return (
-    <div className="es-editor-print-scope flex h-screen flex-col overflow-hidden bg-background">
-      <div className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur print:hidden">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-14 items-center justify-between gap-2">
+    <div className="es-editor-print-scope flex h-screen flex-col overflow-hidden bg-[linear-gradient(180deg,hsl(var(--background)),hsl(var(--muted)/0.22))]">
+      <div className="sticky top-0 z-40 border-b border-border/70 bg-background/92 backdrop-blur-xl print:hidden">
+        <div className="mx-auto max-w-[1600px] pl-16 pr-3 sm:px-6 lg:px-7 xl:px-8">
+          <div className="flex min-h-[4.25rem] flex-col justify-center gap-2 py-2 lg:h-16 lg:min-h-16 lg:flex-row lg:items-center lg:justify-between lg:gap-4 lg:py-0">
             <div className="flex min-w-0 flex-1 items-center gap-4">
               <div className="flex shrink-0 items-center gap-2">
                 <Skeleton className="h-5 w-5 rounded" shimmerDelayMs={0} />
@@ -49,11 +49,11 @@ export function ESEditorSkeleton() {
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden print:hidden">
-        <div className="min-h-0 w-full flex-1 overflow-y-auto pb-mobile-tab transition-all duration-300 print:pb-0 lg:w-[55%]">
-          <div className="es-print-body mx-auto max-w-4xl px-4 py-4 sm:px-6 lg:px-8">
-            <Card className="border-border/50 shadow-sm">
-              <CardContent className="p-6">
-                <Skeleton className="mb-6 h-10 w-full max-w-xl rounded-md" shimmerDelayMs={0} />
+        <div className="min-h-0 w-full flex-1 overflow-y-auto pb-mobile-tab transition-all duration-300 print:pb-0 lg:w-[46%] xl:w-[48%]">
+          <div className="es-print-body mx-auto max-w-[980px] px-3 py-3 sm:px-6 sm:py-5 lg:px-5 xl:px-7">
+            <Card className="overflow-hidden rounded-[24px] border-border/60 bg-background/92 shadow-[0_18px_55px_rgba(15,23,42,0.06)]">
+              <CardContent className="p-5 sm:p-7 lg:p-8">
+                <Skeleton className="mb-7 h-10 w-full max-w-xl rounded-md" shimmerDelayMs={0} />
                 <div className="mb-6 flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-b border-border pb-4">
                   <Skeleton className="h-4 w-40 rounded-md" shimmerDelayMs={25} />
                   <div className="flex w-full flex-col gap-1.5 sm:w-auto sm:max-w-xs sm:items-end">
@@ -88,8 +88,8 @@ export function ESEditorSkeleton() {
           </div>
         </div>
 
-        <div className="hidden min-h-0 w-[45%] flex-col overflow-hidden border-l border-border bg-muted/20 lg:flex">
-          <div className="flex min-h-0 flex-1 flex-col p-4">
+        <div className="hidden min-h-0 w-[54%] flex-col overflow-hidden border-l border-border/60 bg-background/55 lg:flex xl:w-[52%]">
+          <div className="flex min-h-0 flex-1 flex-col p-3 lg:p-4 xl:p-5">
             <div className="flex min-h-0 flex-1 flex-col gap-4">
               <div className="flex items-center justify-between gap-2">
                 <Skeleton className="h-6 w-36 rounded-md" shimmerDelayMs={30} />

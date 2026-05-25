@@ -327,7 +327,7 @@ export async function POST(req: NextRequest) {
     // Create checkout session
     //
     // 改正特商法 12 条の 6（最終確認画面の表示義務）対応:
-    //   docs/release/setup/INDIVIDUAL_BUSINESS_COMPLIANCE.md §6-2 に従い、
+    //   docs/release/INDIVIDUAL_BUSINESS_COMPLIANCE.md §6-2 に従い、
     //   Stripe Checkout の最終確認画面で以下を明示する:
     //     - 自動更新サブスクリプションである旨
     //     - 解約方法と次回更新日までの利用可

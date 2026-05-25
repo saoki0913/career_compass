@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   Card,
   CardHeader,
@@ -25,12 +26,16 @@ export type BillingSectionProps = {
   } | null;
   isOpeningPortal: boolean;
   onOpenBillingPortal: () => void;
+  className?: string;
+  compact?: boolean;
 };
 
 export function BillingSection({
   profile,
   isOpeningPortal,
   onOpenBillingPortal,
+  className,
+  compact = false,
 }: BillingSectionProps) {
   if (!profile) return null;
 
@@ -55,19 +60,19 @@ export function BillingSection({
   const isPastDue = profile.subscriptionStatus === "past_due";
 
   return (
-    <Card className="mt-12">
-      <CardHeader>
+    <Card className={cn("mt-12", className)}>
+      <CardHeader className={compact ? "pb-3" : undefined}>
         <CardTitle>プラン管理</CardTitle>
         <CardDescription>現在のプランと利用状況</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className={compact ? "space-y-4" : "space-y-6"}>
         {/* Current plan info */}
-        <div className="rounded-lg bg-muted/50 p-4">
+        <div className={cn("rounded-lg bg-muted/50", compact ? "p-3" : "p-4")}>
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div>
                 <p className="text-sm text-muted-foreground">現在のプラン</p>
-                <p className="text-xl font-bold">{planLabel}</p>
+                <p className={cn("font-bold", compact ? "text-lg" : "text-xl")}>{planLabel}</p>
               </div>
               {profile.subscriptionStatus && (
                 <SubscriptionStatusBadge
@@ -78,7 +83,7 @@ export function BillingSection({
             </div>
             <div className="text-right">
               <p className="text-sm text-muted-foreground">クレジット残高</p>
-              <p className="text-xl font-bold">{profile.creditsBalance}</p>
+              <p className={cn("font-bold", compact ? "text-lg" : "text-xl")}>{profile.creditsBalance}</p>
             </div>
           </div>
 
