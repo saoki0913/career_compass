@@ -18,19 +18,15 @@ export function parseAppEnvironment(value: string | undefined): AppEnvironment |
 }
 
 export function resolveAppEnvironment(env: RuntimeEnv = process.env): AppEnvironment {
-  if (env.NODE_ENV === "production" && !env.VITEST) {
-    const appEnv = parseAppEnvironment(env.APP_ENV);
-    if (appEnv === "staging" || appEnv === "production") return appEnv;
-    const publicAppEnv = parseAppEnvironment(env.NEXT_PUBLIC_APP_ENV);
-    if (publicAppEnv === "staging" || publicAppEnv === "production") return publicAppEnv;
-    return "production";
-  }
-
   const appEnv = parseAppEnvironment(env.APP_ENV);
   if (appEnv) return appEnv;
 
   const publicAppEnv = parseAppEnvironment(env.NEXT_PUBLIC_APP_ENV);
   if (publicAppEnv) return publicAppEnv;
+
+  if (env.NODE_ENV === "production" && !env.VITEST) {
+    return "production";
+  }
 
   return "local";
 }
@@ -56,17 +52,21 @@ export function validateAppEnvironmentConfiguration(env: RuntimeEnv = process.en
     errors.push("APP_ENV and NEXT_PUBLIC_APP_ENV must match.");
   }
   const isRealProductionBuild = env.NODE_ENV === "production" && !env.VITEST;
+  const isProviderDeployment = Boolean(env.VERCEL_ENV || env.RAILWAY_ENVIRONMENT_NAME);
   const isDeployedProfile =
     appEnv === "staging" ||
     appEnv === "production" ||
     publicAppEnv === "staging" ||
     publicAppEnv === "production";
   const hasExplicitLocalProfile = appEnv === "local" || publicAppEnv === "local";
-  if ((isRealProductionBuild || isDeployedProfile) && (!appEnvRaw || !publicAppEnvRaw)) {
+  if ((isProviderDeployment || isDeployedProfile) && (!appEnvRaw || !publicAppEnvRaw)) {
     errors.push("APP_ENV and NEXT_PUBLIC_APP_ENV must be configured in deployed builds.");
   }
-  if (hasExplicitLocalProfile && (isRealProductionBuild || isDeployedProfile || Boolean(env.VERCEL_ENV))) {
+  if (hasExplicitLocalProfile && (isProviderDeployment || isDeployedProfile)) {
     errors.push("APP_ENV and NEXT_PUBLIC_APP_ENV must not be local in deployed builds.");
+  }
+  if (isRealProductionBuild && !hasExplicitLocalProfile && (!appEnvRaw || !publicAppEnvRaw)) {
+    errors.push("APP_ENV and NEXT_PUBLIC_APP_ENV must be configured in production builds unless both are explicitly local.");
   }
 
   return errors;

@@ -810,9 +810,11 @@ BETTER_AUTH_TRUSTED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
 # アプリURL
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+APP_ENV=local
+NEXT_PUBLIC_APP_ENV=local
 ```
 
-`BETTER_AUTH_TRUSTED_ORIGINS` はローカル開発では上記の固定値で問題ありません。本番値は `https://www.shupass.jp,https://shupass.jp` です。
+`BETTER_AUTH_TRUSTED_ORIGINS` はローカル開発では上記の固定値で問題ありません。本番値は `https://www.shupass.jp,https://shupass.jp` です。`npm run build` はローカル端末では `APP_ENV=local` / `NEXT_PUBLIC_APP_ENV=local` を既定値として渡します。CI、Vercel、Railway、または実行時の環境変数で `APP_ENV` が指定されている場合は、その値を優先します。
 
 Google OAuth、Stripe は機能を使う段階で設定すればOKです。
 

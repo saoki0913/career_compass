@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { parseApiErrorResponse } from "@/lib/api-errors";
 import { reportUserFacingError } from "@/lib/client-error-ui";
@@ -26,9 +26,11 @@ export function useMotivationFeedbackSummary({ companyId }: { companyId: string 
   const [summary, setSummary] = useState<MotivationFeedbackSummary | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [summaryRequested, setSummaryRequested] = useState(false);
+  const requestInFlightRef = useRef(false);
 
   const handleGenerateMotivationSummary = useCallback(async () => {
-    if (isSummaryLoading) return;
+    if (requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
     setIsSummaryLoading(true);
     setSummaryRequested(true);
 
@@ -51,8 +53,9 @@ export function useMotivationFeedbackSummary({ companyId }: { companyId: string 
       );
     } finally {
       setIsSummaryLoading(false);
+      requestInFlightRef.current = false;
     }
-  }, [companyId, isSummaryLoading]);
+  }, [companyId]);
 
   return { summary, isSummaryLoading, summaryRequested, handleGenerateMotivationSummary };
 }

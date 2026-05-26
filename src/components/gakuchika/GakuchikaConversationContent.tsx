@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { HelpCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -117,12 +116,19 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
   );
   const pausedQuestion = conversationState?.pausedQuestion?.trim() || null;
   const displayedNextQuestion = nextQuestion || pausedQuestion;
+  const effectiveDraftText = generatedDraftText ?? conversationState?.draftText ?? null;
+  const effectiveDocumentId = generatedDocumentId ?? conversationState?.draftDocumentId ?? null;
+  const effectiveDraftQuality = generatedDraftQuality;
+  const hasOpenableDraft = Boolean(effectiveDraftText && effectiveDocumentId);
+  const isAnyGenerationBusy = isGeneratingDraft || isSummaryLoading;
   const readyOutputActions = [
     {
       key: "draft",
       label: "ES作成",
       icon: "draft" as const,
       pending: isGeneratingDraft,
+      pendingLabel: "ES生成状況を見る",
+      disabled: isAnyGenerationBusy && !isGeneratingDraft,
       onClick: () => setIsDraftModalOpen(true),
     },
     {
@@ -130,11 +136,13 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       label: "フィードバック生成",
       icon: "feedback" as const,
       pending: isSummaryLoading,
+      pendingLabel: "FB生成状況を見る",
+      disabled: isAnyGenerationBusy && !isSummaryLoading,
       onClick: () => setSummaryDialogOpen(true),
     },
   ];
   const draftStatus = resolveGenerationStatus({
-    hasResult: Boolean(generatedDraftText && generatedDocumentId),
+    hasResult: hasOpenableDraft,
     canGenerate: draftReady,
     isGenerating: isGeneratingDraft,
   });
@@ -186,6 +194,14 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
           headerSubtext={questionDisplay}
           footerMessage={primaryLine}
           columns={4}
+          detailsLabel="詳細情報"
+          detailsBadge={
+            sessions.length > 1 ? (
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                履歴{sessions.length}件
+              </span>
+            ) : undefined
+          }
           badges={
             <>
               {currentSessionLabel ? (
@@ -200,8 +216,8 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
           }
         >
           {sessions.length > 1 ? (
-            <details className="rounded-xl border border-border/60 bg-background px-3 py-2 text-xs">
-              <summary className="cursor-pointer font-medium text-foreground">セッション履歴</summary>
+            <div className="rounded-xl border border-border/60 bg-background px-3 py-2 text-xs">
+              <p className="font-medium text-foreground">セッション履歴</p>
               <div className="mt-2 space-y-2">
                 {isGeneratingDraft ? (
                   <p className="text-muted-foreground">ES生成中はセッションを切り替えられません。</p>
@@ -230,17 +246,17 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
                     ))
                   : null}
               </div>
-            </details>
+            </div>
           ) : null}
-          <details className="rounded-xl border border-border/60 bg-background px-3 py-2 text-xs">
-            <summary className="cursor-pointer font-medium text-foreground">作成メモ</summary>
+          <div className="rounded-xl border border-border/60 bg-background px-3 py-2 text-xs">
+            <p className="font-medium text-foreground">作成メモ</p>
             <div className="mt-2 space-y-1">
               <p className="font-medium text-foreground">{gakuchikaTitle}</p>
               <p className="line-clamp-4 leading-5 text-muted-foreground">
                 {gakuchikaContent || "テーマのみ登録されています。会話で内容を膨らませていきます。"}
               </p>
             </div>
-          </details>
+          </div>
         </ConversationMobileStatus>
       }
       conversation={
@@ -309,18 +325,6 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
               isSending={isSending}
               className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0 [&>p]:hidden"
             />
-
-            {questionCount > 0 && assistantPhase === "idle" ? (
-              <Link
-                href="/gakuchika"
-                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                </svg>
-                保存して後で続ける
-              </Link>
-            ) : null}
           </div>
       }
       sidebar={
@@ -378,24 +382,40 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
           ]}
         />
       }
+      readyInfoSlot={
+        effectiveDraftText && !effectiveDocumentId ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+            以前のES本文は復元できていますが、編集画面を開くための保存情報が見つかりません。もう一度生成すると、新しいESとして保存できます。
+          </div>
+        ) : null
+      }
       resultSlot={
         <DraftResultView
-          draft={generatedDraftText ?? ""}
+          draft={effectiveDraftText ?? ""}
           charLimit={draftCharLimit}
-          draftQuality={generatedDraftQuality}
+          draftQuality={effectiveDraftQuality}
+          preBodyNotice={
+            effectiveDraftText && !effectiveDocumentId ? (
+              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                ESを開くための保存情報が見つかりません。本文は復元できていますが、編集画面に移動するにはもう一度生成してください。
+              </div>
+            ) : null
+          }
         />
       }
-      generateAction={{ label: "ESを生成", onGenerate: () => void handleGenerateDraft() }}
-      primaryAction={{
-        label: "ESを開く",
-        onClick: () => {
-          setIsDraftModalOpen(false);
-          if (generatedDocumentId) {
-            notifyGakuchikaDraftSaved();
-            router.push(`/es/${generatedDocumentId}`);
-          }
-        },
-      }}
+      generateAction={{ label: "ESを生成", onGenerate: handleGenerateDraft, disabled: isSummaryLoading }}
+      primaryAction={
+        effectiveDocumentId
+          ? {
+              label: "ESを開く",
+              onClick: () => {
+                setIsDraftModalOpen(false);
+                notifyGakuchikaDraftSaved();
+                router.push(`/es/${effectiveDocumentId}`);
+              },
+            }
+          : undefined
+      }
       secondaryAction={{
         label: "もっと深掘りして再生成する",
         onClick: async () => {
@@ -423,7 +443,7 @@ export function GakuchikaConversationContent({ gakuchikaId }: GakuchikaConversat
       description="面接で話す要点（核・強み・改善ポイント・次に向けて）を整理します。"
       lockedReason="面接向けの深掘りが完了すると、フィードバックを生成できます。"
       requirements={[{ label: "面接準備（深掘り完了）", met: interviewReady }]}
-      generateAction={{ label: "フィードバックを生成", onGenerate: () => void handleRetrySummary() }}
+      generateAction={{ label: "フィードバックを生成", onGenerate: handleRetrySummary, disabled: isGeneratingDraft }}
       resultSlot={
         <CompletionSummary
           summary={summary}

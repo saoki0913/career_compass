@@ -4,34 +4,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 
-import { ConversationPhaseBar } from "@/components/chat/ConversationPhaseBar";
-import { ConversationProgressBar } from "@/components/chat/ConversationProgressBar";
-import {
-  ConversationSidebarCard,
-  ConversationWorkspaceShell,
-} from "@/components/chat/ConversationWorkspaceShell";
-import { ChatInput, ChatMessage, ReadyOutputBar, ThinkingIndicator } from "@/components/chat";
+import { ConversationWorkspaceShell } from "@/components/chat/ConversationWorkspaceShell";
+import { ChatInput, ChatMessage, ConversationMobileStatus, ReadyOutputBar, ThinkingIndicator } from "@/components/chat";
 import { StreamingChatMessage } from "@/components/chat/StreamingChatMessage";
 import { GenerationModal } from "@/components/chat/GenerationModal";
 import { resolveGenerationStatus } from "@/components/chat/generation-modal-status";
 import { DrillPanel } from "@/components/interview/DrillPanel";
+import {
+  FeedbackHistoryList,
+  InterviewConversationSidebar,
+  InterviewMaterialsCard,
+  ResetConfirmButton,
+  resolveInterviewScoreAxis,
+} from "@/components/interview/InterviewConversationSidebar";
 import { RoleSelector } from "@/components/interview/RoleSelector";
 import { SheetViewer } from "@/components/interview/SheetViewer";
 import { SheetViewerDialog } from "@/components/interview/SheetViewerDialog";
 import { InterviewFeedbackStreamingView } from "@/components/interview/InterviewFeedbackStreamingView";
-import { ReferenceSourceCard } from "@/components/shared/ReferenceSourceCard";
 import { InterviewConversationSkeleton } from "@/components/skeletons/InterviewConversationSkeleton";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,8 +62,6 @@ import {
   ROLE_TRACK_LABELS,
   SELECTION_TYPE_LABELS,
   STRICTNESS_MODE_LABELS,
-  type FeedbackHistoryItem,
-  type MaterialCard,
 } from "@/lib/interview/ui";
 
 function parseSheetData(raw: unknown): InterviewSheetData | null {
@@ -81,79 +69,6 @@ function parseSheetData(raw: unknown): InterviewSheetData | null {
   const obj = raw as Record<string, unknown>;
   if (typeof obj.companyName !== "string" || !Array.isArray(obj.scores)) return null;
   return raw as InterviewSheetData;
-}
-
-function InterviewMaterialsCard({ materials }: { materials: MaterialCard[] }) {
-  const visibleMaterials = materials.slice(0, 5);
-
-  return (
-    <div className="space-y-2">
-      {materials.length === 0 ? (
-        <p className="text-xs leading-5 text-muted-foreground">
-          志望動機、ガクチカ、関連 ES がまだ少ないため、企業情報を軸に質問を組み立てます。
-        </p>
-      ) : (
-        <>
-          {visibleMaterials.map((material) => (
-            <ReferenceSourceCard
-              key={`${material.kind ?? material.label}-${material.label}`}
-              title={material.label}
-              meta={
-                material.kind === "motivation"
-                  ? "志望動機"
-                  : material.kind === "gakuchika"
-                    ? "ガクチカ"
-                    : material.kind === "es"
-                      ? "ES"
-                      : material.kind === "industry_seed"
-                        ? "業界"
-                        : material.kind === "company_seed"
-                          ? "企業"
-                          : null
-              }
-              compact
-              excerpt={
-                <p className="text-[11px] leading-5 text-muted-foreground [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">
-                  {material.text}
-                </p>
-              }
-            />
-          ))}
-        </>
-      )}
-    </div>
-  );
-}
-
-function FeedbackHistoryList({ histories, onOpen }: { histories: FeedbackHistoryItem[]; onOpen: (item: FeedbackHistoryItem) => void }) {
-  if (histories.length === 0) {
-    return <p className="text-xs text-muted-foreground">まだまとめシートの履歴はありません。</p>;
-  }
-  return (
-    <div className="space-y-2">
-      {histories.map((item) => (
-        <button key={item.id} type="button" onClick={() => onOpen(item)} className="w-full rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-left transition hover:bg-muted/30">
-          <p className="text-[11px] text-muted-foreground">
-            {new Date(item.createdAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}
-            {" / "}{item.sourceQuestionCount}問
-          </p>
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-foreground/80">{item.overallComment}</p>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ResetConfirmButton({ onReset, disabled, variant = "outline", size, className }: { onReset: () => void; disabled: boolean; variant?: "outline" | "default"; size?: "sm" | "default"; className?: string }) {
-  return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild><Button variant={variant} size={size} disabled={disabled} className={className}>会話をやり直す</Button></AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader><AlertDialogTitle>面接対策をやり直しますか？</AlertDialogTitle><AlertDialogDescription>これまでの会話内容はすべて失われます。この操作は取り消せません。</AlertDialogDescription></AlertDialogHeader>
-        <AlertDialogFooter><AlertDialogCancel>キャンセル</AlertDialogCancel><AlertDialogAction onClick={onReset}>やり直す</AlertDialogAction></AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
 }
 
 export function InterviewPageContent({ companyId }: { companyId: string | string[] | undefined }) {
@@ -190,6 +105,7 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
         : {},
     [feedback],
   );
+  const drillAxis = resolveInterviewScoreAxis(weakestAxis);
   const { setAnswer, setSetupState, setSelectedHistory, selectRole, setCustomRoleName, start: handleStart, send: handleSend, generateFeedback: handleGenerateFeedback, continueInterview: handleContinue, reset: handleReset, saveSatisfaction: handleSaveSatisfaction } = actions;
 
   const [sheetGenerationOpen, setSheetGenerationOpen] = useState(false);
@@ -206,6 +122,7 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
       label: "まとめシート作成",
       icon: "sheet" as const,
       pending: isGeneratingFeedback,
+      pendingLabel: "まとめシート生成状況を見る",
       onClick: () => setSheetGenerationOpen(true),
     },
   ];
@@ -255,7 +172,46 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
         title="面接対策"
         subtitle={companyName || "企業特化模擬面接"}
         actionBar={<ReadyOutputBar actions={readyOutputActions} compact />}
-        mobileStatus={<div className="space-y-1 text-sm text-muted-foreground"><div className="flex flex-wrap items-center gap-2"><span>{turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || "開始前"}</span><span>{questionCount > 0 ? `${questionCount}問目` : "開始前"}</span></div>{transitionLine ? (<p className="text-xs text-foreground/80">{transitionLine}</p>) : null}{sessionState.isActive ? (<p className="text-xs">前回の続きです。現在 {sessionState.questionCount || questionCount} 問目まで進んでいます。</p>) : null}</div>}
+        mobileStatus={
+          <ConversationMobileStatus
+            stages={topicStages}
+            headerSubtext={questionDisplay}
+            footerMessage={transitionLine || coachingNarrative}
+            columns={2}
+            detailsLabel="詳細情報"
+            detailsBadge={
+              feedbackHistories.length > 0 || materials.length > 0 ? (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                  {materials.length + feedbackHistories.length}件
+                </span>
+              ) : undefined
+            }
+            badges={
+              <>
+                <Badge variant="outline" className="px-2 py-0 text-[11px]">
+                  {turnMeta?.interviewSetupNote || stageStatus?.currentTopicLabel || "開始前"}
+                </Badge>
+                <Badge variant="outline" className="px-2 py-0 text-[11px]">
+                  {questionCount > 0 ? `${questionCount}問目` : "開始前"}
+                </Badge>
+              </>
+            }
+          >
+            {sessionState.isActive ? (
+              <div className="rounded-xl border border-border/60 bg-background px-3 py-2 text-xs leading-5 text-muted-foreground">
+                前回の続きです。現在 {sessionState.questionCount || questionCount} 問目まで進んでいます。
+              </div>
+            ) : null}
+            <div className="rounded-xl border border-border/60 bg-background px-3 py-2">
+              <p className="mb-2 text-xs font-medium text-foreground">参考にする材料</p>
+              <InterviewMaterialsCard materials={materials} />
+            </div>
+            <div className="rounded-xl border border-border/60 bg-background px-3 py-2">
+              <p className="mb-2 text-xs font-medium text-foreground">過去のまとめシート</p>
+              <FeedbackHistoryList histories={feedbackHistories} onOpen={setSelectedHistory} />
+            </div>
+          </ConversationMobileStatus>
+        }
         conversation={
           !hasStarted ? (
             <div className="space-y-6 px-3 py-2 sm:px-4">
@@ -316,7 +272,28 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
           )
         }
         composer={hasStarted && !isComplete ? (<div className="space-y-3">{nextQuestionHint ? (<div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground line-clamp-2"><span className="font-medium text-foreground">ヒント: </span>{nextQuestionHint}</div>) : null}<ChatInput value={answer} onChange={setAnswer} onSend={handleSend} isSending={isBusy} disableSend={!canSend} placeholder="回答を入力..." className="border-t-0 [&>div]:max-w-none [&>div]:px-0 [&>div]:py-0" /></div>) : undefined}
-        sidebar={<><ConversationSidebarCard title="進捗" actions={hasStarted ? (<ResetConfirmButton onReset={handleReset} disabled={isBusy} size="sm" className="h-9 rounded-xl px-3 text-xs shadow-sm" />) : null}><div className="space-y-3">{sessionState.isActive ? (<div className="rounded-xl border border-border/60 bg-muted/15 px-3 py-2 text-xs leading-5 text-muted-foreground">前回の続きです。現在 {sessionState.questionCount || questionCount} 問目まで進んでいます。やり直す場合は会話内容が破棄されます。</div>) : null}<div className="flex flex-wrap gap-2">{effectiveIndustry ? (<Badge variant="soft-info" className="px-3 py-1 text-[11px]">{effectiveIndustry}</Badge>) : (<Badge variant="outline" className="px-3 py-1 text-[11px]">業界未設定</Badge>)}{resolvedSelectedRole ? (<Badge variant="soft-primary" className="px-3 py-1 text-[11px]">職種: {resolvedSelectedRole}</Badge>) : (<Badge variant="outline" className="px-3 py-1 text-[11px]">職種未選択</Badge>)}<Badge variant="outline" className="px-3 py-1 text-[11px]">{INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</Badge></div><ConversationProgressBar stages={topicStages} headerSubtext={questionDisplay} footerMessage={coachingNarrative} columns={2} /><ConversationPhaseBar phases={interviewPhases} /></div></ConversationSidebarCard><ConversationSidebarCard title="面接設定"><div className="space-y-2 text-xs text-muted-foreground"><p>業界: {effectiveIndustry || "未設定"}</p><p>職種: {resolvedSelectedRole || setupState.selectedRole || "未設定"}</p><p>職種分類: {ROLE_TRACK_LABELS[setupState.roleTrack]}</p><p>面接方式: {INTERVIEW_FORMAT_LABELS[setupState.interviewFormat]}</p><p>選考種別: {SELECTION_TYPE_LABELS[setupState.selectionType]}</p><p>面接段階: {INTERVIEW_STAGE_LABELS[setupState.interviewStage]}</p><p>面接官: {INTERVIEWER_TYPE_LABELS[setupState.interviewerType]}</p><p>厳しさ: {STRICTNESS_MODE_LABELS[setupState.strictnessMode]}</p>{turnMeta?.interviewSetupNote ? (<p className="pt-2 text-foreground/90">{turnMeta.interviewSetupNote}</p>) : null}</div></ConversationSidebarCard><ConversationSidebarCard title="参考にする材料"><InterviewMaterialsCard materials={materials} /></ConversationSidebarCard><ConversationSidebarCard title="過去のまとめシート"><FeedbackHistoryList histories={feedbackHistories} onOpen={setSelectedHistory} /></ConversationSidebarCard>{feedback ? (<ConversationSidebarCard title="次のアクション"><div className="space-y-3"><Button onClick={handleContinue} disabled={!canContinue} className="w-full">面接対策を続ける（{billingCosts.continue} credit）</Button><p className="text-xs text-muted-foreground"><Link href="/interview/dashboard" className="text-primary underline-offset-2 hover:underline">成長ダッシュボードで推移を見る</Link></p></div></ConversationSidebarCard>) : null}{feedback?.weakest_turn_id && feedback.weakest_question_snapshot && normalizedCompanyId ? (<ConversationSidebarCard title="最弱回答ドリル"><Collapsible><CollapsibleTrigger asChild><Button variant="outline" className="w-full justify-between text-left">最弱回答を書き直して再採点する<ChevronDown className="h-4 w-4 shrink-0" /></Button></CollapsibleTrigger><CollapsibleContent className="mt-3"><DrillPanel companyId={normalizedCompanyId} weakestTurnId={feedback.weakest_turn_id} weakestQuestion={feedback.weakest_question_snapshot} weakestAnswer={feedback.weakest_answer_snapshot ?? ""} weakestAxis={weakestAxis ?? "specificity"} originalScore={weakestAxis ? (feedback.scores[weakestAxis] ?? 0) : 0} originalScores={feedbackScoreRecord} originalFeedbackId={latestFeedbackHistory?.id} interviewFormat={setupState.interviewFormat} interviewerType={setupState.interviewerType} strictnessMode={setupState.strictnessMode} /></CollapsibleContent></Collapsible></ConversationSidebarCard>) : null}</>}
+        sidebar={
+          <InterviewConversationSidebar
+            state={{
+              effectiveIndustry,
+              feedbackHistories,
+              hasStarted,
+              isBusy,
+              materials,
+              questionCount,
+              resolvedSelectedRole,
+              sessionState,
+              setupState,
+              turnMeta,
+            }}
+            topicStages={topicStages}
+            interviewPhases={interviewPhases}
+            questionDisplay={questionDisplay}
+            coachingNarrative={coachingNarrative}
+            onOpenHistory={setSelectedHistory}
+            onReset={handleReset}
+          />
+        }
       />
       <GenerationModal
         open={sheetGenerationOpen}
@@ -353,6 +330,51 @@ export function InterviewPageContent({ companyId }: { companyId: string | string
                   ))}
                   <span className="text-xs text-muted-foreground">満足</span>
                 </div>
+              </div>
+            ) : null}
+            {feedback ? (
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+                  <p className="text-sm font-medium">次のアクション</p>
+                  <div className="mt-3 space-y-3">
+                    <Button onClick={handleContinue} disabled={!canContinue} className="w-full">
+                      面接対策を続ける（{billingCosts.continue} credit）
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      <Link href="/interview/dashboard" className="text-primary underline-offset-2 hover:underline">
+                        成長ダッシュボードで推移を見る
+                      </Link>
+                    </p>
+                  </div>
+                </div>
+                {feedback.weakest_turn_id && feedback.weakest_question_snapshot ? (
+                  <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+                    <p className="text-sm font-medium">最弱回答ドリル</p>
+                    <Collapsible className="mt-3">
+                      <CollapsibleTrigger asChild>
+                        <Button variant="outline" className="w-full justify-between text-left">
+                          最弱回答を書き直して再採点する
+                          <ChevronDown className="h-4 w-4 shrink-0" />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="mt-3">
+                        <DrillPanel
+                          companyId={normalizedCompanyId}
+                          weakestTurnId={feedback.weakest_turn_id}
+                          weakestQuestion={feedback.weakest_question_snapshot}
+                          weakestAnswer={feedback.weakest_answer_snapshot ?? ""}
+                          weakestAxis={drillAxis}
+                          originalScore={feedback.scores[drillAxis] ?? 0}
+                          originalScores={feedbackScoreRecord}
+                          originalFeedbackId={latestFeedbackHistory?.id}
+                          interviewFormat={setupState.interviewFormat}
+                          interviewerType={setupState.interviewerType}
+                          strictnessMode={setupState.strictnessMode}
+                        />
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </div>

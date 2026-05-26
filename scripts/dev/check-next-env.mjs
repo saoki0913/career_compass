@@ -5,6 +5,8 @@ const { loadEnvConfig } = nextEnv;
 loadEnvConfig(process.cwd(), true);
 
 const localTrustedOrigins = "http://localhost:3000,http://127.0.0.1:3000";
+const appEnvValues = new Set(["local", "staging", "production"]);
+const deployedAppEnvValues = new Set(["staging", "production"]);
 
 function clean(value) {
   const trimmed = value?.trim();
@@ -40,6 +42,39 @@ function validateOriginList(value) {
   }
 
   return true;
+}
+
+function parseAppEnv(value) {
+  const env = clean(value);
+  if (!env) return undefined;
+  return appEnvValues.has(env) ? env : null;
+}
+
+function hasLocalhostOrigin(value) {
+  try {
+    return parseOriginEntries(value).some((origin) => {
+      const parsed = new URL(origin.trim());
+      return (
+        parsed.protocol === "http:" &&
+        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1")
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+function normalizeOriginEntries(value) {
+  return parseOriginEntries(value).map((origin) => new URL(origin.trim()).origin);
+}
+
+function originsExactlyMatch(value, expectedOrigins) {
+  try {
+    const origins = new Set(normalizeOriginEntries(value));
+    return origins.size === expectedOrigins.length && expectedOrigins.every((origin) => origins.has(origin));
+  } catch {
+    return false;
+  }
 }
 
 const checks = [
@@ -107,6 +142,62 @@ for (const check of checks) {
   } catch {
     failures.push({ ...check, problem: "値の形式が不正です。" });
   }
+}
+
+const appEnv = parseAppEnv(process.env.APP_ENV);
+const publicAppEnv = parseAppEnv(process.env.NEXT_PUBLIC_APP_ENV);
+if (appEnv === null) {
+  failures.push({
+    key: "APP_ENV",
+    problem: "値の形式が不正です。",
+    reason: "local / staging / production のいずれかである必要があります。",
+    action: ".env.local の APP_ENV を local / staging / production のいずれかにしてください。",
+  });
+}
+if (publicAppEnv === null) {
+  failures.push({
+    key: "NEXT_PUBLIC_APP_ENV",
+    problem: "値の形式が不正です。",
+    reason: "local / staging / production のいずれかである必要があります。",
+    action: ".env.local の NEXT_PUBLIC_APP_ENV を local / staging / production のいずれかにしてください。",
+  });
+}
+if (appEnv && publicAppEnv && appEnv !== publicAppEnv) {
+  failures.push({
+    key: "APP_ENV / NEXT_PUBLIC_APP_ENV",
+    problem: "値が一致していません。",
+    reason: "サーバー側とクライアント側で論理環境がずれると、認証や外部連携の検証が壊れます。",
+    action: "APP_ENV と NEXT_PUBLIC_APP_ENV を同じ値にしてください。",
+  });
+}
+if (
+  (deployedAppEnvValues.has(appEnv) || deployedAppEnvValues.has(publicAppEnv)) &&
+  hasLocalhostOrigin(process.env.BETTER_AUTH_TRUSTED_ORIGINS)
+) {
+  failures.push({
+    key: "BETTER_AUTH_TRUSTED_ORIGINS",
+    problem: "デプロイ環境向けの値に localhost が含まれています。",
+    reason: "staging / production の認証信頼オリジンに localhost を含めると CSRF 境界が曖昧になります。",
+    action: "staging は https://stg.shupass.jp、production は https://www.shupass.jp,https://shupass.jp にしてください。",
+  });
+}
+const resolvedAppEnv = appEnv || publicAppEnv;
+const expectedTrustedOrigins =
+  resolvedAppEnv === "staging"
+    ? ["https://stg.shupass.jp"]
+    : resolvedAppEnv === "production"
+      ? ["https://www.shupass.jp", "https://shupass.jp"]
+      : null;
+if (
+  expectedTrustedOrigins &&
+  !originsExactlyMatch(process.env.BETTER_AUTH_TRUSTED_ORIGINS, expectedTrustedOrigins)
+) {
+  failures.push({
+    key: "BETTER_AUTH_TRUSTED_ORIGINS",
+    problem: "デプロイ環境向けの値が期待値と一致していません。",
+    reason: "staging / production の信頼オリジンは余分な origin を含めず、固定値に揃える必要があります。",
+    action: `BETTER_AUTH_TRUSTED_ORIGINS=${expectedTrustedOrigins.join(",")} にしてください。`,
+  });
 }
 
 if (failures.length > 0) {

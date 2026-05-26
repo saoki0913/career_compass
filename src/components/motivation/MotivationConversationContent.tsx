@@ -157,6 +157,7 @@ export function MotivationConversationContent({ companyId }: { companyId: string
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
 
   const isDeepDive = conversationMode === "deepdive";
+  const isAnyGenerationBusy = isGeneratingDraft || isGeneratingFeedback;
   type SlotKey = Exclude<MotivationStageKey, "closing">;
   const mobileProgressStages = useMemo<ProgressStage[]>(() => {
     // deepdive 中は材料収集が完了済みのため、causalGaps の有無に関わらず slot pill を全 done で維持する
@@ -182,6 +183,8 @@ export function MotivationConversationContent({ companyId }: { companyId: string
       label: "ES作成",
       icon: "draft" as const,
       pending: isGeneratingDraft,
+      pendingLabel: "ES生成状況を見る",
+      disabled: isAnyGenerationBusy && !isGeneratingDraft,
       onClick: () => setIsDraftModalOpen(true),
     },
     {
@@ -189,12 +192,17 @@ export function MotivationConversationContent({ companyId }: { companyId: string
       label: "FB整理",
       icon: "feedback" as const,
       pending: isGeneratingFeedback,
+      pendingLabel: "FB整理状況を見る",
+      disabled: isAnyGenerationBusy && !isGeneratingFeedback,
       onClick: () => setIsFeedbackModalOpen(true),
     },
   ];
+  const canGenerateDraftFromModal = showSetupScreen
+    ? isSetupComplete && !isRoleOptionsLoading
+    : canGenerateDraft;
   const draftStatus = resolveGenerationStatus({
     hasResult: Boolean(generatedDraft),
-    canGenerate: canGenerateDraft,
+    canGenerate: canGenerateDraftFromModal,
     isGenerating: isGeneratingDraft,
   });
   const feedbackStatus = resolveGenerationStatus({
@@ -254,6 +262,14 @@ export function MotivationConversationContent({ companyId }: { companyId: string
             headerSubtext={`${questionCount > 0 ? `${questionCount}問目` : "これから1問目"}`}
             footerMessage={coachingFocus}
             columns={STAGE_ORDER.length}
+            detailsLabel="参考情報"
+            detailsBadge={
+              evidenceCards.length > 0 ? (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                  {evidenceCards.length}件
+                </span>
+              ) : undefined
+            }
             actions={
               hasSavedConversation ? (
                 <Button
@@ -268,7 +284,16 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                 </Button>
               ) : undefined
             }
-          />
+          >
+            {evidenceCards.length > 0 || evidenceSummary ? (
+              <MotivationEvidenceSection
+                evidenceCards={evidenceCards}
+                evidenceSummary={evidenceSummary}
+                compact
+                showHeader
+              />
+            ) : null}
+          </ConversationMobileStatus>
         }
         conversation={
           showSetupScreen ? (
@@ -312,29 +337,8 @@ export function MotivationConversationContent({ companyId }: { companyId: string
               ) : showStandaloneQuestion ? (
                 <div className="space-y-3">
                   {nextQuestion && <ChatMessage role="assistant" content={nextQuestion} />}
-                  {(evidenceCards.length > 0 || evidenceSummary) && (
-                    <div className="xl:hidden">
-                      <MotivationEvidenceSection
-                        evidenceCards={evidenceCards}
-                        evidenceSummary={evidenceSummary}
-                        compact
-                        showHeader
-                      />
-                    </div>
-                  )}
                 </div>
               ) : null}
-
-              {!isWaitingForResponse && !isTextStreaming && !showStandaloneQuestion && (evidenceCards.length > 0 || evidenceSummary) && (
-                <div className="xl:hidden">
-                  <MotivationEvidenceSection
-                    evidenceCards={evidenceCards}
-                    evidenceSummary={evidenceSummary}
-                    compact
-                    showHeader
-                  />
-                </div>
-              )}
 
               <div ref={messagesEndRef} />
             </div>
@@ -354,24 +358,11 @@ export function MotivationConversationContent({ companyId }: { companyId: string
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={handleGenerateDraftDirect}
-                    disabled={
-                      !isSetupComplete ||
-                      isRoleOptionsLoading ||
-                      isStartingConversation ||
-                      isLocked ||
-                      isGeneratingDraft
-                    }
+                    onClick={() => setIsDraftModalOpen(true)}
+                    disabled={isStartingConversation || isLocked}
                     className="sm:min-w-44"
                   >
-                    {isGeneratingDraft && !isStartingConversation ? (
-                      <>
-                        <LoadingSpinner />
-                        <span className="ml-2">生成中...</span>
-                      </>
-                    ) : (
-                      "会話せずに下書きを作成"
-                    )}
+                    会話せずに下書きを作成
                   </Button>
                   <Button
                     onClick={handleStartConversation}
@@ -461,9 +452,25 @@ export function MotivationConversationContent({ companyId }: { companyId: string
         status={draftStatus}
         icon="draft"
         title="ES作成"
-        description="志望動機の深掘り内容からESを生成します。"
-        lockedReason="深掘りで材料が揃うと、ESを生成できます。質問に答えて志望動機の要素を具体化してください。"
-        requirements={[{ label: "業界理由・企業理由・差別化などの整理", met: canGenerateDraft }]}
+        description={
+          showSetupScreen
+            ? "設定内容と登録済みの材料から、会話なしで志望動機ESの下書きを作成します。"
+            : "志望動機の深掘り内容からESを生成します。"
+        }
+        lockedReason={
+          showSetupScreen
+            ? "業界と職種を設定すると、会話なしで下書きを作成できます。"
+            : "深掘りで材料が揃うと、ESを生成できます。質問に答えて志望動機の要素を具体化してください。"
+        }
+        requirements={
+          showSetupScreen
+            ? [
+                { label: "業界が設定済み", met: Boolean(effectiveIndustry) },
+                { label: "職種が設定済み", met: Boolean(selectedRoleName || customRoleInput.trim()) },
+                { label: "職種候補の読み込み完了", met: !isRoleOptionsLoading },
+              ]
+            : [{ label: "業界理由・企業理由・差別化などの整理", met: canGenerateDraft }]
+        }
         settingsSlot={
           <EsCharLimitField
             value={charLimit}
@@ -478,7 +485,11 @@ export function MotivationConversationContent({ companyId }: { companyId: string
         resultSlot={
           generatedDraft ? <DraftResultView draft={generatedDraft} charLimit={charLimit} /> : null
         }
-        generateAction={{ label: "ESを生成", onGenerate: () => void handleGenerateDraft() }}
+        generateAction={{
+          label: showSetupScreen ? "会話なしでESを生成" : "ESを生成",
+          onGenerate: () => (showSetupScreen ? handleGenerateDraftDirect() : handleGenerateDraft()),
+          disabled: isStartingConversation || isLocked || isGeneratingFeedback,
+        }}
         primaryAction={{
           label: "ESエディタを開く",
           loading: isSavingDraft,
@@ -525,7 +536,8 @@ export function MotivationConversationContent({ companyId }: { companyId: string
         }
         generateAction={{
           label: "フィードバックを整理",
-          onGenerate: () => void handleGenerateMotivationSummary(),
+          onGenerate: handleGenerateMotivationSummary,
+          disabled: isGeneratingDraft,
         }}
         primaryAction={{ label: "閉じる", onClick: () => setIsFeedbackModalOpen(false) }}
       />

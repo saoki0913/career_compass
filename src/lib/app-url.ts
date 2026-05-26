@@ -1,3 +1,5 @@
+import { resolveAppEnvironment } from "@/env/deployment";
+
 const DEFAULT_APP_URL = "http://localhost:3000";
 
 function clean(value?: string | null): string | undefined {
@@ -27,7 +29,7 @@ export function getAppUrl(): string {
     return configuredUrl;
   }
 
-  if (process.env.NODE_ENV === "production") {
+  if (resolveAppEnvironment() !== "local") {
     throw new Error("NEXT_PUBLIC_APP_URL or BETTER_AUTH_URL must be configured in production");
   }
 

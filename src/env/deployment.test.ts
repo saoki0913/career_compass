@@ -36,20 +36,39 @@ describe("deployment env", () => {
     ).toMatch(/must match/);
   });
 
-  it("rejects local app env in production builds", () => {
+  it("allows explicit local app env during local production builds", () => {
     expect(
       validateAppEnvironmentConfiguration({
         NODE_ENV: "production",
         APP_ENV: "local",
         NEXT_PUBLIC_APP_ENV: "local",
       }).join("\n"),
-    ).toMatch(/must not be local/);
+    ).toBe("");
     expect(
       resolveAppEnvironment({
         NODE_ENV: "production",
         APP_ENV: "local",
         NEXT_PUBLIC_APP_ENV: "local",
       }),
-    ).toBe("production");
+    ).toBe("local");
+  });
+
+  it("rejects local app env in provider deployments", () => {
+    expect(
+      validateAppEnvironmentConfiguration({
+        NODE_ENV: "production",
+        VERCEL_ENV: "production",
+        APP_ENV: "local",
+        NEXT_PUBLIC_APP_ENV: "local",
+      }).join("\n"),
+    ).toMatch(/must not be local/);
+  });
+
+  it("requires explicit app env in production builds unless both values are local", () => {
+    expect(
+      validateAppEnvironmentConfiguration({
+        NODE_ENV: "production",
+      }).join("\n"),
+    ).toMatch(/must be configured in production builds/);
   });
 });

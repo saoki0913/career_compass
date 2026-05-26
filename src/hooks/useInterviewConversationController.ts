@@ -183,6 +183,7 @@ export function useInterviewConversationController({
   );
 
   const shouldAnnounceFeedbackSuccessRef = useRef(false);
+  const feedbackRequestInFlightRef = useRef(false);
 
   // SSE complete event merge reducer に渡す prev state スナップショット。
   // useCallback deps を肥大化させず latest state を読むため ref で同期する。
@@ -658,7 +659,8 @@ export function useInterviewConversationController({
   }, [answer, canSend, messages, reportError, runStream]);
 
   const handleGenerateFeedback = useCallback(async () => {
-    if (!canGenerateFeedback) return;
+    if (!canGenerateFeedback || feedbackRequestInFlightRef.current) return;
+    feedbackRequestInFlightRef.current = true;
     setIsGeneratingFeedback(true);
     setStreamingFeedback(createEmptyFeedback());
     shouldAnnounceFeedbackSuccessRef.current = true;
@@ -671,6 +673,7 @@ export function useInterviewConversationController({
       reportError(streamError, context, context.source);
     } finally {
       setIsGeneratingFeedback(false);
+      feedbackRequestInFlightRef.current = false;
     }
   }, [canGenerateFeedback, reportError, runStream]);
 

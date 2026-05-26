@@ -18,12 +18,26 @@ describe("app-url", () => {
 
   it("fails closed when production app url is missing", async () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
     vi.stubEnv("BETTER_AUTH_URL", "");
 
     const { getAppUrl } = await import("./app-url");
 
     expect(() => getAppUrl()).toThrow(/NEXT_PUBLIC_APP_URL or BETTER_AUTH_URL/);
+  });
+
+  it("uses localhost fallback for explicit local production builds", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_ENV", "local");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "local");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
+    vi.stubEnv("BETTER_AUTH_URL", "");
+
+    const { getAppUrl } = await import("./app-url");
+
+    expect(getAppUrl()).toBe("http://localhost:3000");
   });
 
   it("prefers an explicitly configured public app url", async () => {

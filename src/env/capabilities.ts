@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 import { resolveAppEnvironment, validateAppEnvironmentConfiguration } from "@/env/deployment";
-import { parseTrustedOriginList } from "@/lib/trusted-origins";
+import { assertTrustedOriginsForEnvironment, parseTrustedOriginList } from "@/lib/trusted-origins";
 
 export type RuntimeEnvProfile = "development" | "test" | "staging" | "production";
 
@@ -220,28 +220,12 @@ export function validateStartupCapabilities(
 
   try {
     const authEnv = requireAuthEnv(env);
-    const origins = new Set(authEnv.trustedOrigins);
-    if (origins.size === 0) {
-      fatal.push("BETTER_AUTH_TRUSTED_ORIGINS must be configured in deployed environments.");
-    }
-    for (const origin of origins) {
-      const parsed = new URL(origin);
-      if (parsed.protocol !== "https:") {
-        fatal.push("BETTER_AUTH_TRUSTED_ORIGINS must use HTTPS in deployed environments.");
-        break;
-      }
-    }
-    if (profile === "production") {
-      for (const origin of ["https://www.shupass.jp", "https://shupass.jp"]) {
-        if (!origins.has(origin)) {
-          fatal.push(`BETTER_AUTH_TRUSTED_ORIGINS must include ${origin} in production.`);
-        }
-      }
-    } else if (profile === "staging") {
-      if (!origins.has("https://stg.shupass.jp")) {
-        fatal.push("BETTER_AUTH_TRUSTED_ORIGINS must include https://stg.shupass.jp in staging.");
-      }
-    }
+    assertTrustedOriginsForEnvironment(new Set(authEnv.trustedOrigins), resolveAppEnvironment(env));
+    const origins = new Set([
+      ...authEnv.trustedOrigins,
+      new URL(authEnv.baseURL).origin,
+    ]);
+    assertTrustedOriginsForEnvironment(origins, resolveAppEnvironment(env));
   } catch (error) {
     if (error instanceof AuthConfigurationError) {
       fatal.push(buildCapabilityErrorMessage("auth", error.missingKeys, error.invalidKeys));

@@ -27,9 +27,11 @@ jobs:
     timeout-minutes: 25
     env:
       SKIP_NPM_AUDIT: ${{ github.head_ref == 'legal-release-20260331' && '1' || '0' }}
+      APP_ENV: staging
+      NEXT_PUBLIC_APP_ENV: staging
       NEXT_PUBLIC_APP_URL: https://stg.shupass.jp
       BETTER_AUTH_URL: https://stg.shupass.jp
-      BETTER_AUTH_TRUSTED_ORIGINS: https://stg.shupass.jp,http://localhost:3000,http://127.0.0.1:3000
+      BETTER_AUTH_TRUSTED_ORIGINS: https://stg.shupass.jp
       BETTER_AUTH_SECRET: ci-secret-please-change-me-32chars
       GOOGLE_CLIENT_ID: ci-google-client-id
       GOOGLE_CLIENT_SECRET: ci-google-client-secret
@@ -169,9 +171,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
+      APP_ENV: staging
+      NEXT_PUBLIC_APP_ENV: staging
       NEXT_PUBLIC_APP_URL: https://stg.shupass.jp
       BETTER_AUTH_URL: https://stg.shupass.jp
-      BETTER_AUTH_TRUSTED_ORIGINS: https://stg.shupass.jp,http://localhost:3000,http://127.0.0.1:3000
+      BETTER_AUTH_TRUSTED_ORIGINS: https://stg.shupass.jp
       BETTER_AUTH_SECRET: ci-secret-please-change-me-32chars
       GOOGLE_CLIENT_ID: ci-google-client-id
       GOOGLE_CLIENT_SECRET: ci-google-client-secret

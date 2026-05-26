@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useOperationLock } from "@/hooks/useOperationLock";
 import { useConversationRuntime, useLockedOperation } from "@/hooks/conversation";
@@ -50,6 +50,46 @@ type GakuchikaDraftQuality = {
   selectionReason?: string;
 } | null;
 
+function toDraftResultQuality(quality: unknown): GakuchikaDraftQuality {
+  if (!quality || typeof quality !== "object" || Array.isArray(quality)) return null;
+  const record = quality as Record<string, unknown>;
+  const rawStatus = record.status;
+  const status =
+    rawStatus === "passed" || rawStatus === "repaired" || rawStatus === "warning"
+      ? rawStatus
+      : rawStatus === "failed"
+        ? "warning"
+        : undefined;
+  const warnings = Array.isArray(record.warnings)
+    ? record.warnings.filter((warning): warning is string => typeof warning === "string")
+    : [];
+  const retryCount =
+    typeof record.retryCount === "number"
+      ? record.retryCount
+      : typeof record.retry_count === "number"
+        ? record.retry_count
+        : 0;
+  const failureCodes = Array.isArray(record.failure_codes)
+    ? record.failure_codes.filter((code): code is string => typeof code === "string")
+    : Array.isArray(record.failureCodes)
+      ? record.failureCodes.filter((code): code is string => typeof code === "string")
+      : [];
+  const selectionReason =
+    typeof record.selectionReason === "string"
+      ? record.selectionReason
+      : typeof record.selection_reason === "string"
+        ? record.selection_reason
+        : undefined;
+
+  return {
+    status,
+    warnings,
+    retryCount,
+    failure_codes: failureCodes,
+    selectionReason,
+  };
+}
+
 type ControllerParams = {
   gakuchikaId: string;
 };
@@ -89,6 +129,7 @@ export function useGakuchikaConversationController({
   const [generatedDraftText, setGeneratedDraftText] = useState<string | null>(null);
   const [generatedDocumentId, setGeneratedDocumentId] = useState<string | null>(null);
   const [generatedDraftQuality, setGeneratedDraftQuality] = useState<GakuchikaDraftQuality>(null);
+  const summaryRequestInFlightRef = useRef(false);
 
   const clearDraftModalState = useCallback(() => {
     setIsDraftModalOpen(false);
@@ -172,6 +213,9 @@ export function useGakuchikaConversationController({
         setGakuchikaContent(conversationData.gakuchikaContent || null);
         setSessions([]);
         setConversationState(getDefaultConversationState());
+        setGeneratedDraftText(null);
+        setGeneratedDocumentId(null);
+        setGeneratedDraftQuality(null);
         setSummary(null);
         setIsSummaryLoading(false);
         setSummaryRequested(false);
@@ -185,11 +229,11 @@ export function useGakuchikaConversationController({
         setIsAIPowered(conversationData.isAIPowered ?? true);
         const restoredState = conversationData.conversationState || getDefaultConversationState();
         setConversationState(restoredState);
+        setGeneratedDraftText(restoredState.draftText ?? null);
+        setGeneratedDocumentId(restoredState.draftDocumentId ?? null);
+        setGeneratedDraftQuality(toDraftResultQuality(restoredState.draftQuality));
         setSessions(conversationData.sessions || []);
         setCurrentSessionId(conversationData.conversation?.id || null);
-        if (restoredState?.draftQuality) {
-          setGeneratedDraftQuality(restoredState.draftQuality);
-        }
       }
 
       if (gakuchikaRes.ok) {
@@ -223,7 +267,8 @@ export function useGakuchikaConversationController({
   }, [fetchConversation]);
 
   const retrySummary = useCallback(async () => {
-    if (!currentSessionId) return;
+    if (!currentSessionId || summaryRequestInFlightRef.current) return;
+    summaryRequestInFlightRef.current = true;
     setSummaryRequested(true);
     setSummary(null);
     setIsSummaryLoading(true);
@@ -262,6 +307,7 @@ export function useGakuchikaConversationController({
       );
     } finally {
       setIsSummaryLoading(false);
+      summaryRequestInFlightRef.current = false;
     }
   }, [currentSessionId, gakuchikaId]);
 
@@ -341,11 +387,15 @@ export function useGakuchikaConversationController({
     setIsInterviewReadyState(Boolean(data.isInterviewReady));
     if (data.conversationState) {
       const incoming = data.conversationState;
-      setConversationState((prev) => (prev ? buildConversationStatePatch(prev, incoming) : incoming));
+      const next = conversationState ? buildConversationStatePatch(conversationState, incoming) : incoming;
+      setConversationState(next);
+      setGeneratedDraftText(next.draftText ?? null);
+      setGeneratedDocumentId(next.draftDocumentId ?? null);
+      setGeneratedDraftQuality(toDraftResultQuality(next.draftQuality));
     }
     setSessions(data.sessions || []);
     setIsAIPowered(data.isAIPowered ?? true);
-  }, []);
+  }, [conversationState]);
 
   const resumeSession = useCallback(async () => {
     await runLockedOperation({
@@ -463,7 +513,7 @@ export function useGakuchikaConversationController({
       const data = await response.json();
       setGeneratedDraftText(data.draft ?? null);
       setGeneratedDocumentId(data.documentId ?? null);
-      setGeneratedDraftQuality(data.draftQuality ?? null);
+      setGeneratedDraftQuality(toDraftResultQuality(data.draftQuality ?? null));
       notifyGakuchikaDraftGenerated();
       setIsDraftModalOpen(true);
       await fetchConversation(currentSessionId || undefined);

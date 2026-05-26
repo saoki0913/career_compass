@@ -44,6 +44,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
+      APP_ENV: staging
+      NEXT_PUBLIC_APP_ENV: staging
       NEXT_PUBLIC_APP_URL: https://stg.shupass.jp
       BETTER_AUTH_URL: https://stg.shupass.jp
       BETTER_AUTH_TRUSTED_ORIGINS: https://stg.shupass.jp

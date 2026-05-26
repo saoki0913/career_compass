@@ -34,7 +34,7 @@ describe("useGakuchikaConversationController", () => {
   });
 
   it("restores generatedDraftQuality from conversationState.draftQuality on fetch", () => {
-    expect(source).toContain("restoredState?.draftQuality");
+    expect(source).toContain("toDraftResultQuality(restoredState.draftQuality)");
     expect(source).toContain("setGeneratedDraftQuality");
   });
 

@@ -2,7 +2,7 @@
  * InterviewPageContent - smoke test
  *
  * Verifies that the component module exports InterviewPageContent,
- * uses shared progress components, and that dead-code has been removed.
+ * delegates sidebar progress to InterviewConversationSidebar, and that dead-code has been removed.
  */
 import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
@@ -23,11 +23,13 @@ describe("InterviewPageContent module", () => {
     expect(source).toContain("window.location.reload()");
   });
 
-  it("uses shared ConversationProgressBar and ConversationPhaseBar", async () => {
-    const source = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
+  it("delegates shared progress bars to InterviewConversationSidebar", async () => {
+    const pageSource = await readFile(new URL("./InterviewPageContent.tsx", import.meta.url), "utf8");
+    const sidebarSource = await readFile(new URL("./InterviewConversationSidebar.tsx", import.meta.url), "utf8");
 
-    expect(source).toContain("ConversationProgressBar");
-    expect(source).toContain("ConversationPhaseBar");
+    expect(pageSource).toContain("InterviewConversationSidebar");
+    expect(sidebarSource).toContain("ConversationProgressBar");
+    expect(sidebarSource).toContain("ConversationPhaseBar");
   });
 
   it("does not contain removed dead code (InterviewProgressCard, lifecycleClass, InterviewFeedbackCard)", async () => {

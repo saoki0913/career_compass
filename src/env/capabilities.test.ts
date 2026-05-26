@@ -88,6 +88,16 @@ describe("capability env validation", () => {
     expect(getRuntimeEnvProfile({ VERCEL_ENV: "preview", NODE_ENV: "development" })).toBe("development");
   });
 
+  it("treats explicit local app env as development even during local production builds", () => {
+    expect(
+      getRuntimeEnvProfile({
+        NODE_ENV: "production",
+        APP_ENV: "local",
+        NEXT_PUBLIC_APP_ENV: "local",
+      }),
+    ).toBe("development");
+  });
+
   it("rejects mismatched APP_ENV and NEXT_PUBLIC_APP_ENV in deployed builds", () => {
     const report = validateStartupCapabilities("staging", {
       ...validDeployedEnv,
@@ -125,6 +135,19 @@ describe("capability env validation", () => {
     });
 
     expect(report.fatal.join("\n")).toMatch(/STRIPE_PORTAL_CONFIGURATION_ID/);
+  });
+
+  it("rejects extra trusted origins in deployed profiles", () => {
+    const report = validateStartupCapabilities("staging", {
+      ...validDeployedEnv,
+      APP_ENV: "staging",
+      NEXT_PUBLIC_APP_ENV: "staging",
+      BETTER_AUTH_URL: "https://stg.shupass.jp",
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://stg.shupass.jp,https://www.shupass.jp",
+    });
+
+    expect(report.fatal.join("\n")).toMatch(/must exactly match https:\/\/stg\.shupass\.jp/);
+    expect(report.fatal.join("\n")).toMatch(/Unexpected: https:\/\/www\.shupass\.jp/);
   });
 
   it("rejects invalid Stripe portal configuration format in production", () => {

@@ -58,6 +58,7 @@
 | Page (一覧) | `src/app/(product)/gakuchika/page.tsx` | 一覧表示 |
 | Page (詳細) | `src/app/(product)/gakuchika/[id]/page.tsx` | 会話 UI + 進捗 |
 | 会話 UI | `src/components/gakuchika/GakuchikaConversationContent.tsx` | メイン会話コンポーネント |
+| 生成導線 | `src/components/chat/ReadyOutputBar.tsx` / `src/components/chat/GenerationModal.tsx` | ES 作成・フィードバック生成の共通入口と生成モーダル |
 | サイドバー | `src/components/gakuchika/GakuchikaConversationSidebar.tsx` | サイドバー（ConversationSidebar を使用） |
 | 進捗 UI | `src/components/gakuchika/NaturalProgressStatus.tsx` | コーチ進捗メッセージ + 残り質問数 |
 | STAR 進捗 | `src/components/gakuchika/STARProgressBar.tsx` | 4 要素ピル表示 |
@@ -430,10 +431,10 @@ src/app/(product)/gakuchika/[id]/page.tsx
   |     |     +-- セッション履歴カード
   |     |     +-- 作成メモカード
   |     +-- ConversationMobileStatus (共通モバイルステータス)
-  |     +-- DraftReadyCTA (共通、材料揃い CTA)
+  |     +-- ReadyOutputBar (共通、生成入口)
   |     +-- CompletionSummary (面接準備パック)
   |     +-- ConversationRestartConfirmDialog (共通、会話やり直し確認)
-  |     +-- DraftPreviewModal (共通、ES下書きプレビュー)
+  |     +-- GenerationModal + DraftResultView (共通、ES下書き生成と結果表示)
   +-- STARProgressBar (一覧用コンパクト表示)
   +-- GakuchikaCard (一覧用カード)
   +-- GakuchikaGrid (一覧レイアウト)

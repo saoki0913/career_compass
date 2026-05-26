@@ -101,7 +101,7 @@ for f in .secrets/**/*.example; do mv "$f" "${f%.example}"; done
 - **sync ゲート（`sync-career-compass-secrets.sh`）が追加で必須化**: Next.js 側 `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`（`require_env_keys`）。アプリ単体は未設定でも起動するがレート制限/トークン制限が無効になり、**provider への同期は通らない**。
 
 **production 限定で追加必須**（`capabilities.ts` の production profile）:
-`STRIPE_PRICE_{STANDARD,PRO}_{MONTHLY,ANNUAL}`, `STRIPE_PORTAL_CONFIGURATION_ID`（`bpc_`）, さらに `BETTER_AUTH_TRUSTED_ORIGINS` に `https://www.shupass.jp,https://shupass.jp` を含めること。
+`STRIPE_PRICE_{STANDARD,PRO}_{MONTHLY,ANNUAL}`, `STRIPE_PORTAL_CONFIGURATION_ID`（`bpc_`）, さらに `BETTER_AUTH_TRUSTED_ORIGINS` は `https://www.shupass.jp,https://shupass.jp` に完全一致させること。staging は `https://stg.shupass.jp` のみ許可する。
 
 **設定時の注意（loss-less）**:
 - **外部 API キーはローカル/staging で流用してよい（本番は分離推奨）**: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, `MISTRAL_API_KEY`, `FIRECRAWL_API_KEY`, `RESEND_API_KEY`, `LOGO_DEV_TOKEN`, `LOGO_DEV_SECRET_KEY`, `BRANDFETCH_CLIENT_ID` は環境分離の境界（webhook endpoint や namespace）を持たないため、ローカルの `.env.local` の値を staging にそのまま流用してよい。ただし `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `GOOGLE_API_KEY` / `RESEND_API_KEY` は漏洩時の影響範囲・quota・監査を分けるため **production は別キーを推奨**（§2-2「原則別値」と整合）。Logo.dev / Brandfetch / Mistral / Firecrawl は本番も同値でよい。一方 `[環境別]`（URL・`DATABASE_URL`/`DIRECT_URL`・`STRIPE_*`・`GOOGLE_CLIENT_ID`/`SECRET`・`UPSTASH_*`/`REDIS_*`・`SENTRY_*` DSN・provider project ID・各種署名鍵）は環境ごとに取得・生成する（判定は §2-2）。
@@ -164,7 +164,7 @@ SYNC_MODE=--apply TARGET=all make ops-secrets-sync
 
 | 変数 | local | CI（GitHub Actions） | staging | production |
 |---|---|---|---|---|
-| `APP_ENV` / `NEXT_PUBLIC_APP_ENV` | 未設定（→ `local`） | 未設定（test 経路） | `staging` | `production` |
+| `APP_ENV` / `NEXT_PUBLIC_APP_ENV` | `local`（通常起動は未設定でも `local`） | 未設定（test 経路） | `staging` | `production` |
 | `NODE_ENV`（自動） | `development` | `test` | `production` | `production` |
 | `NEXT_PUBLIC_APP_URL` / `BETTER_AUTH_URL` | `http://localhost:3000` | `https://stg.shupass.jp`（fixture） | `https://stg.shupass.jp` | `https://www.shupass.jp` |
 | `BETTER_AUTH_TRUSTED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | `https://stg.shupass.jp`（fixture） | `https://stg.shupass.jp`（1 origin） | `https://www.shupass.jp,https://shupass.jp`（2 origin） |

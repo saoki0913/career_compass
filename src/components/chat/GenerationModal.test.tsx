@@ -1,8 +1,28 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+import { GenerationModal } from "./GenerationModal";
 
 const source = readFileSync(path.resolve(__dirname, "GenerationModal.tsx"), "utf8");
+
+beforeAll(() => {
+  window.matchMedia = (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  });
+});
+
+afterEach(cleanup);
 
 describe("GenerationModal", () => {
   it("renders a status-driven state machine with all four states", () => {
@@ -54,5 +74,48 @@ describe("GenerationModal", () => {
   it("switches between Dialog and Sheet by viewport", () => {
     expect(source).toContain("useMediaQuery");
     expect(source).toContain("Sheet");
+  });
+
+  it("disables close controls immediately after generate is clicked and prevents double execution", async () => {
+    let resolveGenerate: (() => void) | null = null;
+    const onGenerate = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveGenerate = resolve;
+        }),
+    );
+    const onOpenChange = vi.fn();
+
+    render(
+      <GenerationModal
+        open
+        onOpenChange={onOpenChange}
+        status="ready"
+        title="ES作成"
+        generateAction={{
+          label: "ESを生成",
+          onGenerate,
+        }}
+      />,
+    );
+
+    const generateButton = screen.getByRole("button", { name: "ESを生成" });
+    fireEvent.click(generateButton);
+    fireEvent.click(generateButton);
+
+    expect(onGenerate).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("生成処理中のため、完了するまでこの画面は閉じられません。")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+
+    const cancelButton = screen.getByRole("button", { name: "キャンセル" }) as HTMLButtonElement;
+    expect(cancelButton.disabled).toBe(true);
+    fireEvent.click(cancelButton);
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    resolveGenerate?.();
+
+    await waitFor(() => {
+      expect((screen.getByRole("button", { name: "キャンセル" }) as HTMLButtonElement).disabled).toBe(false);
+    });
   });
 });

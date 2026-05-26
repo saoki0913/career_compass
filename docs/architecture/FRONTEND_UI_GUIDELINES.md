@@ -196,18 +196,17 @@ preflight では、最低限次の 7 点を言語化する。
 
 各機能ページは Shell を使い、独自のレイアウト div を持たない。対応する skeleton は `ConversationWorkspaceShellSkeleton`（`src/components/skeletons/ConversationWorkspaceShellSkeleton.tsx`）を共有し、サイドバー slot で機能別コンテンツを注入する。
 
-### ES 生成アクションバー: `ConversationActionBar`
+### 生成アクションバー: `ReadyOutputBar`
 
-`src/components/chat/ConversationActionBar.tsx` は文字数選択 + 生成ボタンのコンパクトなバー。`helperText` は省略可能で、省略時は 2 カラム (controls + button) のみの 1 行レイアウトになる。
+`src/components/chat/ReadyOutputBar.tsx` は ES 作成、フィードバック生成、まとめシート作成などの生成入口をヘッダーに出す共通バー。条件未達でも入口は有効にし、押下後の `GenerationModal` 内で未達条件・設定・生成中・完了結果を表示する。生成中のクリックは新規生成ではなく、進捗表示モーダルの再表示として扱う。
 
-### 文字数選択: `CharLimitSelector`
+### 生成モーダル: `GenerationModal`
 
-`src/components/chat/CharLimitSelector.tsx` は 300/400/500 字の選択ボタン。`ConversationActionBar` の `controls` slot に渡して使う。
+`src/components/chat/GenerationModal.tsx` は `locked` / `ready` / `generating` / `done` の 4 状態を受け取り、生成系導線を共通化する。文字数選択などの設定 UI は `settingsSlot`、生成結果は `resultSlot` に差し込む。生成開始直後から完了まで、閉じる操作と二重実行を抑止する。
 
-### 下書きプレビュー: `DraftPreviewModal`
+### 下書き結果表示: `DraftResultView`
 
-`src/components/chat/DraftPreviewModal.tsx` は ES 下書きのプレビューモーダル。ガクチカ・志望動機で共通。props で差分を吸収:
-- `deepDiveConfirm` — ガクチカのみ AlertDialog 確認付き
+`src/components/chat/DraftResultView.tsx` は `GenerationModal` の `resultSlot` で使う ES 下書き本文表示。ガクチカ・志望動機で共通。props で差分を吸収:
 - `draftQuality` — ガクチカのみ品質警告表示
 - `preBodyNotice` — ガクチカのみ削除注意バナー
 
@@ -235,6 +234,7 @@ preflight では、最低限次の 7 点を言語化する。
 各機能は feature-specific wrapper を持つ:
 - ガクチカ: `GakuchikaConversationSidebar`（`src/components/gakuchika/`）
 - 志望動機: `MotivationConversationSidebar`（`src/components/motivation/`）
+- 面接対策: `InterviewConversationSidebar`（`src/components/interview/`）
 
 `ConversationSidebarCard`（`ConversationWorkspaceShell.tsx` 内）をカード単位で使い、外側のラッパーは Shell が提供する。
 
@@ -251,10 +251,6 @@ preflight では、最低限次の 7 点を言語化する。
 ### リスタートダイアログ: `ConversationRestartConfirmDialog`
 
 `src/components/chat/ConversationRestartConfirmDialog.tsx` は会話やり直し確認の共通ダイアログ。`title`、`description`、`confirmLabel` でカスタマイズ可能。ガクチカ・志望動機の両方で使用。
-
-### 材料揃い CTA: `DraftReadyCTA`
-
-`src/components/chat/DraftReadyCTA.tsx` は材料が揃った時点で表示する CTA。`variant: "pre-draft" | "post-draft"` で生成前/生成後のスタイルを切り替える。
 
 ### モバイルステータス: `ConversationMobileStatus`
 

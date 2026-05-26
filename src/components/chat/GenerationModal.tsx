@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Check, FileText, Info, Loader2, PenLine, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -78,7 +78,7 @@ export type GenerationModalProps = {
   /** done 時の結果本体。 */
   resultSlot?: ReactNode;
   /** ready 時の生成実行アクション。 */
-  generateAction?: { label: string; onGenerate: () => void; disabled?: boolean };
+  generateAction?: { label: string; onGenerate: () => void | Promise<void>; disabled?: boolean };
   /** done 時の主アクション（エディタを開くなど）。 */
   primaryAction?: { label: string; onClick: () => void; loading?: boolean };
   /** done 時の副アクション（深掘り再生成など。確認ダイアログ対応）。 */
@@ -138,6 +138,7 @@ function ModalBody({
   generatingLabel,
   resultSlot,
   secondaryNotice,
+  blocking,
   mobile,
 }: {
   status: GenerationStatus;
@@ -150,6 +151,7 @@ function ModalBody({
   generatingLabel?: ReactNode;
   resultSlot?: ReactNode;
   secondaryNotice?: ReactNode;
+  blocking: boolean;
   mobile: boolean;
 }) {
   const showHelper = (status === "locked" || status === "ready") && Boolean(helperText);
@@ -159,6 +161,12 @@ function ModalBody({
       aria-busy={status === "generating"}
       aria-live="polite"
     >
+      {blocking ? (
+        <div className="mb-4 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-xs leading-5 text-foreground/85">
+          生成処理中のため、完了するまでこの画面は閉じられません。
+        </div>
+      ) : null}
+
       {showHelper ? (
         <div className="mb-4 flex gap-2 rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-xs leading-5 text-foreground/85">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
@@ -210,6 +218,8 @@ function ModalFooter({
   primaryAction,
   secondaryAction,
   mobile,
+  blocking,
+  onGenerate,
 }: {
   status: GenerationStatus;
   onClose: () => void;
@@ -217,6 +227,8 @@ function ModalFooter({
   primaryAction?: GenerationModalProps["primaryAction"];
   secondaryAction?: GenerationModalSecondaryAction;
   mobile: boolean;
+  blocking: boolean;
+  onGenerate: () => void;
 }) {
   const deepDiveButton = secondaryAction
     ? secondaryAction.confirm
@@ -241,22 +253,26 @@ function ModalFooter({
     <div className={cn("shrink-0 border-t border-border/60", mobile ? "px-4 py-4" : "px-6 py-4")}>
       <div className={cn("flex gap-3", mobile ? "flex-col-reverse" : "flex-row justify-end")}>
         {status === "locked" ? (
-          <Button variant="outline" className="rounded-full" onClick={onClose}>
+          <Button variant="outline" className="rounded-full" onClick={onClose} disabled={blocking}>
             閉じる
           </Button>
         ) : null}
 
         {status === "ready" && generateAction ? (
           <>
-            <Button variant="outline" className="rounded-full" onClick={onClose}>
+            <Button variant="outline" className="rounded-full" onClick={onClose} disabled={blocking}>
               キャンセル
             </Button>
             <Button
               className={cn("rounded-full", !mobile && "min-w-[12rem]")}
-              onClick={generateAction.onGenerate}
-              disabled={generateAction.disabled}
+              onClick={onGenerate}
+              disabled={generateAction.disabled || blocking}
             >
-              <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+              {blocking ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" aria-hidden />
+              )}
               {generateAction.label}
             </Button>
           </>
@@ -320,7 +336,25 @@ export function GenerationModal({
 }: GenerationModalProps) {
   const isMobile = useMediaQuery(MOBILE_MEDIA_QUERY);
   const Icon = ICON_MAP[icon];
-  const isGenerating = status === "generating";
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const isBlockingClose = status === "generating" || isSubmitting || submittingRef.current;
+
+  const handleGenerate = () => {
+    if (!generateAction || generateAction.disabled || isBlockingClose || submittingRef.current) return;
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    void (async () => {
+      try {
+        await generateAction.onGenerate();
+      } catch {
+        // 呼び出し側の生成処理がユーザー向けエラーを出すため、共通モーダル側では未処理拒否だけを防ぐ。
+      } finally {
+        submittingRef.current = false;
+        setIsSubmitting(false);
+      }
+    })();
+  };
 
   const body = (
     <ModalBody
@@ -334,6 +368,7 @@ export function GenerationModal({
       generatingLabel={generatingLabel}
       resultSlot={resultSlot}
       secondaryNotice={secondaryAction?.notice}
+      blocking={isBlockingClose}
       mobile={isMobile}
     />
   );
@@ -346,6 +381,8 @@ export function GenerationModal({
       primaryAction={primaryAction}
       secondaryAction={secondaryAction}
       mobile={isMobile}
+      blocking={isBlockingClose}
+      onGenerate={handleGenerate}
     />
   );
   const footer = secondaryAction?.confirm ? <AlertDialog>{footerInner}</AlertDialog> : footerInner;
@@ -355,18 +392,19 @@ export function GenerationModal({
       <Sheet
         open={open}
         onOpenChange={(next) => {
-          if (isGenerating) return;
+          if (isBlockingClose) return;
           if (!next) onOpenChange(false);
         }}
       >
         <SheetContent
           side="bottom"
+          showCloseButton={!isBlockingClose}
           className="flex h-[94dvh] flex-col rounded-t-2xl border-0 p-0"
           onEscapeKeyDown={(event) => {
-            if (isGenerating) event.preventDefault();
+            if (isBlockingClose) event.preventDefault();
           }}
           onPointerDownOutside={(event) => {
-            if (isGenerating) event.preventDefault();
+            if (isBlockingClose) event.preventDefault();
           }}
         >
           <SheetHeader className="shrink-0 border-b border-border/60 px-4 py-3 text-left">
@@ -394,17 +432,17 @@ export function GenerationModal({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (isGenerating) return;
+        if (isBlockingClose) return;
         if (!next) onOpenChange(false);
       }}
     >
       <DialogContent
-        showCloseButton={!isGenerating}
+        showCloseButton={!isBlockingClose}
         onEscapeKeyDown={(event) => {
-          if (isGenerating) event.preventDefault();
+          if (isBlockingClose) event.preventDefault();
         }}
         onPointerDownOutside={(event) => {
-          if (isGenerating) event.preventDefault();
+          if (isBlockingClose) event.preventDefault();
         }}
         className={cn(
           "flex max-h-[min(96vh,1040px)] flex-col overflow-hidden rounded-2xl border-border/60 p-0 shadow-lg",

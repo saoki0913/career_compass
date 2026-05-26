@@ -10,17 +10,10 @@ const PRODUCTION_ORIGINS = [
   "https://www.shupass.jp",
   "https://shupass.jp",
 ];
+const STAGING_ORIGINS = ["https://stg.shupass.jp"];
 
 function isStrictOriginValidationEnabled() {
   return isDeployedAppEnvironment();
-}
-
-function isProductionDeployment() {
-  return resolveAppEnvironment() === "production";
-}
-
-function isStagingDeployment() {
-  return resolveAppEnvironment() === "staging";
 }
 
 export function normalizeOrigin(value?: string | null): string | null {
@@ -83,6 +76,13 @@ export function parseTrustedOriginList(value?: string, options: { strict?: boole
 }
 
 function assertTrustedOriginsAreSafe(origins: Set<string>) {
+  assertTrustedOriginsForEnvironment(origins);
+}
+
+export function assertTrustedOriginsForEnvironment(
+  origins: Set<string>,
+  environment = resolveAppEnvironment(),
+) {
   if (origins.size === 0) {
     throw new Error("BETTER_AUTH_TRUSTED_ORIGINS must be configured in deployed environments.");
   }
@@ -97,14 +97,26 @@ function assertTrustedOriginsAreSafe(origins: Set<string>) {
     }
   }
 
-  if (isProductionDeployment()) {
-    for (const origin of PRODUCTION_ORIGINS) {
-      if (!origins.has(origin)) {
-        throw new Error(`BETTER_AUTH_TRUSTED_ORIGINS must include ${origin} in production.`);
-      }
-    }
-  } else if (isStagingDeployment() && !origins.has("https://stg.shupass.jp")) {
-    throw new Error("BETTER_AUTH_TRUSTED_ORIGINS must include https://stg.shupass.jp in staging.");
+  if (environment === "production") {
+    assertExactOrigins(origins, PRODUCTION_ORIGINS, "production");
+  } else if (environment === "staging") {
+    assertExactOrigins(origins, STAGING_ORIGINS, "staging");
+  }
+}
+
+function assertExactOrigins(origins: Set<string>, expectedOrigins: string[], environment: string) {
+  const expected = new Set(expectedOrigins);
+  const missing = expectedOrigins.filter((origin) => !origins.has(origin));
+  const unexpected = [...origins].filter((origin) => !expected.has(origin));
+
+  if (missing.length > 0 || unexpected.length > 0) {
+    throw new Error(
+      [
+        `BETTER_AUTH_TRUSTED_ORIGINS must exactly match ${expectedOrigins.join(", ")} in ${environment}.`,
+        missing.length > 0 ? `Missing: ${missing.join(", ")}.` : null,
+        unexpected.length > 0 ? `Unexpected: ${unexpected.join(", ")}.` : null,
+      ].filter(Boolean).join(" "),
+    );
   }
 }
 
@@ -116,6 +128,9 @@ export function getTrustedOrigins(value = process.env.BETTER_AUTH_TRUSTED_ORIGIN
   }
 
   const origins = new Set<string>(configuredOrigins);
+  if (strict) {
+    assertTrustedOriginsAreSafe(origins);
+  }
 
   origins.add(getAppOrigin());
 
