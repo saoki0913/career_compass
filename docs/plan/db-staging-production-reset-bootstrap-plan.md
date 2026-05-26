@@ -1,160 +1,300 @@
-# DB 再設計に伴う staging / production リセット・再ブートストラップ計画
+# DB/RLS 確定後の staging / production リセット・再ブートストラップ計画
+
+> **運用手順正本**: DB/RLS の設計本体は [`db-design-optimization-rls.md`](./db-design-optimization-rls.md) を正本とする。本書は DB/RLS 設計確定後に local → staging → production をリセットし、再ブートストラップするための運用手順に限定する。
 
 > 作成日: 2026-05-24
-> 対象: Career Compass (就活Pass) — Supabase PostgreSQL + Drizzle ORM
-> 関連: DB 再設計の本体は [`db-design-optimization-rls.md`](./db-design-optimization-rls.md)、取得手順は [`../release/SUPABASE.md`](../release/SUPABASE.md)、運用は [`../operations/production/DB_MIGRATION.md`](../operations/production/DB_MIGRATION.md)、変数 SSOT は [`../operations/platform/ENVIRONMENT_VARIABLES.md`](../operations/platform/ENVIRONMENT_VARIABLES.md)
+> 最終更新: 2026-05-25
+> 関連: [`../release/SUPABASE.md`](../release/SUPABASE.md), [`../operations/production/DB_MIGRATION.md`](../operations/production/DB_MIGRATION.md), [`../operations/platform/ENVIRONMENT_VARIABLES.md`](../operations/platform/ENVIRONMENT_VARIABLES.md), [`../release/STRIPE.md`](../release/STRIPE.md)
 
 ---
 
-## 1. 背景・決定
+## 1. 目的
 
-env 変数セットアップ作業（2026-05-24）の中で、staging DB の migration を流そうとして **migration の fresh replay が失敗**する問題が判明した。これを受けてユーザーは次を決定した。
+DB/RLS 設計が確定した後、staging / production を安全に破棄・再構築する。
 
-- **DB 関連の env 設定は後回しにする**。DB 以外のサービス（Stripe / Google OAuth / Upstash / Sentry 等）の env 設定は DB と独立に先行してよい。
-- ローカルで **DB を大幅に再設計**してから、staging / production に適用し直す。
-- **現在の staging / production DB は完全リセット前提**（破棄してよい）。本番 DB にも消して良い開発データしかない（開発中フェーズ）。
-- 再設計が完了してから、両環境の DB を新規に作り直す。
+本書では以下を扱う。
 
-> env テンプレ整備（doc / `secrets-examples` / README）の commit は完了済み（`c872b4c0`）。DB はその中の唯一の後回し項目。
+- migration fresh replay 不能問題の解消後の再構築手順
+- staging / production の reset gate
+- 3 層 migration (`schema / integrity / security`) の適用順
+- `pending: 0` / `supabasePending: 0` / remote-only 履歴なし確認
+- Supabase project link 誤爆防止
+- secret sync check
+- Stripe preflight と Terms URL 確認
+- production reset 時の停止手順
+- バックアップまたは PITR 復元点、復元 rehearsal
 
----
-
-## 2. 今回の調査で判明した事実
-
-### 2.1 migration の fresh replay が失敗する（最重要）
-
-`drizzle_pg/0018_conversation_jsonb.sql` と `drizzle_pg/0026_db_redesign_jsonb_columns.sql` が、`text` 列を `jsonb` に変換する際に **`DROP DEFAULT` を挟まずに `ALTER COLUMN ... TYPE jsonb USING ...::jsonb` している**。
-
-- 例: `stage_question_counts` は `0015_interview_sessions.sql` で `text DEFAULT '{}' NOT NULL` として作成 → `0018` が型変換で `default for column "stage_question_counts" cannot be cast automatically to type jsonb` で失敗。
-- `USING` 句は行データの変換用で、**既存 DEFAULT のキャストは別途必要**。空 DB でもデータと無関係に DEFAULT のキャストで落ちる。
-- 該当列は `0018` / `0026` に多数（`messages` / `completed_stages` / `scores` / `corporate_info_urls` / `phase` / `metadata` 等）。
-
-### 2.2 本番が pending:0 だった理由
-
-production DB は `make db-migrate-check` で `pending: 0`（Drizzle）かつ hash 不一致なし。これは **先に現行スキーマを構築（db:push 相当で列が最初から jsonb）→ migration を journal に記録（baseline）** という手順でブートストラップされたため。順次 replay を経ていないので 2.1 のバグを踏んでいない。
-
-→ 既存の migration ファイル（`0018` / `0026`）を後から編集すると**ハッシュが変わり、本番 journal と不一致**になる。編集は避け、再設計で squash するのが安全。
-
-### 2.3 環境の現状（リセット対象）
-
-- **staging** (`vbjykhkyhmxickxcgvdh`): 完全新規。今回 db:push + journal baseline（`scripts/release/baseline-drizzle-journal.mjs`）で一度ブートストラップしたが、RLS 未適用。**リセット対象。**
-- **production**: 既存・稼働実績あり。Drizzle journal は baseline 済み（pending:0）。Supabase CLI migration（RLS 系21本）は記録が乖離（appliedCount=15、local=21）。**リセット対象。**
-
-### 2.4 未解決の確認事項
-
-- supabase CLI に**別プロジェクト `dqlaqqgldpmfqmfzzgvk` へのリンクが残存**している。素の `supabase db push`（`--db-url` なし）はこの別プロジェクトに当たるため**実行禁止**。正体（ローカル開発用 cloud DB か / 本番か）を要確認・整理。
+本書では DB/RLS の設計判断そのものは扱わない。
 
 ---
 
-## 3. 再設計時に必ず満たす条件
+## 2. 背景・決定
 
-1. **migration を fresh replay-safe にする**。最も確実なのは **migration の squash**（再設計後の現行スキーマから `db:generate` で 0000 を作り直す）。squash しない場合は、各 `text→jsonb` 変換の直前に `ALTER COLUMN ... DROP DEFAULT` を入れてから `TYPE jsonb`、最後に `SET DEFAULT ...::jsonb` の順にする。
-2. RLS / ハードニング（`supabase/migrations/`）も新スキーマのテーブル構成に合わせて整理する。
-3. `src/lib/db/schema.ts` 再設計の本体方針は [`db-design-optimization-rls.md`](./db-design-optimization-rls.md) に従う。
+2026-05-24 の env 変数セットアップ作業で、staging DB の migration fresh replay が失敗する問題が判明した。
 
----
+ユーザー決定:
 
-## 4. リセット & 再ブートストラップ手順（再設計完了後に実施）
-
-> staging で先に通し、確認後に production。production 適用前に「消して良いデータのみ」であることを再確認する。
-
-1. **ローカルで再設計を確定** — `src/lib/db/schema.ts` を再設計 → `npm run db:generate`（squash 推奨で fresh replay-safe な migration を再生成）。`make db-validate` / `npx tsc --noEmit` で整合確認。
-2. **対象 DB を完全リセット** — 各環境の Supabase で（接続先 ref を必ず確認のうえ）:
-   ```sql
-   DROP SCHEMA IF EXISTS public CASCADE;
-   DROP SCHEMA IF EXISTS drizzle CASCADE;
-   CREATE SCHEMA public;
-   GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
-   GRANT ALL ON SCHEMA public TO postgres, service_role;
-   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, service_role;
-   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, service_role;
-   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO postgres, service_role;
-   ```
-   （`auth` / `storage` / `extensions` 等の Supabase システムスキーマには触れない）
-3. **Drizzle スキーマ適用** — fresh replay が通る前提なら正攻法で:
-   ```bash
-   dotenv -e .env.<env> -- node scripts/release/run-migrations.mjs --env <env> --json   # staging はまず確認、production は make deploy-migrate
-   ```
-   replay が通らない場合のみ、db:push + journal baseline にフォールバック（[`scripts/release/baseline-drizzle-journal.mjs`](../../scripts/release/baseline-drizzle-journal.mjs)）。
-4. **RLS / ハードニング適用** — `--db-url` で対象 DB を明示（リンク状態に依存しない）:
-   ```bash
-   dotenv -e .env.<env> -- sh -c 'supabase migration list --db-url "$DIRECT_URL"'   # 差分確認
-   dotenv -e .env.<env> -- sh -c 'supabase db push --db-url "$DIRECT_URL"'           # 適用
-   ```
-   > `dotenv` はプロジェクトの `./node_modules/.bin/dotenv`（dotenv-cli）を使う。OS の Python 版 `dotenv` は `-e` の意味が異なり使えない。
-5. **env を更新** — `.env.staging` / `.env.production` と `.secrets/{staging,production}/nextjs.env` の `DATABASE_URL`（6543 Transaction Pooler）/ `DIRECT_URL`（5432 Session Pooler）。`DIRECT_URL` は **Session Pooler（`aws-...pooler.supabase.com:5432`）**を使う（Direct の `db.<ref>.supabase.co` は IPv6 専用で IPv4 環境から `no route to host` になる）。
-6. **検証** — `make db-migrate-check-staging` / `make deploy-status` で `pending: 0` / `supabasePending: 0`、`SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname='public'` で RLS 有効を確認。
+- DB 関連 env 設定は、DB 再設計完了まで後回しにする。
+- DB 以外の Stripe / Google OAuth / Upstash / Sentry 等の env 設定は独立に先行してよい。
+- local / staging / production DB は完全リセットしてよい。
+- ただし production reset は機能凍結後の最後に実施する。
 
 ---
 
-## 5. 既知のハマりどころ（今回踏んだもの）
+## 3. 判明している問題
 
-| 症状 | 原因 | 対処 |
-|---|---|---|
-| `getaddrinfo ENOTFOUND db.<ref>.supabase.co` | `DIRECT_URL` に Direct 接続（IPv6 専用） | Session Pooler（`aws-...pooler.supabase.com:5432`）を使う |
-| `default ... cannot be cast automatically to type jsonb` | `0018`/`0026` の replay 非安全 | squash で再生成、または `DROP DEFAULT` を挟む |
-| `password authentication failed` (supabase link) | リンクのプロンプトに誤ったパスワード | `--db-url "$DIRECT_URL"` で接続文字列直指定にしてプロンプト回避 |
-| 別プロジェクトに push されそうになる | 旧リンク `dqlaqqgldpmfqmfzzgvk` 残存 | 必ず `--db-url` を使う。素の `supabase db push` を実行しない |
-| `dotenv: Invalid value for '-e'` | OS の Python 版 `dotenv` | `./node_modules/.bin/dotenv`（dotenv-cli）を使う |
-| ローカル `db:push` が `column "messages" cannot be cast automatically to type jsonb` | 旧スキーマ DB への in-place `text→jsonb` ALTER（0018/0026 と同根） | 空 DB に db:push（fresh）。in-place 変換は不可 |
-| `make db-up`（`supabase start`）が `relation "users" does not exist` で失敗 | `config.toml [db.migrations] enabled=true` がまっさらな DB に `supabase/migrations/` を適用するが、それらが Drizzle 製テーブル（`users` 等）に依存 | local は `[db.migrations] enabled=false` + `npm run db:push`（Drizzle が schema SSOT）。RLS は deployed のみ |
+### 3.1 Drizzle migration の fresh replay 失敗
 
-> **migration アーキテクチャの根本問題（要再設計）**: `supabase/migrations/`（CLI・21本）と `drizzle_pg/`（Drizzle・40本）が**混在**し、一部テーブル（例 `interview_conversations`）が**両方で定義**されている。さらに `supabase/migrations` が Drizzle 製テーブルに FK 依存するため、まっさらな DB に `supabase start` 単独で当てると順序エラーで落ちる。再設計では (a) Drizzle を schema SSOT に一本化、(b) `supabase/migrations` は RLS/ハードニング overlay に限定し Drizzle 適用後に流す前提を明確化、(c) local は `[db.migrations] enabled=false`、を満たす。
+`drizzle_pg/0018_conversation_jsonb.sql` と `drizzle_pg/0026_db_redesign_jsonb_columns.sql` は、text→jsonb 変換時に `DROP DEFAULT` を挟まず `ALTER COLUMN ... TYPE jsonb USING ...::jsonb` している。
 
----
+空 DB でも既存 DEFAULT の型変換で失敗し得るため、旧 migration を編集するのではなく、機能凍結後に 3 層 migration として作り直す。
 
-## 6. 本番 Stripe live 設定（デプロイ直前に実施・手順確定済み）
+### 3.2 baseline 済み DB と履歴不一致
 
-> 正本の手順は [`../release/STRIPE.md`](../release/STRIPE.md)。本節は **DB 再設計 → 本番デプロイの順序にどう組み込むか**と前提・検証結果のみを記録する（コマンドは STRIPE.md を参照し重複させない）。2026-05-25 にコードと doc の整合を検証済み。
+production は先に現行スキーマを構築し、Drizzle journal を baseline 済みのため pending:0 になっている。旧 migration を編集すると hash 不一致になる。
 
-### 6.1 前提（2026-05-25 時点・ユーザー確認済み）
+対応:
 
-- Stripe 本番アカウントは **live 承認済み**で `sk_live_` キーを保有。よって live リソース作成（bootstrap-live）は技術的にはいつでも可能。
-- ただし **live checkout の実疎通**には (a) 本番デプロイ（DB 再設計が前提＝本計画 §4 完了後）と (b) credits 修正（`db33fc8e` の `monthly-reset.ts` の `now()` 化）の本番反映が必要。
-- このため live リソース作成も **本番デプロイが近づいてから**まとめて実施する。先行作成しても疎通確認できず、Dashboard に未使用リソースが残るだけのため。
+- 旧 migration は編集しない。
+- 機能凍結後に旧 `drizzle_pg` / `supabase/migrations` を archive へ退避する。
+- reset 後は新しい `schema / integrity / security` 履歴で再構築する。
 
-### 6.2 コード側 hard gate（`validateStripePriceConfig`・本番は server 起動時に強制）
+### 3.3 Supabase CLI link 誤爆リスク
 
-本番 env が次を満たさないと **サーバ起動が FATAL で停止**する（`src/lib/stripe/config.ts` で検証済み）。
+Supabase CLI に別プロジェクト `dqlaqqgldpmfqmfzzgvk` へのリンクが残存している。
 
-- `STRIPE_SECRET_KEY` = `sk_live_*`（`sk_test_*` だと FATAL。staging は逆に `sk_live_` を弾く）
-- `STRIPE_WEBHOOK_SECRET` = `whsec_*`（必須）
-- `STRIPE_PORTAL_CONFIGURATION_ID` = `bpc_*`（必須）
-- `STRIPE_PRICE_*` 4 本すべて `price_*`（必須）
-- 加えて Terms of Service URL（Dashboard → Settings → Public details）未設定だと Checkout が 400。
+禁止:
 
-### 6.3 整合確認済みの事実（コードと doc が一致）
+- 素の `supabase db push`
+- `supabase db push --linked`
+- production 向け `npm run db:push`
 
-- webhook 8 events（`checkout.session.completed` / `customer.subscription.updated` / `customer.subscription.deleted` / `invoice.payment_succeeded` / `invoice.payment_failed` / `charge.refunded` / `charge.dispute.created` / `charge.dispute.closed`）が **`managed-config.json`・STRIPE.md・`route.ts` の dispatch（`STRIPE_EVENT_HANDLERS`）・`webhook-handlers.ts` の 8 ハンドラ**で完全一致。
-- live key 解決順（`scripts/stripe/core.mjs` の `resolveStripeSecretKey`）= `STRIPE_SECRET_KEY_LIVE` → `STRIPE_LIVE_SECRET_KEY` → `STRIPE_SECRET_KEY`（最初の `sk_live_` を採用）。bootstrap は `STRIPE_SECRET_KEY_LIVE` をプロセス env で渡す前提（`.env.local` に置かない）。
-- `handleCheckoutCompleted` は `updatePlanAllocationCoreTx` を呼ぶ。これが credits 修正（`now()`）の対象関数。**credits fix を本番に出さないと本番 checkout が 500 になる**（プラン・クレジット未反映）。
+許可:
 
-### 6.4 デプロイ直前の実施順（本計画 §4 完了後）
-
-1. 本計画 §4 で production DB をリセット・再ブートストラップ（RLS まで）。
-2. credits 修正（`db33fc8e`）を含む `develop` を `main` にマージし本番デプロイ。
-3. `STRIPE_SECRET_KEY_LIVE=<sk_live_...> npm run stripe:bootstrap-live`（STRIPE.md 2-3）。products / prices / webhook / portal を冪等作成。標準出力の `STRIPE_PRICE_*` を控える。
-4. `STRIPE_WEBHOOK_SECRET`（whsec_）は Dashboard で確認し repo local `.secrets/production/nextjs.env` に反映（bootstrap は標準出力に出さない）。
-5. `.secrets/production/nextjs.env` に Stripe 7 値（`STRIPE_SECRET_KEY`=sk_live / `STRIPE_WEBHOOK_SECRET` / 4×`STRIPE_PRICE_*` / `STRIPE_PORTAL_CONFIGURATION_ID`）を入れ、Terms URL を Dashboard で設定。
-6. `zsh scripts/release/sync-career-compass-secrets.sh --check --target vercel-production --vercel-env production` → `--apply ...` で Vercel production に反映。
-7. `make stripe-preflight`（`readiness: "ready"`）で整合確認。
-8. 本番で **実カードの少額 live checkout** で疎通（プラン反映・クレジット付与）を 1 件確認 → 必要なら返金（4242 はテストモード専用で live では使えない）。
-9. `npm run stripe:audit -- --env live --json`（`ok: true`）を CI / cron 監視に組み込む。
-
-> backend (Railway) には Stripe 設定不要（Stripe は Vercel フロントのみ）。
+- 接続先 project ref と DB URL を明示した check / apply
+- release runner 管理下の migration
 
 ---
 
-## 7. 残タスク
+## 4. 実施前 gate
 
-- [ ] ローカル DB 再設計（[`db-design-optimization-rls.md`](./db-design-optimization-rls.md) ベース）と migration squash
-- [ ] `supabase/migrations`（CLI）と `drizzle_pg`（Drizzle）の重複・依存を解消（テーブル定義は Drizzle に一本化、CLI 側は RLS overlay に限定、local は `[db.migrations] enabled=false`）
-- [ ] **DB 再設計完了後に再実施（暫定対応の巻き戻し/再評価）**:
-  - `supabase/config.toml` の `[db.migrations] enabled=false`（2026-05-24 にローカル復旧のため変更）を再評価する。migration を squash して順序安全になれば `true` に戻すか、ローカルは Drizzle SSOT のまま `false` を正式採用するかを決める。
-  - ローカル DB をクリーン再作成して現行スキーマで作り直す（`make db-down-clean` → `make db-up` → `npm run db:push`）。
-  - ローカル決済テスト（`stripe listen` + 4242 実チェックアウト）を再実施して業務ロジック（subscription 作成・クレジット付与）まで通す。
-  - staging / production も §4 でリセット・再ブートストラップし直す。
-- [ ] `dqlaqqgldpmfqmfzzgvk` リンクの正体確認・整理
-- [ ] 再設計確定後、本計画 §4 で staging → production をリセット・再ブートストラップ
-- [ ] 本番デプロイ直前に §6.4 で本番 Stripe live を設定（bootstrap-live → env 7 値 + Terms URL → preflight `ready` → 実カード少額 checkout 疎通）。credits 修正 `db33fc8e` の本番反映が前提
-- [ ] `scripts/release/baseline-drizzle-journal.mjs` の commit 要否判断（squash で不要になる可能性）
+### 4.1 機能凍結 gate
+
+staging / production reset は、以下が満たされるまで実施しない。
+
+- DB/RLS 設計が `db-design-optimization-rls.md` に統合済み。
+- Phase A の local RLS 検証が完了済み。
+- 3 層 migration manifest が確定済み。
+- 旧 `db` import 封じ込め方針が確定済み。
+- code-reviewer 3 並列レビューで DB/RLS 設計が承認済み、または指摘対応済み。
+
+### 4.2 停止 gate
+
+production reset 前に以下を停止または無効化する。
+
+- Vercel cron
+- GitHub Actions の自動 deploy / scheduled workflow
+- Stripe webhook endpoint
+- 通常 production deploy
+- 手動で走る release / migration job
+
+停止した対象、停止時刻、再開手順を作業ログへ残す。
+
+### 4.3 復元 gate
+
+production reset 前に以下を確認する。
+
+- 消してよいデータのみであることをユーザーが最終確認済み。
+- 論理バックアップまたは PITR 復元点を確認済み。
+- 復元 rehearsal の手順が確認済み。
+- reset 失敗時の roll-forward 手順が確認済み。
+
+---
+
+## 5. 3 層 migration 適用順
+
+DB/RLS 設計確定後、以下の順で適用する。
+
+1. **schema layer**
+   Drizzle 生成 SQL。テーブル、基本 FK、通常 index、基本 CHECK。
+2. **integrity layer**
+   owner integrity、JSONB CHECK、partial index、raw invariant。
+3. **security layer**
+   role、grant、RLS helper、RLS policy。
+
+`security layer` は `supabase db push` の素実行に依存しない。`run-migrations.mjs` または専用 script の管理下で、manifest と履歴を突き合わせる。
+
+---
+
+## 6. local fresh replay
+
+staging / production reset 前に local で必ず通す。
+
+1. 旧 DB を破棄する。
+2. schema layer を適用する。
+3. integrity layer を適用する。
+4. security layer を適用する。
+5. migration 履歴を確認する。
+6. RLS 正負検証を実行する。
+7. owner integrity 検証を実行する。
+8. JSONB CHECK 検証を実行する。
+9. 主要 API smoke test を実行する。
+
+確認項目:
+
+- `pending: 0`
+- `supabasePending: 0`
+- remote-only migration なし
+- local-only migration なし
+- hash 差分なし
+- `shupass_owner_integrity_violations()` が 0
+
+---
+
+## 7. staging reset 手順
+
+production より先に staging で通す。
+
+1. Supabase Dashboard で staging project ref を目視確認する。
+2. `.secrets/staging/nextjs.env` と `.secrets/staging/supabase.env` をユーザーが更新する。
+3. secret sync check を実行する。
+4. staging の cron / deploy / webhook を停止する。
+5. reset SQL の対象が staging であることを確認する。
+6. `public` / `drizzle` と 3 層 migration 履歴を初期化する。
+7. schema layer を適用する。
+8. integrity layer を適用する。
+9. security layer を適用する。
+10. `pending: 0` / `supabasePending: 0` / remote-only なしを確認する。
+11. RLS 正負検証、owner integrity、JSONB CHECK、主要 API smoke test を実行する。
+12. 停止した webhook / cron / deploy を再開する。
+
+staging でも `supabasePending: 0` は hard gate とする。
+
+---
+
+## 8. production reset 手順
+
+production は staging の全検証が通った後に実施する。
+
+1. ユーザーが production DB の破棄を最終承認する。
+2. Supabase Dashboard で production project ref を目視確認する。
+3. バックアップまたは PITR 復元点、復元 rehearsal を確認する。
+4. secret sync check を実行する。
+5. Stripe webhook、cron、deploy を停止する。
+6. reset SQL の対象が production であることを確認する。
+7. `public` / `drizzle` と 3 層 migration 履歴を初期化する。
+8. schema layer を適用する。
+9. integrity layer を適用する。
+10. security layer を適用する。
+11. `pending: 0` / `supabasePending: 0` / remote-only なしを確認する。
+12. RLS 正負検証、owner integrity、JSONB CHECK、主要 API smoke test を実行する。
+13. `make ops-release-check` を実行する。
+14. Stripe preflight と Terms URL を確認する。
+15. 停止した webhook / cron / deploy を再開する。
+16. production health check を実行する。
+17. Stripe webhook 停止中イベントを照合する。
+
+### 8.1 Stripe webhook 停止中イベント照合
+
+Stripe webhook を停止または delivery 不能にする場合は、Stripe の再送・重複・順序未保証を前提にする。
+
+作業ログに必ず記録するもの:
+
+- 停止開始時刻と再開時刻（JST / UTC の両方）
+- 停止した endpoint / cron / deploy
+- 対象 event type
+- reset 前後の `processed_stripe_events` 件数と `processing` / `succeeded` / `failed` 内訳
+
+再開後の照合手順:
+
+1. Stripe Dashboard または Stripe API で停止期間中の event を確認する。
+2. 対象 event type は `checkout.session.completed`、`customer.subscription.updated`、`customer.subscription.deleted`、`invoice.payment_succeeded`、`invoice.payment_failed`、`charge.refunded`、`charge.dispute.created`、`charge.dispute.closed` とする。
+3. `processed_stripe_events` に存在しない event、または stale `processing` / `failed` の event を再処理候補にする。
+4. 既に `succeeded` の event は重複処理しない。
+5. Stripe API から subscription / invoice / charge / dispute の現状態を再取得し、`user_profiles.plan`、credits allocation、billing hold と突き合わせる。
+6. 差分があれば自動補正せず、reconciliation log に残して個別対応する。
+7. 照合結果を release log に保存し、`make stripe-preflight` を再実行する。
+
+---
+
+## 9. reset SQL の注意点
+
+既存案の `public` / `drizzle` drop だけでは不十分。3 層 migration 履歴も初期化対象に含める。
+
+触ってよいもの:
+
+- `public`
+- `drizzle`
+- 本プロジェクトが作成した 3 層 migration 履歴 schema / table
+- 必要に応じて `supabase_migrations.schema_migrations` の本プロジェクト対象履歴
+
+触ってはいけないもの:
+
+- Supabase の `auth`
+- `storage`
+- `extensions`
+- provider が管理する system schema
+- secret / vault
+
+実行前に対象 DB と project ref を必ず表示し、ユーザー確認を取る。
+
+---
+
+## 10. 検証コマンド
+
+代表コマンド:
+
+```bash
+make db-validate
+node scripts/release/run-migrations.mjs --env staging --dry-run --json
+make db-migrate-check-staging
+make db-drift-check-staging
+node scripts/release/run-migrations.mjs --env production --dry-run --json
+make db-migrate-check
+make db-drift-check
+make ops-release-check
+make stripe-preflight
+```
+
+`make db-validate` は最終的に以下を含むか、個別コマンドへ分離する。
+
+- 3 層 migration 履歴検査
+- fresh replay 検証
+- security layer manifest 検査
+- RLS SQL 検証
+- owner integrity 検証
+- JSONB CHECK 検証
+- remote-only / local-only / hash 差分検出
+
+---
+
+## 11. Stripe 本番 live 設定
+
+Stripe 本番設定は DB 設計本体へ混ぜず、DB reset 後の release 依存として本書に残す。
+
+production DB reset と本番デプロイ準備が完了した後に実施する。
+
+1. `STRIPE_SECRET_KEY_LIVE=<sk_live_...> npm run stripe:bootstrap-live`
+2. Dashboard で `STRIPE_WEBHOOK_SECRET` を確認する。
+3. `.secrets/production/nextjs.env` をユーザーが更新する。
+4. secret sync check を実行する。
+5. Terms URL を Dashboard で確認する。
+6. `make stripe-preflight` で readiness を確認する。
+7. 本番で実カード少額 checkout を 1 件確認する。
+8. 必要なら返金する。
+9. `npm run stripe:audit -- --env live --json` を確認する。
+
+backend (Railway) には Stripe 設定不要。
+
+---
+
+## 12. 残タスク
+
+- [ ] `db-design-optimization-rls.md` の Phase A 設計を実装へ進める。
+- [ ] 3 層 migration manifest と履歴テーブルを確定する。
+- [ ] `run-migrations.mjs` に schema / integrity / security 層の履歴検査を統合する。
+- [ ] local fresh replay を通す。
+- [ ] staging reset を通す。
+- [ ] production reset を機能凍結後に通す。
+- [ ] Supabase CLI の旧リンク `dqlaqqgldpmfqmfzzgvk` の正体を確認し、誤爆防止手順を更新する。
+- [ ] Stripe live 手順を DB reset 後に実施する。

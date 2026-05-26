@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedAt": "2026-05-20T08:28:25.819Z",
-  "lastUpdated": "2026-05-20",
+  "lastUpdated": "2026-05-26",
   "description": "Unified SSOT for docs/plan task state. Markdown plan files are narrative; this JSON is the task state source of truth.",
   "statusValues": [
     "Todo",
@@ -21,6 +21,7 @@
     "backend-config-env-consolidation-improvement-plan.md",
     "company-info-deadline-extraction-improvement-plan.md",
     "db-design-optimization-rls.md",
+    "db-staging-production-reset-bootstrap-plan.md",
     "execution-order.md",
     "legal-commercial-support-plan.md",
     "llm-rag-security-owasp-audit.md",
@@ -3732,7 +3733,7 @@
       "rawId": null,
       "aliases": [],
       "sourcePlan": "monitoring-logging-incident-response-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P0",
       "area": "Alerting",
@@ -3744,17 +3745,19 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "backend/app/routers/health.py"
+        "backend/app/routers/health.py",
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
       ],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "monitoring-logging-incident-response-plan:task-004",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "monitoring-logging-incident-response-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P1",
       "area": "Log Aggregation",
@@ -3766,10 +3769,12 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "backend/app/utils/secure_logger.py:63"
+        "backend/app/utils/secure_logger.py:63",
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
       ],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "monitoring-logging-incident-response-plan:task-005",
@@ -3886,7 +3891,7 @@
       "rawId": null,
       "aliases": [],
       "sourcePlan": "monitoring-logging-incident-response-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P2",
       "area": "Dashboard",
@@ -3898,10 +3903,12 @@
       "verificationCommands": [],
       "dependencies": [],
       "evidence": [
-        "backend/app/rag/telemetry.py"
+        "backend/app/rag/telemetry.py",
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
       ],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "MRR-001",
@@ -4698,14 +4705,14 @@
       "rawId": null,
       "aliases": [],
       "dependencies": [],
-      "notes": "",
-      "updatedAt": "2026-05-20",
+      "notes": "JSONB 件数は 2026-05-26 時点の schema.ts 実測 39 件へ更新。0031/0036 の個別安全性確認は migration safety タスクとして継続。",
+      "updatedAt": "2026-05-26",
       "id": "plan-sync:db-migration-safety-drift",
       "sourcePlan": "db-design-optimization-rls.md",
-      "status": "Todo",
+      "status": "Review",
       "priority": "P0",
       "area": "Database",
-      "task": "RLS Phase 0 未実装、JSONB 36 件、0031/0036 migration safety drift を計画に反映する",
+      "task": "RLS Phase 0 未実装、JSONB 39 件、migration safety drift を計画に反映する",
       "ownerAgent": "database-engineer",
       "acceptanceCriteria": [
         "`dbReadWithIdentity` / `SET LOCAL app.current_*` は未実装として扱われる",
@@ -4716,8 +4723,40 @@
         "node scripts/ci/check-migration-safety.mjs --staged"
       ],
       "evidence": [
-        "Database audit: RLS boundary API is absent; JSONB count is 36"
-      ]
+        "Database audit: RLS boundary API is absent; JSONB count is 36",
+        "2026-05-26 schema.ts jsonb( count: 39"
+      ],
+      "lastUpdatedBy": "implementation-plan-sync"
+    },
+    {
+      "rawId": null,
+      "aliases": [],
+      "dependencies": [
+        "plan-sync:db-migration-safety-drift"
+      ],
+      "notes": "2026-05-25 の方針変更により、恒久的な新規 DB/RLS 計画書は作らず、設計正本を db-design-optimization-rls.md、reset 手順正本を db-staging-production-reset-bootstrap-plan.md に統合する。 2026-05-26 に設計正本と reset 手順正本へ統合済み。",
+      "updatedAt": "2026-05-26",
+      "id": "plan-sync:db-rls-plan-consolidation",
+      "sourcePlan": "db-design-optimization-rls.md",
+      "status": "Done",
+      "priority": "P0",
+      "area": "Database",
+      "task": "DB/RLS 設計正本と reset 手順正本を既存 2 計画書へ統合する",
+      "ownerAgent": "database-engineer / security-auditor / release-engineer",
+      "acceptanceCriteria": [
+        "db-design-optimization-rls.md が appDb/authDb/adminDb、RLS Phase A、policy matrix、3 層 migration、raw SQL manifest、RLS 正負検証・性能検証を含む",
+        "db-staging-production-reset-bootstrap-plan.md が staging/production reset、3 層 migration 適用順、pending/supabasePending/remote-only 検査、Stripe preflight を含む",
+        "execution-order.md が DB/RLS を preparation / implementation / final reset に分けている"
+      ],
+      "verificationCommands": [
+        "git diff --check -- docs/plan/db-design-optimization-rls.md docs/plan/db-staging-production-reset-bootstrap-plan.md docs/plan/execution-order.md docs/plan/plan-tasks.json",
+        "node -e \"JSON.parse(require('fs').readFileSync('docs/plan/plan-tasks.json','utf8')); console.log('plan-tasks json ok')\""
+      ],
+      "evidence": [
+        "2026-05-25 DB/RLS plan review: integrate new plan into existing design and reset documents",
+        "2026-05-26 docs/plan DB/RLS consolidation implemented"
+      ],
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "rawId": null,
@@ -4885,7 +4924,7 @@
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P0",
       "area": "信頼性",
@@ -4896,16 +4935,19 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-004",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P0",
       "area": "信頼性",
@@ -4916,16 +4958,19 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-005",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P0",
       "area": "信頼性",
@@ -4936,9 +4981,12 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-006",
@@ -5065,7 +5113,7 @@
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P0",
       "area": "セキュリティ",
@@ -5076,9 +5124,12 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-013",
@@ -5125,7 +5176,7 @@
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P0",
       "area": "DR",
@@ -5136,16 +5187,19 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-016",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P1",
       "area": "信頼性",
@@ -5156,9 +5210,12 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-017",
@@ -5405,7 +5462,7 @@
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P1",
       "area": "観測性",
@@ -5416,16 +5473,19 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-030",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P1",
       "area": "観測性",
@@ -5436,16 +5496,19 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-031",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P1",
       "area": "観測性",
@@ -5456,9 +5519,12 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-032",
@@ -5525,7 +5591,7 @@
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P1",
       "area": "DR",
@@ -5536,9 +5602,12 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-036",
@@ -5705,7 +5774,7 @@
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P2",
       "area": "観測性",
@@ -5716,16 +5785,19 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-045",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P2",
       "area": "観測性",
@@ -5736,16 +5808,19 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-046",
       "rawId": null,
       "aliases": [],
       "sourcePlan": "release-infrastructure-operations-plan.md",
-      "status": "Todo",
+      "status": "Superseded",
       "originalStatus": "Todo",
       "priority": "P2",
       "area": "DR",
@@ -5756,9 +5831,12 @@
       ],
       "verificationCommands": [],
       "dependencies": [],
-      "evidence": [],
-      "updatedAt": "2026-05-05",
-      "notes": ""
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期: external-service-policy"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "新規外部サービス導入禁止方針により必須タスクから除外。既存の Sentry / Vercel / Railway / Supabase / GitHub Actions / repo scripts で代替する。",
+      "lastUpdatedBy": "implementation-plan-sync"
     },
     {
       "id": "release-infrastructure-operations-plan:task-047",
@@ -8907,6 +8985,150 @@
       "updatedAt": "2026-05-05",
       "notes": "Makefileターゲットを追加済み",
       "archivedFrom": "test-quality-gate-tasks.json"
+    },
+    {
+      "id": "plan-sync:external-service-policy",
+      "rawId": null,
+      "aliases": [],
+      "sourcePlan": "release-infrastructure-operations-plan.md",
+      "status": "Done",
+      "originalStatus": "Todo",
+      "priority": "P0",
+      "area": "Plan Sync",
+      "task": "外部サービス禁止タスクを JSON と Markdown から必須対象外へ整理する",
+      "ownerAgent": "orchestrator",
+      "acceptanceCriteria": [
+        "今回の docs/plan 同期で方針が本文と plan-tasks.json に反映されている。"
+      ],
+      "verificationCommands": [
+        "node scripts/plan/validate-plan-tasks.mjs"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期で反映"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "今回追加した plan-sync タスク。実装完了に伴い Done。"
+    },
+    {
+      "id": "plan-sync:execution-order-index",
+      "rawId": null,
+      "aliases": [],
+      "sourcePlan": "execution-order.md",
+      "status": "Done",
+      "originalStatus": "Todo",
+      "priority": "P0",
+      "area": "Plan Sync",
+      "task": "execution-order.md を JSON 正本に従う実行順序索引へ更新する",
+      "ownerAgent": "orchestrator",
+      "acceptanceCriteria": [
+        "今回の docs/plan 同期で方針が本文と plan-tasks.json に反映されている。"
+      ],
+      "verificationCommands": [
+        "node scripts/plan/validate-plan-tasks.mjs"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期で反映"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "今回追加した plan-sync タスク。実装完了に伴い Done。"
+    },
+    {
+      "id": "plan-sync:db-rls-force-policy",
+      "rawId": null,
+      "aliases": [],
+      "sourcePlan": "db-design-optimization-rls.md",
+      "status": "Done",
+      "originalStatus": "Todo",
+      "priority": "P0",
+      "area": "Plan Sync",
+      "task": "DB/RLS 計画に table owner bypass と FORCE ROW LEVEL SECURITY 検査を反映する",
+      "ownerAgent": "orchestrator",
+      "acceptanceCriteria": [
+        "今回の docs/plan 同期で方針が本文と plan-tasks.json に反映されている。"
+      ],
+      "verificationCommands": [
+        "node scripts/plan/validate-plan-tasks.mjs"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期で反映"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "今回追加した plan-sync タスク。実装完了に伴い Done。"
+    },
+    {
+      "id": "plan-sync:stripe-reset-reconciliation",
+      "rawId": null,
+      "aliases": [],
+      "sourcePlan": "db-staging-production-reset-bootstrap-plan.md",
+      "status": "Done",
+      "originalStatus": "Todo",
+      "priority": "P0",
+      "area": "Plan Sync",
+      "task": "production reset 手順に Stripe webhook 停止中イベント照合を追加する",
+      "ownerAgent": "orchestrator",
+      "acceptanceCriteria": [
+        "今回の docs/plan 同期で方針が本文と plan-tasks.json に反映されている。"
+      ],
+      "verificationCommands": [
+        "node scripts/plan/validate-plan-tasks.mjs"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期で反映"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "今回追加した plan-sync タスク。実装完了に伴い Done。"
+    },
+    {
+      "id": "plan-sync:privacy-release-gate",
+      "rawId": null,
+      "aliases": [],
+      "sourcePlan": "personal-data-confidential-information-protection-plan.md",
+      "status": "Done",
+      "originalStatus": "Todo",
+      "priority": "P0",
+      "area": "Plan Sync",
+      "task": "個人情報削除と外部送信最小化の公開前必須条件を明確化する",
+      "ownerAgent": "orchestrator",
+      "acceptanceCriteria": [
+        "今回の docs/plan 同期で方針が本文と plan-tasks.json に反映されている。"
+      ],
+      "verificationCommands": [
+        "node scripts/plan/validate-plan-tasks.mjs"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期で反映"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "今回追加した plan-sync タスク。実装完了に伴い Done。"
+    },
+    {
+      "id": "plan-sync:seo-competitor-scope",
+      "rawId": null,
+      "aliases": [],
+      "sourcePlan": "seo-public-page-quality-plan.md",
+      "status": "Done",
+      "originalStatus": "Todo",
+      "priority": "P0",
+      "area": "Plan Sync",
+      "task": "競合調査の反映範囲を SEO/UX 語彙補正に限定して明記する",
+      "ownerAgent": "orchestrator",
+      "acceptanceCriteria": [
+        "今回の docs/plan 同期で方針が本文と plan-tasks.json に反映されている。"
+      ],
+      "verificationCommands": [
+        "node scripts/plan/validate-plan-tasks.mjs"
+      ],
+      "dependencies": [],
+      "evidence": [
+        "2026-05-26 docs/plan 現状同期で反映"
+      ],
+      "updatedAt": "2026-05-26",
+      "notes": "今回追加した plan-sync タスク。実装完了に伴い Done。"
     }
   ]
 }

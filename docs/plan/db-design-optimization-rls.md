@@ -1,452 +1,392 @@
-# DB設計・最適化・マイグレーション・RLS 計画書
+# DB/RLS 本番前準備・設計計画書
 
-> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。更新は `node scripts/plan/update-plan-task-status.mjs --id <task-id> --status <status> --source-plan <plan.md>`（または統合 JSON の完全な `id`）で行う。Markdown 内の Task Board / Task Tracker は計画本文として残すが、最新状態は統合 JSON を優先する。
+> **DB/RLS 設計正本**: DB スキーマ、接続境界、行レベルセキュリティ（RLS: Row Level Security）、所有者整合性、JSONB、索引、マイグレーション運用、検証方針は本書を正本とする。staging / production のリセット実行手順は [`db-staging-production-reset-bootstrap-plan.md`](./db-staging-production-reset-bootstrap-plan.md) を正本とする。
 
-> **現状同期メモ（2026-05-13）**: RLS Phase 0 の `dbReadWithIdentity()` / `dbWriteAdmin()` / `SET LOCAL app.current_*` 境界 API は未実装。現 schema の `jsonb(` は 36 箇所で、計画上の JSONB inventory は再作成が必要。`0031_perf_cost_indexes.sql` の `CONCURRENTLY` と `0036_unique_stripe_customer_id.sql` の snapshot / duplicate preflight は migration safety タスクとして統合 JSON で追跡する。
-
+> **Task state SSOT**: 実装フェーズのタスク状態は `docs/plan/plan-tasks.json` を正本とする。DB/RLS 作業中に一時 JSON を使う場合も、完了後は evidence を `plan-tasks.json` と本書へ要約して一時 JSON を削除する。
 
 > 作成日: 2026-05-04
+> 最終更新: 2026-05-25
 > 対象: Career Compass (就活Pass) — Supabase PostgreSQL + Drizzle ORM
-> レビュー: Codex plan_review PASS_WITH_CONCERNS (全7件反映済み)
+> 現方針: まず準備・inventory・manifest・警告モードを進め、接続分離と RLS 実効化は機能修正がほぼ固まってから、staging / production reset は機能凍結後に実施する。
 
 ---
 
-## 目次
+## 1. 目的
 
-1. [現状分析](#1-現状分析)
-2. [RLS ポリシー設計](#2-rls-ポリシー設計)
-3. [DB 最適化](#3-db-最適化)
-4. [JSONB 戦略](#4-jsonb-戦略)
-5. [マイグレーション運用フレームワーク](#5-マイグレーション運用フレームワーク)
-6. [優先度マトリクスと実行ロードマップ](#6-優先度マトリクスと実行ロードマップ)
-7. [モニタリングと検証](#7-モニタリングと検証)
+DB/RLS 改善を一括で実行せず、次の 3 段階に分けて安全に進める。
 
----
+| 段階 | 実施時期 | 目的 |
+|---|---|---|
+| 準備 | 今すぐ | 設計正規化、inventory、raw SQL manifest、RLS policy matrix、警告モード検査を整える |
+| 実装 | 機能修正がほぼ固まった段階 | `appDb` / `authDb` / `adminDb` 分離、Better Auth 分離、local RLS SELECT 検証を行う |
+| 確定・リセット | 本番前の機能凍結後 | migration squash、3 層 migration 確定、local fresh replay、staging / production reset を行う |
 
-## 1. 現状分析
-
-### 1.1 スキーマ概要
-
-| 指標 | 値 |
-|------|-----|
-| テーブル数 | 38 (Better Auth alias 含めると 41) |
-| カラム数 | ~200 |
-| 外部キー | 69 |
-| インデックス | 72 (うち partial 6) |
-| JSONB カラム | 20 |
-| XOR 制約テーブル | 13 |
-| Enum フィールド | 33+ |
-| マイグレーション | 27 |
-
-対象ファイル: `src/lib/db/schema.ts` (1042行), `src/lib/db/relations.ts` (426行)
-
-### 1.2 ドメイン別テーブルマップ
-
-| ドメイン | テーブル数 | テーブル名 |
-|----------|------------|------------|
-| 認証 | 5 | users, sessions, accounts, verifications, guestUsers |
-| ユーザー設定 | 4 | userProfiles, calendarSettings, notificationSettings, loginPrompts |
-| 企業・選考 | 4 | companies, applications, jobTypes, deadlines |
-| 課金 | 4 | subscriptions, credits, creditTransactions, companyInfoMonthlyUsage |
-| タスク | 2 | tasks, taskTemplates |
-| 通知 | 2 | notifications, contactMessages |
-| ドキュメント | 5 | documents, documentVersions, gakuchikaContents, gakuchikaConversations, userPins |
-| AI 会話 | 3 | aiThreads, aiMessages, motivationConversations |
-| 面接模擬 | 4 | interviewConversations, interviewFeedbackHistories, interviewTurnEvents, interviewDrillAttempts |
-| 提出物 | 1 | submissionItems |
-| カレンダー | 2 | calendarEvents, calendarSyncJobs |
-| Webhook | 1 | processedStripeEvents |
-
-### 1.3 リレーション構造
-
-3つの中心ハブを持つスター型トポロジ:
-
-- **users hub**: 20+ テーブルへの 1:N / 1:1 関係。認証済みユーザーの全データの起点
-- **guestUsers hub**: 12 テーブルへの 1:N 関係。ゲストユーザーのデータ起点
-- **companies hub**: 7 テーブルへの 1:N 関係。企業情報を中心としたビジネスデータ
-
-FK チェーン最大深度: `ai_messages → ai_threads → documents → companies → users` (4ホップ)
-
-### 1.4 XOR 制約パターン
-
-13テーブルで `(user_id IS NULL) <> (guest_id IS NULL)` の CHECK 制約を使用。このパターンはアプリ側の `isOwnedByIdentity()` (`src/bff/identity/owner-access.ts`) と対応し、ゲスト/認証済みユーザーの排他的所有権を保証する。
-
-対象: companies, applications, tasks, notifications, documents, gakuchikaContents, submissionItems, userPins, motivationConversations, interviewConversations, interviewFeedbackHistories, interviewTurnEvents, interviewDrillAttempts
-
-### 1.5 既存インデックス評価
-
-**強み**:
-- userId/guestId + createdAt の複合インデックスがフィード型クエリをカバー
-- deadline テーブルに7インデックス（companyId, dueDate, 確認状態の組み合わせ）
-- 6つの partial インデックス（未読通知、アクティブドキュメント、未完了締切、pending カレンダー同期）
-
-**欠損**:
-- `companies.status` — 20状態のパイプラインフィルタに専用インデックスなし
-- `deadlines(companyId, dueDate, completedAt)` — ダッシュボードの頻出フィルタに最適な複合インデックスなし
-- 検索対象カラム（name, notes, content）に GIN/GiST インデックスなし
-
-**冗長候補** (4件): `tasks_status_idx`, `notifications_is_read_idx`, `documents_status_idx`, `company_info_monthly_usage_user_idx` — いずれも composite/partial インデックスの prefix でカバー済み
-
-### 1.6 JSONB カラム一覧
-
-全20 JSONB カラムが「ドキュメントストア」型（WHERE 句でのフィルタなし）。GIN インデックスや正規化は不要。array 型 12カラム、object 型 8カラム。最新の migration 0026 で text → jsonb への変換が完了済み。
+この分割により、機能修正が残る段階で production reset 前提の migration を確定してしまうリスクを避ける。
 
 ---
 
-## 2. RLS ポリシー設計
+## 2. 現状確認
 
-### 2.1 現状
+### 2.1 主要な事実
 
-- 全33テーブルで `ENABLE ROW LEVEL SECURITY` 済み、permissive policy ゼロ（deny-all 戦略）
-- `anon` / `authenticated` ロールの全権限を REVOKE 済み（新テーブルも event trigger で自動）
-- アプリは `postgres` スーパーユーザーで接続（RLS バイパス）
-- アプリ層で 60+ 箇所の所有権チェック
+- 現行 `src/lib/db/index.ts` は `DATABASE_URL` 単一接続で、RLS 用接続境界がない。
+- Better Auth は同じ `db` を使っているため、通常アプリ読み取り用接続へ RLS を適用すると認証処理が壊れ得る。
+- `drizzle_pg` は migration が肥大化し、`0018` / `0026` に fresh replay 非安全な text→jsonb 変換がある。
+- `drizzle_pg/meta` は journal と snapshot が不整合で、履歴として不健全。
+- Drizzle 生成 SQL だけでは owner integrity trigger、RLS policy、raw partial index、grant は復元されない。
+- `supabase/migrations` には RLS 以外の DDL/DML が残っているため、RLS overlay としての責務が曖昧。
+- `docs/plan/execution-order.md` は RLS policy / role migration を post-release 扱いにしており、本書の「pre-release SELECT RLS」と衝突していた。
 
-対象ファイル: `supabase/migrations/20260215092108_enable_rls_all_tables.sql`, `supabase/migrations/20260325110000_harden_public_data_api.sql`
+### 2.2 設計上の禁止事項
 
-### 2.2 方針: 段階的ロール分離
-
-**Phase 1 (READ-ONLY)**: `app_role` で SELECT のみ RLS チェック。Write は `postgres` を継続
-**Phase 2 (FULL)**: 安定後に Write も `app_role` に移行
-
-### 2.3 3ロールモデル
-
-| ロール | 用途 | RLS | 接続 |
-|--------|------|-----|------|
-| `app_role` | アプリのクエリ（Phase 1: SELECT のみ） | 適用 | `APP_DATABASE_URL` (新規) |
-| `auth_role` | Better Auth の session/account 操作 | BYPASSRLS | `AUTH_DATABASE_URL` (新規) |
-| `postgres` | マイグレーション、cron ジョブ | BYPASSRLS | `DIRECT_URL` (既存) |
-
-**根拠**: Better Auth はユーザー作成・セッション作成時に identity 未確定のため BYPASSRLS が必要。cron は全ユーザー横断のため BYPASSRLS 必要。
-
-### 2.4 Identity Injection アーキテクチャ
-
-ゲストユーザーは Supabase JWT を持たないため `auth.uid()` が使えない。`SET LOCAL` でトランザクションスコープの GUC 変数を使用する。
-
-**境界 API 設計** (Codex 指摘反映):
-
-- `dbReadWithIdentity(identity, fn)` — `db.transaction` 内で `SET LOCAL app.current_user_id` / `app.current_guest_id` 注入後に fn 実行
-- `dbWriteAdmin(fn)` — postgres ロールで fn 実行（Phase 1 では全 Write がこちら）
-- Identity は cookie 解決済みの内部 `RequestIdentity` のみ注入。browser-visible header/device token を RLS policy 入力にしない
-- `allowDeviceTokenHeader` を使う全ルートの棚卸しと identity source テスト行列を Phase 0 で作成
-
-対象ファイル: `src/lib/db/index.ts`, `src/bff/identity/request-identity.ts`
-
-**DB 側ヘルパー関数**:
-
-- `app_user_id()` — `current_setting('app.current_user_id', true)`
-- `app_guest_id()` — `current_setting('app.current_guest_id', true)`
-- `app_is_owner(user_id, guest_id)` — `(user_id = app_user_id()) OR (guest_id = app_guest_id())`
-
-**PgBouncer 互換性**: `SET LOCAL` はトランザクションスコープで COMMIT/ROLLBACK 時に自動クリア。`prepare: false` が前提。
-
-### 2.5 6ポリシーパターン
-
-| パターン | テーブル数 | 条件 | 対象テーブル |
-|----------|------------|------|------------|
-| A: userId only | 9 | `user_id = app_user_id()` | userProfiles, subscriptions, credits, creditTransactions, calendarSettings, notificationSettings, companyInfoMonthlyUsage, calendarEvents, calendarSyncJobs |
-| B: XOR ownership | 13 | `app_is_owner(user_id, guest_id)` | companies, applications, tasks, notifications, documents, gakuchikaContents, submissionItems, userPins, motivationConversations, interviewConversations, interviewFeedbackHistories, interviewTurnEvents, interviewDrillAttempts |
-| C: FK 継承 | 6 | `EXISTS (SELECT 1 FROM parent WHERE ...)` | jobTypes, deadlines, documentVersions, aiThreads, aiMessages, gakuchikaConversations |
-| D: Auth | 4 | self-referencing + auth_role bypass | users, sessions, accounts, verifications |
-| E: Guest-only | 2 | `guest_id = app_guest_id()` | guestUsers, loginPrompts |
-| F: System/admin | 3 | app route からアクセスなし | processedStripeEvents, contactMessages, taskTemplates |
-
-**FK 継承の設計** (Codex 指摘反映):
-
-ai_messages は直接の owner column を持たない。親テーブルチェーンをたどる:
-
-`ai_messages → ai_threads → documents → (userId XOR guestId)`
-
-ポリシー: `EXISTS (SELECT 1 FROM ai_threads t JOIN documents d ON t.document_id = d.id WHERE t.id = thread_id AND app_is_owner(d.user_id, d.guest_id))`
-
-パフォーマンス: 2ホップ JOIN だが既存 FK インデックスでカバー。推定 10-15% オーバーヘッド。
-
-### 2.6 ロールアウト計画 (5フェーズ)
-
-| Phase | 内容 | blast radius |
-|-------|------|-------------|
-| 0 | 境界 API + SET LOCAL wrapper + identity source 棚卸し + 未注入 SELECT 検出テスト | なし |
-| 1 | PII/金融テーブル (7) | 中 |
-| 2 | ユーザーコンテンツ (11): documents, AI, interview 系 | 中 |
-| 3 | アプリデータ (9): applications, tasks, deadlines 等 | 中 |
-| 4 | Auth + System (11) | 高 |
-
-### 2.7 特殊ケース
-
-| ケース | 対応 |
-|--------|------|
-| Better Auth | `auth_role` (BYPASSRLS)。identity 未確定時の操作に必要 |
-| Stripe Webhook | `withIdentity()` で event metadata から userId 抽出・注入 |
-| cron | `postgres` ロール。全ユーザー横断処理 |
-| ゲスト移行 | トランザクション内で両 identity を SET LOCAL。`app_is_owner()` が両方チェック |
-
-### 2.8 リスク分析
-
-| リスク | 緩和策 |
-|--------|--------|
-| PgBouncer + SET LOCAL リーク | transaction mode では COMMIT/ROLLBACK で自動クリア |
-| read-after-write 事故 | Phase 1 では Write 後の Read も postgres 経由を維持 |
-| FK 継承 policy のパフォーマンス | 既存 FK インデックスでカバー。EXPLAIN ANALYZE で事前検証 |
-| auth_role の混入 | 接続 URL を環境変数で厳格分離。CI チェック |
+- 通常 API から `adminDb` を直接 import しない。
+- `auth_role` に広い `BYPASSRLS` を与えない。
+- browser-visible header や raw `guest_device_token` を RLS policy の入力にしない。
+- `supabase db push` の素実行、`--linked` 実行、production 向け `npm run db:push` を使わない。
+- production reset は機能凍結前に実施しない。
 
 ---
 
-## 3. DB 最適化
+## 3. 接続境界設計
 
-### 3.1 インデックス最適化
+### 3.1 3 接続モデル
 
-#### 新規追加 (5件)
+| 接続 | 想定 URL | 用途 | 権限 |
+|---|---|---|---|
+| `appDb` | `APP_DATABASE_URL` | 通常ユーザー/ゲストの読み取り | SELECT のみ、RLS 適用、RLS bypass 不可、書き込み不可 |
+| `authDb` | `AUTH_DATABASE_URL` | Better Auth の認証テーブル操作 | Better Auth table のみ。通常ドメインテーブル権限なし |
+| `adminDb` | `ADMIN_DATABASE_URL` または `DIRECT_URL` | 書き込み、cron、Stripe webhook、guest migration、migration | 通常 route から import 禁止。用途を許可リストで固定 |
 
-| # | テーブル | インデックス | 種類 | 効果 | 工数 |
-|---|---------|-------------|------|------|------|
-| 1 | companies | `companies_status_idx` ON (status) | B-tree | パイプラインフィルタ高速化 | S |
-| 2 | deadlines | `deadlines_company_due_completed_idx` ON (companyId, dueDate DESC, completedAt) | composite | 締切クエリ最適化 | S |
-| 3 | companies | `companies_name_trgm_idx` USING GIN (name gin_trgm_ops) | GIN | 検索 LIKE 高速化 | S |
-| 4 | documents | `documents_content_trgm_idx` USING GIN | GIN | 全文 LIKE 高速化 | S |
-| 5 | tasks | `tasks_user_open_idx` ON (userId) WHERE status = 'open' | partial | ダッシュボード最適化 | S |
+### 3.2 旧 `db` の扱い
 
-#### 冗長削除 (4件)
+旧 `db` は「互換のために残す」ではなく「封じ込める」対象とする。
 
-`tasks_status_idx`, `notifications_is_read_idx`, `documents_status_idx`, `company_info_monthly_usage_user_idx` — 削除前に `pg_stat_user_indexes.idx_scan` で使用率確認必須。
+- 原則として `db` export は廃止方向。
+- 移行期間中に残す場合は、許可ファイル、期限、削除予定タスクを `docs/plan/plan-tasks.json` に持たせる。
+- 通常 API、BFF、UI 向け server utility からの raw `db` / `adminDb` import は警告モードから検査を始め、接続分離後に強制化する。
+- 例外候補は migration helper、internal test、cron、Stripe webhook、guest migration、write service に限定する。
 
-#### pg_trgm 導入
+### 3.3 URL 権限検証
 
-- `CREATE EXTENSION IF NOT EXISTS pg_trgm` を `supabase/migrations/` で実行
-- 既存 LIKE クエリは変更不要（PostgreSQL が GIN インデックスを自動利用）
-- トレードオフ: インデックスサイズ増大（B-tree の 2-5 倍）、Write 時オーバーヘッド
+環境変数の存在チェックだけでは不十分。検証コマンドまたは起動時チェックで以下を確認する。
 
-### 3.2 クエリ最適化
-
-#### getTodayTaskData (`src/lib/server/dashboard-loaders.ts:211`)
-
-**現状**: 全 open task を 4x LEFT JOIN → メモリで7比較関数ソート → 1件返す
-**方針**: DB 側 ORDER BY + LIMIT 化。partial インデックス活用
-**前提** (Codex 指摘): golden test で既存優先順位ロジックの同値性を保証（JST基準、承認済み締切のみ、blocked task）
-
-#### performSearch (`src/lib/server/search-loader.ts:59`)
-
-**現状**: 3テーブルに並列 `LIKE '%keyword%'`、各最大20件
-**方針**: pg_trgm + GIN でクエリ変更なしに高速化
-
-#### loadCompaniesForUser (`src/lib/server/company-loaders.ts:22`)
-
-**現状**: 3x 並列クエリ（企業一覧 + 集計3本）→ JS で結合
-**方針**: LATERAL JOIN で1クエリ化。Drizzle の LATERAL サポート確認後に判断
-
-### 3.3 接続・キャッシュ戦略
-
-- 接続プール設定は現状維持 (max: 5 prod, prepare: false)
-- `idle_timeout` 20s → 10s 短縮検討
-- キャッシュ: ダッシュボード集計を Upstash Redis に短期キャッシュ (TTL 30s) する案
-- Materialized View: 現時点不要（個人スコープデータで共有ビューの恩恵薄い）
+| URL | 必須確認 |
+|---|---|
+| `APP_DATABASE_URL` | `current_user` が `app_role`、対象テーブル SELECT 可、INSERT/UPDATE/DELETE 不可、RLS bypass 不可 |
+| `AUTH_DATABASE_URL` | Better Auth table の必要操作可、通常ドメインテーブル権限なし |
+| `ADMIN_DATABASE_URL` / `DIRECT_URL` | migration / write service が可能、通常 route から import 不可 |
 
 ---
 
-## 4. JSONB 戦略
+## 4. Identity と RLS 注入
 
-### 4.1 方針
+### 4.1 境界 API
 
-全20 JSONB カラムがドキュメントストア型。GIN インデックス・正規化は不要。DB 側 CHECK 制約 + アプリ側 Zod バリデーションの両層防御。
+- `dbReadWithIdentity(identity, fn)`
+  `appDb.transaction` 内で `SET LOCAL app.current_user_id` または `SET LOCAL app.current_guest_id` を設定し、渡された transaction だけで SELECT を実行する。
+- `dbWriteAdmin(fn)`
+  `adminDb` で書き込みを実行する。通常 route から直接 `adminDb` を import せず、許可された write service 経由に寄せる。
+- `dbAuth`
+  Better Auth adapter に渡す専用接続。通常ドメイン処理から import 不可にする。
 
-### 4.2 DB 側: CHECK 制約
+### 4.2 通常 identity の扱い
 
-migration 0026 のパターン踏襲（preflight 検証 → CHECK 追加）。
+- 認証済み user session がある場合は user identity を正とする。
+- user session と guest cookie が同時に存在する通常 API では user だけを RLS に注入する。
+- user / guest の両方を RLS に同時注入する通常経路は禁止する。
+- guest migration は `adminDb` 専用処理として例外扱いにする。
+- RLS policy へ渡す guest は解決済み `guest_users.id` のみ。`guest_device_token` や browser-visible header は使わない。
 
-| 期待型 | CHECK 制約 | 対象カラム数 |
-|--------|-----------|------------|
-| array | `jsonb_typeof(col) = 'array' OR col IS NULL` | 12 |
-| object | `jsonb_typeof(col) = 'object' OR col IS NULL` | 8 |
+### 4.3 DB 側 helper
 
-### 4.3 アプリ側: Zod バリデーション
+通常 policy は BFF の排他的所有者モデルに合わせる。
 
-- 既存の `JsonRecord` / `ReminderTiming` 型を Zod スキーマに昇格
-- 面接系の複雑な JSONB (interviewPlanJson, turnStateJson) は型定義を厳格化
-- Write 前バリデーション、失敗時は `createApiErrorResponse()` で構造化エラー返却
+- `app_current_user_id()`
+- `app_current_guest_id()`
+- `app_is_user_owner(user_id)`
+- `app_is_guest_owner(guest_id)`
+- `app_is_xor_owner(user_id, guest_id)`
 
-対象ファイル: `src/lib/db/schema.ts`, `drizzle_pg/0026_db_redesign_jsonb_columns.sql`
-
----
-
-## 5. マイグレーション運用フレームワーク
-
-### 5.1 命名規約
-
-**Drizzle (`drizzle_pg/`)**: `NNNN_<type>_<description>.sql`
-
-| prefix | 用途 | 例 |
-|--------|------|-----|
-| `ddl_` | テーブル・カラム変更 | `0027_ddl_add_fts_config.sql` |
-| `dml_` | データ操作 | `0028_dml_backfill_column.sql` |
-| `idx_` | インデックス | `0029_idx_companies_status.sql` |
-| `jsonb_` | JSONB 制約 | `0030_jsonb_check_constraints.sql` |
-| `drop_` | 破壊的 (要 `-- DESTRUCTIVE:`) | `0031_drop_legacy.sql` |
-
-**Supabase (`supabase/migrations/`)**: タイムスタンプ + prefix
-
-| prefix | 用途 |
-|--------|------|
-| `rls_` | RLS / policy |
-| `grants_` | REVOKE / GRANT |
-| `idx_concurrent_` | CONCURRENTLY インデックス |
-| `pg_` | extensions / triggers |
-
-### 5.2 ロールバック戦略
-
-全ファイルに `-- Rollback:` セクション必須。型別のロールバック手順を文書化。破壊的変更 (DROP) はバックアップからのリストアが前提。
-
-### 5.3 squash 方針
-
-- 本番適用済み: squash 禁止
-- develop 未マージ: 同一機能で 3ファイル以上のチャーンが発生したら squash
-- `IF NOT EXISTS` で冪等性確保
-
-### 5.4 CI 検証拡張
-
-**新規**: `scripts/ci/validate-migrations.mjs`
-
-チェック項目 (Codex 指摘反映):
-1. Journal エントリ数 = ファイル数
-2. `-- Rollback:` セクション存在
-3. Snapshot 整合性
-4. `CREATE INDEX CONCURRENTLY` のトランザクション禁止
-5. Drizzle/Supabase 間のドリフト検出
-6. 冗長 index 削除時の `pg_stat_user_indexes` 証跡要求
-
-### 5.5 zero-downtime パターン
-
-| パターン | 手順 |
-|----------|------|
-| NOT NULL 追加 | nullable + default → アプリデプロイ → backfill → SET NOT NULL |
-| カラムリネーム | 3リリースサイクル方式 |
-| CONCURRENTLY | `supabase/migrations/` で実行。低トラフィック時間帯 (深夜 JST) |
-| JSONB 制約 | アプリ側バリデーション先行 → preflight + CHECK |
-| RLS policy | postgres bypass のため追加自体は無影響 |
-
-### 5.6 二重ディレクトリの使い分け
-
-| ディレクトリ | スコープ | 適用順序 |
-|-------------|---------|---------|
-| `drizzle_pg/` | DDL, DML, 標準 INDEX, CHECK | 先 |
-| `supabase/migrations/` | RLS, grants, CONCURRENTLY, extensions | 後 |
-
-対象ファイル: `drizzle_pg/`, `supabase/migrations/`, `drizzle.config.ts`, `.github/workflows/main-promotion-guard.yml`
+`app_is_xor_owner` は user / guest の同時注入を正常扱いしない。移行処理は RLS ではなく `adminDb` で扱う。
 
 ---
 
-## 6. 優先度マトリクスと実行ロードマップ
+## 5. RLS Phase A
 
-### 6.1 施策マトリクス
+### 5.1 本番前対象テーブル
 
-| # | 施策 | リスク | 工数 | 効果 | Phase |
-|---|------|--------|------|------|-------|
-| 1 | RLS 境界 API + SET LOCAL wrapper | 低 | M | 高 | 0 |
-| 2 | identity source 棚卸し + テスト行列 | 低 | S | 高 | 0 |
-| 3 | 新規インデックス 5件 | 低 | S | 高 | 1 |
-| 4 | 冗長インデックス 4件削除 | 低 | S | 低 | 1 |
-| 5 | JSONB CHECK 制約 (20カラム) | 低 | S | 中 | 2 |
-| 6 | Zod バリデーション設計 | 低 | M | 中 | 2 |
-| 7 | pg_trgm + GIN インデックス | 低 | S | 高 | 3 |
-| 8 | ダッシュボード golden test | 低 | M | 高 | 4前提 |
-| 9 | getTodayTaskData 最適化 | 中 | M | 高 | 4 |
-| 10 | performSearch 最適化 | 低 | S | 中 | 4 |
-| 11 | company list aggregation 改善 | 中 | M | 中 | 4 |
-| 12 | マイグレーション命名規約 | 低 | S | 中 | 5 |
-| 13 | ロールバック戦略文書化 | 低 | S | 中 | 5 |
-| 14 | validate-migrations.mjs | 低 | M | 高 | 5 |
-| 15 | RLS policy 定義 (38テーブル) | 低 | L | 高 | 6 |
-| 16 | テーブル別ポリシーテスト | 中 | L | 高 | 6 |
-| 17 | app_role SELECT 切替 | 高 | L | 高 | 7 |
-| 18 | app_role Write 切替 | 高 | L | 高 | 7+ |
+Phase A では、ユーザー/ゲストの主要プロダクトデータの SELECT を `app_role` + RLS で実効化する。
 
-### 6.2 フェーズ詳細
+| 分類 | 対象 |
+|---|---|
+| direct owner | `companies`, `applications`, `tasks`, `notifications`, `documents`, `gakuchika_contents`, `submission_items`, `user_pins`, `motivation_conversations`, `interview_conversations`, `interview_feedback_histories`, `interview_turn_events`, `interview_drill_attempts` |
+| parent owner | `job_types`, `deadlines`, `document_versions`, `ai_threads`, `ai_messages`, `gakuchika_conversations` |
+| user only | `company_rag_ingest_quotes` |
 
-#### Phase 0: RLS 境界 API + identity source 棚卸し
+### 5.2 Phase A 対象外
 
-**目的**: RLS 導入の技術的前提を整備
-**前提**: なし
-**完了条件**: `dbReadWithIdentity()` / `dbWriteAdmin()` が利用可能、未注入 SELECT 検出テスト合格
+| 分類 | 対象 | 理由 | 次の扱い |
+|---|---|---|---|
+| auth only | `users`, `sessions`, `accounts`, `verifications` | Better Auth 専用 | `authDb` で分離し、通常 `appDb` から読ませない |
+| admin only | `processed_stripe_events`, `contact_messages`, `task_templates` | システム/管理用途 | 通常ユーザー SELECT 対象外 |
+| user settings / billing | `user_profiles`, `subscriptions`, `credits`, `credit_transactions`, `calendar_settings`, `notification_settings`, `company_info_monthly_usage`, `calendar_events`, `calendar_sync_jobs`, `login_prompts`, `guest_users` | 認証・課金・初回 guest 解決と絡むため影響が大きい | Phase B で個別に設計。guest 初回解決は `adminDb` または専用関数で扱う |
 
-#### Phase 1: インデックス追加 (低リスク)
+対象外テーブルは「adminDb 読み取り継続」で放置しない。理由、期限、次フェーズを inventory に持たせる。
 
-**目的**: クエリ性能の即効的改善
-**前提**: なし（Phase 0 と独立）
-**完了条件**: 5インデックス追加、4冗長削除、EXPLAIN ANALYZE で改善確認
-**注意**: I/O + write amplification あり。低トラフィック時間帯推奨
+### 5.3 policy matrix
 
-#### Phase 2: JSONB CHECK 制約
-
-**目的**: データ整合性の防御
-**前提**: なし（独立）
-**完了条件**: 20カラムに CHECK 制約、preflight 検証パス
-
-#### Phase 3: pg_trgm + GIN
-
-**目的**: LIKE 検索の高速化
-**前提**: なし（独立）
-**完了条件**: extension 有効化、GIN インデックス作成、検索パフォーマンス改善確認
-
-#### Phase 4: クエリ最適化
-
-**目的**: ダッシュボード・検索の UX 改善
-**前提**: Phase 1 (インデックス)、golden test 作成済み、architecture gate 通過
-**完了条件**: golden test 合格、クエリ統合、レスポンスタイム改善
-
-#### Phase 5: マイグレーション運用フレームワーク
-
-**目的**: マイグレーション品質の制度化
-**前提**: なし（独立）
-**完了条件**: validate-migrations.mjs CI 組込、命名規約文書化
-
-#### Phase 6: RLS policy 定義
-
-**目的**: 多層防御の DB 層を構築
-**前提**: Phase 0 (境界 API)
-**完了条件**: 38テーブルにポリシー定義、positive/negative テストパス
-
-#### Phase 7: RLS ロール切り替え
-
-**目的**: RLS の実効化
-**前提**: Phase 6 完了、RFC / architecture gate 通過
-**完了条件**: app_role で全クエリ実行、RLS 実効化、パフォーマンス劣化なし
+| policy 型 | 条件 | 必須テスト |
+|---|---|---|
+| direct owner | row の `user_id` / `guest_id` が identity と一致 | no identity = 0、own = rows、other owner = 0 |
+| parent owner | 親テーブルをたどって owner を確認 | 親 owner が他人なら子も 0 |
+| auth only | `authDb` 専用 | `appDb` から不可 |
+| admin only | `adminDb` 専用 | `appDb` から不可 |
+| system private | 通常ユーザー非公開 | `appDb` から不可 |
 
 ---
 
-## 7. モニタリングと検証
+## 6. owner integrity
 
-### 7.1 インデックス使用率
+### 6.1 方針
 
-`pg_stat_user_indexes.idx_scan` で新規インデックスの利用を確認。冗長削除前は最低1週間の idx_scan = 0 観測。
+子テーブルの owner 継承は trigger だけに寄せすぎない。
 
-### 7.2 EXPLAIN ANALYZE チェックリスト
+- 可能な箇所は複合外部キーまたは direct owner column へ寄せる。
+- Drizzle で自然に表現しづらい例外だけ trigger で守る。
+- `shupass_owner_integrity_violations()` は最終版を integrity layer に含める。
+- API は DB 例外に頼る前に owner 条件付き mutation / lookup を維持する。
 
-5つのホットクエリで Seq Scan → Index Scan 改善を確認:
-1. `getTodayTaskData` — `src/lib/server/dashboard-loaders.ts:216`
-2. `performSearch` — `src/lib/server/search-loader.ts:59`
-3. `loadCompaniesForUser` — `src/lib/server/company-loaders.ts:22`
-4. `getUpcomingDeadlines` — `src/lib/server/deadline-loaders.ts:53`
-5. `loadDocumentsForUser` — `src/lib/server/document-loaders.ts`
+### 6.2 必須対象
 
-### 7.3 RLS ポリシー有効性
-
-- `pg_tables.rowsecurity` + `pg_policies` で全テーブルの RLS 状態・ポリシー数を確認
-- app_role で SET LOCAL なしの SELECT → 0行返却テスト
-
-### 7.4 スキーマドリフト検出
-
-- 既存: `npm run check:prod-db-drift`, `check-db-high-load-readiness.mjs`
-- 新規: `validate-migrations.mjs` を CI に組込
-
-### 7.5 パフォーマンスベースライン
-
-Phase 4 と Phase 7 の前後で計測: ダッシュボード初期ロード (p50/p95)、検索レスポンス (p50/p95)、企業一覧ロード (p50/p95)、DB 接続プール使用率
+- `applications.company_id`
+- `documents.company_id/application_id/job_type_id`
+- `tasks.company_id/application_id/deadline_id`
+- `deadlines.application_id/job_type_id`
+- `motivation_conversations.company_id`
+- `interview_*`
+- `submission_items.application_id`
+- `user_pins.entity_id`
+- `ai_threads.gakuchika_id`
+- `company_rag_ingest_quotes.company_id`
 
 ---
 
-## 完了条件チェックリスト
+## 7. JSONB 方針
 
-- [x] 全7セクション完備
-- [x] 各セクションに対象ファイル参照あり
-- [x] 優先度マトリクスに全18施策を含む
-- [x] 実行順序が設計判断と一致 (Phase 0-7)
-- [x] Codex plan review の全7件の指摘を反映
-- [x] 設計方針 + 優先度マトリクスレベルで記述
+### 7.1 inventory
+
+現行 schema の `jsonb(` は 39 箇所ある。古い「20 カラム」前提は破棄し、`schema.ts` から自動生成した JSONB inventory を正とする。
+
+### 7.2 CHECK の粒度
+
+- `array` / `object` 程度の型 CHECK は入れる。
+- AI 出力系 JSON に細かすぎる構造 CHECK を入れない。
+- 詳細な構造は TypeScript / Zod / API 入力検証で担保する。
+- 将来構造が変わる JSON は migration が重くならないよう、DB 制約を最小限にする。
+
+---
+
+## 8. migration 3 層管理
+
+### 8.1 3 層
+
+| 層 | 内容 | 管理 |
+|---|---|---|
+| schema | Drizzle 生成 SQL。テーブル、基本 FK、通常 index、基本 CHECK | `drizzle_pg` |
+| integrity | owner integrity、JSONB CHECK、partial index、raw invariant | `drizzle_pg` の custom SQL または runner 管理の integrity layer |
+| security | role、grant、RLS helper、RLS policy | runner 管理の security layer。`supabase db push` 素実行に依存しない |
+
+### 8.2 履歴管理
+
+`run-migrations.mjs` 管理下で以下を検出する。
+
+- local-only migration
+- remote-only migration
+- hash 差分
+- schema / integrity / security manifest の不一致
+- `supabase_migrations.schema_migrations` の残存・欠落・remote-only
+
+`supabasePending: 0` は security layer の manifest と履歴テーブルを突き合わせて判定する。staging でも hard gate にする。
+
+### 8.3 archive 方針
+
+- 旧 `drizzle_pg` / `supabase/migrations` は実行対象外 archive に退避する。
+- archive 後に `validate-migrations.sh` が空の `supabase/migrations` 前提で落ちないよう更新する。
+- 旧 migration は編集して hash を変えない。
+- production reset は旧履歴を温存するのではなく、新しい 3 層履歴で再構築する。
+
+---
+
+## 9. raw SQL manifest と自動 inventory
+
+### 9.1 自動 inventory
+
+`schema.ts` から以下を生成する。
+
+- table 一覧
+- owner model
+- JSONB 一覧
+- index 一覧
+- FK 一覧
+- Phase A / Phase B 分類
+
+### 9.2 raw SQL manifest
+
+raw SQL 側は以下を manifest 化する。
+
+- owner integrity function / trigger
+- JSONB CHECK
+- partial index
+- RLS helper
+- RLS policy
+- grant / revoke
+- extension
+
+### 9.3 差分検査
+
+自動 inventory と raw SQL manifest を照合し、以下を検出する。
+
+- owner table なのに RLS policy がない
+- JSONB なのに型 CHECK 方針が未分類
+- raw SQL にしかない table / index / trigger
+- schema にある table が policy matrix にない
+- Phase A 対象なのに正負テストがない
+
+---
+
+## 10. lifecycle hook / harness 事前診断
+
+この作業は DB 再設計本体ではなく、事前診断トラックとして扱う。
+
+目的は、常時実行でノイズになっている guard を特定し、必要なら実行タイミングや対象を整理すること。安全ゲートを弱めることではない。
+
+弱めてはいけない gate:
+
+- `.claude/hooks/migration-safety-guard.sh`
+- `release-provider-guard.sh`
+- `production-promotion-guard.sh`
+- commit / push / production / secret / destructive command の承認 gate
+
+準備フェーズでは warning-only の import 検査を追加し、接続分離完了後に強制化する。
+
+---
+
+## 11. RLS 検証
+
+### 11.1 正負検証
+
+Phase A 対象テーブルごとに以下を SQL レベルで確認する。
+
+- no identity = 0 rows
+- own user identity = rows
+- own guest identity = rows
+- other user = 0 rows
+- other guest = 0 rows
+- parent owner が他人なら子テーブルも 0 rows
+- user / guest 同時注入は通常 API では発生しない
+
+### 11.2 RLS 迂回条件の検証
+
+PostgreSQL の RLS は `BYPASSRLS` 権限だけでなく、table owner による迂回にも注意する。Phase A では次を必須確認に含める。
+
+- `app_role` が Phase A 対象テーブルの owner ではない。
+- table owner として接続せざるを得ない場合は、対象テーブルで `FORCE ROW LEVEL SECURITY` が有効である。
+- `auth_role` に広い `BYPASSRLS` を与えない。
+- `adminDb` / migration 用 role は通常 API から import できない。
+
+検証 SQL 候補:
+
+```sql
+select
+  n.nspname as schema_name,
+  c.relname as table_name,
+  pg_get_userbyid(c.relowner) as table_owner,
+  c.relrowsecurity,
+  c.relforcerowsecurity
+from pg_class c
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and c.relkind = 'r'
+  and c.relname in (
+    'companies',
+    'applications',
+    'tasks',
+    'notifications',
+    'documents',
+    'deadlines',
+    'ai_threads',
+    'ai_messages'
+  );
+```
+
+`table_owner = app_role` かつ `relforcerowsecurity = false` の行がある場合は release gate で失敗扱いにする。
+
+### 11.3 性能検証
+
+RLS の `EXISTS` policy は正しさだけでなく性能も検証する。
+
+必須 `EXPLAIN ANALYZE` 対象:
+
+- `document_versions → documents`
+- `ai_messages → ai_threads → documents`
+- `deadlines → companies`
+- `tasks → deadlines/applications/companies`
+- 企業一覧、締切一覧、ドキュメント一覧、通知一覧、面接履歴一覧
+
+目安:
+
+- 主要画面の DB 時間が RLS 前比 1.2〜1.5 倍を超える場合は policy または index を見直す。
+- parent owner policy の JOIN キー、owner キーには必要な複合 index を置く。
+
+---
+
+## 12. 実行ロードマップ
+
+### Phase 0: 準備
+
+今すぐ行う。
+
+- 計画書の正規化
+- table / owner / jsonb / index inventory 生成
+- raw SQL manifest 設計
+- RLS policy matrix 作成
+- lifecycle hook / harness 事前診断
+- migration / release / production 安全ゲートを弱めない前提整理
+- `appDb` / `authDb` / `adminDb` の設計と検証項目定義
+- raw `db` / `adminDb` import 禁止検査を warning-only で導入
+
+### Phase A: local 実装
+
+機能修正がほぼ固まった段階で行う。
+
+- `appDb` / `authDb` / `adminDb` 実装
+- Better Auth の `authDb` 分離
+- `dbReadWithIdentity()` / `dbWriteAdmin()` 導入
+- 旧 `db` import 封じ込め
+- Phase A SELECT RLS の local 検証
+- RLS 正負検証
+- 主要 query の性能検証
+
+### Phase Final: migration 確定
+
+本番前の機能凍結後に行う。
+
+- 旧 `drizzle_pg` / `supabase/migrations` archive
+- `schema / integrity / security` の 3 層 migration 確定
+- local fresh replay
+- staging reset
+- production reset
+- `pending: 0` / `supabasePending: 0` / remote-only なし確認
+
+---
+
+## 13. 完了条件
+
+- `db-design-optimization-rls.md` が DB/RLS 設計正本として読める。
+- `db-staging-production-reset-bootstrap-plan.md` が reset / release 手順に集中している。
+- RLS Phase A 対象テーブルと対象外理由が明記されている。
+- `auth_role = 広い BYPASSRLS` の古い前提が残っていない。
+- `schema / integrity / security` の 3 層 migration 方針が明記されている。
+- raw SQL manifest と自動 inventory の差分検査方針がある。
+- RLS 正負検証と性能検証が明記されている。
+- lifecycle hook / harness は事前診断として分離され、安全ゲートを弱めないことが明記されている。

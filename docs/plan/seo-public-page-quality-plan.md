@@ -7,14 +7,14 @@
 
 ## 1. 目的
 
-就活Pass の 21 公開マーケティングページについて、オーガニック流入増加と技術的 SEO 負債解消を目的とした包括的改善を行う。本格 SEO 運用前の段階で、技術基盤を固めつつ新規 LP 展開の道筋をつける。
+就活Pass の公開マーケティングページについて、オーガニック流入増加と技術的 SEO 負債解消を目的とした包括的改善を行う。本格 SEO 運用前の段階で、技術基盤を固めつつ新規 LP 展開の道筋をつける。公開 URL 数は `src/app/sitemap.ts` を正本にし、2026-05-26 時点では 22 URL として棚卸しする。
 
 本計画書の対象は以下に絞る。
 
 - Technical SEO（title, canonical, sitemap, robots, 構造化データ, 内部リンク）
 - Core Web Vitals（font, 画像, preconnect, CLS）
 - アクセシビリティ（WCAG 2.1 AA 準拠）
-- 計測基盤（Search Console, GA4 カスタムイベント）
+- 計測基盤（既存 GA4 / Search Console の運用確認。新規外部ツールは導入しない）
 - コンテンツ最適化（description, OG 画像, title 最適化）
 - 新規 LP 展開（競合調査ベースのキーワードギャップ）
 
@@ -31,7 +31,7 @@
 - `src/lib/seo/json-ld.ts` — FAQ シリアライズ
 - `src/lib/seo/breadcrumb-jsonld.ts` — Breadcrumb 生成
 - `src/components/seo/FaqJsonLd.tsx`, `BreadcrumbJsonLd.tsx` — JSON-LD コンポーネント
-- `src/app/sitemap.ts` — サイトマップ（21 URL）
+- `src/app/sitemap.ts` — サイトマップ（22 URL）
 - `src/app/robots.ts` — robots 設定
 - `src/app/layout.tsx` — root metadata + title template
 - `src/app/(marketing)/layout.tsx` — marketing レイアウト（GA4 + 構造化データ）
@@ -49,7 +49,7 @@
 - `public/marketing/LP/sections/**` — 画像素材
 - `docs/marketing/README.md` — キーワード戦略・チャネル施策
 
-外部参照: SmartES, ES メーカー, OneCareer, 就活会議, note.com の公開ページ・SEO 戦略を Web 検索で調査した。
+外部参照は SEO / UX の語彙補正に限定する。直接 AI 競合は内定AI、内定くんAI、就活AI by ジェイック、大手メディア競合は ONE CAREER、就活会議とする。広告運用、外部計測、外部ヘルプデスク、外部検索ツールの導入根拠には使わない。
 
 ## 3. 完了条件
 
@@ -67,17 +67,17 @@
 
 実装フェーズでは、完了条件を満たすまで次のループを続ける。
 
-1. `Task Board` から `Todo` の最上位 Priority を 1 件選ぶ。
-2. 着手時に `Status` を `In Progress` へ変え、`Progress Log` に開始理由を書く。
+1. `docs/plan/plan-tasks.json` から `Todo` の最上位 Priority を 1 件選ぶ。
+2. 着手時に `Status` を `Doing` へ変え、`Progress Log` に開始理由を書く。
 3. 実装または検証でブロックしたら `Blocked` にし、必要な判断または環境条件を明記する。
 4. 受入基準を満たしたら `Review` にし、実行したテストと差分確認結果を書く。
 5. レビュー後に `Done` へ変える。
-6. `Todo / In Progress / Blocked / Review` が残る場合は 1 に戻る。
+6. `Todo / Doing / Blocked / Review` が残る場合は 1 に戻る。
 
 Status は以下だけを使う。
 
 - `Todo`: 未着手
-- `In Progress`: 作業中
+- `Doing`: 作業中
 - `Blocked`: 外部要因で停止中（理由を必ず記載）
 - `Review`: 実装完了、レビュー待ち
 - `Done`: レビュー完了、受入基準クリア
@@ -88,18 +88,19 @@ Status は以下だけを使う。
 
 | サービス | 公開ページ数 | 構造化データ | ブログ/記事 | 主な強み | 主な弱み |
 |---|---|---|---|---|---|
-| **就活Pass** | 21 | FAQ(16P), Breadcrumb(3P), Org+App+Web | なし | LP 充実、構造化データ網羅 | 内部リンク孤立、title 二重、CWV |
-| SmartES | ~3 | なし | なし | LINE ログイン低摩擦 | SEO 投資なし |
-| ES メーカー | ~3 | なし | なし | 「無料」訴求 | AI 添削なし、SEO なし |
-| OneCareer | 数千 | 基本的 | 1,946 記事 | 企業名 x 選考段階の長尾 | ツール体験なし |
-| 就活会議 | 数千 | 基本的 | 606+ 記事 | 大学群ターゲティング | AI 機能なし |
-| ChatGPT 直接利用 | N/A | N/A | note 5,000+ 記事 | 汎用性 | 就活特化なし |
+| **就活Pass** | 22 | FAQ, Breadcrumb, Org+App+Web | なし | 管理体験と AI 作成・添削を同じ導線で扱える | 内部リンク孤立、title 二重、CWV |
+| 内定AI | 少数 LP | 要確認 | なし | 無料枠、低価格、ES 生成・添削訴求 | 管理体験の訴求は弱い |
+| 内定くんAI | 少数 LP | 要確認 | なし | LINE 低摩擦、累計利用者訴求 | Web SEO の深さは限定的 |
+| 就活AI by ジェイック | ツール LP | 要確認 | あり | 登録不要・無料ツール訴求 | 個人の就活管理体験は限定的 |
+| ONE CAREER | 数千 | 基本的 | 多数 | 企業名 x 選考段階の長尾 | ツール体験は分散 |
+| 就活会議 | 数千 | 基本的 | 多数 | ES・選考体験記の量 | 個別の行動管理体験は弱い |
+| ChatGPT / Claude 直接利用 | N/A | N/A | 外部記事多数 | 汎用性 | 就活文脈・締切管理・企業管理がない |
 
 ### 5.2 戦略的示唆
 
-- 真の競合は大手メディア（OneCareer, 就活会議）であり、個別 AI ツール（SmartES, ES メーカー）ではない
-- 大手メディアはブログ記事量で圧倒するが、AI ツール体験は提供していない
-- 就活Pass は「実用ツール LP + テンプレ」で差別化すべき。ブログ量で勝負しない
+- 直接 AI 競合は「無料で試す」「低摩擦」「ES 生成・添削」を強く訴求している
+- 大手メディアは記事量・体験記量で強く、就活Pass は記事量で勝負しない
+- 就活Pass は「AI 作成・添削 + 企業別管理 + 締切まで一体管理」で差別化する
 - 「自己PR AI」「就活 AI 比較」「ES 書き方」系のキーワードギャップが大きい
 
 ### 5.3 キーワードギャップ

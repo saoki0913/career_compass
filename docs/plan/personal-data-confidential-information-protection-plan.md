@@ -35,6 +35,18 @@
 5. P0 / P1 は、後続実装者が追加判断なしで着手できる粒度になっている。
 6. 計画書作成後に、ファイル存在確認、主要見出し検索、`git diff --check` が実行されている。
 
+### 2.1 公開前必須条件
+
+本番公開前の判定では、以下を P0 として扱う。
+
+- 退会時に、アプリ DB、RAG 実体、Google OAuth / Calendar、Stripe customer 参照、問い合わせデータの保持・匿名化方針が明確である。
+- 会社削除、RAG URL 削除、private material 削除で Chroma / BM25 / Redis / Supabase object の削除 receipt または検証ログを残せる。
+- LLM / embedding / OCR / email / payment provider への外部送信対象が feature ごとに allowlist 化されている。
+- Sentry や provider logs に ES 本文、志望動機、ガクチカ、面接回答、guest token、OAuth token、email が raw で送信されない。
+- `private_user_material` は source kind、明示同意、保持期限、削除方法が揃うまで OCR / embedding / LLM に送らない。
+
+公開後改善へ回してよいものは、外部送信レポートの UX 表示、詳細な export API、長期 retention dashboard など、公開前の漏洩・過剰保持リスクを直接増やさない項目に限る。
+
 ## 3. タスク状態更新ルール
 
 実装フェーズでは、完了条件になるまで次のループを続ける。
