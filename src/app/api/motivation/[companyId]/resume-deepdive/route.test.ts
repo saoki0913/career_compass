@@ -3,8 +3,9 @@ import { NextRequest } from "next/server";
 
 const {
   dbUpdateMock,
+  dbTransactionMock,
   reserveCreditsMock,
-  confirmReservationMock,
+  confirmReservationInTxMock,
   cancelReservationMock,
   enforceRateLimitLayersMock,
   getRequestIdentityMock,
@@ -25,8 +26,9 @@ const {
   fetchGakuchikaContextMock,
 } = vi.hoisted(() => ({
   dbUpdateMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
-  confirmReservationMock: vi.fn(),
+  confirmReservationInTxMock: vi.fn(),
   cancelReservationMock: vi.fn(),
   enforceRateLimitLayersMock: vi.fn(),
   getRequestIdentityMock: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock("next/headers", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     update: dbUpdateMock,
+    transaction: dbTransactionMock,
   },
 }));
 
@@ -63,7 +66,7 @@ vi.mock("@/lib/auth/guest", () => ({
 
 vi.mock("@/lib/credits", () => ({
   reserveCredits: reserveCreditsMock,
-  confirmReservation: confirmReservationMock,
+  confirmReservationInTx: confirmReservationInTxMock,
   cancelReservation: cancelReservationMock,
 }));
 
@@ -152,8 +155,9 @@ const BASE_CONVERSATION = {
 describe("api/motivation/[companyId]/resume-deepdive", () => {
   beforeEach(() => {
     dbUpdateMock.mockReset();
+    dbTransactionMock.mockReset();
     reserveCreditsMock.mockReset();
-    confirmReservationMock.mockReset();
+    confirmReservationInTxMock.mockReset();
     cancelReservationMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
     getRequestIdentityMock.mockReset();
@@ -180,7 +184,13 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
         where: vi.fn().mockResolvedValue(undefined),
       })),
     });
+    dbTransactionMock.mockImplementation(async (callback) => {
+      return callback({
+        update: dbUpdateMock,
+      });
+    });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 70 });
     enforceRateLimitLayersMock.mockResolvedValue(null);
     getOwnedMotivationCompanyDataMock.mockResolvedValue({
       id: "company-1",
@@ -297,7 +307,8 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
       "company-1",
       expect.stringContaining("深掘り再開"),
     );
-    expect(confirmReservationMock).toHaveBeenCalledWith("res-1");
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(expect.anything(), "res-1");
+    expect(dbTransactionMock).toHaveBeenCalled();
     expect(dbUpdateMock).toHaveBeenCalled();
   });
 
@@ -362,8 +373,11 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
     expect(fetchFastApiInternalMock).not.toHaveBeenCalled();
   });
 
-  it("returns success and releases reservation when credit confirmation fails after follow-up persistence", async () => {
-    confirmReservationMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+  it("rolls back and refunds (503) when the reservation can no longer be confirmed", async () => {
+    // atomic: confirm runs inside the persist tx. A non-claimable reservation
+    // (already canceled/confirmed, or swept by cleanup) makes the tx throw, so
+    // the follow-up question is NOT persisted and the reservation is refunded.
+    confirmReservationInTxMock.mockResolvedValueOnce({ confirmed: false, balanceAfter: null });
     fetchFastApiInternalMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -400,8 +414,52 @@ describe("api/motivation/[companyId]/resume-deepdive", () => {
       params: Promise.resolve({ companyId: "company-1" }),
     });
 
-    expect(response.status).toBe(200);
-    expect(dbUpdateMock).toHaveBeenCalled();
+    expect(response.status).toBe(503);
+    expect(dbTransactionMock).toHaveBeenCalled();
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(expect.anything(), "res-1");
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+  });
+
+  it("refunds (503) when confirmation throws inside the persist transaction", async () => {
+    confirmReservationInTxMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          question: "さらに深掘りしたい点はありますか？",
+          evidence_summary: null,
+          evidence_cards: [],
+          coaching_focus: "補足深掘り",
+          question_stage: "differentiation",
+          conversation_mode: "deepdive",
+          current_slot: "company_reason",
+          current_intent: "experience_anchor",
+          next_advance_condition: "原体験との接続が補えれば十分です。",
+          progress: { completed: 6, total: 6 },
+          causal_gaps: [],
+          stage_status: null,
+          captured_context: { draftReady: true, questionStage: "differentiation" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const { POST } = await import(
+      "@/app/api/motivation/[companyId]/resume-deepdive/route"
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/motivation/company-1/resume-deepdive",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    const response = await POST(request, {
+      params: Promise.resolve({ companyId: "company-1" }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(dbTransactionMock).toHaveBeenCalled();
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 

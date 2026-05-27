@@ -12,7 +12,7 @@ import { getCsrfFailureReason } from "@/lib/csrf";
 import { computeTotalTokens, incrementDailyTokenCount } from "@/lib/llm-cost-limit";
 import {
   cancelReservation,
-  confirmReservation,
+  confirmReservationInTx,
   FEEDBACK_SUMMARY_CREDIT_COST,
   reserveCredits,
 } from "@/lib/credits";
@@ -204,60 +204,39 @@ export async function POST(
       ...conversationState,
       summaryStale: false,
     };
-    try {
-      await db.transaction(async (tx) => {
-        await tx
-          .update(gakuchikaContents)
-          .set({
-            summary: JSON.stringify(persistedSummary),
-            updatedAt: new Date(),
-          })
-          .where(eq(gakuchikaContents.id, gakuchikaId));
 
-        await tx
-          .update(gakuchikaConversations)
-          .set({
-            starScores: serializeConversationState(nextState),
-            updatedAt: new Date(),
-          })
-          .where(eq(gakuchikaConversations.id, sessionId));
-      });
-    } catch (dbError) {
-      // DB 保存失敗は非課金。
-      if (reservationId) {
-        await cancelReservation(reservationId);
-        reservationId = null;
-      }
-      throw dbError;
-    }
-
-    // 生成成功かつ保存成功のときだけ confirm する。confirm 失敗は cancel して非課金扱い。
+    // Persist the summary + conversation AND confirm the reservation in one
+    // transaction so "saved" and "charged" share a single commit boundary. If
+    // the reservation can no longer be claimed (already canceled/confirmed, or
+    // swept by cleanup), the whole tx rolls back and the outer catch refunds;
+    // we never deliver a saved-but-uncharged summary.
     let creditsUsed = 0;
-    if (reservationId) {
-      try {
-        await confirmReservation(reservationId);
-        creditsUsed = FEEDBACK_SUMMARY_CREDIT_COST;
-      } catch (error) {
-        logError("gakuchika-interview-summary:confirm-reservation", error, {
-          gakuchikaId,
-          userId: identity.userId,
-          requestId,
-          reservationId,
-        });
-        try {
-          await cancelReservation(reservationId);
-        } catch (cancelError) {
-          logError("gakuchika-interview-summary:cancel-after-confirm-failure", cancelError, {
-            gakuchikaId,
-            userId: identity.userId,
-            requestId,
-            reservationId,
-          });
+    await db.transaction(async (tx) => {
+      await tx
+        .update(gakuchikaContents)
+        .set({
+          summary: JSON.stringify(persistedSummary),
+          updatedAt: new Date(),
+        })
+        .where(eq(gakuchikaContents.id, gakuchikaId));
+
+      await tx
+        .update(gakuchikaConversations)
+        .set({
+          starScores: serializeConversationState(nextState),
+          updatedAt: new Date(),
+        })
+        .where(eq(gakuchikaConversations.id, sessionId));
+
+      if (reservationId) {
+        const { confirmed } = await confirmReservationInTx(tx, reservationId);
+        if (!confirmed) {
+          throw new Error("credit reservation could not be confirmed");
         }
-      } finally {
-        reservationId = null;
       }
-    }
+    });
+    if (reservationId) creditsUsed = FEEDBACK_SUMMARY_CREDIT_COST;
+    reservationId = null;
 
     void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
     logAiCreditCostSummary({

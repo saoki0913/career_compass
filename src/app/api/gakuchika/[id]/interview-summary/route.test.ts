@@ -16,7 +16,7 @@ const {
   computeTotalTokensMock,
   incrementDailyTokenCountMock,
   reserveCreditsMock,
-  confirmReservationMock,
+  confirmReservationInTxMock,
   cancelReservationMock,
   logErrorMock,
 } = vi.hoisted(() => ({
@@ -34,7 +34,7 @@ const {
   computeTotalTokensMock: vi.fn(() => 0),
   incrementDailyTokenCountMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
-  confirmReservationMock: vi.fn(),
+  confirmReservationInTxMock: vi.fn(),
   cancelReservationMock: vi.fn(),
   logErrorMock: vi.fn(),
 }));
@@ -71,7 +71,7 @@ vi.mock("@/lib/csrf", () => ({
 
 vi.mock("@/lib/credits", () => ({
   reserveCredits: reserveCreditsMock,
-  confirmReservation: confirmReservationMock,
+  confirmReservationInTx: confirmReservationInTxMock,
   cancelReservation: cancelReservationMock,
   FEEDBACK_SUMMARY_CREDIT_COST: 6,
 }));
@@ -146,7 +146,7 @@ describe("api/gakuchika/[id]/interview-summary", () => {
     enforceRateLimitLayersMock.mockReset();
     getCsrfFailureReasonMock.mockReset();
     reserveCreditsMock.mockReset();
-    confirmReservationMock.mockReset();
+    confirmReservationInTxMock.mockReset();
     cancelReservationMock.mockReset();
     logErrorMock.mockReset();
 
@@ -157,7 +157,7 @@ describe("api/gakuchika/[id]/interview-summary", () => {
     safeParseMessagesMock.mockReturnValue([{ role: "user", content: "回答" }]);
     serializeConversationStateMock.mockImplementation((value) => JSON.stringify(value));
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "r-1", newBalance: 44 });
-    confirmReservationMock.mockResolvedValue({ confirmed: true });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 70 });
     cancelReservationMock.mockResolvedValue({ canceled: true, refundedAmount: 6 });
     dbUpdateMock.mockReturnValue({
       set: vi.fn(() => ({
@@ -223,10 +223,10 @@ describe("api/gakuchika/[id]/interview-summary", () => {
     expect(response.status).toBe(200);
     expect(body.cached).toBe(false);
     expect(body.summary).toEqual(expect.objectContaining({ summary: "新しいまとめ" }));
-    // 成功時のみ消費: 予約 → 保存 → confirm の順
+    // 成功時のみ消費: 予約 → 保存 + confirm を単一トランザクションで実行
     expect(reserveCreditsMock).toHaveBeenCalledWith("user-1", 6, "gakuchika_summary", "g-1", expect.any(String));
     expect(dbTransactionMock).toHaveBeenCalled();
-    expect(confirmReservationMock).toHaveBeenCalledWith("r-1");
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(expect.anything(), "r-1");
     expect(cancelReservationMock).not.toHaveBeenCalled();
     expect(incrementDailyTokenCountMock).toHaveBeenCalledWith({ userId: "user-1", guestId: null }, 30);
   });
@@ -243,26 +243,47 @@ describe("api/gakuchika/[id]/interview-summary", () => {
     const response = await POST(makeRequest(), { params: Promise.resolve({ id: "g-1" }) });
 
     expect(response.status).toBe(200);
-    // fallback は予約をキャンセル（非課金）
+    // fallback は予約をキャンセル（非課金）。tx 内 confirm は呼ばない。
     expect(reserveCreditsMock).toHaveBeenCalled();
     expect(cancelReservationMock).toHaveBeenCalledWith("r-1");
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(confirmReservationInTxMock).not.toHaveBeenCalled();
   });
 
-  it("cancels the reservation when confirmation fails (no charge)", async () => {
+  it("rolls back and refunds (500) when the reservation can no longer be confirmed", async () => {
+    // atomic: confirm が persist と同一 tx 内で走る。claim 不能な予約
+    // （既に cancel/confirm 済み、または cleanup で掃除済み）は tx を throw させ、
+    // 成果物は保存されず予約は返金される。
     mockCompletedConversation("doc-current");
     generateGakuchikaSummaryWithTelemetryMock.mockResolvedValue({
       summary: { summary: "新しいまとめ", key_points: [], numbers: [], strengths: [] },
       telemetry: null,
       source: "llm",
     });
-    confirmReservationMock.mockRejectedValue(new Error("confirm failed"));
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: false, balanceAfter: null });
+
+    const { POST } = await import("@/bff/gakuchika/[id]/interview-summary/route");
+    const response = await POST(makeRequest(), { params: Promise.resolve({ id: "g-1" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.summary).toBeUndefined();
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(expect.anything(), "r-1");
+    expect(cancelReservationMock).toHaveBeenCalledWith("r-1");
+  });
+
+  it("refunds (500) when confirmation throws inside the persist transaction", async () => {
+    mockCompletedConversation("doc-current");
+    generateGakuchikaSummaryWithTelemetryMock.mockResolvedValue({
+      summary: { summary: "新しいまとめ", key_points: [], numbers: [], strengths: [] },
+      telemetry: null,
+      source: "llm",
+    });
+    confirmReservationInTxMock.mockRejectedValue(new Error("credit store unavailable"));
 
     const { POST } = await import("@/bff/gakuchika/[id]/interview-summary/route");
     const response = await POST(makeRequest(), { params: Promise.resolve({ id: "g-1" }) });
 
-    expect(response.status).toBe(200);
-    expect(confirmReservationMock).toHaveBeenCalledWith("r-1");
+    expect(response.status).toBe(500);
     expect(cancelReservationMock).toHaveBeenCalledWith("r-1");
   });
 

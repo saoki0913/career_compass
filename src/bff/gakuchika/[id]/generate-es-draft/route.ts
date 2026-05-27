@@ -14,11 +14,10 @@ import {
 import { and, eq, desc } from "drizzle-orm";
 import {
   reserveCredits,
-  confirmReservation,
+  confirmReservationInTx,
   cancelReservation,
 } from "@/lib/credits";
 import { randomUUID } from "crypto";
-import { logError } from "@/lib/logger";
 import { DRAFT_RATE_LAYERS, enforceRateLimitLayers } from "@/lib/rate-limit-spike";
 import {
   getRequestId,
@@ -381,6 +380,12 @@ export async function POST(
       },
     ];
 
+    // Persist the document + conversation AND confirm the reservation in one
+    // transaction so "saved" and "charged" share a single commit boundary. If
+    // the reservation can no longer be claimed (already canceled/confirmed, or
+    // swept by cleanup), the whole tx rolls back and the outer catch refunds;
+    // we never deliver a saved-but-uncharged draft.
+    let creditsUsed = 0;
     await db.transaction(async (tx) => {
       await tx.insert(documents).values({
         id: documentId,
@@ -402,32 +407,16 @@ export async function POST(
           updatedAt: new Date(),
         })
         .where(eq(gakuchikaConversations.id, conversation.id));
-    });
 
-    // Confirm credit reservation only after all persistence succeeds
-    let creditsUsed = 0;
-    if (reservationId) {
-      try {
-        await confirmReservation(reservationId);
-        creditsUsed = 6;
-      } catch (error) {
-        logError("gakuchika-draft:confirm-reservation", error, {
-          requestId,
-          reservationId,
-        });
-        try {
-          await cancelReservation(reservationId);
-        } catch (cancelError) {
-          logError("gakuchika-draft:cancel-after-confirm-failure", cancelError, {
-            requestId,
-            reservationId,
-          });
+      if (reservationId) {
+        const { confirmed } = await confirmReservationInTx(tx, reservationId);
+        if (!confirmed) {
+          throw new Error("credit reservation could not be confirmed");
         }
-        creditsUsed = 0;
-      } finally {
-        reservationId = null;
       }
-    }
+    });
+    if (reservationId) creditsUsed = 6;
+    reservationId = null;
     logAiCreditCostSummary({
       feature: "gakuchika_draft",
       requestId,

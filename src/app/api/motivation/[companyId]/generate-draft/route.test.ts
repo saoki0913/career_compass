@@ -6,7 +6,7 @@ const {
   dbInsertMock,
   dbTransactionMock,
   reserveCreditsMock,
-  confirmReservationMock,
+  confirmReservationInTxMock,
   cancelReservationMock,
   enforceRateLimitLayersMock,
   getRequestIdentityMock,
@@ -23,7 +23,7 @@ const {
   dbInsertMock: vi.fn(),
   dbTransactionMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
-  confirmReservationMock: vi.fn(),
+  confirmReservationInTxMock: vi.fn(),
   cancelReservationMock: vi.fn(),
   enforceRateLimitLayersMock: vi.fn(),
   getRequestIdentityMock: vi.fn(),
@@ -55,7 +55,7 @@ vi.mock("@/lib/auth/guest", () => ({
 
 vi.mock("@/lib/credits", () => ({
   reserveCredits: reserveCreditsMock,
-  confirmReservation: confirmReservationMock,
+  confirmReservationInTx: confirmReservationInTxMock,
   cancelReservation: cancelReservationMock,
 }));
 
@@ -110,7 +110,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     dbInsertMock.mockReset();
     dbTransactionMock.mockReset();
     reserveCreditsMock.mockReset();
-    confirmReservationMock.mockReset();
+    confirmReservationInTxMock.mockReset();
     cancelReservationMock.mockReset();
     enforceRateLimitLayersMock.mockReset();
     getRequestIdentityMock.mockReset();
@@ -138,6 +138,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
       insert: dbInsertMock,
     }));
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 70 });
     enforceRateLimitLayersMock.mockResolvedValue(null);
     getOwnedMotivationCompanyDataMock.mockResolvedValue({
       id: "company-1",
@@ -278,6 +279,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(dbUpdateMock).toHaveBeenCalled();
     const updateSet = dbUpdateMock.mock.results.at(-1)?.value.set;
     expect(updateSet).toBeDefined();
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(expect.anything(), "res-1");
   });
 
   it("passes through 422 from FastAPI as 422 with user-facing message and cancels reservation", async () => {
@@ -309,7 +311,7 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     expect(response.status).toBe(422);
     expect(payload.error.userMessage).toBe("会話が長すぎます。新しい会話を開始してください。");
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(confirmReservationInTxMock).not.toHaveBeenCalled();
   });
 
   it("creates an ES document and persists draftDocumentId without fetching next-question", async () => {
@@ -364,8 +366,11 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     );
   });
 
-  it("returns persisted draft and releases reservation when credit confirmation fails after document creation", async () => {
-    confirmReservationMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+  it("rolls back and refunds (503) when the reservation can no longer be confirmed", async () => {
+    // atomic: confirm runs inside the persist tx. A non-claimable reservation
+    // (already canceled/confirmed, or swept by cleanup) makes the tx throw, so
+    // the document is NOT delivered and the reservation is refunded.
+    confirmReservationInTxMock.mockResolvedValueOnce({ confirmed: false, balanceAfter: null });
     fetchFastApiInternalMock.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -388,9 +393,36 @@ describe("api/motivation/[companyId]/generate-draft", () => {
     const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
     const payload = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(payload.documentId).toEqual(expect.any(String));
+    expect(response.status).toBe(503);
+    expect(payload.documentId).toBeUndefined();
     expect(dbTransactionMock).toHaveBeenCalled();
+    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+  });
+
+  it("refunds (503) when confirmation throws inside the persist transaction", async () => {
+    confirmReservationInTxMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+    fetchFastApiInternalMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          draft: "志望動機の下書きです。",
+          char_count: 120,
+          key_points: ["企業理解"],
+          company_keywords: ["DX支援"],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const { POST } = await import("@/app/api/motivation/[companyId]/generate-draft/route");
+    const request = new NextRequest("http://localhost:3000/api/motivation/company-1/generate-draft", {
+      method: "POST",
+      body: JSON.stringify({ charLimit: 400 }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ companyId: "company-1" }) });
+
+    expect(response.status).toBe(503);
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 });

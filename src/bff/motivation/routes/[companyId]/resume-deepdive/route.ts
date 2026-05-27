@@ -10,7 +10,7 @@ import { createApiErrorResponse } from "@/bff/api/error-response";
 import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
+import { reserveCredits, confirmReservationInTx, cancelReservation } from "@/lib/credits";
 import {
   safeParseConversationContext,
   safeParseMessages,
@@ -313,61 +313,50 @@ export async function POST(
       },
     ];
 
-    // Update DB (same fields as generate-draft follow-up, without draft fields)
-    await db
-      .update(motivationConversations)
-      .set({
-        messages: updatedMessages,
-        conversationContext: {
-          ...conversationContext,
-          draftReady: true,
-          postDraftAwaitingResume: false,
-          deepdiveResumeCount: resumeCount + 1,
-          conversationMode: conversationMode || conversationContext.conversationMode || "deepdive",
-          currentIntent: currentIntent || conversationContext.currentIntent || null,
-          nextAdvanceCondition:
-            nextAdvanceCondition || conversationContext.nextAdvanceCondition || null,
-          causalGaps,
-          questionStage: questionStage || conversationContext.questionStage,
-          lastQuestionMeta: {
-            ...((conversationContext.lastQuestionMeta || {}) as LastQuestionMeta),
-            questionText: nextQuestion,
-            question_stage: questionStage || conversationContext.questionStage,
-          },
-        } satisfies MotivationConversationContext,
-        questionStage: questionStage || conversation.questionStage,
-        lastEvidenceCards: evidenceCards,
-        stageStatus,
-        updatedAt: new Date(),
-      })
-      .where(eq(motivationConversations.id, conversation.id));
-
+    // Persist the conversation update AND confirm the reservation in one
+    // transaction so "saved" and "charged" share a single commit boundary. If
+    // the reservation can no longer be claimed (already canceled/confirmed, or
+    // swept by cleanup), the whole tx rolls back and the outer catch refunds;
+    // we never persist a follow-up question without charging for it.
     let creditsUsed = 0;
-    if (reservationId) {
-      try {
-        await confirmReservation(reservationId);
-        creditsUsed = 1;
-      } catch (error) {
-        logError("motivation-resume-deepdive:confirm-reservation", error, {
-          companyId,
-          userId: userId ?? undefined,
-          requestId,
-          reservationId,
-        });
-        try {
-          await cancelReservation(reservationId);
-        } catch (cancelError) {
-          logError("motivation-resume-deepdive:cancel-after-confirm-failure", cancelError, {
-            companyId,
-            userId: userId ?? undefined,
-            requestId,
-            reservationId,
-          });
+    await db.transaction(async (tx) => {
+      await tx
+        .update(motivationConversations)
+        .set({
+          messages: updatedMessages,
+          conversationContext: {
+            ...conversationContext,
+            draftReady: true,
+            postDraftAwaitingResume: false,
+            deepdiveResumeCount: resumeCount + 1,
+            conversationMode: conversationMode || conversationContext.conversationMode || "deepdive",
+            currentIntent: currentIntent || conversationContext.currentIntent || null,
+            nextAdvanceCondition:
+              nextAdvanceCondition || conversationContext.nextAdvanceCondition || null,
+            causalGaps,
+            questionStage: questionStage || conversationContext.questionStage,
+            lastQuestionMeta: {
+              ...((conversationContext.lastQuestionMeta || {}) as LastQuestionMeta),
+              questionText: nextQuestion,
+              question_stage: questionStage || conversationContext.questionStage,
+            },
+          } satisfies MotivationConversationContext,
+          questionStage: questionStage || conversation.questionStage,
+          lastEvidenceCards: evidenceCards,
+          stageStatus,
+          updatedAt: new Date(),
+        })
+        .where(eq(motivationConversations.id, conversation.id));
+
+      if (reservationId) {
+        const { confirmed } = await confirmReservationInTx(tx, reservationId);
+        if (!confirmed) {
+          throw new Error("credit reservation could not be confirmed");
         }
-      } finally {
-        reservationId = null;
       }
-    }
+    });
+    if (reservationId) creditsUsed = 1;
+    reservationId = null;
 
     logAiCreditCostSummary({
       feature: "motivation_resume_deepdive",

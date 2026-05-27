@@ -13,7 +13,7 @@ import { db } from "@/lib/db";
 import { motivationConversations } from "@/lib/db/schema";
 import {
   cancelReservation,
-  confirmReservation,
+  confirmReservationInTx,
   FEEDBACK_SUMMARY_CREDIT_COST,
   reserveCredits,
 } from "@/lib/credits";
@@ -261,7 +261,11 @@ export async function POST(
       });
     }
 
-    // --- DB 保存（feedbackSummary カラム）。保存失敗は非課金 ---
+    // --- DB 保存 + confirm を 1 トランザクションに束ねる ---
+    // 「保存済み」と「課金済み」を単一のコミット境界で揃える。reservation を
+    // もう確保できない（すでに cancel/confirm 済み、cleanup で掃除された等）場合は
+    // tx 全体をロールバックし、外側 catch が返金する。保存はできたが未課金、という
+    // サマリは決して返さない。
     const persisted: PersistedFeedbackSummary = {
       one_line_core_answer: data.one_line_core_answer,
       strengths: data.strengths ?? [],
@@ -270,46 +274,22 @@ export async function POST(
       likely_followup_questions: data.likely_followup_questions ?? [],
       source_draft_document_id: currentDraftDocumentId,
     };
-    try {
-      await db
+    let creditsUsed = 0;
+    await db.transaction(async (tx) => {
+      await tx
         .update(motivationConversations)
         .set({ feedbackSummary: persisted, updatedAt: new Date() })
         .where(eq(motivationConversations.id, conversation.id));
-    } catch (dbError) {
-      if (reservationId) {
-        await cancelReservation(reservationId);
-        reservationId = null;
-      }
-      throw dbError;
-    }
 
-    // --- confirm（保存成功後のみ）。confirm 失敗は cancel して非課金 ---
-    let creditsUsed = 0;
-    if (reservationId) {
-      try {
-        await confirmReservation(reservationId);
-        creditsUsed = FEEDBACK_SUMMARY_CREDIT_COST;
-      } catch (error) {
-        logError("motivation-feedback-summary:confirm-reservation", error, {
-          companyId,
-          userId,
-          requestId,
-          reservationId,
-        });
-        try {
-          await cancelReservation(reservationId);
-        } catch (cancelError) {
-          logError("motivation-feedback-summary:cancel-after-confirm-failure", cancelError, {
-            companyId,
-            userId,
-            requestId,
-            reservationId,
-          });
+      if (reservationId) {
+        const { confirmed } = await confirmReservationInTx(tx, reservationId);
+        if (!confirmed) {
+          throw new Error("credit reservation could not be confirmed");
         }
-      } finally {
-        reservationId = null;
       }
-    }
+    });
+    if (reservationId) creditsUsed = FEEDBACK_SUMMARY_CREDIT_COST;
+    reservationId = null;
 
     logAiCreditCostSummary({
       feature: "motivation_summary",

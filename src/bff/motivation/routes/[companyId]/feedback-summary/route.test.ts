@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 
 const {
   dbUpdateMock,
+  dbTransactionMock,
   reserveCreditsMock,
-  confirmReservationMock,
+  confirmReservationInTxMock,
   cancelReservationMock,
   resolveDraftReadyStateMock,
   safeParseConversationContextMock,
@@ -21,8 +22,9 @@ const {
   logErrorMock,
 } = vi.hoisted(() => ({
   dbUpdateMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
-  confirmReservationMock: vi.fn(),
+  confirmReservationInTxMock: vi.fn(),
   cancelReservationMock: vi.fn(),
   resolveDraftReadyStateMock: vi.fn(),
   safeParseConversationContextMock: vi.fn(),
@@ -39,14 +41,14 @@ const {
   logErrorMock: vi.fn(),
 }));
 
-vi.mock("@/lib/db", () => ({ db: { update: dbUpdateMock } }));
+vi.mock("@/lib/db", () => ({ db: { update: dbUpdateMock, transaction: dbTransactionMock } }));
 vi.mock("@/lib/db/schema", () => ({ motivationConversations: { id: "id" } }));
 vi.mock("@/bff/api/error-response", () => ({
   createApiErrorResponse: vi.fn((_req, opts) => NextResponse.json({ code: opts.code }, { status: opts.status })),
 }));
 vi.mock("@/lib/credits", () => ({
   reserveCredits: reserveCreditsMock,
-  confirmReservation: confirmReservationMock,
+  confirmReservationInTx: confirmReservationInTxMock,
   cancelReservation: cancelReservationMock,
   FEEDBACK_SUMMARY_CREDIT_COST: 6,
 }));
@@ -100,6 +102,9 @@ function callRoute(POST: (req: NextRequest, ctx: { params: Promise<{ companyId: 
 
 function setDbUpdateSuccess() {
   dbUpdateMock.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn().mockResolvedValue(undefined) })) });
+  // persist + confirm share one transaction; the callback receives a tx whose
+  // `update` is the same mock the route uses for the conversation persist.
+  dbTransactionMock.mockImplementation(async (callback) => callback({ update: dbUpdateMock }));
 }
 
 function setReadyConversation() {
@@ -134,7 +139,7 @@ describe("bff/motivation/feedback-summary/route", () => {
     enforceRateLimitLayersMock.mockResolvedValue(null);
     getViewerPlanMock.mockResolvedValue("free");
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "r-1" });
-    confirmReservationMock.mockResolvedValue({ confirmed: true });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 70 });
     cancelReservationMock.mockResolvedValue({ canceled: true });
     incrementDailyTokenCountMock.mockResolvedValue(undefined);
     setDbUpdateSuccess();
@@ -186,7 +191,7 @@ describe("bff/motivation/feedback-summary/route", () => {
     expect(body.cached).toBe(false);
     expect(reserveCreditsMock).toHaveBeenCalledWith("user-1", 6, "motivation_summary", "c-1", expect.any(String));
     expect(dbUpdateMock).toHaveBeenCalled();
-    expect(confirmReservationMock).toHaveBeenCalledWith("r-1");
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(expect.anything(), "r-1");
     expect(cancelReservationMock).not.toHaveBeenCalled();
   });
 
@@ -197,7 +202,7 @@ describe("bff/motivation/feedback-summary/route", () => {
     const res = await callRoute(POST);
     expect(res.status).toBe(503);
     expect(cancelReservationMock).toHaveBeenCalledWith("r-1");
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(confirmReservationInTxMock).not.toHaveBeenCalled();
   });
 
   it("does not charge when FastAPI returns an empty (fallback) summary", async () => {
@@ -210,10 +215,10 @@ describe("bff/motivation/feedback-summary/route", () => {
     const res = await callRoute(POST);
     expect(res.status).toBe(502);
     expect(cancelReservationMock).toHaveBeenCalledWith("r-1");
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(confirmReservationInTxMock).not.toHaveBeenCalled();
   });
 
-  it("cancels the reservation when DB save fails (no charge)", async () => {
+  it("rolls back and refunds (503) when DB save fails (no charge)", async () => {
     setReadyConversation();
     fetchFastApiWithPrincipalMock.mockResolvedValue({ ok: true, json: async () => SUCCESS_PAYLOAD });
     dbUpdateMock.mockReturnValue({
@@ -223,17 +228,31 @@ describe("bff/motivation/feedback-summary/route", () => {
     const res = await callRoute(POST);
     expect(res.status).toBe(503);
     expect(cancelReservationMock).toHaveBeenCalledWith("r-1");
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(confirmReservationInTxMock).not.toHaveBeenCalled();
   });
 
-  it("cancels the reservation when confirmation fails (no charge)", async () => {
+  it("rolls back and refunds (503) when the reservation can no longer be confirmed", async () => {
+    // atomic: confirm runs inside the persist tx. A non-claimable reservation
+    // (already canceled/confirmed, or swept by cleanup) makes the tx throw, so
+    // the summary is NOT delivered and the reservation is refunded.
     setReadyConversation();
     fetchFastApiWithPrincipalMock.mockResolvedValue({ ok: true, json: async () => SUCCESS_PAYLOAD });
-    confirmReservationMock.mockRejectedValue(new Error("confirm failed"));
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: false, balanceAfter: null });
     const { POST } = await importRoute();
     const res = await callRoute(POST);
-    expect(res.status).toBe(200);
-    expect(confirmReservationMock).toHaveBeenCalledWith("r-1");
+    expect(res.status).toBe(503);
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(expect.anything(), "r-1");
+    expect(cancelReservationMock).toHaveBeenCalledWith("r-1");
+  });
+
+  it("refunds (503) when confirmation throws inside the persist transaction", async () => {
+    setReadyConversation();
+    fetchFastApiWithPrincipalMock.mockResolvedValue({ ok: true, json: async () => SUCCESS_PAYLOAD });
+    confirmReservationInTxMock.mockRejectedValue(new Error("credit store unavailable"));
+    const { POST } = await importRoute();
+    const res = await callRoute(POST);
+    expect(res.status).toBe(503);
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(expect.anything(), "r-1");
     expect(cancelReservationMock).toHaveBeenCalledWith("r-1");
   });
 

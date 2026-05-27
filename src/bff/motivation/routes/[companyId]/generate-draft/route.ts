@@ -10,7 +10,7 @@ import { createApiErrorResponse } from "@/bff/api/error-response";
 import { db } from "@/lib/db";
 import { documents, motivationConversations } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-import { reserveCredits, confirmReservation, cancelReservation } from "@/lib/credits";
+import { reserveCredits, confirmReservationInTx, cancelReservation } from "@/lib/credits";
 import {
   resolveDraftReadyState,
   safeParseConversationContext,
@@ -263,6 +263,12 @@ export async function POST(
       draftDocumentId: documentId,
     } satisfies MotivationConversationContext;
 
+    // Persist the document + conversation AND confirm the reservation in one
+    // transaction so "saved" and "charged" share a single commit boundary. If
+    // the reservation can no longer be claimed (already canceled/confirmed, or
+    // swept by cleanup), the whole tx rolls back and the outer catch refunds;
+    // we never deliver a saved-but-uncharged draft.
+    let creditsUsed = 0;
     await db.transaction(async (tx) => {
       await tx.insert(documents).values({
         id: documentId,
@@ -288,34 +294,16 @@ export async function POST(
           updatedAt: now,
         })
         .where(eq(motivationConversations.id, conversation.id));
-    });
 
-    let creditsUsed = 0;
-    if (reservationId) {
-      try {
-        await confirmReservation(reservationId);
-        creditsUsed = 6;
-      } catch (error) {
-        logError("motivation-draft:confirm-reservation", error, {
-          companyId,
-          userId: userId ?? undefined,
-          requestId,
-          reservationId,
-        });
-        try {
-          await cancelReservation(reservationId);
-        } catch (cancelError) {
-          logError("motivation-draft:cancel-after-confirm-failure", cancelError, {
-            companyId,
-            userId: userId ?? undefined,
-            requestId,
-            reservationId,
-          });
+      if (reservationId) {
+        const { confirmed } = await confirmReservationInTx(tx, reservationId);
+        if (!confirmed) {
+          throw new Error("credit reservation could not be confirmed");
         }
-      } finally {
-        reservationId = null;
       }
-    }
+    });
+    if (reservationId) creditsUsed = 6;
+    reservationId = null;
     logAiCreditCostSummary({
       feature: "motivation_draft",
       requestId,
