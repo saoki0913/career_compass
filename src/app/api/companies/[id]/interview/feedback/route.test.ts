@@ -6,32 +6,38 @@ const {
   buildInterviewContextMock,
   listInterviewTurnEventsMock,
   normalizeInterviewPlanValueMock,
-  saveInterviewConversationProgressMock,
-  saveInterviewFeedbackHistoryMock,
+  saveInterviewConversationProgressTxMock,
+  saveInterviewFeedbackHistoryTxMock,
   saveInterviewFeedbackSheetMock,
   validateInterviewTurnStateMock,
   createInterviewUpstreamStreamMock,
   reserveCreditsMock,
-  confirmReservationMock,
+  confirmReservationInTxMock,
   cancelReservationMock,
   normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponseMock,
+  transactionMock,
+  logErrorMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
   listInterviewTurnEventsMock: vi.fn(),
   normalizeInterviewPlanValueMock: vi.fn(),
-  saveInterviewConversationProgressMock: vi.fn(),
-  saveInterviewFeedbackHistoryMock: vi.fn(),
+  saveInterviewConversationProgressTxMock: vi.fn(),
+  saveInterviewFeedbackHistoryTxMock: vi.fn(),
   saveInterviewFeedbackSheetMock: vi.fn(),
   validateInterviewTurnStateMock: vi.fn(),
   createInterviewUpstreamStreamMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
-  confirmReservationMock: vi.fn(),
+  confirmReservationInTxMock: vi.fn(),
   cancelReservationMock: vi.fn(),
   normalizeInterviewPersistenceErrorMock: vi.fn(),
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
+  transactionMock: vi.fn(),
+  logErrorMock: vi.fn(),
 }));
+
+const fakeTx = { __tx: "interview-feedback" } as never;
 
 vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
@@ -44,9 +50,19 @@ vi.mock("..", () => ({
   buildInterviewContext: buildInterviewContextMock,
   listInterviewTurnEvents: listInterviewTurnEventsMock,
   normalizeInterviewPlanValue: normalizeInterviewPlanValueMock,
-  saveInterviewConversationProgress: saveInterviewConversationProgressMock,
-  saveInterviewFeedbackHistory: saveInterviewFeedbackHistoryMock,
+  saveInterviewConversationProgressTx: saveInterviewConversationProgressTxMock,
+  saveInterviewFeedbackHistoryTx: saveInterviewFeedbackHistoryTxMock,
   validateInterviewTurnState: validateInterviewTurnStateMock,
+}));
+
+vi.mock("@/lib/db", () => ({
+  db: {
+    transaction: transactionMock,
+  },
+}));
+
+vi.mock("@/lib/logger", () => ({
+  logError: logErrorMock,
 }));
 
 vi.mock("../stream-utils", () => ({
@@ -66,7 +82,7 @@ vi.mock("@/lib/interview/sheet-builder", () => ({
 vi.mock("@/lib/credits", () => ({
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
   reserveCredits: reserveCreditsMock,
-  confirmReservation: confirmReservationMock,
+  confirmReservationInTx: confirmReservationInTxMock,
   cancelReservation: cancelReservationMock,
 }));
 
@@ -81,20 +97,23 @@ describe("api/companies/[id]/interview/feedback", () => {
     buildInterviewContextMock.mockReset();
     listInterviewTurnEventsMock.mockReset();
     normalizeInterviewPlanValueMock.mockReset();
-    saveInterviewConversationProgressMock.mockReset();
-    saveInterviewFeedbackHistoryMock.mockReset();
+    saveInterviewConversationProgressTxMock.mockReset();
+    saveInterviewFeedbackHistoryTxMock.mockReset();
     validateInterviewTurnStateMock.mockReset();
     createInterviewUpstreamStreamMock.mockReset();
     reserveCreditsMock.mockReset();
-    confirmReservationMock.mockReset();
+    confirmReservationInTxMock.mockReset();
     cancelReservationMock.mockReset();
     saveInterviewFeedbackSheetMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
+    transactionMock.mockReset();
+    logErrorMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-1" });
-    confirmReservationMock.mockResolvedValue({ confirmed: true });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 4 });
+    transactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
@@ -252,8 +271,8 @@ describe("api/companies/[id]/interview/feedback", () => {
     );
 
     const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
-    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
-    saveInterviewFeedbackHistoryMock.mockResolvedValue([{ id: "history-1" }]);
+    saveInterviewConversationProgressTxMock.mockResolvedValue(undefined);
+    saveInterviewFeedbackHistoryTxMock.mockResolvedValue([{ id: "history-1" }]);
 
     await onComplete({
       overall_comment: "講評",
@@ -273,8 +292,11 @@ describe("api/companies/[id]/interview/feedback", () => {
       confidence_by_axis: { logic: "medium" },
     });
 
-    expect(saveInterviewConversationProgressMock).toHaveBeenCalled();
-    expect(saveInterviewFeedbackHistoryMock).toHaveBeenCalledWith(
+    // progress + feedbackHistory + confirm all run inside one transaction.
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(saveInterviewConversationProgressTxMock).toHaveBeenCalledWith(fakeTx, expect.anything());
+    expect(saveInterviewFeedbackHistoryTxMock).toHaveBeenCalledWith(
+      fakeTx,
       expect.objectContaining({
         feedback: expect.objectContaining({
           weakest_turn_id: "turn-4",
@@ -287,9 +309,9 @@ describe("api/companies/[id]/interview/feedback", () => {
         }),
       }),
     );
-    expect(confirmReservationMock).toHaveBeenCalledWith("res-1");
-    expect(confirmReservationMock.mock.invocationCallOrder[0]).toBeGreaterThan(
-      saveInterviewFeedbackHistoryMock.mock.invocationCallOrder[0],
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(fakeTx, "res-1");
+    expect(confirmReservationInTxMock.mock.invocationCallOrder[0]).toBeGreaterThan(
+      saveInterviewFeedbackHistoryTxMock.mock.invocationCallOrder[0],
     );
   });
 
@@ -304,8 +326,8 @@ describe("api/companies/[id]/interview/feedback", () => {
     );
 
     const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
-    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
-    saveInterviewFeedbackHistoryMock.mockRejectedValue(new Error("write failed"));
+    saveInterviewConversationProgressTxMock.mockResolvedValue(undefined);
+    saveInterviewFeedbackHistoryTxMock.mockRejectedValue(new Error("write failed"));
 
     await expect(
       onComplete({
@@ -320,7 +342,7 @@ describe("api/companies/[id]/interview/feedback", () => {
       }),
     ).rejects.toThrow("write failed");
 
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(confirmReservationInTxMock).not.toHaveBeenCalled();
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
   });
 
@@ -335,9 +357,9 @@ describe("api/companies/[id]/interview/feedback", () => {
     );
 
     const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
-    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
-    saveInterviewFeedbackHistoryMock.mockResolvedValue([{ id: "history-1" }]);
-    confirmReservationMock.mockRejectedValueOnce(new Error("confirm failed"));
+    saveInterviewConversationProgressTxMock.mockResolvedValue(undefined);
+    saveInterviewFeedbackHistoryTxMock.mockResolvedValue([{ id: "history-1" }]);
+    confirmReservationInTxMock.mockRejectedValueOnce(new Error("confirm failed"));
 
     await expect(
       onComplete({
@@ -353,9 +375,11 @@ describe("api/companies/[id]/interview/feedback", () => {
     ).rejects.toThrow("confirm failed");
 
     expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+    // Sheet generation is skipped when the charge transaction rolled back.
+    expect(saveInterviewFeedbackSheetMock).not.toHaveBeenCalled();
   });
 
-  it("auto-builds sheet and saves before confirming credits", async () => {
+  it("builds and saves the sheet after confirming credits (outside the charge transaction)", async () => {
     const { POST } = await import("./route");
 
     await POST(
@@ -366,8 +390,8 @@ describe("api/companies/[id]/interview/feedback", () => {
     );
 
     const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
-    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
-    saveInterviewFeedbackHistoryMock.mockResolvedValue([{ id: "history-1" }]);
+    saveInterviewConversationProgressTxMock.mockResolvedValue(undefined);
+    saveInterviewFeedbackHistoryTxMock.mockResolvedValue([{ id: "history-1" }]);
 
     await onComplete({
       overall_comment: "講評",
@@ -387,15 +411,14 @@ describe("api/companies/[id]/interview/feedback", () => {
         sheetDataJson: expect.objectContaining({ companyName: "テスト株式会社" }),
       }),
     );
+    // The sheet save runs after the charge (confirm), not before, so it sits
+    // outside the refundable transaction.
     expect(saveInterviewFeedbackSheetMock.mock.invocationCallOrder[0]).toBeGreaterThan(
-      saveInterviewFeedbackHistoryMock.mock.invocationCallOrder[0],
-    );
-    expect(confirmReservationMock.mock.invocationCallOrder[0]).toBeGreaterThan(
-      saveInterviewFeedbackSheetMock.mock.invocationCallOrder[0],
+      confirmReservationInTxMock.mock.invocationCallOrder[0],
     );
   });
 
-  it("cancels credits when sheet save fails", async () => {
+  it("keeps the credit charged and logs when sheet save fails (sheet is regenerable, no refund)", async () => {
     const { POST } = await import("./route");
 
     await POST(
@@ -406,10 +429,12 @@ describe("api/companies/[id]/interview/feedback", () => {
     );
 
     const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
-    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
-    saveInterviewFeedbackHistoryMock.mockResolvedValue([{ id: "history-1" }]);
+    saveInterviewConversationProgressTxMock.mockResolvedValue(undefined);
+    saveInterviewFeedbackHistoryTxMock.mockResolvedValue([{ id: "history-1" }]);
     saveInterviewFeedbackSheetMock.mockRejectedValue(new Error("sheet write failed"));
 
+    // The feedback completes successfully despite the sheet failing — the sheet
+    // is regenerable, so we never refund a confirmed charge for it.
     await expect(
       onComplete({
         overall_comment: "講評",
@@ -421,10 +446,11 @@ describe("api/companies/[id]/interview/feedback", () => {
         weakest_question_type: "motivation",
         scores: {},
       }),
-    ).rejects.toThrow("sheet write failed");
+    ).resolves.toBeTruthy();
 
-    expect(confirmReservationMock).not.toHaveBeenCalled();
-    expect(cancelReservationMock).toHaveBeenCalledWith("res-1");
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(fakeTx, "res-1");
+    expect(cancelReservationMock).not.toHaveBeenCalled();
+    expect(logErrorMock).toHaveBeenCalled();
   });
 
   it("cancels the reservation when the upstream stream aborts or errors", async () => {

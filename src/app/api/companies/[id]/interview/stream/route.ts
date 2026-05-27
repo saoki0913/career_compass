@@ -162,6 +162,7 @@ export async function POST(
     upstreamPayload: streamPayload.upstreamPayload,
     onComplete: async (upstreamData) => {
       try {
+        // Persist + confirm run atomically inside completeInterviewTurnStream.
         return await completeInterviewTurnStream({
           upstreamData,
           context: { ...context, conversation: conversationForTurn },
@@ -169,12 +170,8 @@ export async function POST(
           identity,
           answer,
           nextMessages: streamPayload.nextMessages,
-          onPersisted: () =>
-            interviewInlinePolicy.confirm(
-              billingContext,
-              { kind: "billable_success", creditsConsumed: INTERVIEW_TURN_CREDIT_COST, freeQuotaUsed: false },
-              reservationId,
-            ),
+          billingContext,
+          reservationId,
         });
       } catch (error) {
         await interviewInlinePolicy.cancel(billingContext, reservationId, "complete_persistence_failed");

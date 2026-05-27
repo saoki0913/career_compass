@@ -5,6 +5,7 @@
  */
 
 import { NextRequest } from "next/server";
+import { db } from "@/lib/db";
 import { createApiErrorResponse } from "@/bff/api/error-response";
 import { requireOwnerMutationRequest } from "@/bff/api/mutation-guard";
 import { esReviewStreamPolicy } from "@/bff/billing/es-review-stream-policy";
@@ -188,11 +189,18 @@ export async function handleReviewStream(
           };
         }
         if (creditConfirmed) return;
-        await esReviewStreamPolicy.confirm(
-          billingContext,
-          { kind: "billable_success", creditsConsumed: prepared.creditCost, freeQuotaUsed: false },
-          reservationId,
-        );
+        // ES review has no BFF-side persistence, but confirm still runs inside a
+        // single db.transaction so the billing contract is uniform with the
+        // other streams (confirmInTx claims the reservation atomically; a failed
+        // claim throws and leaves creditConfirmed=false so onFinally refunds).
+        await db.transaction(async (tx) => {
+          await esReviewStreamPolicy.confirmInTx(
+            tx,
+            billingContext,
+            { kind: "billable_success", creditsConsumed: prepared.creditCost, freeQuotaUsed: false },
+            reservationId,
+          );
+        });
         creditConfirmed = true;
         logOnce("success", prepared.creditCost);
         void incrementDailyTokenCount(prepared.identity, computeTotalTokens(latestTelemetry));

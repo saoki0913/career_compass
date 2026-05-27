@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
+import type { CreditsTransaction } from "@/lib/credits";
 import { interviewTurnEvents } from "@/lib/db/schema";
 import type { InterviewTurnMeta, InterviewTurnState } from "@/lib/interview/session";
 import { normalizeInterviewPersistenceError } from "@/lib/interview/persistence-errors";
@@ -11,7 +12,7 @@ import {
   type InterviewVersionMetadata,
 } from "@/lib/interview/persistence-version";
 
-export async function saveInterviewTurnEvent(args: {
+type SaveInterviewTurnEventArgs = {
   conversationId: string;
   companyId: string;
   identity: RequestIdentity;
@@ -22,13 +23,23 @@ export async function saveInterviewTurnEvent(args: {
   turnState: InterviewTurnState;
   turnMeta: InterviewTurnMeta | null;
   versionMetadata?: InterviewVersionMetadata;
-}) {
+};
+
+/**
+ * Transaction-bound variant of {@link saveInterviewTurnEvent}. Inserts the turn
+ * event on the caller's `tx` so it commits atomically with the progress update
+ * and the credit confirm.
+ */
+export async function saveInterviewTurnEventTx(
+  tx: CreditsTransaction,
+  args: SaveInterviewTurnEventArgs,
+) {
   const activeCoverage = args.turnState.coverageState.find(
     (item) => item.topic === (args.turnMeta?.topic ?? args.turnState.currentTopic ?? ""),
   );
 
   try {
-    await db.insert(interviewTurnEvents).values({
+    await tx.insert(interviewTurnEvents).values({
       id: crypto.randomUUID(),
       turnId: args.turnId,
       conversationId: args.conversationId,
@@ -68,6 +79,10 @@ export async function saveInterviewTurnEvent(args: {
       }) ?? error
     );
   }
+}
+
+export async function saveInterviewTurnEvent(args: SaveInterviewTurnEventArgs) {
+  return db.transaction((tx) => saveInterviewTurnEventTx(tx, args));
 }
 
 export async function listInterviewTurnEvents(args: {

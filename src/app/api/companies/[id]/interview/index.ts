@@ -18,10 +18,13 @@ export {
   listInterviewTurnEvents,
   resetInterviewConversation,
   saveInterviewConversationProgress,
+  saveInterviewConversationProgressTx,
   saveInterviewFeedbackHistory,
+  saveInterviewFeedbackHistoryTx,
   saveInterviewFeedbackSatisfaction,
   saveInterviewFeedbackSheet,
   saveInterviewTurnEvent,
+  saveInterviewTurnEventTx,
 } from "@/lib/interview/persistence";
 
 export type { InterviewVersionMetadata } from "@/lib/interview/persistence";

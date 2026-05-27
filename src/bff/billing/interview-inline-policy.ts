@@ -12,7 +12,9 @@
 import {
   cancelReservation,
   confirmReservation,
+  confirmReservationInTx,
   reserveCredits,
+  type CreditsTransaction,
   type TransactionType,
 } from "@/lib/credits";
 import { logError } from "@/lib/logger";
@@ -70,6 +72,28 @@ export const interviewInlinePolicy: BillingPolicy<InterviewInlineBillingContext>
         userId: _ctx.userId,
         companyId: _ctx.companyId,
       });
+    }
+  },
+
+  async confirmInTx(
+    tx: CreditsTransaction,
+    _ctx: InterviewInlineBillingContext,
+    outcome: BillingOutcome,
+    reservationId: string | null,
+  ): Promise<void> {
+    if (outcome.kind !== "billable_success" || !reservationId) {
+      return;
+    }
+    const result = await confirmReservationInTx(tx, reservationId);
+    if (!result.confirmed) {
+      // Roll back the caller's persistence tx on a failed claim so an interview
+      // turn/feedback is never saved without being charged. Log first, then throw.
+      logError("interview-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+        reservationId,
+        userId: _ctx.userId,
+        companyId: _ctx.companyId,
+      });
+      throw new Error("Credit reservation confirm returned false after billable success");
     }
   },
 

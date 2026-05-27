@@ -14,10 +14,13 @@ const { BillingGateUnavailableError } = vi.hoisted(() => ({
 vi.mock("@/lib/credits", () => ({
   reserveCredits: vi.fn(),
   confirmReservation: vi.fn(),
+  confirmReservationInTx: vi.fn(),
   cancelReservation: vi.fn(),
   BillingGateUnavailableError,
   isBillingGateUnavailableError: (error: unknown) => error instanceof BillingGateUnavailableError,
 }));
+
+const fakeTx = {} as never;
 
 vi.mock("@/lib/logger", () => ({
   logError: vi.fn(),
@@ -151,6 +154,52 @@ describe("esReviewStreamPolicy", () => {
       { kind: "billable_success", creditsConsumed: 2, freeQuotaUsed: false },
       "reservation-1",
     );
+
+    expect(logger.logError).toHaveBeenCalledWith(
+      "es-review-reservation-confirm-after-success-failed",
+      expect.any(Error),
+      expect.objectContaining({ reservationId: "reservation-1" }),
+    );
+  });
+
+  it("confirmInTx claims the reservation on the passed tx only for billable success", async () => {
+    const credits = await import("@/lib/credits");
+    vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: true, balanceAfter: 6 });
+    const { esReviewStreamPolicy } = await import("./es-review-stream-policy");
+    const ctx = { userId: "user-1", guestId: null, documentId: "doc-1", creditCost: 2 };
+
+    await esReviewStreamPolicy.confirmInTx(
+      fakeTx,
+      ctx,
+      { kind: "non_billable_success", reason: "no_changes" },
+      "reservation-1",
+    );
+    await esReviewStreamPolicy.confirmInTx(
+      fakeTx,
+      ctx,
+      { kind: "billable_success", creditsConsumed: 2, freeQuotaUsed: false },
+      "reservation-1",
+    );
+
+    expect(credits.confirmReservationInTx).toHaveBeenCalledTimes(1);
+    expect(credits.confirmReservationInTx).toHaveBeenCalledWith(fakeTx, "reservation-1");
+    expect(credits.confirmReservation).not.toHaveBeenCalled();
+  });
+
+  it("confirmInTx logs and throws when the reservation could not be claimed after billable success", async () => {
+    const credits = await import("@/lib/credits");
+    const logger = await import("@/lib/logger");
+    vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: false, balanceAfter: null });
+    const { esReviewStreamPolicy } = await import("./es-review-stream-policy");
+
+    await expect(
+      esReviewStreamPolicy.confirmInTx(
+        fakeTx,
+        { userId: "user-1", guestId: null, documentId: "doc-1", creditCost: 2 },
+        { kind: "billable_success", creditsConsumed: 2, freeQuotaUsed: false },
+        "reservation-1",
+      ),
+    ).rejects.toThrow();
 
     expect(logger.logError).toHaveBeenCalledWith(
       "es-review-reservation-confirm-after-success-failed",

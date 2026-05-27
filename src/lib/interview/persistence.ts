@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
+import type { CreditsTransaction } from "@/lib/credits";
 import { interviewConversations } from "@/lib/db/schema";
 import {
   createInitialInterviewTurnState,
@@ -24,9 +25,11 @@ import type { InterviewSetupState } from "@/lib/interview/types";
 export {
   listInterviewTurnEvents,
   saveInterviewTurnEvent,
+  saveInterviewTurnEventTx,
 } from "@/lib/interview/persistence-turn-events";
 export {
   saveInterviewFeedbackHistory,
+  saveInterviewFeedbackHistoryTx,
   saveInterviewFeedbackSatisfaction,
   saveInterviewFeedbackSheet,
 } from "@/lib/interview/persistence-feedback";
@@ -130,7 +133,7 @@ export async function ensureInterviewConversation(
   }
 }
 
-export async function saveInterviewConversationProgress(args: {
+type SaveInterviewConversationProgressArgs = {
   conversationId: string;
   companyId: string;
   messages: InterviewMessage[];
@@ -139,10 +142,20 @@ export async function saveInterviewConversationProgress(args: {
   feedback?: InterviewFeedback | null;
   plan?: InterviewPlan | null;
   turnMeta?: InterviewTurnMeta | null;
-}) {
+};
+
+/**
+ * Transaction-bound variant of {@link saveInterviewConversationProgress}. Runs
+ * the conversation UPDATE on the caller's `tx` so persistence can share one
+ * commit boundary with the credit confirm.
+ */
+export async function saveInterviewConversationProgressTx(
+  tx: CreditsTransaction,
+  args: SaveInterviewConversationProgressArgs,
+) {
   const serializedTurnState = serializeInterviewTurnState(args.turnState);
   try {
-    const [updated] = await db
+    const [updated] = await tx
       .update(interviewConversations)
       .set({
         messages: args.messages,
@@ -164,6 +177,12 @@ export async function saveInterviewConversationProgress(args: {
       }) ?? error
     );
   }
+}
+
+export async function saveInterviewConversationProgress(
+  args: SaveInterviewConversationProgressArgs,
+) {
+  return db.transaction((tx) => saveInterviewConversationProgressTx(tx, args));
 }
 
 export async function resetInterviewConversation(companyId: string, identity: RequestIdentity) {

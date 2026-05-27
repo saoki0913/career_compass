@@ -6,32 +6,36 @@ const {
   buildInterviewContextMock,
   ensureInterviewConversationMock,
   normalizeInterviewPlanValueMock,
-  saveInterviewConversationProgressMock,
-  saveInterviewTurnEventMock,
+  saveInterviewConversationProgressTxMock,
+  saveInterviewTurnEventTxMock,
   validateInterviewTurnStateMock,
   createInterviewUpstreamStreamMock,
   normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponseMock,
   guardDailyTokenLimitMock,
   reserveCreditsMock,
-  confirmReservationMock,
+  confirmReservationInTxMock,
   cancelReservationMock,
+  transactionMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
   ensureInterviewConversationMock: vi.fn(),
   normalizeInterviewPlanValueMock: vi.fn(),
-  saveInterviewConversationProgressMock: vi.fn(),
-  saveInterviewTurnEventMock: vi.fn(),
+  saveInterviewConversationProgressTxMock: vi.fn(),
+  saveInterviewTurnEventTxMock: vi.fn(),
   validateInterviewTurnStateMock: vi.fn(),
   createInterviewUpstreamStreamMock: vi.fn(),
   normalizeInterviewPersistenceErrorMock: vi.fn(),
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
   guardDailyTokenLimitMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
-  confirmReservationMock: vi.fn(),
+  confirmReservationInTxMock: vi.fn(),
   cancelReservationMock: vi.fn(),
+  transactionMock: vi.fn(),
 }));
+
+const fakeTx = { __tx: "interview-start" } as never;
 
 vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
@@ -45,9 +49,15 @@ vi.mock("..", () => ({
   buildInterviewContext: buildInterviewContextMock,
   ensureInterviewConversation: ensureInterviewConversationMock,
   normalizeInterviewPlanValue: normalizeInterviewPlanValueMock,
-  saveInterviewConversationProgress: saveInterviewConversationProgressMock,
-  saveInterviewTurnEvent: saveInterviewTurnEventMock,
+  saveInterviewConversationProgressTx: saveInterviewConversationProgressTxMock,
+  saveInterviewTurnEventTx: saveInterviewTurnEventTxMock,
   validateInterviewTurnState: validateInterviewTurnStateMock,
+}));
+
+vi.mock("@/lib/db", () => ({
+  db: {
+    transaction: transactionMock,
+  },
 }));
 
 vi.mock("../stream-utils", () => ({
@@ -64,7 +74,7 @@ vi.mock("@/lib/credits", () => ({
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
   INTERVIEW_START_CREDIT_COST: 2,
   reserveCredits: reserveCreditsMock,
-  confirmReservation: confirmReservationMock,
+  confirmReservationInTx: confirmReservationInTxMock,
   cancelReservation: cancelReservationMock,
 }));
 
@@ -74,21 +84,23 @@ describe("api/companies/[id]/interview/start", () => {
     buildInterviewContextMock.mockReset();
     ensureInterviewConversationMock.mockReset();
     normalizeInterviewPlanValueMock.mockReset();
-    saveInterviewConversationProgressMock.mockReset();
-    saveInterviewTurnEventMock.mockReset();
+    saveInterviewConversationProgressTxMock.mockReset();
+    saveInterviewTurnEventTxMock.mockReset();
     validateInterviewTurnStateMock.mockReset();
     createInterviewUpstreamStreamMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
     guardDailyTokenLimitMock.mockReset();
     reserveCreditsMock.mockReset();
-    confirmReservationMock.mockReset();
+    confirmReservationInTxMock.mockReset();
     cancelReservationMock.mockReset();
+    transactionMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     guardDailyTokenLimitMock.mockResolvedValue(null);
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-start-1" });
-    confirmReservationMock.mockResolvedValue({ confirmed: true });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 8 });
+    transactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
     createInterviewUpstreamStreamMock.mockReturnValue(
       new Response("data: ok\n\n", { status: 200, headers: { "content-type": "text/event-stream" } }),
     );
@@ -315,13 +327,14 @@ describe("api/companies/[id]/interview/start", () => {
       turn_state: { turnCount: 1, currentTopic: "自己紹介", nextAction: "ask" },
     });
 
-    expect(saveInterviewConversationProgressMock.mock.invocationCallOrder[0]).toBeLessThan(
-      confirmReservationMock.mock.invocationCallOrder[0],
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(saveInterviewConversationProgressTxMock.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmReservationInTxMock.mock.invocationCallOrder[0],
     );
-    expect(saveInterviewTurnEventMock.mock.invocationCallOrder[0]).toBeLessThan(
-      confirmReservationMock.mock.invocationCallOrder[0],
+    expect(saveInterviewTurnEventTxMock.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmReservationInTxMock.mock.invocationCallOrder[0],
     );
-    expect(confirmReservationMock).toHaveBeenCalledWith("res-start-1");
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(fakeTx, "res-start-1");
   });
 
   it("keeps transition_line outside persisted conversation messages", async () => {
@@ -352,7 +365,8 @@ describe("api/companies/[id]/interview/start", () => {
       turn_state: { turnCount: 1, currentTopic: "自己紹介", nextAction: "ask" },
     });
 
-    expect(saveInterviewConversationProgressMock).toHaveBeenCalledWith(
+    expect(saveInterviewConversationProgressTxMock).toHaveBeenCalledWith(
+      fakeTx,
       expect.objectContaining({
         messages: [{ role: "assistant", content: "まず自己紹介をお願いします。" }],
       }),

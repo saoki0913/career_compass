@@ -21,6 +21,19 @@ import { createApiErrorResponse } from "@/bff/api/error-response";
 import type { SSEProxyProgressResult } from "@/lib/fastapi/sse-proxy";
 import type { CreateCareerPrincipalInput } from "@/lib/fastapi/career-principal";
 
+/**
+ * Sentinel thrown inside the persist+confirm transaction when the optimistic
+ * lock matches no rows, so the caller can distinguish a stale-conversation
+ * conflict (reload prompt) from a credit confirm failure while still rolling the
+ * transaction back and skipping confirm.
+ */
+class GakuchikaStreamConflictError extends Error {
+  constructor() {
+    super("gakuchika conversation optimistic lock conflict");
+    this.name = "GakuchikaStreamConflictError";
+  }
+}
+
 function toSnakeState(s: ConversationState): Record<string, unknown> {
   return {
     stage: s.stage, focus_key: s.focusKey, progress_label: s.progressLabel,
@@ -287,56 +300,74 @@ export const POST = createConversationStreamHandler<GakuchikaStreamContext>({
         content: qText,
       });
     }
-    const updatedRows = await db
-      .update(gakuchikaConversations)
-      .set({
-        messages: ctx.messages,
-        questionCount: ctx.newQC,
-        status: done ? "completed" : "in_progress",
-        starScores: serializeConversationState(ns),
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(gakuchikaConversations.id, ctx.conversationId),
-        eq(gakuchikaConversations.updatedAt, ctx.conversationUpdatedAt),
-      ))
-      .returning({ id: gakuchikaConversations.id });
-    if (updatedRows.length === 0) {
+    // Persist the conversation update AND confirm the reservation in one
+    // transaction so "saved" and "charged" share a single commit boundary.
+    //   - optimistic-lock conflict (0 rows): refund + reload prompt (cancel:true).
+    //   - confirm claim failure: confirmInTx throws → update rolls back → refund
+    //     with an error event (never a saved-but-uncharged turn).
+    // onFinally cancels the reservation whenever billingOutcomeStatus="failed".
+    let conflict = false;
+    try {
+      await db.transaction(async (tx) => {
+        const updatedRows = await tx
+          .update(gakuchikaConversations)
+          .set({
+            messages: ctx.messages,
+            questionCount: ctx.newQC,
+            status: done ? "completed" : "in_progress",
+            starScores: serializeConversationState(ns),
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(gakuchikaConversations.id, ctx.conversationId),
+            eq(gakuchikaConversations.updatedAt, ctx.conversationUpdatedAt),
+          ))
+          .returning({ id: gakuchikaConversations.id });
+        if (updatedRows.length === 0) {
+          conflict = true;
+          throw new GakuchikaStreamConflictError();
+        }
+        if (ctx.shouldConsumeCredit) {
+          await gakuchikaStreamPolicy.confirmInTx(
+            tx,
+            {
+              userId: ctx.userId,
+              gakuchikaId: ctx.gakuchikaId,
+              newQuestionCount: ctx.newQC,
+            },
+            {
+              kind: "billable_success",
+              creditsConsumed: CONVERSATION_CREDITS_PER_TURN,
+              freeQuotaUsed: false,
+            },
+            ctx.reservationId,
+          );
+        }
+      });
+    } catch (error) {
       ctx.billingOutcomeStatus = "failed";
       ctx.creditsAppliedForSummary = 0;
+      if (conflict || error instanceof GakuchikaStreamConflictError) {
+        return {
+          replaceEvent: {
+            type: "error",
+            message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。",
+          },
+          cancel: true,
+        };
+      }
+      // confirm claim failure (or any other tx error): the update rolled back, so
+      // replace complete with an error event + cancel so the proxy refunds.
       return {
         replaceEvent: {
           type: "error",
-          message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。",
+          message: "クレジットの確定に失敗しました。クレジットは消費されません。時間を置いて、もう一度お試しください。",
         },
         cancel: true,
       };
     }
-    if (ctx.shouldConsumeCredit) {
-      try {
-        await gakuchikaStreamPolicy.confirm(
-          {
-            userId: ctx.userId,
-            gakuchikaId: ctx.gakuchikaId,
-            newQuestionCount: ctx.newQC,
-          },
-          {
-            kind: "billable_success",
-            creditsConsumed: CONVERSATION_CREDITS_PER_TURN,
-            freeQuotaUsed: false,
-          },
-          ctx.reservationId,
-        );
-        ctx.billingOutcomeStatus = "success";
-        ctx.creditsAppliedForSummary = CONVERSATION_CREDITS_PER_TURN;
-      } catch {
-        ctx.billingOutcomeStatus = "failed";
-        ctx.creditsAppliedForSummary = 0;
-      }
-    } else {
-      ctx.billingOutcomeStatus = "success";
-      ctx.creditsAppliedForSummary = 0;
-    }
+    ctx.billingOutcomeStatus = "success";
+    ctx.creditsAppliedForSummary = ctx.shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0;
     void incrementDailyTokenCount(identity, computeTotalTokens(telemetry));
     return {
       replaceEvent: {

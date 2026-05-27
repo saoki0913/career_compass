@@ -13,7 +13,7 @@ const {
   precheckMock,
   reserveMock,
   cancelMock,
-  confirmMock,
+  confirmInTxMock,
   fetchFastApiWithPrincipalMock,
   getViewerPlanMock,
   incrementDailyTokenCountMock,
@@ -21,6 +21,7 @@ const {
 } = vi.hoisted(() => ({
   dbMock: {
     select: vi.fn(),
+    transaction: vi.fn(),
   },
   fetchProfileContextMock: vi.fn(),
   fetchGakuchikaContextMock: vi.fn(),
@@ -32,12 +33,14 @@ const {
   precheckMock: vi.fn(),
   reserveMock: vi.fn(),
   cancelMock: vi.fn(),
-  confirmMock: vi.fn(),
+  confirmInTxMock: vi.fn(),
   fetchFastApiWithPrincipalMock: vi.fn(),
   getViewerPlanMock: vi.fn(),
   incrementDailyTokenCountMock: vi.fn(),
   requireOwnerMutationRequestMock: vi.fn(),
 }));
+
+const fakeTx = { __tx: true } as never;
 
 vi.mock("@/lib/db", () => ({ db: dbMock }));
 vi.mock("@/bff/api/mutation-guard", () => ({
@@ -66,7 +69,7 @@ vi.mock("@/bff/billing/es-review-stream-policy", () => ({
     precheck: precheckMock,
     reserve: reserveMock,
     cancel: cancelMock,
-    confirm: confirmMock,
+    confirmInTx: confirmInTxMock,
   },
 }));
 vi.mock("@/lib/fastapi/client", () => ({
@@ -91,6 +94,7 @@ vi.mock("@/lib/ai/cost-summary-log", () => ({
 describe("handleReviewStream", () => {
   beforeEach(() => {
     dbMock.select.mockReset();
+    dbMock.transaction.mockReset();
     fetchProfileContextMock.mockReset();
     fetchGakuchikaContextMock.mockReset();
     extractOtherDocumentSectionsMock.mockReset();
@@ -101,7 +105,7 @@ describe("handleReviewStream", () => {
     precheckMock.mockReset();
     reserveMock.mockReset();
     cancelMock.mockReset();
-    confirmMock.mockReset();
+    confirmInTxMock.mockReset();
     fetchFastApiWithPrincipalMock.mockReset();
     getViewerPlanMock.mockReset();
     incrementDailyTokenCountMock.mockReset();
@@ -113,6 +117,9 @@ describe("handleReviewStream", () => {
       limit: vi.fn().mockResolvedValue([{ plan: "free" }]),
     };
     dbMock.select.mockReturnValue(limitBuilder);
+    // The confirm path now runs inside db.transaction; the mock invokes the
+    // callback with a fake tx so confirmInTx is exercised.
+    dbMock.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
     fetchProfileContextMock.mockResolvedValue(null);
     fetchGakuchikaContextMock.mockResolvedValue([]);
     extractOtherDocumentSectionsMock.mockReturnValue([]);
@@ -257,7 +264,7 @@ describe("handleReviewStream", () => {
     expect(precheckMock).not.toHaveBeenCalled();
     expect(reserveMock).not.toHaveBeenCalled();
     expect(cancelMock).not.toHaveBeenCalled();
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(fetchFastApiWithPrincipalMock).not.toHaveBeenCalled();
   });
 
@@ -301,7 +308,7 @@ describe("handleReviewStream", () => {
     expect(precheckMock).not.toHaveBeenCalled();
     expect(reserveMock).not.toHaveBeenCalled();
     expect(fetchFastApiWithPrincipalMock).not.toHaveBeenCalled();
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(cancelMock).not.toHaveBeenCalled();
   });
 
@@ -366,7 +373,7 @@ describe("handleReviewStream", () => {
       },
     });
     expect(fetchFastApiWithPrincipalMock).not.toHaveBeenCalled();
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(cancelMock).not.toHaveBeenCalled();
   });
 
@@ -400,8 +407,9 @@ describe("handleReviewStream", () => {
 
     await response.text();
 
-    expect(confirmMock).toHaveBeenCalledOnce();
-    expect(confirmMock).toHaveBeenCalledWith(
+    expect(confirmInTxMock).toHaveBeenCalledOnce();
+    expect(confirmInTxMock).toHaveBeenCalledWith(
+      fakeTx,
       expect.objectContaining({ documentId: "doc-1" }),
       expect.objectContaining({ kind: "billable_success" }),
       "res-1",
@@ -411,7 +419,7 @@ describe("handleReviewStream", () => {
 
   it("cancels the reservation when credit confirmation fails after a valid complete event", async () => {
     const { handleReviewStream } = await import("./handle-review-stream");
-    confirmMock.mockRejectedValueOnce(new Error("credit store unavailable"));
+    confirmInTxMock.mockRejectedValueOnce(new Error("credit store unavailable"));
     fetchFastApiWithPrincipalMock.mockResolvedValue(
       new Response(
         new ReadableStream<Uint8Array>({
@@ -440,7 +448,7 @@ describe("handleReviewStream", () => {
 
     const text = await response.text();
 
-    expect(confirmMock).toHaveBeenCalledOnce();
+    expect(confirmInTxMock).toHaveBeenCalledOnce();
     expect(cancelMock).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: "doc-1" }),
       "res-1",
@@ -479,7 +487,7 @@ describe("handleReviewStream", () => {
 
     const text = await response.text();
 
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(cancelMock).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: "doc-1" }),
       "res-1",
@@ -522,7 +530,7 @@ describe("handleReviewStream", () => {
       "res-1",
       "fastapi_not_ok",
     );
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(body).toMatchObject({
       error: {
         code: "ES_REVIEW_UPSTREAM_FAILED",
@@ -570,7 +578,7 @@ describe("handleReviewStream", () => {
       "res-1",
       "fastapi_not_ok",
     );
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
   });
 
   it("returns structured 503 when FastAPI principal secret is missing", async () => {
@@ -601,7 +609,7 @@ describe("handleReviewStream", () => {
       "res-1",
       "fastapi_fetch_exception",
     );
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(body).toMatchObject({
       error: {
         code: "ES_REVIEW_AI_AUTH_NOT_CONFIGURED",
@@ -637,7 +645,7 @@ describe("handleReviewStream", () => {
       "res-1",
       "fastapi_fetch_exception",
     );
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(body).toMatchObject({
       error: {
         code: "ES_REVIEW_STREAM_INTERNAL_ERROR",
@@ -681,7 +689,7 @@ describe("handleReviewStream", () => {
 
     await response.text();
 
-    expect(confirmMock).toHaveBeenCalledOnce();
+    expect(confirmInTxMock).toHaveBeenCalledOnce();
     expect(cancelMock).not.toHaveBeenCalled();
   });
 
@@ -719,7 +727,7 @@ describe("handleReviewStream", () => {
 
     const text = await response.text();
 
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(incrementDailyTokenCountMock).not.toHaveBeenCalled();
     expect(cancelMock).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: "doc-1" }),
@@ -763,7 +771,7 @@ describe("handleReviewStream", () => {
 
     const text = await response.text();
 
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(cancelMock).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: "doc-1" }),
       "res-1",
@@ -807,7 +815,7 @@ describe("handleReviewStream", () => {
 
     expect(text).toContain('"type":"error"');
     expect(text).toContain("上流で失敗しました");
-    expect(confirmMock).not.toHaveBeenCalled();
+    expect(confirmInTxMock).not.toHaveBeenCalled();
     expect(cancelMock).toHaveBeenCalledWith(
       expect.objectContaining({ documentId: "doc-1" }),
       "res-1",

@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/credits", () => ({
   cancelReservation: vi.fn(),
   confirmReservation: vi.fn(),
+  confirmReservationInTx: vi.fn(),
   getRemainingFreeFetches: vi.fn(),
   hasEnoughCredits: vi.fn(),
   reserveCredits: vi.fn(),
 }));
+
+const fakeTx = {} as never;
 
 vi.mock("@/lib/company-info/usage", () => ({
   cancelMonthlyScheduleFreeUse: vi.fn(),
@@ -111,6 +114,43 @@ describe("companyFetchPolicy", () => {
     const { companyFetchPolicy } = await import("./company-fetch-policy");
 
     await companyFetchPolicy.confirm(
+      ctx,
+      { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
+      "reservation-1",
+    );
+
+    expect(logger.logError).toHaveBeenCalledWith(
+      "company-fetch-reservation-confirm-after-success-failed",
+      expect.any(Error),
+      expect.objectContaining({ reservationId: "reservation-1", userId: "user-1" }),
+    );
+  });
+
+  it("confirmInTx claims paid credits on the passed tx, skips free quota, and requires a reservation", async () => {
+    const credits = await import("@/lib/credits");
+    vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: true, balanceAfter: 9 });
+    const { companyFetchPolicy } = await import("./company-fetch-policy");
+    const outcome = { kind: "billable_success" as const, creditsConsumed: 1, freeQuotaUsed: false };
+
+    await companyFetchPolicy.confirmInTx(fakeTx, ctx, outcome, "schedule-free-quota");
+    await companyFetchPolicy.confirmInTx(fakeTx, ctx, outcome, "reservation-1");
+
+    expect(credits.confirmReservationInTx).toHaveBeenCalledTimes(1);
+    expect(credits.confirmReservationInTx).toHaveBeenCalledWith(fakeTx, "reservation-1");
+    expect(credits.confirmReservation).not.toHaveBeenCalled();
+    await expect(companyFetchPolicy.confirmInTx(fakeTx, ctx, outcome, null)).rejects.toThrow(
+      "Missing company fetch billing reservation",
+    );
+  });
+
+  it("confirmInTx logs when paid credit reservation could not be claimed", async () => {
+    const credits = await import("@/lib/credits");
+    const logger = await import("@/lib/logger");
+    vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: false, balanceAfter: null });
+    const { companyFetchPolicy } = await import("./company-fetch-policy");
+
+    await companyFetchPolicy.confirmInTx(
+      fakeTx,
       ctx,
       { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
       "reservation-1",

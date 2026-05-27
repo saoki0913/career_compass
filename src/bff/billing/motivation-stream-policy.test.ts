@@ -4,8 +4,11 @@ vi.mock("@/lib/credits", () => ({
   CONVERSATION_CREDITS_PER_TURN: 1,
   cancelReservation: vi.fn(),
   confirmReservation: vi.fn(),
+  confirmReservationInTx: vi.fn(),
   reserveCredits: vi.fn(),
 }));
+
+const fakeTx = {} as never;
 
 vi.mock("@/lib/logger", () => ({
   logError: vi.fn(),
@@ -64,6 +67,43 @@ describe("motivationStreamPolicy", () => {
       { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
       "res-1",
     );
+
+    expect(logger.logError).toHaveBeenCalledWith(
+      "motivation-reservation-confirm-after-success-failed",
+      expect.any(Error),
+      expect.objectContaining({ userId: "user-1", companyId: "company-1", reservationId: "res-1" }),
+    );
+  });
+
+  it("confirmInTx claims the reservation on the passed tx only for billable success with positive usage", async () => {
+    const credits = await import("@/lib/credits");
+    vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: true, balanceAfter: 7 });
+    const { motivationStreamPolicy } = await import("./motivation-stream-policy");
+    const ctx = { userId: "user-1", companyId: "company-1", newQuestionCount: 1 };
+
+    await motivationStreamPolicy.confirmInTx(fakeTx, ctx, { kind: "failure", reason: "upstream" }, "res-1");
+    await motivationStreamPolicy.confirmInTx(fakeTx, ctx, { kind: "billable_success", creditsConsumed: 0, freeQuotaUsed: false }, "res-1");
+    await motivationStreamPolicy.confirmInTx(fakeTx, ctx, { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false }, "res-1");
+
+    expect(credits.confirmReservationInTx).toHaveBeenCalledTimes(1);
+    expect(credits.confirmReservationInTx).toHaveBeenCalledWith(fakeTx, "res-1");
+    expect(credits.confirmReservation).not.toHaveBeenCalled();
+  });
+
+  it("confirmInTx logs and throws when the reservation could not be claimed after billable success", async () => {
+    const credits = await import("@/lib/credits");
+    const logger = await import("@/lib/logger");
+    vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: false, balanceAfter: null });
+    const { motivationStreamPolicy } = await import("./motivation-stream-policy");
+
+    await expect(
+      motivationStreamPolicy.confirmInTx(
+        fakeTx,
+        { userId: "user-1", companyId: "company-1", newQuestionCount: 1 },
+        { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
+        "res-1",
+      ),
+    ).rejects.toThrow();
 
     expect(logger.logError).toHaveBeenCalledWith(
       "motivation-reservation-confirm-after-success-failed",

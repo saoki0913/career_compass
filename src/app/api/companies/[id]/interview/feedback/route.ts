@@ -14,12 +14,14 @@ import {
   type InterviewTurnMeta,
 } from "@/lib/interview/session";
 
+import { db } from "@/lib/db";
+import { logError } from "@/lib/logger";
 import {
   buildInterviewContext,
   listInterviewTurnEvents,
   normalizeInterviewPlanValue,
-  saveInterviewConversationProgress,
-  saveInterviewFeedbackHistory,
+  saveInterviewConversationProgressTx,
+  saveInterviewFeedbackHistoryTx,
   validateInterviewTurnState,
 } from "..";
 import {
@@ -186,32 +188,52 @@ export async function POST(
       let feedbackHistories;
 
       try {
-        await saveInterviewConversationProgress({
-          conversationId: context.conversation!.id,
-          companyId,
-          messages: context.conversation!.messages,
-          turnState,
-          status: "feedback_completed",
-          feedback,
-          turnMeta,
-          plan,
+        // Persist progress + feedback history AND confirm the reservation in one
+        // transaction so "saved" and "charged" commit together. A failed confirm
+        // claim throws (confirmInTx) and rolls back both writes; the catch refunds.
+        feedbackHistories = await db.transaction(async (tx) => {
+          await saveInterviewConversationProgressTx(tx, {
+            conversationId: context.conversation!.id,
+            companyId,
+            messages: context.conversation!.messages,
+            turnState,
+            status: "feedback_completed",
+            feedback,
+            turnMeta,
+            plan,
+          });
+          const histories = await saveInterviewFeedbackHistoryTx(tx, {
+            conversationId: context.conversation!.id,
+            companyId,
+            identity,
+            feedback,
+            sourceMessagesSnapshot: context.conversation!.messages,
+            sourceQuestionCount: context.conversation!.questionCount,
+            versionMetadata: {
+              promptVersion: upstreamData.prompt_version ?? null,
+              followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+              caseSeedVersion: upstreamData.case_seed_version ?? null,
+            },
+          });
+          await interviewInlinePolicy.confirmInTx(
+            tx,
+            billingContext,
+            { kind: "billable_success", creditsConsumed: DEFAULT_INTERVIEW_SESSION_CREDIT_COST, freeQuotaUsed: false },
+            reservationId,
+          );
+          return histories;
         });
-        feedbackHistories = await saveInterviewFeedbackHistory({
-          conversationId: context.conversation!.id,
-          companyId,
-          identity,
-          feedback,
-          sourceMessagesSnapshot: context.conversation!.messages,
-          sourceQuestionCount: context.conversation!.questionCount,
-          versionMetadata: {
-            promptVersion: upstreamData.prompt_version ?? null,
-            followupPolicyVersion: upstreamData.followup_policy_version ?? null,
-            caseSeedVersion: upstreamData.case_seed_version ?? null,
-          },
-        });
+      } catch (error) {
+        await interviewInlinePolicy.cancel(billingContext, reservationId, "complete_persistence_failed");
+        throw error;
+      }
 
-        const historyId = feedbackHistories[0]?.id;
-        if (historyId) {
+      // Sheet generation runs AFTER the charge commits, outside the refundable
+      // transaction. The sheet is regenerable, so a failure here is logged but
+      // never refunds the confirmed credit.
+      const historyId = feedbackHistories[0]?.id;
+      if (historyId) {
+        try {
           const sheetInput = {
             companyName: context.company.name,
             setup: {
@@ -235,16 +257,13 @@ export async function POST(
             sheetContent,
             sheetDataJson,
           });
+        } catch (sheetError) {
+          logError("interview-feedback-sheet-save-after-confirm-failed", sheetError, {
+            companyId,
+            historyId,
+            userId: identity.userId,
+          });
         }
-
-        await interviewInlinePolicy.confirm(
-          billingContext,
-          { kind: "billable_success", creditsConsumed: DEFAULT_INTERVIEW_SESSION_CREDIT_COST, freeQuotaUsed: false },
-          reservationId,
-        );
-      } catch (error) {
-        await interviewInlinePolicy.cancel(billingContext, reservationId, "complete_persistence_failed");
-        throw error;
       }
 
       return {

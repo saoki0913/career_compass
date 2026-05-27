@@ -2,6 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import type { RequestIdentity } from "@/bff/identity/request-identity";
 import { db } from "@/lib/db";
+import type { CreditsTransaction } from "@/lib/credits";
 import {
   interviewConversations,
   interviewFeedbackHistories,
@@ -42,7 +43,7 @@ function parseStringMap(value: unknown): Record<string, string> {
   return result;
 }
 
-export async function saveInterviewFeedbackHistory(args: {
+type SaveInterviewFeedbackHistoryArgs = {
   conversationId: string;
   companyId: string;
   identity: RequestIdentity;
@@ -50,10 +51,21 @@ export async function saveInterviewFeedbackHistory(args: {
   sourceMessagesSnapshot: InterviewMessage[];
   sourceQuestionCount: number;
   versionMetadata?: InterviewVersionMetadata;
-}) {
+};
+
+/**
+ * Transaction-bound variant of {@link saveInterviewFeedbackHistory}. The insert,
+ * the conversation pointer update, and the read-back select all run on the
+ * caller's `tx` so they commit atomically with the credit confirm and the
+ * select observes the just-inserted row (read-your-writes).
+ */
+export async function saveInterviewFeedbackHistoryTx(
+  tx: CreditsTransaction,
+  args: SaveInterviewFeedbackHistoryArgs,
+) {
   const historyId = crypto.randomUUID();
   try {
-    await db.insert(interviewFeedbackHistories).values({
+    await tx.insert(interviewFeedbackHistories).values({
       id: historyId,
       conversationId: args.conversationId,
       companyId: args.companyId,
@@ -84,7 +96,7 @@ export async function saveInterviewFeedbackHistory(args: {
       createdAt: new Date(),
     });
 
-    await db
+    await tx
       .update(interviewConversations)
       .set({
         currentFeedbackId: historyId,
@@ -92,7 +104,7 @@ export async function saveInterviewFeedbackHistory(args: {
       })
       .where(eq(interviewConversations.id, args.conversationId));
 
-    const rows = await db
+    const rows = await tx
       .select()
       .from(interviewFeedbackHistories)
       .where(buildFeedbackOwnerWhere(args.companyId, args.identity))
@@ -130,6 +142,10 @@ export async function saveInterviewFeedbackHistory(args: {
       }) ?? error
     );
   }
+}
+
+export async function saveInterviewFeedbackHistory(args: SaveInterviewFeedbackHistoryArgs) {
+  return db.transaction((tx) => saveInterviewFeedbackHistoryTx(tx, args));
 }
 
 export async function saveInterviewFeedbackSheet(args: {

@@ -12,7 +12,9 @@
 import {
   reserveCredits,
   confirmReservation,
+  confirmReservationInTx,
   cancelReservation,
+  type CreditsTransaction,
 } from "@/lib/credits";
 import { logError } from "@/lib/logger";
 import type {
@@ -145,6 +147,30 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
       logError("es-review-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
         reservationId,
       });
+    }
+  },
+
+  async confirmInTx(
+    tx: CreditsTransaction,
+    _ctx: EsReviewStreamBillingContext,
+    outcome: BillingOutcome,
+    reservationId: string | null,
+  ): Promise<void> {
+    if (outcome.kind !== "billable_success") {
+      return;
+    }
+    if (!reservationId) {
+      return;
+    }
+    const result = await confirmReservationInTx(tx, reservationId);
+    if (!result.confirmed) {
+      // Roll back the caller's tx on a failed claim. ES review has no BFF-side
+      // persistence, but throwing keeps the contract uniform: the outer hook
+      // leaves the credit unconfirmed and refunds.
+      logError("es-review-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+        reservationId,
+      });
+      throw new Error("Credit reservation confirm returned false after billable success");
     }
   },
 

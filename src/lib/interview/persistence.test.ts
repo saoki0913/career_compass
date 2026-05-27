@@ -20,25 +20,44 @@ function createChainMock(terminal: () => Promise<unknown>) {
   return chain;
 }
 
-vi.mock("@/lib/db", () => {
+const txUpdateMock = vi.fn();
+
+function makeDb() {
   const selectChain = createChainMock(() => Promise.resolve([]));
   const insertChain = createChainMock(() => Promise.resolve([]));
   const updateChain = createChainMock(() => Promise.resolve([]));
+  return {
+    select: () => {
+      selectMock();
+      return selectChain;
+    },
+    insert: () => {
+      insertMock();
+      return insertChain;
+    },
+    update: () => {
+      updateMock();
+      return updateChain;
+    },
+  };
+}
 
+vi.mock("@/lib/db", () => {
+  const base = makeDb();
+  const txUpdateChain = createChainMock(() => Promise.resolve([]));
+  const tx: Record<string, unknown> = {
+    ...base,
+    update: () => {
+      txUpdateMock();
+      return txUpdateChain;
+    },
+  };
   return {
     db: {
-      select: () => {
-        selectMock();
-        return selectChain;
-      },
-      insert: () => {
-        insertMock();
-        return insertChain;
-      },
-      update: () => {
-        updateMock();
-        return updateChain;
-      },
+      ...base,
+      // transaction invokes its callback with a tx handle so *Tx variants are
+      // exercised without a real database.
+      transaction: (fn: (txHandle: typeof tx) => Promise<unknown>) => fn(tx),
     },
   };
 });
@@ -118,7 +137,7 @@ describe("interview persistence", () => {
     expect(updateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("saveInterviewConversationProgress calls db.update with turnState", async () => {
+  it("saveInterviewConversationProgress updates inside a db.transaction (via the tx handle)", async () => {
     const { saveInterviewConversationProgress } = await import("./persistence");
 
     await saveInterviewConversationProgress({
@@ -142,6 +161,40 @@ describe("interview persistence", () => {
       status: "in_progress",
     });
 
-    expect(updateMock).toHaveBeenCalledTimes(1);
+    // The wrapper delegates to db.transaction, so the update runs on the tx handle.
+    expect(txUpdateMock).toHaveBeenCalledTimes(1);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it("saveInterviewConversationProgressTx runs the update on the passed transaction handle", async () => {
+    const { saveInterviewConversationProgressTx } = await import("./persistence");
+    const { db } = await import("@/lib/db");
+
+    await db.transaction(async (tx) =>
+      saveInterviewConversationProgressTx(tx, {
+        conversationId: "conv-1",
+        companyId: "company-1",
+        messages: [{ role: "assistant", content: "Question?" }],
+        turnState: {
+          turnCount: 1,
+          currentTopic: "intro",
+          coverageState: [],
+          coveredTopics: [],
+          remainingTopics: [],
+          recentQuestionSummariesV2: [],
+          formatPhase: "opening",
+          lastQuestion: null,
+          lastAnswer: null,
+          lastTopic: null,
+          currentTurnMeta: null,
+          nextAction: "ask",
+        },
+        status: "in_progress",
+      }),
+    );
+
+    // The tx handle's update runs, not the top-level db.update.
+    expect(txUpdateMock).toHaveBeenCalledTimes(1);
+    expect(updateMock).not.toHaveBeenCalled();
   });
 });

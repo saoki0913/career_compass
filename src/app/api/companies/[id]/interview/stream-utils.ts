@@ -141,6 +141,10 @@ export async function createInterviewUpstreamStream(options: {
         });
         if (normalized) {
           return {
+            // cancel:true so sse-proxy stops and onFinally runs with success=false
+            // (layer-2 defense; the sse-proxy layer-1 guard also enforces this for
+            // any error-type replacement). This drives onAbort → reservation refund.
+            cancel: true,
             replaceEvent: {
               type: "error",
               code: INTERVIEW_PERSISTENCE_UNAVAILABLE_CODE,

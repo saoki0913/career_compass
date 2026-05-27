@@ -21,12 +21,13 @@ import {
   type InterviewTurnMeta,
 } from "@/lib/interview/session";
 
+import { db } from "@/lib/db";
 import {
   buildInterviewContext,
   ensureInterviewConversation,
   normalizeInterviewPlanValue,
-  saveInterviewConversationProgress,
-  saveInterviewTurnEvent,
+  saveInterviewConversationProgressTx,
+  saveInterviewTurnEventTx,
   validateInterviewTurnState,
 } from "..";
 import {
@@ -263,39 +264,44 @@ export async function POST(
         const turnMeta: InterviewTurnMeta | null = normalizeInterviewTurnMeta(upstreamData.turn_meta ?? null);
         const plan: InterviewPlan | null = normalizeInterviewPlanValue(upstreamData.interview_plan ?? null);
 
-        await saveInterviewConversationProgress({
-          conversationId: conversation.id,
-          companyId,
-          messages,
-          turnState: turnStateToPersist,
-          status: "in_progress",
-          turnMeta,
-          plan,
+        // Persist progress + opening turn event AND confirm the reservation in
+        // one transaction so "saved" and "charged" commit together. A failed
+        // confirm claim throws and rolls back both saves; the catch below refunds.
+        await db.transaction(async (tx) => {
+          await saveInterviewConversationProgressTx(tx, {
+            conversationId: conversation.id,
+            companyId,
+            messages,
+            turnState: turnStateToPersist,
+            status: "in_progress",
+            turnMeta,
+            plan,
+          });
+          await saveInterviewTurnEventTx(tx, {
+            conversationId: conversation.id,
+            companyId,
+            identity,
+            turnId:
+              turnStateToPersist.recentQuestionSummariesV2.at(-1)?.turnId ??
+              `turn-${turnStateToPersist.turnCount || 1}`,
+            question,
+            answer: "",
+            questionType: "opening",
+            turnState: turnStateToPersist,
+            turnMeta,
+            versionMetadata: {
+              promptVersion: upstreamData.prompt_version ?? null,
+              followupPolicyVersion: upstreamData.followup_policy_version ?? null,
+              caseSeedVersion: upstreamData.case_seed_version ?? null,
+            },
+          });
+          await interviewInlinePolicy.confirmInTx(
+            tx,
+            billingContext,
+            { kind: "billable_success", creditsConsumed: INTERVIEW_START_CREDIT_COST, freeQuotaUsed: false },
+            reservationId,
+          );
         });
-        await saveInterviewTurnEvent({
-          conversationId: conversation.id,
-          companyId,
-          identity,
-          turnId:
-            turnStateToPersist.recentQuestionSummariesV2.at(-1)?.turnId ??
-            `turn-${turnStateToPersist.turnCount || 1}`,
-          question,
-          answer: "",
-          questionType: "opening",
-          turnState: turnStateToPersist,
-          turnMeta,
-          versionMetadata: {
-            promptVersion: upstreamData.prompt_version ?? null,
-            followupPolicyVersion: upstreamData.followup_policy_version ?? null,
-            caseSeedVersion: upstreamData.case_seed_version ?? null,
-          },
-        });
-
-        await interviewInlinePolicy.confirm(
-          billingContext,
-          { kind: "billable_success", creditsConsumed: INTERVIEW_START_CREDIT_COST, freeQuotaUsed: false },
-          reservationId,
-        );
 
         return {
           messages,

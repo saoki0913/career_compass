@@ -24,33 +24,37 @@ const {
   ensureInterviewConversationMock,
   normalizeInterviewPlanValueMock,
   resetInterviewConversationMock,
-  saveInterviewConversationProgressMock,
-  saveInterviewTurnEventMock,
+  saveInterviewConversationProgressTxMock,
+  saveInterviewTurnEventTxMock,
   validateInterviewTurnStateMock,
   createInterviewUpstreamStreamMock,
   normalizeInterviewPersistenceErrorMock,
   createInterviewPersistenceUnavailableResponseMock,
   listInterviewTurnEventsMock,
   reserveCreditsMock,
-  confirmReservationMock,
+  confirmReservationInTxMock,
   cancelReservationMock,
+  transactionMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
   ensureInterviewConversationMock: vi.fn(),
   normalizeInterviewPlanValueMock: vi.fn(),
   resetInterviewConversationMock: vi.fn(),
-  saveInterviewConversationProgressMock: vi.fn(),
-  saveInterviewTurnEventMock: vi.fn(),
+  saveInterviewConversationProgressTxMock: vi.fn(),
+  saveInterviewTurnEventTxMock: vi.fn(),
   validateInterviewTurnStateMock: vi.fn(),
   createInterviewUpstreamStreamMock: vi.fn(),
   normalizeInterviewPersistenceErrorMock: vi.fn(),
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
   listInterviewTurnEventsMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
-  confirmReservationMock: vi.fn(),
+  confirmReservationInTxMock: vi.fn(),
   cancelReservationMock: vi.fn(),
+  transactionMock: vi.fn(),
 }));
+
+const fakeTx = { __tx: "interview-contract" } as never;
 
 vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
@@ -63,10 +67,15 @@ vi.mock("..", () => ({
   ensureInterviewConversation: ensureInterviewConversationMock,
   normalizeInterviewPlanValue: normalizeInterviewPlanValueMock,
   resetInterviewConversation: resetInterviewConversationMock,
-  saveInterviewConversationProgress: saveInterviewConversationProgressMock,
-  saveInterviewTurnEvent: saveInterviewTurnEventMock,
+  saveInterviewConversationProgressTx: saveInterviewConversationProgressTxMock,
+  saveInterviewTurnEventTx: saveInterviewTurnEventTxMock,
   validateInterviewTurnState: validateInterviewTurnStateMock,
   listInterviewTurnEvents: listInterviewTurnEventsMock,
+}));
+vi.mock("@/lib/db", () => ({
+  db: {
+    transaction: transactionMock,
+  },
 }));
 vi.mock("../stream-utils", () => ({
   createInterviewUpstreamStream: createInterviewUpstreamStreamMock,
@@ -82,7 +91,7 @@ vi.mock("@/lib/credits", () => ({
   INTERVIEW_START_CREDIT_COST: 2,
   INTERVIEW_TURN_CREDIT_COST: 1,
   reserveCredits: reserveCreditsMock,
-  confirmReservation: confirmReservationMock,
+  confirmReservationInTx: confirmReservationInTxMock,
   cancelReservation: cancelReservationMock,
 }));
 
@@ -207,20 +216,22 @@ describe("questionStage outward contract", () => {
     ensureInterviewConversationMock.mockReset();
     normalizeInterviewPlanValueMock.mockReset();
     resetInterviewConversationMock.mockReset();
-    saveInterviewConversationProgressMock.mockReset();
-    saveInterviewTurnEventMock.mockReset();
+    saveInterviewConversationProgressTxMock.mockReset();
+    saveInterviewTurnEventTxMock.mockReset();
     validateInterviewTurnStateMock.mockReset();
     createInterviewUpstreamStreamMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
     listInterviewTurnEventsMock.mockReset();
     reserveCreditsMock.mockReset();
-    confirmReservationMock.mockReset();
+    confirmReservationInTxMock.mockReset();
+    transactionMock.mockReset();
+    transactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
     cancelReservationMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-contract-1" });
-    confirmReservationMock.mockResolvedValue({ confirmed: true });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 5 });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
@@ -229,8 +240,8 @@ describe("questionStage outward contract", () => {
     validateInterviewTurnStateMock.mockImplementation((v: unknown) => v);
     listInterviewTurnEventsMock.mockResolvedValue([]);
     createInterviewUpstreamStreamMock.mockResolvedValue(new Response("ok"));
-    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
-    saveInterviewTurnEventMock.mockResolvedValue(undefined);
+    saveInterviewConversationProgressTxMock.mockResolvedValue(undefined);
+    saveInterviewTurnEventTxMock.mockResolvedValue(undefined);
   });
 
   it("start route: onComplete transforms backend question_stage=role_reason to questionStage", async () => {
@@ -385,19 +396,21 @@ describe("stage_status synthesis from route when backend returns null", () => {
     ensureInterviewConversationMock.mockReset();
     normalizeInterviewPlanValueMock.mockReset();
     validateInterviewTurnStateMock.mockReset();
-    saveInterviewConversationProgressMock.mockReset();
-    saveInterviewTurnEventMock.mockReset();
+    saveInterviewConversationProgressTxMock.mockReset();
+    saveInterviewTurnEventTxMock.mockReset();
     createInterviewUpstreamStreamMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
     listInterviewTurnEventsMock.mockReset();
     reserveCreditsMock.mockReset();
-    confirmReservationMock.mockReset();
+    confirmReservationInTxMock.mockReset();
+    transactionMock.mockReset();
+    transactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
     cancelReservationMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-contract-1" });
-    confirmReservationMock.mockResolvedValue({ confirmed: true });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 5 });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
@@ -406,8 +419,8 @@ describe("stage_status synthesis from route when backend returns null", () => {
     validateInterviewTurnStateMock.mockImplementation((v: unknown) => v);
     listInterviewTurnEventsMock.mockResolvedValue([]);
     createInterviewUpstreamStreamMock.mockResolvedValue(new Response("ok"));
-    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
-    saveInterviewTurnEventMock.mockResolvedValue(undefined);
+    saveInterviewConversationProgressTxMock.mockResolvedValue(undefined);
+    saveInterviewTurnEventTxMock.mockResolvedValue(undefined);
   });
 
   it("start route: synthesizes stageStatus from turn_state when backend stage_status is null", async () => {
@@ -570,19 +583,21 @@ describe("fallback: backend 500 converts to error response", () => {
     ensureInterviewConversationMock.mockReset();
     normalizeInterviewPlanValueMock.mockReset();
     validateInterviewTurnStateMock.mockReset();
-    saveInterviewConversationProgressMock.mockReset();
-    saveInterviewTurnEventMock.mockReset();
+    saveInterviewConversationProgressTxMock.mockReset();
+    saveInterviewTurnEventTxMock.mockReset();
     createInterviewUpstreamStreamMock.mockReset();
     normalizeInterviewPersistenceErrorMock.mockReset();
     createInterviewPersistenceUnavailableResponseMock.mockReset();
     listInterviewTurnEventsMock.mockReset();
     reserveCreditsMock.mockReset();
-    confirmReservationMock.mockReset();
+    confirmReservationInTxMock.mockReset();
+    transactionMock.mockReset();
+    transactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
     cancelReservationMock.mockReset();
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-contract-1" });
-    confirmReservationMock.mockResolvedValue({ confirmed: true });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 5 });
     createInterviewPersistenceUnavailableResponseMock.mockReturnValue(
       Response.json({ error: { code: "INTERVIEW_PERSISTENCE_UNAVAILABLE" } }, { status: 503 }),
     );
@@ -591,8 +606,8 @@ describe("fallback: backend 500 converts to error response", () => {
     normalizeInterviewPlanValueMock.mockImplementation((v: unknown) => v);
     validateInterviewTurnStateMock.mockImplementation((v: unknown) => v);
     listInterviewTurnEventsMock.mockResolvedValue([]);
-    saveInterviewConversationProgressMock.mockResolvedValue(undefined);
-    saveInterviewTurnEventMock.mockResolvedValue(undefined);
+    saveInterviewConversationProgressTxMock.mockResolvedValue(undefined);
+    saveInterviewTurnEventTxMock.mockResolvedValue(undefined);
   });
 
   it("start route: returns error response when upstream persistence throws", async () => {

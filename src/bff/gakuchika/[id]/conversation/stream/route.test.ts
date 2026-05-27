@@ -40,16 +40,24 @@ type CapturedStreamConfig = {
 };
 
 const mocks = vi.hoisted(() => {
-  const whereMock = vi.fn().mockResolvedValue(undefined);
+  // Optimistic-locked UPDATE: .returning() resolves to the claimed rows.
+  const returningMock = vi.fn().mockResolvedValue([{ id: "conv-1" }]);
+  const whereMock = vi.fn().mockReturnValue({ returning: returningMock });
   const setMock = vi.fn().mockReturnValue({ where: whereMock });
   const updateMock = vi.fn().mockReturnValue({ set: setMock });
+  const txMock = { update: updateMock };
+  const transactionMock = vi.fn(async (fn: (tx: typeof txMock) => Promise<unknown>) => fn(txMock));
 
   return {
     capturedConfig: undefined as CapturedStreamConfig | undefined,
     updateMock,
     setMock,
     whereMock,
-    confirmMock: vi.fn().mockResolvedValue(undefined),
+    returningMock,
+    transactionMock,
+    txMock,
+    confirmInTxMock: vi.fn().mockResolvedValue(undefined),
+    cancelMock: vi.fn().mockResolvedValue(undefined),
     logAiCreditCostSummaryMock: vi.fn(),
     incrementDailyTokenCountMock: vi.fn(),
     computeTotalTokensMock: vi.fn().mockReturnValue(12),
@@ -66,6 +74,7 @@ vi.mock("@/bff/api/stream-handler", () => ({
 vi.mock("@/lib/db", () => ({
   db: {
     update: mocks.updateMock,
+    transaction: mocks.transactionMock,
   },
 }));
 vi.mock("@/lib/db/schema", () => ({
@@ -75,6 +84,7 @@ vi.mock("@/lib/db/schema", () => ({
   },
 }));
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn().mockReturnValue({ op: "and" }),
   eq: vi.fn().mockReturnValue({ op: "eq" }),
   desc: vi.fn().mockReturnValue({ op: "desc" }),
 }));
@@ -84,7 +94,8 @@ vi.mock("@/lib/credits", () => ({
 vi.mock("@/bff/billing/gakuchika-stream-policy", () => ({
   gakuchikaStreamPolicy: {
     precheck: vi.fn().mockResolvedValue({ ok: true, freeQuotaAvailable: false }),
-    confirm: mocks.confirmMock,
+    confirmInTx: mocks.confirmInTxMock,
+    cancel: mocks.cancelMock,
   },
 }));
 vi.mock("@/bff/gakuchika", () => ({
@@ -154,10 +165,13 @@ function getConfig(): CapturedStreamConfig {
 describe("gakuchika stream route", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    mocks.whereMock.mockResolvedValue(undefined);
+    mocks.returningMock.mockResolvedValue([{ id: "conv-1" }]);
+    mocks.whereMock.mockReturnValue({ returning: mocks.returningMock });
     mocks.setMock.mockReturnValue({ where: mocks.whereMock });
     mocks.updateMock.mockReturnValue({ set: mocks.setMock });
-    mocks.confirmMock.mockResolvedValue(undefined);
+    mocks.transactionMock.mockImplementation(async (fn: (tx: typeof mocks.txMock) => Promise<unknown>) => fn(mocks.txMock));
+    mocks.confirmInTxMock.mockResolvedValue(undefined);
+    mocks.cancelMock.mockResolvedValue(undefined);
     mocks.computeTotalTokensMock.mockReturnValue(12);
     mocks.serializeConversationStateMock.mockReturnValue("{}");
     await import("./route");
@@ -168,10 +182,11 @@ describe("gakuchika stream route", () => {
     expect(typeof mod.POST).toBe("function");
   });
 
-  it("keeps complete response when billing confirm fails after persistence", async () => {
+  it("refunds with a cancel error event when billing confirm fails inside the persist transaction", async () => {
     const config = getConfig();
     const ctx = makeContext();
-    mocks.confirmMock.mockRejectedValue(new Error("billing confirm failed"));
+    // confirmInTx throws on a failed claim, rolling back the conversation update.
+    mocks.confirmInTxMock.mockRejectedValue(new Error("billing confirm failed"));
 
     const result = await config.onComplete(
       ctx,
@@ -184,9 +199,15 @@ describe("gakuchika stream route", () => {
       { telemetry: null, identity: { userId: "user-1", guestId: null } },
     );
 
+    // Persist + confirm ran inside one transaction; confirm used the tx handle.
+    expect(mocks.transactionMock).toHaveBeenCalledOnce();
     expect(mocks.updateMock).toHaveBeenCalled();
-    expect(mocks.confirmMock).toHaveBeenCalledOnce();
-    expect(result?.replaceEvent?.type).toBe("complete");
+    expect(mocks.confirmInTxMock).toHaveBeenCalledOnce();
+    expect(mocks.confirmInTxMock.mock.calls[0]?.[0]).toBe(mocks.txMock);
+    // A saved-but-uncharged turn is never delivered: complete is replaced by an
+    // error event with cancel:true so sse-proxy refunds.
+    expect(result?.replaceEvent?.type).toBe("error");
+    expect(result?.cancel).toBe(true);
     expect(ctx.billingOutcomeStatus).toBe("failed");
     expect(ctx.creditsAppliedForSummary).toBe(0);
 
@@ -205,11 +226,36 @@ describe("gakuchika stream route", () => {
     );
   });
 
-  it("logs consumed credits only after billing confirm succeeds", async () => {
+  it("refunds with a reload prompt when the optimistic lock matches no rows", async () => {
+    const config = getConfig();
+    const ctx = makeContext();
+    // Stale conversation: the optimistic-locked UPDATE claims 0 rows.
+    mocks.returningMock.mockResolvedValue([]);
+
+    const result = await config.onComplete(
+      ctx,
+      {
+        data: {
+          question: "次の質問",
+          conversation_state: { stage: "deep_dive_active" },
+        },
+      },
+      { telemetry: null, identity: { userId: "user-1", guestId: null } },
+    );
+
+    expect(result?.replaceEvent?.type).toBe("error");
+    expect(result?.replaceEvent?.message).toContain("別のタブ");
+    expect(result?.cancel).toBe(true);
+    // No charge is attempted when the conversation moved on.
+    expect(mocks.confirmInTxMock).not.toHaveBeenCalled();
+    expect(ctx.billingOutcomeStatus).toBe("failed");
+  });
+
+  it("logs consumed credits only after billing confirm succeeds inside the transaction", async () => {
     const config = getConfig();
     const ctx = makeContext();
 
-    await config.onComplete(
+    const result = await config.onComplete(
       ctx,
       {
         data: {
@@ -226,6 +272,10 @@ describe("gakuchika stream route", () => {
       identity: { userId: "user-1", guestId: null },
     });
 
+    expect(mocks.transactionMock).toHaveBeenCalledOnce();
+    expect(mocks.confirmInTxMock).toHaveBeenCalledOnce();
+    expect(mocks.confirmInTxMock.mock.calls[0]?.[0]).toBe(mocks.txMock);
+    expect(result?.replaceEvent?.type).toBe("complete");
     expect(ctx.billingOutcomeStatus).toBe("success");
     expect(ctx.creditsAppliedForSummary).toBe(1);
     expect(mocks.logAiCreditCostSummaryMock).toHaveBeenCalledWith(

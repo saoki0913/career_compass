@@ -2,7 +2,9 @@ import {
   CONVERSATION_CREDITS_PER_TURN,
   cancelReservation,
   confirmReservation,
+  confirmReservationInTx,
   reserveCredits,
+  type CreditsTransaction,
 } from "@/lib/credits";
 import { logError } from "@/lib/logger";
 import type { BillingOutcome, BillingPolicy, BillingPrecheckResult, BillingReserveResult } from "./types";
@@ -66,6 +68,32 @@ export const gakuchikaStreamPolicy: BillingPolicy<GakuchikaStreamBillingContext>
         reservationId,
         creditsConsumed: outcome.creditsConsumed,
       });
+    }
+  },
+
+  async confirmInTx(
+    tx: CreditsTransaction,
+    ctx,
+    outcome: BillingOutcome,
+    reservationId: string | null,
+  ): Promise<void> {
+    if (outcome.kind !== "billable_success") {
+      return;
+    }
+    if (outcome.creditsConsumed <= 0 || !reservationId) {
+      return;
+    }
+    const result = await confirmReservationInTx(tx, reservationId);
+    if (!result.confirmed) {
+      // Roll back the caller's persistence tx on a failed claim so a turn is
+      // never saved without being charged. Log first, then throw to unwind.
+      logError("gakuchika-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+        userId: ctx.userId,
+        gakuchikaId: ctx.gakuchikaId,
+        reservationId,
+        creditsConsumed: outcome.creditsConsumed,
+      });
+      throw new Error("Credit reservation confirm returned false after billable success");
     }
   },
 

@@ -12,7 +12,9 @@ import {
   CONVERSATION_CREDITS_PER_TURN,
   cancelReservation,
   confirmReservation,
+  confirmReservationInTx,
   reserveCredits,
+  type CreditsTransaction,
 } from "@/lib/credits";
 import { logError } from "@/lib/logger";
 import type {
@@ -89,6 +91,33 @@ export const motivationStreamPolicy: BillingPolicy<MotivationStreamBillingContex
         reservationId,
         creditsConsumed: outcome.creditsConsumed,
       });
+    }
+  },
+
+  async confirmInTx(
+    tx: CreditsTransaction,
+    ctx: MotivationStreamBillingContext,
+    outcome: BillingOutcome,
+    reservationId: string | null,
+  ): Promise<void> {
+    if (outcome.kind !== "billable_success") {
+      return;
+    }
+    if (outcome.creditsConsumed <= 0 || !reservationId) {
+      return;
+    }
+    const result = await confirmReservationInTx(tx, reservationId);
+    if (!result.confirmed) {
+      // A failed claim (already canceled/confirmed or swept by cleanup) must roll
+      // back the caller's persistence tx so we never deliver a saved-but-uncharged
+      // turn. We log first, then throw so the surrounding transaction unwinds.
+      logError("motivation-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+        userId: ctx.userId,
+        companyId: ctx.companyId,
+        reservationId,
+        creditsConsumed: outcome.creditsConsumed,
+      });
+      throw new Error("Credit reservation confirm returned false after billable success");
     }
   },
 

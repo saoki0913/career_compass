@@ -57,6 +57,8 @@ describe("interview stream utils persistence errors", () => {
       missingColumns: [],
     });
 
+    const onAbort = vi.fn(async () => {});
+    const onError = vi.fn(async () => {});
     const response = await createInterviewUpstreamStream({
       request: new NextRequest("http://localhost:3000/api/companies/company-1/interview/start", {
         method: "POST",
@@ -66,10 +68,17 @@ describe("interview stream utils persistence errors", () => {
       onComplete: async () => {
         throw new Error('relation "interview_conversations" does not exist');
       },
+      onAbort,
+      onError,
     });
 
     const text = await response.text();
     expect(text).toContain("現在、面接対策の保存機能を一時的に利用できません。");
     expect(normalizeInterviewPersistenceErrorMock).toHaveBeenCalled();
+    // The complete→error replacement must trigger a refund: onAbort (cancel)
+    // fires because the stream ended without a successful complete. onError is
+    // NOT called (this is a persistence-replacement, not an upstream error event).
+    expect(onAbort).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
   });
 });

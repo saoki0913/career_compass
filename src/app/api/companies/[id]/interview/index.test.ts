@@ -88,6 +88,15 @@ describe("barrel exports", () => {
     );
     expect(source).toContain("saveInterviewFeedbackSheet");
   });
+
+  it("re-exports the transaction-bound persistence variants for atomic billing", async () => {
+    const source = await import("node:fs").then((fs) =>
+      fs.readFileSync(new URL("./index.ts", import.meta.url), "utf-8"),
+    );
+    expect(source).toContain("saveInterviewConversationProgressTx");
+    expect(source).toContain("saveInterviewTurnEventTx");
+    expect(source).toContain("saveInterviewFeedbackHistoryTx");
+  });
 });
 
 describe("buildInterviewContext", () => {

@@ -13,9 +13,11 @@
 import {
   cancelReservation,
   confirmReservation,
+  confirmReservationInTx,
   getRemainingFreeFetches,
   hasEnoughCredits,
   reserveCredits,
+  type CreditsTransaction,
 } from "@/lib/credits";
 import { cancelMonthlyScheduleFreeUse, reserveMonthlyScheduleFreeUse } from "@/lib/company-info/usage";
 import { logError } from "@/lib/logger";
@@ -91,6 +93,35 @@ export const companyFetchPolicy: BillingPolicy<CompanyFetchBillingContext> = {
 
     if (reservationId !== FREE_SCHEDULE_RESERVATION_ID) {
       const result = await confirmReservation(reservationId);
+      if (!result.confirmed) {
+        logError("company-fetch-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
+          reservationId,
+          userId: ctx.userId,
+          companyId: ctx.companyId,
+        });
+      }
+    }
+  },
+
+  async confirmInTx(
+    tx: CreditsTransaction,
+    ctx: CompanyFetchBillingContext,
+    outcome: BillingOutcome,
+    reservationId: string | null,
+  ): Promise<void> {
+    if (outcome.kind !== "billable_success") {
+      return;
+    }
+
+    if (!reservationId) {
+      throw new Error("Missing company fetch billing reservation");
+    }
+
+    // Free-quota usage lives in a separate table and is confirmed by leaving the
+    // reserved increment in place (no-op here). Only paid credit reservations
+    // claim inside the persistence tx.
+    if (reservationId !== FREE_SCHEDULE_RESERVATION_ID) {
+      const result = await confirmReservationInTx(tx, reservationId);
       if (!result.confirmed) {
         logError("company-fetch-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
           reservationId,

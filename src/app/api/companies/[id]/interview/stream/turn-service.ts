@@ -1,4 +1,6 @@
+import { db } from "@/lib/db";
 import { INTERVIEW_TURN_CREDIT_COST } from "@/lib/credits";
+import { interviewInlinePolicy, type InterviewInlineBillingContext } from "@/bff/billing/interview-inline-policy";
 import {
   getInterviewStageStatus,
   normalizeInterviewTurnMeta,
@@ -12,8 +14,8 @@ import {
   buildInterviewContext,
   listInterviewTurnEvents,
   normalizeInterviewPlanValue,
-  saveInterviewConversationProgress,
-  saveInterviewTurnEvent,
+  saveInterviewConversationProgressTx,
+  saveInterviewTurnEventTx,
   validateInterviewTurnState,
 } from "..";
 import type {
@@ -96,7 +98,8 @@ export async function completeInterviewTurnStream(args: {
   identity: RequestIdentity;
   answer: string;
   nextMessages: InterviewContextWithConversation["conversation"]["messages"];
-  onPersisted?: () => Promise<void>;
+  billingContext: InterviewInlineBillingContext;
+  reservationId: string | null;
 }): Promise<InterviewClientCompleteData> {
   const transitionLine = normalizeInterviewTransitionLine(args.upstreamData.transition_line);
   const question = normalizeInterviewStreamQuestion(args.upstreamData.question);
@@ -112,38 +115,48 @@ export async function completeInterviewTurnStream(args: {
     (turnState as InterviewTurnState).nextAction === "feedback";
   const status = questionFlowCompleted ? "question_flow_completed" : "in_progress";
 
-  await saveInterviewConversationProgress({
-    conversationId: args.context.conversation.id,
-    companyId: args.companyId,
-    messages,
-    turnState,
-    status,
-    turnMeta,
-    plan,
+  // Persist progress + turn event AND confirm the reservation in one
+  // transaction so "saved" and "charged" share a single commit boundary. A
+  // failed confirm claim throws (confirmInTx) and rolls back both saves; the
+  // route's catch refunds, so a turn is never saved without being charged.
+  await db.transaction(async (tx) => {
+    await saveInterviewConversationProgressTx(tx, {
+      conversationId: args.context.conversation.id,
+      companyId: args.companyId,
+      messages,
+      turnState,
+      status,
+      turnMeta,
+      plan,
+    });
+    await saveInterviewTurnEventTx(tx, {
+      conversationId: args.context.conversation.id,
+      companyId: args.companyId,
+      identity: args.identity,
+      turnId:
+        args.context.conversation.turnState.recentQuestionSummariesV2.at(-1)?.turnId ??
+        `turn-${args.context.conversation.questionCount || args.context.conversation.turnState.turnCount || 1}`,
+      question: getLatestAssistantQuestion(args.context.conversation.messages),
+      answer: args.answer,
+      questionType:
+        typeof args.context.conversation.turnState.currentTopic === "string"
+          ? args.context.conversation.turnState.currentTopic
+          : null,
+      turnState: args.context.conversation.turnState,
+      turnMeta: args.context.conversation.turnMeta,
+      versionMetadata: {
+        promptVersion: args.upstreamData.prompt_version ?? null,
+        followupPolicyVersion: args.upstreamData.followup_policy_version ?? null,
+        caseSeedVersion: args.upstreamData.case_seed_version ?? null,
+      },
+    });
+    await interviewInlinePolicy.confirmInTx(
+      tx,
+      args.billingContext,
+      { kind: "billable_success", creditsConsumed: INTERVIEW_TURN_CREDIT_COST, freeQuotaUsed: false },
+      args.reservationId,
+    );
   });
-  await saveInterviewTurnEvent({
-    conversationId: args.context.conversation.id,
-    companyId: args.companyId,
-    identity: args.identity,
-    turnId:
-      args.context.conversation.turnState.recentQuestionSummariesV2.at(-1)?.turnId ??
-      `turn-${args.context.conversation.questionCount || args.context.conversation.turnState.turnCount || 1}`,
-    question: getLatestAssistantQuestion(args.context.conversation.messages),
-    answer: args.answer,
-    questionType:
-      typeof args.context.conversation.turnState.currentTopic === "string"
-        ? args.context.conversation.turnState.currentTopic
-        : null,
-    turnState: args.context.conversation.turnState,
-    turnMeta: args.context.conversation.turnMeta,
-    versionMetadata: {
-      promptVersion: args.upstreamData.prompt_version ?? null,
-      followupPolicyVersion: args.upstreamData.followup_policy_version ?? null,
-      caseSeedVersion: args.upstreamData.case_seed_version ?? null,
-    },
-  });
-
-  await args.onPersisted?.();
 
   const shortCoaching = safeParseInterviewShortCoaching(args.upstreamData.short_coaching ?? null);
   const nextQuestionHint =

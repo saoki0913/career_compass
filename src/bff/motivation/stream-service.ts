@@ -28,6 +28,19 @@ import type {
 
 export type MotivationStreamBillingStatus = "success" | "failed" | "cancelled";
 
+/**
+ * Sentinel thrown inside the persist+confirm transaction when the optimistic
+ * lock matches no rows. Lets the caller distinguish a stale-conversation
+ * conflict (reload prompt) from a credit confirm failure, while still rolling
+ * the transaction back and skipping confirm.
+ */
+class MotivationStreamConflictError extends Error {
+  constructor() {
+    super("motivation conversation optimistic lock conflict");
+    this.name = "MotivationStreamConflictError";
+  }
+}
+
 export type MotivationStreamCompleteData = {
   question?: string;
   draft_ready?: boolean;
@@ -94,7 +107,7 @@ export async function completeMotivationStreamTurn(args: {
   scores: MotivationScores | null;
   resolvedInputs: MotivationResolvedInputs;
   shouldConsumeCredit: boolean;
-  billingContext: Parameters<typeof motivationStreamPolicy.confirm>[0];
+  billingContext: Parameters<typeof motivationStreamPolicy.confirmInTx>[1];
   reservationId: string | null;
 }): Promise<{
   result: {
@@ -142,61 +155,92 @@ export async function completeMotivationStreamTurn(args: {
     currentDraftReadyState.unlockedAt ?? undefined,
   );
 
-  const updatedRows = await db
-    .update(motivationConversations)
-    .set({
-      messages: serializeMessages(args.messages),
-      questionCount: args.newQuestionCount,
-      status: isDraftReady ? "completed" : "in_progress",
-      motivationScores: serializeScores(newScores ?? null),
-      conversationContext: serializeConversationContext(nextConversationContext),
-      selectedRole: nextConversationContext.selectedRole ?? null,
-      selectedRoleSource: nextConversationContext.selectedRoleSource ?? null,
-      desiredWork: nextConversationContext.desiredWork ?? null,
-      questionStage: args.fastApiData.question_stage ?? nextConversationContext.questionStage,
-      lastEvidenceCards: serializeEvidenceCards((args.fastApiData.evidence_cards || []) as EvidenceCard[]),
-      stageStatus: serializeStageStatus(
-        ((args.fastApiData.stage_status as StageStatus | undefined) || {
-          current: args.fastApiData.question_stage || args.resolvedInputs.conversationContext.questionStage,
-          completed: [],
-          pending: [],
-        }) as StageStatus,
-      ),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(motivationConversations.id, args.conversation.id), eq(motivationConversations.updatedAt, args.conversation.updatedAt)))
-    .returning({ id: motivationConversations.id });
+  const creditsToConsume = args.shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0;
 
-  if (updatedRows.length === 0) {
+  // Persist the conversation update AND confirm the reservation in one
+  // transaction so "saved" and "charged" share a single commit boundary. Two
+  // distinct non-success terminals can occur:
+  //   - optimistic-lock conflict (0 rows updated): a concurrent tab/operation
+  //     moved the conversation on; we refund and tell the client to reload.
+  //   - confirm claim failure: confirmInTx throws, the update rolls back, and we
+  //     refund — never delivering a saved-but-uncharged turn.
+  // Either way onFinally cancels the reservation (billingStatus="failed").
+  let conflict = false;
+  try {
+    await db.transaction(async (tx) => {
+      const updatedRows = await tx
+        .update(motivationConversations)
+        .set({
+          messages: serializeMessages(args.messages),
+          questionCount: args.newQuestionCount,
+          status: isDraftReady ? "completed" : "in_progress",
+          motivationScores: serializeScores(newScores ?? null),
+          conversationContext: serializeConversationContext(nextConversationContext),
+          selectedRole: nextConversationContext.selectedRole ?? null,
+          selectedRoleSource: nextConversationContext.selectedRoleSource ?? null,
+          desiredWork: nextConversationContext.desiredWork ?? null,
+          questionStage: args.fastApiData.question_stage ?? nextConversationContext.questionStage,
+          lastEvidenceCards: serializeEvidenceCards((args.fastApiData.evidence_cards || []) as EvidenceCard[]),
+          stageStatus: serializeStageStatus(
+            ((args.fastApiData.stage_status as StageStatus | undefined) || {
+              current: args.fastApiData.question_stage || args.resolvedInputs.conversationContext.questionStage,
+              completed: [],
+              pending: [],
+            }) as StageStatus,
+          ),
+          updatedAt: new Date(),
+        })
+        .where(and(eq(motivationConversations.id, args.conversation.id), eq(motivationConversations.updatedAt, args.conversation.updatedAt)))
+        .returning({ id: motivationConversations.id });
+
+      if (updatedRows.length === 0) {
+        conflict = true;
+        // Roll back (nothing was changed anyway) and skip confirm.
+        throw new MotivationStreamConflictError();
+      }
+
+      await motivationStreamPolicy.confirmInTx(
+        tx,
+        args.billingContext,
+        {
+          kind: "billable_success",
+          creditsConsumed: creditsToConsume,
+          freeQuotaUsed: false,
+        },
+        args.reservationId,
+      );
+    });
+  } catch (error) {
+    if (conflict || error instanceof MotivationStreamConflictError) {
+      return {
+        billingStatus: "failed",
+        creditsApplied: 0,
+        result: {
+          replaceEvent: {
+            type: "error",
+            message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。",
+          },
+          cancel: true,
+        },
+      };
+    }
+    // confirm claim failure (or any other tx error): the update rolled back, so
+    // replace complete with an error event + cancel so the proxy refunds.
     return {
       billingStatus: "failed",
       creditsApplied: 0,
       result: {
         replaceEvent: {
           type: "error",
-          message: "別のタブまたは直前の操作で会話が更新されました。画面を再読み込みしてからやり直してください。",
+          message: "クレジットの確定に失敗しました。クレジットは消費されません。時間を置いて、もう一度お試しください。",
         },
         cancel: true,
       },
     };
   }
 
-  let billingStatus: MotivationStreamBillingStatus = "success";
-  let creditsApplied = args.shouldConsumeCredit ? CONVERSATION_CREDITS_PER_TURN : 0;
-  try {
-    await motivationStreamPolicy.confirm(
-      args.billingContext,
-      {
-        kind: "billable_success",
-        creditsConsumed: creditsApplied,
-        freeQuotaUsed: false,
-      },
-      args.reservationId,
-    );
-  } catch {
-    billingStatus = "failed";
-    creditsApplied = 0;
-  }
+  const billingStatus: MotivationStreamBillingStatus = "success";
+  const creditsApplied = creditsToConsume;
 
   const payload = buildMotivationConversationPayload({
     messages: args.messages,

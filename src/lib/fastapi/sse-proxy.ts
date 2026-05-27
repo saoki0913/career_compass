@@ -281,6 +281,14 @@ export function createSSEProxyStream(
           }
           const toForward = completeResult?.replaceEvent ?? sanitized;
           forwardEventObject(toForward);
+          // Layer-1 fail-safe: if the complete event was replaced with an error
+          // event, never count it as success and stop reading upstream — even if
+          // the hook forgot `cancel: true`. This guarantees onFinally runs with
+          // success=false so the caller refunds (e.g. interview persistence
+          // failure replacing complete with INTERVIEW_PERSISTENCE_UNAVAILABLE).
+          if (toForward.type === "error") {
+            return true;
+          }
           if (!completeResult?.cancel) {
             sawSuccess = true;
           }

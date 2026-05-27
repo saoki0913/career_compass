@@ -201,6 +201,44 @@ describe("createSSEProxyStream", () => {
     expect(onFinally).toHaveBeenCalledOnce();
   });
 
+  it("treats an error-type complete replacement as non-success even without cancel (layer-1 guard)", async () => {
+    // A complete-hook that replaces the event with an error but omits cancel
+    // must NOT be counted as success — the layer-1 guard fails safe so callers
+    // refund. (Regression guard for interview INTERVIEW_PERSISTENCE_UNAVAILABLE.)
+    const upstream = fakeResponse([
+      { type: "complete", data: { raw: true } },
+      { type: "complete", data: { shouldNotBeRead: true } },
+    ]);
+    const onComplete = vi.fn().mockResolvedValue({
+      replaceEvent: { type: "error", code: "PERSISTENCE_UNAVAILABLE", message: "保存に失敗" },
+      // intentionally no `cancel: true`
+    });
+    const onFinally = vi.fn();
+
+    const stream = createSSEProxyStream(upstream, { ...baseOpts, onComplete, onFinally });
+    const events = await collectEvents(stream);
+
+    expect(onFinally).toHaveBeenCalledOnce();
+    expect(onFinally).toHaveBeenCalledWith({ success: false });
+    // The error event is forwarded, and the stream stops (the second complete is
+    // never processed, so onComplete is called only once).
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(events.at(-1)).toMatchObject({ type: "error", code: "PERSISTENCE_UNAVAILABLE" });
+  });
+
+  it("still counts a normal complete replacement as success", async () => {
+    const upstream = fakeResponse([{ type: "complete", data: { raw: true } }]);
+    const onComplete = vi.fn().mockResolvedValue({
+      replaceEvent: { type: "complete", data: { enriched: true } },
+    });
+    const onFinally = vi.fn();
+
+    const stream = createSSEProxyStream(upstream, { ...baseOpts, onComplete, onFinally });
+    await collectEvents(stream);
+
+    expect(onFinally).toHaveBeenCalledWith({ success: true });
+  });
+
   it("invokes onFinally when the browser cancels the proxied stream", async () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream<Uint8Array>({

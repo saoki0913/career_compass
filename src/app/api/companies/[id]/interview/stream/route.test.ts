@@ -5,8 +5,8 @@ const {
   getRequestIdentityMock,
   buildInterviewContextMock,
   listInterviewTurnEventsMock,
-  saveInterviewConversationProgressMock,
-  saveInterviewTurnEventMock,
+  saveInterviewConversationProgressTxMock,
+  saveInterviewTurnEventTxMock,
   normalizeInterviewPlanValueMock,
   validateInterviewTurnStateMock,
   createInterviewUpstreamStreamMock,
@@ -14,14 +14,15 @@ const {
   createInterviewPersistenceUnavailableResponseMock,
   guardDailyTokenLimitMock,
   reserveCreditsMock,
-  confirmReservationMock,
+  confirmReservationInTxMock,
   cancelReservationMock,
+  transactionMock,
 } = vi.hoisted(() => ({
   getRequestIdentityMock: vi.fn(),
   buildInterviewContextMock: vi.fn(),
   listInterviewTurnEventsMock: vi.fn(),
-  saveInterviewConversationProgressMock: vi.fn(),
-  saveInterviewTurnEventMock: vi.fn(),
+  saveInterviewConversationProgressTxMock: vi.fn(),
+  saveInterviewTurnEventTxMock: vi.fn(),
   normalizeInterviewPlanValueMock: vi.fn(),
   validateInterviewTurnStateMock: vi.fn(),
   createInterviewUpstreamStreamMock: vi.fn(),
@@ -29,9 +30,12 @@ const {
   createInterviewPersistenceUnavailableResponseMock: vi.fn(),
   guardDailyTokenLimitMock: vi.fn(),
   reserveCreditsMock: vi.fn(),
-  confirmReservationMock: vi.fn(),
+  confirmReservationInTxMock: vi.fn(),
   cancelReservationMock: vi.fn(),
+  transactionMock: vi.fn(),
 }));
+
+const fakeTx = { __tx: "interview-turn" } as never;
 
 vi.mock("@/bff/identity/request-identity", () => ({
   getRequestIdentity: getRequestIdentityMock,
@@ -44,9 +48,17 @@ vi.mock("..", () => ({
   buildInterviewContext: buildInterviewContextMock,
   listInterviewTurnEvents: listInterviewTurnEventsMock,
   normalizeInterviewPlanValue: normalizeInterviewPlanValueMock,
-  saveInterviewConversationProgress: saveInterviewConversationProgressMock,
-  saveInterviewTurnEvent: saveInterviewTurnEventMock,
+  saveInterviewConversationProgressTx: saveInterviewConversationProgressTxMock,
+  saveInterviewTurnEventTx: saveInterviewTurnEventTxMock,
   validateInterviewTurnState: validateInterviewTurnStateMock,
+}));
+
+vi.mock("@/lib/db", () => ({
+  db: {
+    // transaction invokes its callback with a fake tx so the *Tx saves and
+    // confirmInTx run under one (mocked) transaction.
+    transaction: transactionMock,
+  },
 }));
 
 vi.mock("../stream-utils", () => ({
@@ -63,7 +75,7 @@ vi.mock("@/lib/credits", () => ({
   DEFAULT_INTERVIEW_SESSION_CREDIT_COST: 6,
   INTERVIEW_TURN_CREDIT_COST: 1,
   reserveCredits: reserveCreditsMock,
-  confirmReservation: confirmReservationMock,
+  confirmReservationInTx: confirmReservationInTxMock,
   cancelReservation: cancelReservationMock,
 }));
 
@@ -72,8 +84,8 @@ describe("api/companies/[id]/interview/stream", () => {
     getRequestIdentityMock.mockReset();
     buildInterviewContextMock.mockReset();
     listInterviewTurnEventsMock.mockReset();
-    saveInterviewConversationProgressMock.mockReset();
-    saveInterviewTurnEventMock.mockReset();
+    saveInterviewConversationProgressTxMock.mockReset();
+    saveInterviewTurnEventTxMock.mockReset();
     normalizeInterviewPlanValueMock.mockReset();
     validateInterviewTurnStateMock.mockReset();
     createInterviewUpstreamStreamMock.mockReset();
@@ -81,10 +93,12 @@ describe("api/companies/[id]/interview/stream", () => {
     createInterviewPersistenceUnavailableResponseMock.mockReset();
     guardDailyTokenLimitMock.mockReset();
     reserveCreditsMock.mockReset();
-    confirmReservationMock.mockReset();
+    confirmReservationInTxMock.mockReset();
     cancelReservationMock.mockReset();
+    transactionMock.mockReset();
     reserveCreditsMock.mockResolvedValue({ success: true, reservationId: "res-turn-1" });
-    confirmReservationMock.mockResolvedValue({ confirmed: true });
+    confirmReservationInTxMock.mockResolvedValue({ confirmed: true, balanceAfter: 5 });
+    transactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
 
     getRequestIdentityMock.mockResolvedValue({ userId: "user-1", guestId: null });
     guardDailyTokenLimitMock.mockResolvedValue(null);
@@ -346,8 +360,10 @@ describe("api/companies/[id]/interview/stream", () => {
       turn_meta: { topic: "志望動機", turn_action: "deepen" },
     });
 
-    expect(saveInterviewTurnEventMock).toHaveBeenCalled();
-    expect(saveInterviewTurnEventMock.mock.calls[0]?.[0]).toMatchObject({
+    expect(saveInterviewTurnEventTxMock).toHaveBeenCalled();
+    // Tx variants take the transaction handle first, then the args object.
+    expect(saveInterviewTurnEventTxMock.mock.calls[0]?.[0]).toBe(fakeTx);
+    expect(saveInterviewTurnEventTxMock.mock.calls[0]?.[1]).toMatchObject({
       companyId: "company-1",
       answer: "A2",
     });
@@ -372,7 +388,8 @@ describe("api/companies/[id]/interview/stream", () => {
       turn_state: { turnCount: 2, currentTopic: "志望動機", nextAction: "ask" },
     });
 
-    expect(saveInterviewConversationProgressMock).toHaveBeenCalledWith(
+    expect(saveInterviewConversationProgressTxMock).toHaveBeenCalledWith(
+      fakeTx,
       expect.objectContaining({
         messages: [
           { role: "assistant", content: "自己紹介をお願いします。" },
@@ -388,7 +405,7 @@ describe("api/companies/[id]/interview/stream", () => {
     expect(completeData.messages.at(-1)).toEqual({ role: "assistant", content: "なぜ当社ですか。" });
   });
 
-  it("confirms reserved credits only after the streamed turn is persisted", async () => {
+  it("confirms reserved credits inside the persist transaction (after both saves)", async () => {
     const { POST } = await import("./route");
 
     await POST(
@@ -406,18 +423,20 @@ describe("api/companies/[id]/interview/stream", () => {
       turn_state: { turnCount: 2, currentTopic: "志望動機", nextAction: "ask" },
     });
 
-    expect(saveInterviewConversationProgressMock.mock.invocationCallOrder[0]).toBeLessThan(
-      confirmReservationMock.mock.invocationCallOrder[0],
+    // Persist + confirm run in one transaction; confirm follows both saves.
+    expect(transactionMock).toHaveBeenCalledOnce();
+    expect(saveInterviewConversationProgressTxMock.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmReservationInTxMock.mock.invocationCallOrder[0],
     );
-    expect(saveInterviewTurnEventMock.mock.invocationCallOrder[0]).toBeLessThan(
-      confirmReservationMock.mock.invocationCallOrder[0],
+    expect(saveInterviewTurnEventTxMock.mock.invocationCallOrder[0]).toBeLessThan(
+      confirmReservationInTxMock.mock.invocationCallOrder[0],
     );
-    expect(confirmReservationMock).toHaveBeenCalledWith("res-turn-1");
+    expect(confirmReservationInTxMock).toHaveBeenCalledWith(fakeTx, "res-turn-1");
   });
 
   it("cancels reserved credits when streamed turn persistence fails", async () => {
     const { POST } = await import("./route");
-    saveInterviewConversationProgressMock.mockRejectedValueOnce(new Error("db unavailable"));
+    saveInterviewConversationProgressTxMock.mockRejectedValueOnce(new Error("db unavailable"));
 
     await POST(
       new NextRequest("http://localhost/api/companies/company-1/interview/stream", {
@@ -430,7 +449,7 @@ describe("api/companies/[id]/interview/stream", () => {
 
     const [{ onComplete }] = createInterviewUpstreamStreamMock.mock.calls[0];
     await expect(onComplete({ question: "なぜ当社ですか。" })).rejects.toThrow("db unavailable");
-    expect(confirmReservationMock).not.toHaveBeenCalled();
+    expect(confirmReservationInTxMock).not.toHaveBeenCalled();
     expect(cancelReservationMock).toHaveBeenCalledWith("res-turn-1");
   });
 

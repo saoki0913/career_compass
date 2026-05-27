@@ -167,4 +167,41 @@ describe("interview stream utils", () => {
       }),
     );
   });
+
+  it("replaces complete with a cancel:true persistence error so the proxy refunds", async () => {
+    const clearTimeout = vi.fn();
+    fetchConfiguredUpstreamSSEMock.mockResolvedValue({
+      response: new Response("ok", { status: 200 }),
+      clearTimeout,
+    });
+    // Capture the SSE proxy options so we can drive the onComplete hook directly.
+    let capturedOptions: { onComplete: (event: Record<string, unknown>) => Promise<unknown> } | undefined;
+    createConfiguredSSEProxyResponseMock.mockImplementation((options: typeof capturedOptions) => {
+      capturedOptions = options;
+      return new Response("stream", { status: 200 });
+    });
+
+    await createInterviewUpstreamStream({
+      request: new NextRequest("http://localhost/api/interview"),
+      identity: { userId: "user-1", guestId: null },
+      companyId: "company-1",
+      upstreamPath: "/api/interview/start",
+      upstreamPayload: {},
+      onComplete: async () => {
+        // Simulate a persistence failure that normalizes to the unavailable code.
+        const err = new Error('relation "interview_conversations" does not exist');
+        throw err;
+      },
+    });
+
+    expect(capturedOptions).toBeDefined();
+    const result = (await capturedOptions!.onComplete({ type: "complete", data: {} })) as {
+      cancel?: boolean;
+      replaceEvent?: { type?: string };
+    };
+    // The error replacement must carry cancel:true (layer-2 defense) so onFinally
+    // runs with success=false and the route refunds the reservation.
+    expect(result.cancel).toBe(true);
+    expect(result.replaceEvent?.type).toBe("error");
+  });
 });
