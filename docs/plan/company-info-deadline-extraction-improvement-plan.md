@@ -104,7 +104,7 @@ Status は以下のみを使う。
 | Status | Severity | Task | Owner | Evidence | Acceptance Criteria | Updated At |
 |---|---:|---|---|---|---|---|
 | Todo | High | T-31: 課金状態の型安全化 | nextjs-developer | 5+4 変数がルーズに管理 | `ScheduleFetchBillingState` / `RagCrawlBillingAccumulator` 型を作成。 | 2026-05-05 |
-| Todo | Critical | T-32: ChromaDB HTTPServer 分離 → Qdrant 移行 | rag-engineer | PersistentClient がマルチワーカー非対応 | 3a: HTTPServer 分離（Docker）で即時安全化。3b: Qdrant Cloud で 10,000 ユーザー対応。 | 2026-05-05 |
+| Todo | High | T-32: ChromaDB HTTPServer 分離準備と共有サーバー運用化 | rag-engineer | PersistentClient がマルチワーカー非対応 | 既存 RAG API / collection 名 / `tenant_key + company_id` 絞り込み / private material metadata / URL・会社単位削除 / BM25 更新 / Redis cache 無効化を維持したまま、設定で PersistentClient と ChromaDB HTTP client を切替可能にする。Qdrant は実装対象外とし、長期検討条件だけ文書化する。 | 2026-05-26 |
 | Todo | High | T-33: fetch-corporate 非同期ジョブキュー化 | architect | Vercel タイムアウト衝突リスク | **[Codex反映]** RFC 先行: CorporateFetchJob 状態遷移、課金確定タイミング（crawl成功+DB永続化成功後のみ）、status polling の auth/owner。RFC 承認後に実装。 | 2026-05-05 |
 | Todo | Critical | T-34: 抽出精度評価基盤 | prompt-engineer | golden dataset なし、eval なし、prompt versioning なし | `backend/evals/schedule_extraction/` に golden dataset 20-30 件 + eval runner。`SCHEDULE_PROMPT_VERSION` 導入。 | 2026-05-05 |
 | Todo | Medium | T-35: コンテンツ分類 multi-match 解決 | rag-engineer | `content_classifier.py:98-103` で multi-match → None | priority ordering で解決。LLM fallback 50% 以上削減。 | 2026-05-05 |
@@ -133,7 +133,9 @@ Phase 0 ─→ Phase 1 ─→ Phase 2 ─→ Phase 3
 Phase 内の順序制約:
 - Phase 1: T-26/T-28 → T-27 → T-29/T-30 → T-06〜T-14（hotspot 分離後に品質改善）
 - Phase 2: T-15 は T-10/T-11 完了後（正規化ロジック変更がバッチ化に影響）
-- Phase 3: T-30(DI) → T-29(Strategy)、T-32(ChromaDB) → T-33(ジョブキュー)
+- Phase 3: T-30(DI) → T-29(Strategy)。T-32 は中期の ChromaDB HTTPServer 分離であり、T-33 の RFC 先行判断や公開前 gate の前提にはしない
+- T-32 は複数 worker / 複数 replica、RAG 主要導線化、staging での lock・破損・OOM、削除 receipt 不安定が出た時点で公開前必須へ昇格する
+- Qdrant は T-32 の実装対象外。検索遅延、RAG データ量、削除保証、運用費、移行 rehearsal が揃った段階で別 RFC として検討する
 
 ## 6. 分析サマリー
 
@@ -282,7 +284,7 @@ Phase 内の順序制約:
 1. **500行超ファイルの並行変更**: Phase 1 の構造改善（分割・共通化）を確実に先行させること。
 2. **回帰テスト**: vertical slice 単位（fetch-info 全体、fetch-corporate 全体）で billing → FastAPI → DB の連動を含めテストすること。
 3. **プロンプト変更の品質検証**: Phase 1 完了時に手動 5-10 ケース検証を実施。T-34（eval 基盤）は Phase 3 だが golden dataset 準備は早期着手が望ましい。
-4. **ChromaDB 移行**: Phase 3a（HTTPServer 分離）は低リスク。Phase 3b（Qdrant）はデータ移行を伴うため検証期間を確保。
+4. **ChromaDB HTTPServer 分離**: T-32 は中期タスクとして扱い、接続生成だけを差し替える。検索順位改善、プロンプト変更、Qdrant 準備を同時に混ぜない。Qdrant は長期検討であり、未完了の必須タスクには残さない。
 5. **非同期ジョブキュー化**: T-33 は最大のアーキテクチャ変更。RFC 承認後、段階的に移行（fetch-corporate のみ先行）。
 
 ## Appendix A: 計画書作成プロセス

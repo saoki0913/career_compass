@@ -2,13 +2,25 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { PLAN_TASKS_PATH, normalizeStatus, todayJst } from "./lib/plan-task-store.mjs";
+import { hasArg, PLAN_TASKS_PATH, normalizeStatus, todayJst, withPlanTaskMetadata } from "./lib/plan-task-store.mjs";
 import { legacyTaskBoardArchives } from "./data/legacy-task-board-archives.mjs";
 
 const project = process.cwd();
 const docsDir = path.join(project, "docs/plan");
 const outPath = path.join(project, PLAN_TASKS_PATH);
-const fresh = process.argv.includes("--fresh");
+const fresh = hasArg("--fresh");
+const check = hasArg("--check");
+const write = hasArg("--write");
+const allowDestructiveRefresh = hasArg("--allow-destructive-refresh");
+
+if (check && write) {
+  process.stderr.write("--check and --write cannot be used together\n");
+  process.exit(2);
+}
+if (fresh && write && !allowDestructiveRefresh) {
+  process.stderr.write("--fresh is destructive. Pass --allow-destructive-refresh with --write to overwrite JSON-only task state.\n");
+  process.exit(2);
+}
 
 const manualBacklog = [
   {
@@ -273,20 +285,43 @@ function mergeExisting(tasks) {
   if (!existsSync(outPath)) return tasks;
   const existing = JSON.parse(readFileSync(outPath, "utf8"));
   const byId = new Map(existing.tasks.map((task) => [task.id, task]));
-  return tasks.map((task) => {
+  const generatedIds = new Set(tasks.map((task) => task.id));
+  const manualStateFields = [
+    "status",
+    "priority",
+    "area",
+    "task",
+    "ownerAgent",
+    "acceptanceCriteria",
+    "verificationCommands",
+    "executionPhase",
+    "releaseBlocking",
+    "externalServiceRequirements",
+  ];
+  const merged = tasks.map((task) => {
     const current = byId.get(task.id);
     if (!current) return task;
     const preserveStatus = Boolean(current.lastUpdatedBy);
-    return {
+    const mergedTask = {
       ...task,
       status: preserveStatus ? current.status : task.status,
+      originalStatus: current.originalStatus ?? task.originalStatus,
       evidence: Array.from(new Set([...(task.evidence ?? []), ...(current.evidence ?? [])])),
+      dependencies: current.dependencies ?? task.dependencies,
       notes: current.notes ?? task.notes,
-      updatedAt: preserveStatus ? current.updatedAt : task.updatedAt,
+      updatedAt: current.updatedAt ?? task.updatedAt,
       lastUpdatedBy: current.lastUpdatedBy,
       supersededBy: current.supersededBy,
     };
+    if (preserveStatus) {
+      for (const field of manualStateFields) {
+        if (current[field] !== undefined) mergedTask[field] = current[field];
+      }
+    }
+    return mergedTask;
   });
+  const jsonOnlyTasks = existing.tasks.filter((task) => !generatedIds.has(task.id) && String(task.id ?? "").startsWith("plan-sync:"));
+  return [...merged, ...jsonOnlyTasks];
 }
 
 const markdownFiles = readdirSync(docsDir)
@@ -362,7 +397,10 @@ function uniquifyIds(tasks) {
   });
 }
 
-const tasks = mergeExisting(uniquifyIds([...sourceTasks, ...manualTasks, ...legacyTasks])).sort((a, b) => a.id.localeCompare(b.id));
+const existingData = existsSync(outPath) ? JSON.parse(readFileSync(outPath, "utf8")) : null;
+const tasks = mergeExisting(uniquifyIds([...sourceTasks, ...manualTasks, ...legacyTasks]))
+  .map(withPlanTaskMetadata)
+  .sort((a, b) => a.id.localeCompare(b.id));
 const duplicateIds = tasks.filter((task, index) => tasks.findIndex((candidate) => candidate.id === task.id) !== index);
 if (duplicateIds.length > 0) {
   process.stderr.write(`Duplicate task ids: ${duplicateIds.map((task) => task.id).join(", ")}\n`);
@@ -371,8 +409,8 @@ if (duplicateIds.length > 0) {
 
 const data = {
   schemaVersion: 1,
-  generatedAt: new Date().toISOString(),
-  lastUpdated: todayJst(),
+  generatedAt: existingData?.generatedAt ?? new Date().toISOString(),
+  lastUpdated: existingData?.lastUpdated ?? todayJst(),
   description: "Unified SSOT for docs/plan task state. Markdown plan files are narrative; this JSON is the task state source of truth.",
   statusValues: ["Todo", "Doing", "Blocked", "Review", "Done", "Superseded"],
   completionCriteria: [
@@ -384,5 +422,31 @@ const data = {
   tasks,
 };
 
-writeFileSync(outPath, `${JSON.stringify(data, null, 2)}\n`);
-process.stdout.write(`Wrote ${tasks.length} tasks to ${PLAN_TASKS_PATH}\n`);
+function comparablePlanTasks(value) {
+  return {
+    ...value,
+    generatedAt: "<ignored>",
+    lastUpdated: "<ignored>",
+  };
+}
+
+function serialized(value) {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+if (check) {
+  if (!existingData) {
+    process.stderr.write(`Missing ${PLAN_TASKS_PATH}; cannot run --check\n`);
+    process.exit(1);
+  }
+  if (serialized(comparablePlanTasks(existingData)) !== serialized(comparablePlanTasks(data))) {
+    process.stderr.write(`${PLAN_TASKS_PATH} is out of sync with docs/plan sources\n`);
+    process.exit(1);
+  }
+  process.stdout.write(`${PLAN_TASKS_PATH} is in sync (${tasks.length} tasks)\n`);
+} else if (write) {
+  writeFileSync(outPath, serialized({ ...data, generatedAt: new Date().toISOString(), lastUpdated: todayJst() }));
+  process.stdout.write(`Wrote ${tasks.length} tasks to ${PLAN_TASKS_PATH}\n`);
+} else {
+  process.stdout.write(`Generated ${tasks.length} tasks for ${PLAN_TASKS_PATH}; pass --write to update or --check to verify.\n`);
+}
