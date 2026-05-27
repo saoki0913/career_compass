@@ -33,5 +33,13 @@ export {
   updatePlanAllocationIfCurrent,
 } from "./monthly-reset";
 export { getCreditsInfo, getRemainingFreeFetches, hasEnoughCredits } from "./balance";
-export { cancelReservation, cleanupExpiredReservations, confirmReservation, consumeCredits, reserveCredits } from "./reservations";
+export {
+  cancelReservation,
+  cleanupExpiredReservations,
+  confirmReservation,
+  confirmReservationInTx,
+  consumeCredits,
+  reserveCredits,
+  type CreditsTransaction,
+} from "./reservations";
 export { calculateESReviewCost };

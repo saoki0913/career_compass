@@ -61,4 +61,9 @@ describe("credits month reset", () => {
     expect(typeof initializeCreditsTx).toBe("function");
     expect(typeof updatePlanAllocationCoreTx).toBe("function");
   });
+
+  it("exposes confirmReservationInTx so persistence and confirm can share one transaction", async () => {
+    const { confirmReservationInTx } = await import("@/lib/credits");
+    expect(typeof confirmReservationInTx).toBe("function");
+  });
 });

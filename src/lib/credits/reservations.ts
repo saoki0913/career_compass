@@ -12,6 +12,12 @@ import {
   type TransactionType,
 } from "./shared";
 
+/**
+ * Drizzle transaction handle. Lets `confirmReservationInTx` compose with a
+ * caller's `db.transaction(...)` so persistence and confirm share one commit.
+ */
+export type CreditsTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 type CreditReservationFailureCode =
   | CreditConsumptionBlockCode
   | "BILLING_GATE_UNAVAILABLE"
@@ -218,37 +224,46 @@ export async function reserveCredits(
   });
 }
 
+export async function confirmReservationInTx(
+  tx: CreditsTransaction,
+  reservationId: string,
+): Promise<{ confirmed: boolean; balanceAfter: number | null }> {
+  // Claim the reservation atomically: only a row still in `reserved` flips to
+  // `confirmed`. A re-run, a racing cron cleanup, or a double confirm updates 0
+  // rows and reports `confirmed: false`. `balanceAfter` is intentionally left at
+  // the reserve-time snapshot because confirm never mutates `credits.balance`
+  // (the deduction already happened in `reserveCredits`).
+  const [claimed] = await tx
+    .update(creditTransactions)
+    .set({
+      status: "confirmed",
+      description: sql`replace(coalesce(${creditTransactions.description}, '[Reserved]'), '[Reserved]', '[Confirmed]')`,
+    })
+    .where(and(
+      eq(creditTransactions.id, reservationId),
+      eq(creditTransactions.status, "reserved"),
+    ))
+    .returning({
+      id: creditTransactions.id,
+      balanceAfter: creditTransactions.balanceAfter,
+    });
+
+  return claimed
+    ? { confirmed: true, balanceAfter: claimed.balanceAfter }
+    : { confirmed: false, balanceAfter: null };
+}
+
+/**
+ * Standalone confirm for callers without a surrounding persistence transaction.
+ * Prefer `confirmReservationInTx` inside the same `db.transaction` that persists
+ * the produced artifact so "saved" and "charged" share one commit boundary.
+ */
 export async function confirmReservation(
   reservationId: string,
 ): Promise<{ confirmed: boolean }> {
   return db.transaction(async (tx) => {
-    const [reservation] = await tx
-      .select()
-      .from(creditTransactions)
-      .where(eq(creditTransactions.id, reservationId))
-      .limit(1);
-    if (!reservation) return { confirmed: false };
-
-    const [userCredits] = await tx
-      .select()
-      .from(credits)
-      .where(eq(credits.userId, reservation.userId))
-      .limit(1);
-
-    const updated = await tx
-      .update(creditTransactions)
-      .set({
-        description: reservation.description?.replace("[Reserved]", "[Confirmed]") || "[Confirmed]",
-        status: "confirmed",
-        balanceAfter: userCredits?.balance ?? reservation.balanceAfter,
-      })
-      .where(and(
-        eq(creditTransactions.id, reservationId),
-        eq(creditTransactions.status, "reserved"),
-      ))
-      .returning({ id: creditTransactions.id });
-
-    return { confirmed: updated.length > 0 };
+    const { confirmed } = await confirmReservationInTx(tx, reservationId);
+    return { confirmed };
   });
 }
 

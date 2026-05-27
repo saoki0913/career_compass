@@ -1,26 +1,22 @@
 /**
  * Tests for credit reservations.
  *
- * Focus: `confirmReservation` must read the current credits balance and
- * update `balanceAfter` inside a single transaction scope so the recorded
- * balance is internally consistent even if the `credits.balance` row is
- * mutated by a concurrent request between the read and the update.
+ * Focus: `confirmReservationInTx` claims the reservation with a single
+ * `UPDATE ... WHERE status='reserved' RETURNING` so confirm is idempotent and
+ * composes inside a caller-provided transaction. `balanceAfter` is left at the
+ * reserve-time snapshot because confirm never mutates `credits.balance`.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   dbTransactionMock,
-  txSelectLimitMock,
-  txUpdateWhereMock,
   dbSelectFromMock,
   dbInsertValuesMock,
   dbUpdateReturningMock,
   dbSubscriptionsSelectLimitMock,
 } = vi.hoisted(() => ({
   dbTransactionMock: vi.fn(),
-  txSelectLimitMock: vi.fn(),
-  txUpdateWhereMock: vi.fn(),
   dbSelectFromMock: vi.fn(),
   dbInsertValuesMock: vi.fn(),
   dbUpdateReturningMock: vi.fn(),
@@ -55,206 +51,98 @@ vi.mock("@/lib/db", () => ({
   },
 }));
 
-describe("confirmReservation", () => {
+describe("confirmReservationInTx", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-
-    dbTransactionMock.mockImplementation(
-      async (fn: (tx: unknown) => Promise<unknown>) => {
-        const tx = {
-          select: vi.fn(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: txSelectLimitMock,
-              })),
-            })),
-          })),
-          update: vi.fn(() => ({
-            set: vi.fn(() => ({
-              where: vi.fn(() => ({
-                returning: txUpdateWhereMock,
-              })),
-            })),
-          })),
-        };
-        return fn(tx);
-      }
-    );
-
-    txUpdateWhereMock.mockResolvedValue([{ id: "res-1" }]);
   });
 
-  it("runs select+update atomically within db.transaction and returns confirmed: true", async () => {
-    txSelectLimitMock
-      .mockResolvedValueOnce([
-        {
-          id: "res-1",
-          userId: "user-1",
-          amount: -30,
-          description: "[Reserved] ES review",
-          balanceAfter: 70,
-        },
-      ])
-      .mockResolvedValueOnce([{ userId: "user-1", balance: 70 }]);
+  it("claims the reserved row via a single UPDATE...RETURNING and returns confirmed: true", async () => {
+    const returningMock = vi.fn(async () => [{ id: "res-1", balanceAfter: 70 }]);
+    const tx = {
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: vi.fn(() => ({ returning: returningMock })) })),
+      })),
+    };
+
+    const { confirmReservationInTx } = await import("@/lib/credits/reservations");
+    const result = await confirmReservationInTx(tx as never, "res-1");
+
+    expect(result).toEqual({ confirmed: true, balanceAfter: 70 });
+    expect(tx.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns confirmed: false when the row is no longer in reserved state (0 rows)", async () => {
+    const returningMock = vi.fn(async () => []);
+    const tx = {
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({ where: vi.fn(() => ({ returning: returningMock })) })),
+      })),
+    };
+
+    const { confirmReservationInTx } = await import("@/lib/credits/reservations");
+    const result = await confirmReservationInTx(tx as never, "res-1");
+
+    expect(result).toEqual({ confirmed: false, balanceAfter: null });
+  });
+
+  it("does not mutate balanceAfter (keeps the reserve-time snapshot)", async () => {
+    let capturedSet: Record<string, unknown> | null = null;
+    const tx = {
+      update: vi.fn(() => ({
+        set: vi.fn((values: Record<string, unknown>) => {
+          capturedSet = values;
+          return {
+            where: vi.fn(() => ({
+              returning: vi.fn(async () => [{ id: "res-1", balanceAfter: 70 }]),
+            })),
+          };
+        }),
+      })),
+    };
+
+    const { confirmReservationInTx } = await import("@/lib/credits/reservations");
+    await confirmReservationInTx(tx as never, "res-1");
+
+    expect(capturedSet).not.toBeNull();
+    expect(capturedSet).toMatchObject({ status: "confirmed" });
+    // confirm must still rewrite the audit label ([Reserved] -> [Confirmed]);
+    // guards against accidentally dropping the description update.
+    expect(capturedSet).toHaveProperty("description");
+    expect(capturedSet).not.toHaveProperty("balanceAfter");
+  });
+});
+
+describe("confirmReservation (wrapper)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  function mockTransactionReturning(rows: unknown[]) {
+    dbTransactionMock.mockImplementationOnce(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        update: vi.fn(() => ({
+          set: vi.fn(() => ({ where: vi.fn(() => ({ returning: vi.fn(async () => rows) })) })),
+        })),
+      };
+      return fn(tx);
+    });
+  }
+
+  it("delegates to confirmReservationInTx inside db.transaction and returns { confirmed: true }", async () => {
+    mockTransactionReturning([{ id: "res-1", balanceAfter: 70 }]);
 
     const { confirmReservation } = await import("@/lib/credits/reservations");
     const result = await confirmReservation("res-1");
 
     expect(result).toEqual({ confirmed: true });
     expect(dbTransactionMock).toHaveBeenCalledTimes(1);
-    expect(txSelectLimitMock).toHaveBeenCalledTimes(2);
-    expect(txUpdateWhereMock).toHaveBeenCalledTimes(1);
   });
 
-  it("records balanceAfter from the credits snapshot read within the same transaction", async () => {
-    txSelectLimitMock
-      .mockResolvedValueOnce([
-        {
-          id: "res-1",
-          userId: "user-1",
-          amount: -30,
-          description: "[Reserved] ES review",
-          balanceAfter: 70,
-        },
-      ])
-      .mockResolvedValueOnce([{ userId: "user-1", balance: 70 }]);
-
-    let capturedSet: Record<string, unknown> | null = null;
-    dbTransactionMock.mockImplementationOnce(
-      async (fn: (tx: unknown) => Promise<unknown>) => {
-        const tx = {
-          select: vi.fn(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: txSelectLimitMock,
-              })),
-            })),
-          })),
-          update: vi.fn(() => ({
-            set: vi.fn((values: Record<string, unknown>) => {
-              capturedSet = values;
-              return {
-                where: vi.fn(() => ({
-                  returning: txUpdateWhereMock,
-                })),
-              };
-            }),
-          })),
-        };
-        return fn(tx);
-      }
-    );
-
-    const { confirmReservation } = await import("@/lib/credits/reservations");
-    await confirmReservation("res-1");
-
-    expect(capturedSet).not.toBeNull();
-    expect(capturedSet).toMatchObject({
-      description: "[Confirmed] ES review",
-      balanceAfter: 70,
-    });
-  });
-
-  it("falls back to the reservation snapshot balanceAfter when credits row is missing", async () => {
-    txSelectLimitMock
-      .mockResolvedValueOnce([
-        {
-          id: "res-1",
-          userId: "user-1",
-          amount: -30,
-          description: "[Reserved]",
-          balanceAfter: 42,
-        },
-      ])
-      .mockResolvedValueOnce([]);
-
-    let capturedSet: Record<string, unknown> | null = null;
-    dbTransactionMock.mockImplementationOnce(
-      async (fn: (tx: unknown) => Promise<unknown>) => {
-        const tx = {
-          select: vi.fn(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: txSelectLimitMock,
-              })),
-            })),
-          })),
-          update: vi.fn(() => ({
-            set: vi.fn((values: Record<string, unknown>) => {
-              capturedSet = values;
-              return {
-                where: vi.fn(() => ({
-                  returning: txUpdateWhereMock,
-                })),
-              };
-            }),
-          })),
-        };
-        return fn(tx);
-      }
-    );
-
-    const { confirmReservation } = await import("@/lib/credits/reservations");
-    await confirmReservation("res-1");
-
-    expect(capturedSet).toMatchObject({
-      description: "[Confirmed]",
-      balanceAfter: 42,
-    });
-  });
-
-  it("returns confirmed: false when reservation row is not found", async () => {
-    txSelectLimitMock.mockResolvedValueOnce([]);
+  it("returns { confirmed: false } when the claim affects 0 rows", async () => {
+    mockTransactionReturning([]);
 
     const { confirmReservation } = await import("@/lib/credits/reservations");
     const result = await confirmReservation("missing");
-
-    expect(result).toEqual({ confirmed: false });
-    expect(txUpdateWhereMock).not.toHaveBeenCalled();
-  });
-
-  it("returns confirmed: false when reservation was already processed", async () => {
-    txSelectLimitMock
-      .mockResolvedValueOnce([
-        {
-          id: "res-1",
-          userId: "user-1",
-          amount: -30,
-          description: "[Confirmed] ES review",
-          balanceAfter: 70,
-          status: "confirmed",
-        },
-      ])
-      .mockResolvedValueOnce([{ userId: "user-1", balance: 70 }]);
-
-    txUpdateWhereMock.mockImplementationOnce(async () => ({
-      returning: vi.fn(async () => []),
-    }));
-
-    dbTransactionMock.mockImplementationOnce(
-      async (fn: (tx: unknown) => Promise<unknown>) => {
-        const tx = {
-          select: vi.fn(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: txSelectLimitMock,
-              })),
-            })),
-          })),
-          update: vi.fn(() => ({
-            set: vi.fn(() => ({
-              where: vi.fn(() => ({
-                returning: vi.fn(async () => []),
-              })),
-            })),
-          })),
-        };
-        return fn(tx);
-      }
-    );
-
-    const { confirmReservation } = await import("@/lib/credits/reservations");
-    const result = await confirmReservation("res-1");
 
     expect(result).toEqual({ confirmed: false });
   });
