@@ -4,14 +4,13 @@
  * Semantics (preserved exactly from the previous inline implementation):
  * - Guests cannot use ES review — precheck rejects with 401.
  * - Logged-in users: credits are reserved up-front (subtracted from balance)
- *   via `reserveCredits`, confirmed via `confirmReservation` on successful
- *   completion, or refunded via `cancelReservation` on failure/cancel.
+ *   via `reserveCredits`, confirmed via `confirmInTx` on successful completion,
+ *   or refunded via `cancelReservation` on failure/cancel.
  * - Credit cost is computed by the route before invoking `reserve`.
  */
 
 import {
   reserveCredits,
-  confirmReservation,
   confirmReservationInTx,
   cancelReservation,
   type CreditsTransaction,
@@ -129,25 +128,6 @@ export const esReviewStreamPolicy: BillingPolicy<EsReviewStreamBillingContext> =
       };
     }
     return { reservationId: reservation.reservationId };
-  },
-
-  async confirm(
-    _ctx: EsReviewStreamBillingContext,
-    outcome: BillingOutcome,
-    reservationId: string | null,
-  ): Promise<void> {
-    if (outcome.kind !== "billable_success") {
-      return;
-    }
-    if (!reservationId) {
-      return;
-    }
-    const result = await confirmReservation(reservationId);
-    if (!result.confirmed) {
-      logError("es-review-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
-        reservationId,
-      });
-    }
   },
 
   async confirmInTx(

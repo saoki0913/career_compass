@@ -18,6 +18,12 @@ import {
  */
 export type CreditsTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+/**
+ * Lifecycle status of a credit transaction row, derived from the schema enum so
+ * it stays in sync with `credit_transactions.status`.
+ */
+export type CreditTransactionStatus = (typeof creditTransactions.$inferSelect)["status"];
+
 type CreditReservationFailureCode =
   | CreditConsumptionBlockCode
   | "BILLING_GATE_UNAVAILABLE"
@@ -251,6 +257,25 @@ export async function confirmReservationInTx(
   return claimed
     ? { confirmed: true, balanceAfter: claimed.balanceAfter }
     : { confirmed: false, balanceAfter: null };
+}
+
+/**
+ * Read the current lifecycle status of a credit transaction row inside the
+ * caller's transaction. Used to distinguish "already confirmed (idempotent
+ * re-run)" from "claim genuinely lost" after `confirmReservationInTx` reports
+ * `confirmed: false`, without mutating any rows. Returns `null` when no row
+ * exists for the id.
+ */
+export async function getReservationStatusInTx(
+  tx: CreditsTransaction,
+  reservationId: string,
+): Promise<CreditTransactionStatus | null> {
+  const [row] = await tx
+    .select({ status: creditTransactions.status })
+    .from(creditTransactions)
+    .where(eq(creditTransactions.id, reservationId))
+    .limit(1);
+  return row?.status ?? null;
 }
 
 /**

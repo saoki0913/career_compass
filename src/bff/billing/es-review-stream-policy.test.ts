@@ -122,46 +122,6 @@ describe("esReviewStreamPolicy", () => {
     });
   });
 
-  it("confirms reservations only for billable success", async () => {
-    const credits = await import("@/lib/credits");
-    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: true });
-    const { esReviewStreamPolicy } = await import("./es-review-stream-policy");
-    const ctx = { userId: "user-1", guestId: null, documentId: "doc-1", creditCost: 2 };
-
-    await esReviewStreamPolicy.confirm(
-      ctx,
-      { kind: "non_billable_success", reason: "no_changes" },
-      "reservation-1",
-    );
-    await esReviewStreamPolicy.confirm(
-      ctx,
-      { kind: "billable_success", creditsConsumed: 2, freeQuotaUsed: false },
-      "reservation-1",
-    );
-
-    expect(credits.confirmReservation).toHaveBeenCalledTimes(1);
-    expect(credits.confirmReservation).toHaveBeenCalledWith("reservation-1");
-  });
-
-  it("logs when reservation confirmation is not applied after billable success", async () => {
-    const credits = await import("@/lib/credits");
-    const logger = await import("@/lib/logger");
-    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: false });
-    const { esReviewStreamPolicy } = await import("./es-review-stream-policy");
-
-    await esReviewStreamPolicy.confirm(
-      { userId: "user-1", guestId: null, documentId: "doc-1", creditCost: 2 },
-      { kind: "billable_success", creditsConsumed: 2, freeQuotaUsed: false },
-      "reservation-1",
-    );
-
-    expect(logger.logError).toHaveBeenCalledWith(
-      "es-review-reservation-confirm-after-success-failed",
-      expect.any(Error),
-      expect.objectContaining({ reservationId: "reservation-1" }),
-    );
-  });
-
   it("confirmInTx claims the reservation on the passed tx only for billable success", async () => {
     const credits = await import("@/lib/credits");
     vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: true, balanceAfter: 6 });

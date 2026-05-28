@@ -552,15 +552,24 @@ export async function POST(
       });
     }
 
-    // Billing confirm: consume free quota or 1 credit (success only)
-    await companyFetchPolicy.confirm(
-      billingCtx,
-      {
-        kind: "billable_success",
-        creditsConsumed: useMonthlyScheduleFree ? 0 : 1,
-        freeQuotaUsed: useMonthlyScheduleFree,
-      },
-      billingReservationId,
+    // Billing confirm: consume free quota or 1 credit (success only).
+    // Wrapped in a standalone db.transaction (same shape as the ES review and
+    // interview confirm sites) so the standalone confirm path is fully retired.
+    // company-fetch is NOT atomic with deadline persistence: deadlines are saved
+    // under an approval flag above (multi-step, non-transactional) and free quota
+    // lives in a separate table, so confirmInTx here only claims the paid credit
+    // reservation and never throws (see company-fetch-policy decision table).
+    await db.transaction((tx) =>
+      companyFetchPolicy.confirmInTx(
+        tx,
+        billingCtx,
+        {
+          kind: "billable_success",
+          creditsConsumed: useMonthlyScheduleFree ? 0 : 1,
+          freeQuotaUsed: useMonthlyScheduleFree,
+        },
+        billingReservationId,
+      ),
     );
     billingReservationId = null;
     cancelOutstandingBilling = null;

@@ -8,13 +8,28 @@
  *   failures, preserving the "consume on success only" rule without TOCTOU overuse.
  * - precheck() does NOT set errorResponse — the route retains createApiErrorResponse() so the
  *   402 error shape (with code/userMessage/action/requestId) is preserved for the client.
+ *
+ * confirmInTx decision table (company-fetch is intentionally NOT atomic with persistence —
+ * deadlines are saved under an approval flag and free quota lives in a separate table, so the
+ * confirm is never bundled into the deadline-persistence rollback boundary):
+ *
+ *   reservationId        | confirmInTx result                  | action
+ *   ---------------------|-------------------------------------|-------------------------------------
+ *   free-quota sentinel  | (not called)                        | no-op — usage was incremented at reserve time
+ *   UUID (paid)          | confirmed: true                     | normal — reservation claimed in the passed tx
+ *   UUID (paid)          | confirmed: false, status confirmed  | idempotent re-run — already charged; do nothing
+ *   UUID (paid)          | confirmed: false, status other      | logError (severity high) for ops visibility;
+ *                        |                                     | NO consumeCredits compensation (double-charge
+ *                        |                                     | footgun), NO throw (deadlines already persisted
+ *                        |                                     | and unrecoverable). Near-impossible: company-fetch
+ *                        |                                     | completes in seconds while the cron TTL is 30 min.
  */
 
 import {
   cancelReservation,
-  confirmReservation,
   confirmReservationInTx,
   getRemainingFreeFetches,
+  getReservationStatusInTx,
   hasEnoughCredits,
   reserveCredits,
   type CreditsTransaction,
@@ -78,31 +93,6 @@ export const companyFetchPolicy: BillingPolicy<CompanyFetchBillingContext> = {
     return { reservationId: reservation.reservationId };
   },
 
-  async confirm(
-    ctx: CompanyFetchBillingContext,
-    outcome: BillingOutcome,
-    reservationId: string | null,
-  ): Promise<void> {
-    if (outcome.kind !== "billable_success") {
-      return;
-    }
-
-    if (!reservationId) {
-      throw new Error("Missing company fetch billing reservation");
-    }
-
-    if (reservationId !== FREE_SCHEDULE_RESERVATION_ID) {
-      const result = await confirmReservation(reservationId);
-      if (!result.confirmed) {
-        logError("company-fetch-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
-          reservationId,
-          userId: ctx.userId,
-          companyId: ctx.companyId,
-        });
-      }
-    }
-  },
-
   async confirmInTx(
     tx: CreditsTransaction,
     ctx: CompanyFetchBillingContext,
@@ -119,22 +109,48 @@ export const companyFetchPolicy: BillingPolicy<CompanyFetchBillingContext> = {
 
     // Free-quota usage lives in a separate table and is confirmed by leaving the
     // reserved increment in place (no-op here). Only paid credit reservations
-    // claim inside the persistence tx.
-    if (reservationId !== FREE_SCHEDULE_RESERVATION_ID) {
-      const result = await confirmReservationInTx(tx, reservationId);
-      if (!result.confirmed) {
-        logError("company-fetch-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
-          reservationId,
-          userId: ctx.userId,
-          companyId: ctx.companyId,
-        });
-      }
+    // claim inside the passed tx.
+    if (reservationId === FREE_SCHEDULE_RESERVATION_ID) {
+      return;
     }
+
+    const result = await confirmReservationInTx(tx, reservationId);
+    if (result.confirmed) {
+      return;
+    }
+
+    // Claim failed: the row already left `reserved`. Inspect the current status
+    // (read-only, same tx) to tell an idempotent re-run apart from a genuinely
+    // lost claim. Unlike the stream/inline policies, company-fetch never throws
+    // here — the deadlines are already persisted and cannot be rolled back, so
+    // throwing would turn a successful fetch into a failure response.
+    const currentStatus = await getReservationStatusInTx(tx, reservationId);
+    if (currentStatus === "confirmed") {
+      // Already charged by a prior run. Idempotent: do not log or re-charge.
+      return;
+    }
+
+    // Near-impossible for company-fetch (seconds-long request vs 30-min cron
+    // TTL). Surface for ops visibility, but never auto-compensate via
+    // consumeCredits — re-charging on an unverifiable claim is a double-charge
+    // footgun, and the business rule charges on success only.
+    logError(
+      "company-fetch:confirm-could-not-claim-reserved",
+      new Error("Credit reservation could not be claimed after billable success"),
+      {
+        reservationId,
+        userId: ctx.userId,
+        companyId: ctx.companyId,
+        currentStatus,
+        severity: "high",
+      },
+    );
   },
 
   async cancel(
     ctx: CompanyFetchBillingContext,
     reservationId: string | null,
+    reason: string,
   ): Promise<void> {
     if (!reservationId) {
       return;
@@ -143,6 +159,30 @@ export const companyFetchPolicy: BillingPolicy<CompanyFetchBillingContext> = {
       await cancelMonthlyScheduleFreeUse(ctx.userId);
       return;
     }
-    await cancelReservation(reservationId);
+    // Surface a cancel that could not claim the reservation (already
+    // confirmed/canceled/swept) or that threw, instead of silently dropping the
+    // refund. A failed claim means no refund was applied for this id.
+    try {
+      const result = await cancelReservation(reservationId);
+      if (!result.canceled) {
+        logError(
+          "company-fetch-reservation-cancel-not-applied",
+          new Error("Credit reservation cancel did not claim a reserved row"),
+          {
+            reservationId,
+            userId: ctx.userId,
+            companyId: ctx.companyId,
+            reason,
+          },
+        );
+      }
+    } catch (error: unknown) {
+      logError("company-fetch-reservation-cancel", error, {
+        reservationId,
+        userId: ctx.userId,
+        companyId: ctx.companyId,
+        reason,
+      });
+    }
   },
 };

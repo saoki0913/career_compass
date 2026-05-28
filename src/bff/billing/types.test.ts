@@ -26,9 +26,6 @@ describe("BillingPolicy contract", () => {
       async reserve(): Promise<BillingReserveResult> {
         return { reservationId: "res-1" };
       },
-      async confirm(): Promise<void> {
-        calls.push("confirm");
-      },
       async confirmInTx(
         _tx: CreditsTransaction,
         _ctx: { id: string },

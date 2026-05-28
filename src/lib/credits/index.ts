@@ -39,7 +39,9 @@ export {
   confirmReservation,
   confirmReservationInTx,
   consumeCredits,
+  getReservationStatusInTx,
   reserveCredits,
   type CreditsTransaction,
+  type CreditTransactionStatus,
 } from "./reservations";
 export { calculateESReviewCost };

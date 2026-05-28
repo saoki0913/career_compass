@@ -148,6 +148,39 @@ describe("confirmReservation (wrapper)", () => {
   });
 });
 
+describe("getReservationStatusInTx", () => {
+  function makeStatusTx(rows: Array<{ status: string }>) {
+    const limitMock = vi.fn(async () => rows);
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(() => ({ limit: limitMock })) })),
+      })),
+    };
+    return { tx, limitMock };
+  }
+
+  it("returns the row status when the reservation exists (read-only, no mutation)", async () => {
+    const { tx } = makeStatusTx([{ status: "confirmed" }]);
+
+    const { getReservationStatusInTx } = await import("@/lib/credits/reservations");
+    const result = await getReservationStatusInTx(tx as never, "res-1");
+
+    expect(result).toBe("confirmed");
+    expect(tx.select).toHaveBeenCalledTimes(1);
+    // read-only: the helper must never expose an update path
+    expect((tx as { update?: unknown }).update).toBeUndefined();
+  });
+
+  it("returns null when no reservation row exists for the id", async () => {
+    const { tx } = makeStatusTx([]);
+
+    const { getReservationStatusInTx } = await import("@/lib/credits/reservations");
+    const result = await getReservationStatusInTx(tx as never, "missing");
+
+    expect(result).toBeNull();
+  });
+});
+
 describe("consumeCredits", () => {
   beforeEach(() => {
     vi.resetAllMocks();

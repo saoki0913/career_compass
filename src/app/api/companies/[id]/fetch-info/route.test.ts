@@ -11,10 +11,11 @@ const {
   fetchFastApiInternalMock,
   companyFetchPrecheckMock,
   companyFetchReserveMock,
-  companyFetchConfirmMock,
+  companyFetchConfirmInTxMock,
   companyFetchCancelMock,
   saveExtractedDeadlinesMock,
   dbUpdateMock,
+  dbTransactionMock,
 } = vi.hoisted(() => ({
   getSessionMock: vi.fn(),
   dbSelectMock: vi.fn(),
@@ -25,11 +26,14 @@ const {
   fetchFastApiInternalMock: vi.fn(),
   companyFetchPrecheckMock: vi.fn(),
   companyFetchReserveMock: vi.fn(),
-  companyFetchConfirmMock: vi.fn(),
+  companyFetchConfirmInTxMock: vi.fn(),
   companyFetchCancelMock: vi.fn(),
   saveExtractedDeadlinesMock: vi.fn(),
   dbUpdateMock: vi.fn(),
+  dbTransactionMock: vi.fn(),
 }));
+
+const fakeTx = { __tx: "fetch-info" } as never;
 
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers()),
@@ -48,6 +52,7 @@ vi.mock("@/lib/db", () => ({
     select: dbSelectMock,
     update: dbUpdateMock,
     insert: vi.fn(),
+    transaction: dbTransactionMock,
   },
 }));
 
@@ -95,7 +100,7 @@ vi.mock("@/bff/billing/company-fetch-policy", () => ({
   companyFetchPolicy: {
     precheck: companyFetchPrecheckMock,
     reserve: companyFetchReserveMock,
-    confirm: companyFetchConfirmMock,
+    confirmInTx: companyFetchConfirmInTxMock,
     cancel: companyFetchCancelMock,
   },
 }));
@@ -142,10 +147,11 @@ describe("api/companies/[id]/fetch-info", () => {
     fetchFastApiInternalMock.mockReset();
     companyFetchPrecheckMock.mockReset();
     companyFetchReserveMock.mockReset();
-    companyFetchConfirmMock.mockReset();
+    companyFetchConfirmInTxMock.mockReset();
     companyFetchCancelMock.mockReset();
     saveExtractedDeadlinesMock.mockReset();
     dbUpdateMock.mockReset();
+    dbTransactionMock.mockReset();
     vi.restoreAllMocks();
 
     getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
@@ -160,6 +166,8 @@ describe("api/companies/[id]/fetch-info", () => {
       freeQuotaAvailable: false,
     });
     companyFetchReserveMock.mockResolvedValue({ reservationId: "reservation-1" });
+    companyFetchConfirmInTxMock.mockResolvedValue(undefined);
+    dbTransactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(fakeTx));
     dbUpdateMock.mockReturnValue({
       set: vi.fn(() => ({
         where: vi.fn().mockResolvedValue(undefined),
@@ -323,12 +331,62 @@ describe("api/companies/[id]/fetch-info", () => {
     expect(data.creditsConsumed).toBe(0);
     expect(data.actualCreditsDeducted).toBe(0);
     expect(data.freeUsed).toBe(false);
-    expect(companyFetchConfirmMock).not.toHaveBeenCalled();
+    expect(companyFetchConfirmInTxMock).not.toHaveBeenCalled();
     expect(companyFetchCancelMock).toHaveBeenCalledWith(
       expect.objectContaining({ userId: "user-1" }),
       "reservation-1",
       "duplicates_only",
     );
+  });
+
+  it("confirms the paid reservation via confirmInTx inside a db.transaction on success", async () => {
+    fetchFastApiInternalMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      success: true,
+      source_url: "https://example.com/recruit",
+      extracted_at: "2026-05-04T00:00:00.000Z",
+      data: {
+        deadlines: [
+          {
+            title: "ES提出",
+            dueDate: "2026-06-01",
+            type: "es_submission",
+            sourceUrl: "https://example.com/recruit",
+            confidence: "high",
+          },
+        ],
+        required_documents: [],
+        application_method: null,
+        selection_process: null,
+      },
+    }), { status: 200 }));
+    saveExtractedDeadlinesMock.mockResolvedValueOnce({
+      savedDeadlines: ["deadline-1"],
+      skippedDuplicates: [],
+      savedDeadlineSummaries: [{ id: "deadline-1", title: "ES提出" }],
+    });
+
+    const { POST } = await import("@/app/api/companies/[id]/fetch-info/route");
+    const request = new NextRequest("http://localhost:3000/api/companies/company-1/fetch-info", {
+      method: "POST",
+      body: JSON.stringify({ url: "https://example.com/recruit" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await POST(request, { params: Promise.resolve({ id: "company-1" }) });
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.creditsConsumed).toBe(1);
+    // confirm runs inside the route's own db.transaction (standalone confirm retired).
+    expect(dbTransactionMock).toHaveBeenCalled();
+    expect(companyFetchConfirmInTxMock).toHaveBeenCalledWith(
+      fakeTx,
+      expect.objectContaining({ userId: "user-1" }),
+      expect.objectContaining({ kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false }),
+      "reservation-1",
+    );
+    expect(companyFetchCancelMock).not.toHaveBeenCalled();
   });
 
   it("does not expose FastAPI raw error text in browser-facing responses", async () => {

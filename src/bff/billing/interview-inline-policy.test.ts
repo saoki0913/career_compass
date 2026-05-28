@@ -76,63 +76,6 @@ describe("interviewInlinePolicy", () => {
     expect(credits.cancelReservation).not.toHaveBeenCalled();
   });
 
-  it("confirms reservations only for billable success", async () => {
-    const credits = await import("@/lib/credits");
-    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: true });
-    const { interviewInlinePolicy } = await import("./interview-inline-policy");
-    const ctx = {
-      userId: "user-1",
-      companyId: "company-1",
-      companyName: "テスト株式会社",
-      transactionType: "interview" as const,
-      descriptionPrefix: "面接対策回答",
-    };
-
-    await interviewInlinePolicy.confirm(
-      ctx,
-      { kind: "failure", reason: "upstream_error" },
-      "reservation-1",
-    );
-    await interviewInlinePolicy.confirm(
-      ctx,
-      { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
-      null,
-    );
-    await interviewInlinePolicy.confirm(
-      ctx,
-      { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
-      "reservation-1",
-    );
-
-    expect(credits.confirmReservation).toHaveBeenCalledTimes(1);
-    expect(credits.confirmReservation).toHaveBeenCalledWith("reservation-1");
-  });
-
-  it("logs when reservation confirmation is not applied after billable success", async () => {
-    const credits = await import("@/lib/credits");
-    const logger = await import("@/lib/logger");
-    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: false });
-    const { interviewInlinePolicy } = await import("./interview-inline-policy");
-
-    await interviewInlinePolicy.confirm(
-      {
-        userId: "user-1",
-        companyId: "company-1",
-        companyName: "テスト株式会社",
-        transactionType: "interview",
-        descriptionPrefix: "面接対策回答",
-      },
-      { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
-      "reservation-1",
-    );
-
-    expect(logger.logError).toHaveBeenCalledWith(
-      "interview-reservation-confirm-after-success-failed",
-      expect.any(Error),
-      expect.objectContaining({ reservationId: "reservation-1", userId: "user-1" }),
-    );
-  });
-
   it("confirmInTx claims the reservation on the passed tx only for billable success with a reservation", async () => {
     const credits = await import("@/lib/credits");
     vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: true, balanceAfter: 5 });

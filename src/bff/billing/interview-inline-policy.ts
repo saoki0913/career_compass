@@ -11,7 +11,6 @@
 
 import {
   cancelReservation,
-  confirmReservation,
   confirmReservationInTx,
   reserveCredits,
   type CreditsTransaction,
@@ -55,24 +54,6 @@ export const interviewInlinePolicy: BillingPolicy<InterviewInlineBillingContext>
     }
 
     return { reservationId: reservation.reservationId };
-  },
-
-  async confirm(
-    _ctx: InterviewInlineBillingContext,
-    outcome: BillingOutcome,
-    reservationId: string | null,
-  ): Promise<void> {
-    if (outcome.kind !== "billable_success" || !reservationId) {
-      return;
-    }
-    const result = await confirmReservation(reservationId);
-    if (!result.confirmed) {
-      logError("interview-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
-        reservationId,
-        userId: _ctx.userId,
-        companyId: _ctx.companyId,
-      });
-    }
   },
 
   async confirmInTx(

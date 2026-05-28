@@ -1,7 +1,6 @@
 import {
   CONVERSATION_CREDITS_PER_TURN,
   cancelReservation,
-  confirmReservation,
   confirmReservationInTx,
   reserveCredits,
   type CreditsTransaction,
@@ -51,24 +50,6 @@ export const gakuchikaStreamPolicy: BillingPolicy<GakuchikaStreamBillingContext>
       };
     }
     return { reservationId: reservation.reservationId };
-  },
-
-  async confirm(ctx, outcome: BillingOutcome, reservationId: string | null): Promise<void> {
-    if (outcome.kind !== "billable_success") {
-      return;
-    }
-    if (outcome.creditsConsumed <= 0 || !reservationId) {
-      return;
-    }
-    const result = await confirmReservation(reservationId);
-    if (!result.confirmed) {
-      logError("gakuchika-reservation-confirm-after-success-failed", new Error("Credit reservation confirm returned false after billable success"), {
-        userId: ctx.userId,
-        gakuchikaId: ctx.gakuchikaId,
-        reservationId,
-        creditsConsumed: outcome.creditsConsumed,
-      });
-    }
   },
 
   async confirmInTx(

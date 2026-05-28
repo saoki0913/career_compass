@@ -4,6 +4,8 @@ vi.mock("@/lib/credits", () => ({
   cancelReservation: vi.fn(),
   confirmReservation: vi.fn(),
   confirmReservationInTx: vi.fn(),
+  getReservationStatusInTx: vi.fn(),
+  consumeCredits: vi.fn(),
   getRemainingFreeFetches: vi.fn(),
   hasEnoughCredits: vi.fn(),
   reserveCredits: vi.fn(),
@@ -93,39 +95,6 @@ describe("companyFetchPolicy", () => {
     );
   });
 
-  it("confirms only paid credit reservations and requires a success reservation", async () => {
-    const credits = await import("@/lib/credits");
-    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: true });
-    const { companyFetchPolicy } = await import("./company-fetch-policy");
-    const outcome = { kind: "billable_success" as const, creditsConsumed: 1, freeQuotaUsed: false };
-
-    await companyFetchPolicy.confirm(ctx, outcome, "schedule-free-quota");
-    await companyFetchPolicy.confirm(ctx, outcome, "reservation-1");
-
-    expect(credits.confirmReservation).toHaveBeenCalledTimes(1);
-    expect(credits.confirmReservation).toHaveBeenCalledWith("reservation-1");
-    await expect(companyFetchPolicy.confirm(ctx, outcome, null)).rejects.toThrow("Missing company fetch billing reservation");
-  });
-
-  it("logs when paid credit reservation confirmation is not applied", async () => {
-    const credits = await import("@/lib/credits");
-    const logger = await import("@/lib/logger");
-    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: false });
-    const { companyFetchPolicy } = await import("./company-fetch-policy");
-
-    await companyFetchPolicy.confirm(
-      ctx,
-      { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
-      "reservation-1",
-    );
-
-    expect(logger.logError).toHaveBeenCalledWith(
-      "company-fetch-reservation-confirm-after-success-failed",
-      expect.any(Error),
-      expect.objectContaining({ reservationId: "reservation-1", userId: "user-1" }),
-    );
-  });
-
   it("confirmInTx claims paid credits on the passed tx, skips free quota, and requires a reservation", async () => {
     const credits = await import("@/lib/credits");
     vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: true, balanceAfter: 9 });
@@ -143,10 +112,13 @@ describe("companyFetchPolicy", () => {
     );
   });
 
-  it("confirmInTx logs when paid credit reservation could not be claimed", async () => {
+  it("confirmInTx treats an already-confirmed reservation as an idempotent re-run without logging or recharging", async () => {
     const credits = await import("@/lib/credits");
     const logger = await import("@/lib/logger");
+    // claim returns false because the row already left `reserved`; the status
+    // lookup proves it was confirmed by a prior run, so this is benign.
     vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: false, balanceAfter: null });
+    vi.mocked(credits.getReservationStatusInTx).mockResolvedValue("confirmed");
     const { companyFetchPolicy } = await import("./company-fetch-policy");
 
     await companyFetchPolicy.confirmInTx(
@@ -156,16 +128,50 @@ describe("companyFetchPolicy", () => {
       "reservation-1",
     );
 
+    expect(credits.getReservationStatusInTx).toHaveBeenCalledWith(fakeTx, "reservation-1");
+    // Idempotent re-run: no error surfaced, and never re-charge via consumeCredits.
+    expect(logger.logError).not.toHaveBeenCalled();
+    expect(credits.consumeCredits).not.toHaveBeenCalled();
+  });
+
+  it("confirmInTx logs (without recharging or throwing) when a reserved claim is genuinely lost", async () => {
+    const credits = await import("@/lib/credits");
+    const logger = await import("@/lib/logger");
+    // claim returns false and the row is no longer reserved nor confirmed
+    // (e.g. swept to `canceled`). Near-impossible for company-fetch, but we
+    // surface it for ops visibility and never auto-compensate (double-charge
+    // footgun) nor throw (deadlines are already persisted and unrecoverable).
+    vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: false, balanceAfter: null });
+    vi.mocked(credits.getReservationStatusInTx).mockResolvedValue("canceled");
+    const { companyFetchPolicy } = await import("./company-fetch-policy");
+
+    await expect(
+      companyFetchPolicy.confirmInTx(
+        fakeTx,
+        ctx,
+        { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
+        "reservation-1",
+      ),
+    ).resolves.toBeUndefined();
+
     expect(logger.logError).toHaveBeenCalledWith(
-      "company-fetch-reservation-confirm-after-success-failed",
+      "company-fetch:confirm-could-not-claim-reserved",
       expect.any(Error),
-      expect.objectContaining({ reservationId: "reservation-1", userId: "user-1" }),
+      expect.objectContaining({
+        reservationId: "reservation-1",
+        userId: "user-1",
+        companyId: "company-1",
+        currentStatus: "canceled",
+        severity: "high",
+      }),
     );
+    expect(credits.consumeCredits).not.toHaveBeenCalled();
   });
 
   it("cancels free quota and paid credit reservations through their matching stores", async () => {
     const usage = await import("@/lib/company-info/usage");
     const credits = await import("@/lib/credits");
+    vi.mocked(credits.cancelReservation).mockResolvedValue({ canceled: true, refundedAmount: 1 });
     const { companyFetchPolicy } = await import("./company-fetch-policy");
 
     await companyFetchPolicy.cancel(ctx, "schedule-free-quota", "failure");
@@ -173,5 +179,35 @@ describe("companyFetchPolicy", () => {
 
     expect(usage.cancelMonthlyScheduleFreeUse).toHaveBeenCalledWith("user-1");
     expect(credits.cancelReservation).toHaveBeenCalledWith("reservation-1");
+  });
+
+  it("surfaces a paid reservation cancel that could not claim the row (no refund applied)", async () => {
+    const credits = await import("@/lib/credits");
+    const logger = await import("@/lib/logger");
+    vi.mocked(credits.cancelReservation).mockResolvedValue({ canceled: false, refundedAmount: 0 });
+    const { companyFetchPolicy } = await import("./company-fetch-policy");
+
+    await companyFetchPolicy.cancel(ctx, "reservation-1", "duplicates_only");
+
+    expect(logger.logError).toHaveBeenCalledWith(
+      "company-fetch-reservation-cancel-not-applied",
+      expect.any(Error),
+      expect.objectContaining({ reservationId: "reservation-1", userId: "user-1", reason: "duplicates_only" }),
+    );
+  });
+
+  it("logs a paid reservation cancel exception without rethrowing", async () => {
+    const credits = await import("@/lib/credits");
+    const logger = await import("@/lib/logger");
+    vi.mocked(credits.cancelReservation).mockRejectedValue(new Error("db unavailable"));
+    const { companyFetchPolicy } = await import("./company-fetch-policy");
+
+    await expect(companyFetchPolicy.cancel(ctx, "reservation-1", "unhandled_exception")).resolves.toBeUndefined();
+
+    expect(logger.logError).toHaveBeenCalledWith(
+      "company-fetch-reservation-cancel",
+      expect.any(Error),
+      expect.objectContaining({ reservationId: "reservation-1", userId: "user-1", reason: "unhandled_exception" }),
+    );
   });
 });

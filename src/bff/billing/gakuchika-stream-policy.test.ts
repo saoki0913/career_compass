@@ -42,39 +42,6 @@ describe("gakuchikaStreamPolicy", () => {
     expect(result.errorResponse?.status).toBe(402);
   });
 
-  it("confirms reserved credits only for billable success", async () => {
-    const credits = await import("@/lib/credits");
-    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: true });
-    const { gakuchikaStreamPolicy } = await import("./gakuchika-stream-policy");
-
-    await gakuchikaStreamPolicy.confirm(
-      { userId: "user-1", gakuchikaId: "g-1", newQuestionCount: 3 },
-      { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
-      "res-1",
-    );
-
-    expect(credits.confirmReservation).toHaveBeenCalledWith("res-1");
-  });
-
-  it("logs when post-success reservation confirmation is not applied", async () => {
-    const credits = await import("@/lib/credits");
-    const logger = await import("@/lib/logger");
-    vi.mocked(credits.confirmReservation).mockResolvedValue({ confirmed: false });
-    const { gakuchikaStreamPolicy } = await import("./gakuchika-stream-policy");
-
-    await gakuchikaStreamPolicy.confirm(
-      { userId: "user-1", gakuchikaId: "g-1", newQuestionCount: 3 },
-      { kind: "billable_success", creditsConsumed: 1, freeQuotaUsed: false },
-      "res-1",
-    );
-
-    expect(logger.logError).toHaveBeenCalledWith(
-      "gakuchika-reservation-confirm-after-success-failed",
-      expect.any(Error),
-      expect.objectContaining({ userId: "user-1", gakuchikaId: "g-1", reservationId: "res-1" }),
-    );
-  });
-
   it("confirmInTx claims the reservation on the passed tx for billable success", async () => {
     const credits = await import("@/lib/credits");
     vi.mocked(credits.confirmReservationInTx).mockResolvedValue({ confirmed: true, balanceAfter: 7 });
