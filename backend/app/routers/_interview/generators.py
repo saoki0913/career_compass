@@ -137,6 +137,7 @@ async def _stream_llm_json_completion(
     temperature: float,
     feature: str,
     json_schema: dict[str, Any] | None = None,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> AsyncGenerator[
     tuple[Literal["chunk"], dict[str, str]] | tuple[Literal["done"], dict[str, Any] | None],
     None,
@@ -158,6 +159,7 @@ async def _stream_llm_json_completion(
         response_format="json_schema" if json_schema else "json_object",
         json_schema=json_schema,
         partial_required_fields=partial_required,
+        cancellation_token=cancellation_token,
     ):
         if event.type == "string_chunk" and event.path in allowed:
             yield ("chunk", {"path": event.path, "text": event.text})
@@ -206,6 +208,7 @@ async def _generate_start_progress(
                 temperature=0.2,
                 feature="interview_plan",
                 json_schema=INTERVIEW_PLAN_SCHEMA,
+                cancellation_token=cancellation_token,
             ):
                 if kind == "done":
                     plan_data = llm_payload
@@ -245,6 +248,7 @@ async def _generate_start_progress(
                 temperature=0.35,
                 feature="interview",
                 json_schema=INTERVIEW_OPENING_SCHEMA,
+                cancellation_token=cancellation_token,
             ):
                 if kind == "chunk":
                     yield _sse_event("string_chunk", llm_payload)
@@ -382,6 +386,7 @@ async def _generate_turn_progress(
                 temperature=0.35,
                 feature="interview",
                 json_schema=INTERVIEW_TURN_SCHEMA,
+                cancellation_token=cancellation_token,
             ):
                 if kind == "chunk":
                     yield _sse_event("string_chunk", llm_payload)
@@ -521,6 +526,7 @@ async def _generate_continue_progress(
                 temperature=0.35,
                 feature="interview",
                 json_schema=INTERVIEW_CONTINUE_SCHEMA,
+                cancellation_token=cancellation_token,
             ):
                 if kind == "chunk":
                     yield _sse_event("string_chunk", llm_payload)
@@ -625,6 +631,7 @@ async def _generate_feedback_progress(
             temperature=0.25,
             feature="interview_feedback",
             json_schema=INTERVIEW_FEEDBACK_SCHEMA,
+            cancellation_token=cancellation_token,
         ):
             if kind == "chunk":
                 yield _sse_event("string_chunk", llm_payload)

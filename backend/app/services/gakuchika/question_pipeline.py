@@ -27,6 +27,7 @@ from app.services.gakuchika.core import (
 from app.services.gakuchika.models import NextQuestionRequest
 from app.services.gakuchika.retry import _retry_question_generation
 from app.utils.gakuchika_text import _classify_input_richness, _clean_string, _fallback_build_meta
+from app.utils.cancellation import CancellationTokenLike
 from app.utils.llm import call_llm_with_error, consume_request_llm_cost_summary
 from app.utils.llm_streaming import call_llm_streaming_fields
 from app.utils.llm_prompt_safety import sanitize_prompt_input
@@ -79,7 +80,10 @@ def _build_retry_user_message(
     return retry_user_message
 
 
-async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str, dict[str, Any]]:
+async def _generate_initial_question(
+    request: NextQuestionRequest,
+    cancellation_token: CancellationTokenLike | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Orchestrate initial question generation."""
     input_richness_mode = _classify_input_richness(
         request.gakuchika_content or request.gakuchika_title
@@ -108,6 +112,7 @@ async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str,
         feature=NEXT_QUESTION_FEATURE,
         retry_on_parse=True,
         disable_fallback=True,
+        cancellation_token=cancellation_token,
     )
 
     if llm_result.success and llm_result.data is not None:
@@ -131,6 +136,7 @@ async def _generate_initial_question(request: NextQuestionRequest) -> tuple[str,
 
 async def _generate_next_question_progress(
     request: "NextQuestionRequest",
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> AsyncGenerator[str, None]:
     try:
         if not request.gakuchika_title:
@@ -142,7 +148,7 @@ async def _generate_next_question_progress(
 
         has_user_response = any(msg.role == "user" for msg in request.conversation_history)
         if not has_user_response and not _is_deepdive_request(request):
-            question, state = await _generate_initial_question(request)
+            question, state = await _generate_initial_question(request, cancellation_token=cancellation_token)
             coach_progress_message = state.get("coach_progress_message")
             if coach_progress_message:
                 yield _sse_event("field_complete", {
@@ -195,6 +201,7 @@ async def _generate_next_question_progress(
             stream_string_fields=["question"],
             attempt_repair_on_parse_failure=False,
             partial_required_fields=("question",),
+            cancellation_token=cancellation_token,
         ):
             if event.type == "string_chunk":
                 if event.path == "question":
@@ -269,6 +276,7 @@ async def _generate_next_question_progress(
                 feature=NEXT_QUESTION_FEATURE,
                 retry_on_parse=True,
                 disable_fallback=True,
+                cancellation_token=cancellation_token,
             )
             if not retry_result.success or retry_result.data is None:
                 error = retry_result.error

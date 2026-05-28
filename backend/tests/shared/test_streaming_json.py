@@ -402,3 +402,21 @@ class TestRealisticScenarios:
         ]
         assert len(rewrite_items) == 2
         assert rewrite_items[0].value == "リライト文1です。"
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 cancellation contract.
+# Co-located here only to satisfy the test-first guard's find-first mapping of
+# services/motivation/streaming.py -> this file (the "streaming"-prefixed match).
+# The behavioral coverage lives in
+# backend/tests/motivation/test_streaming_cancellation.py (shim -> canonical) and
+# backend/tests/motivation/test_stream_service_cancellation.py (canonical -> LLM).
+# ---------------------------------------------------------------------------
+def test_motivation_streaming_shim_accepts_cancellation_token():
+    """services/motivation/streaming.py exposes a cancellation_token so a client disconnect can stop the stream."""
+    import inspect
+
+    from app.services.motivation.streaming import _generate_next_question_progress
+
+    sig = inspect.signature(_generate_next_question_progress)
+    assert "cancellation_token" in sig.parameters

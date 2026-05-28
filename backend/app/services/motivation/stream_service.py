@@ -22,6 +22,7 @@ from app.services.motivation.summarize import (
     maybe_summarize_older_messages,
 )
 from app.utils.llm import consume_request_llm_cost_summary
+from app.utils.cancellation import CancellationTokenLike
 from app.utils.llm_streaming import call_llm_streaming_fields
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,7 @@ async def _generate_next_question_progress(
     request: NextQuestionRequest,
     *,
     tenant_key: str | None = None,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Generate SSE events for motivation next-question with progress updates.
@@ -150,6 +152,7 @@ async def _generate_next_question_progress(
             },
             stream_string_fields=["question"],
             partial_required_fields=("question",),
+            cancellation_token=cancellation_token,
         ):
             if event.type == "string_chunk":
                 yield _sse_event("string_chunk", {"path": event.path, "text": event.text})

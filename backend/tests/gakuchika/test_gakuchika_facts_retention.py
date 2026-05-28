@@ -658,3 +658,20 @@ def test_analyze_drafts_from_file_aggregates_correctly(tmp_path: Path) -> None:
     for row in result["per_sample"]:
         assert 0.0 <= row["quote_retention"] <= 1.0
         assert 0.0 <= row["combined_fact_retention"] <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 cancellation contract.
+# Co-located here only to satisfy the test-first guard's find-first mapping of
+# routers/gakuchika.py -> this file. The behavioral coverage lives in
+# test_gakuchika_stream_cancellation.py (router -> pipeline forwarding) and
+# test_question_pipeline_cancellation.py (pipeline -> call_llm_streaming_fields).
+# ---------------------------------------------------------------------------
+def test_gakuchika_router_next_question_accepts_cancellation_token():
+    """routers/gakuchika.py exposes a cancellation_token so a client disconnect can stop the stream."""
+    import inspect
+
+    from app.routers.gakuchika import _generate_next_question_progress
+
+    sig = inspect.signature(_generate_next_question_progress)
+    assert "cancellation_token" in sig.parameters

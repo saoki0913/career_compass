@@ -1,4 +1,9 @@
-"""Tests for cancellation token propagation in interview streaming."""
+"""Tests for cancellation token propagation in interview streaming.
+
+The deeper generator -> ``_stream_llm_json_completion`` -> ``call_llm_streaming_fields``
+propagation contract lives in ``test_generators_cancellation.py`` (named to match
+the implementation module so the test-first guard resolves it).
+"""
 from __future__ import annotations
 
 import inspect
@@ -26,6 +31,13 @@ def test_generate_turn_progress_accepts_cancellation_token():
     from app.routers._interview.generators import _generate_turn_progress
 
     sig = inspect.signature(_generate_turn_progress)
+    assert "cancellation_token" in sig.parameters
+
+
+def test_generate_continue_progress_accepts_cancellation_token():
+    from app.routers._interview.generators import _generate_continue_progress
+
+    sig = inspect.signature(_generate_continue_progress)
     assert "cancellation_token" in sig.parameters
 
 

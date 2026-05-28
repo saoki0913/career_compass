@@ -34,7 +34,7 @@ async def _generate_next_question_progress(
     set_request_llm_call_budget(FEATURE_LLM_CALL_BUDGETS.get("motivation"))
     try:
         async for chunk in _generate_next_question_progress_inner(
-            request, tenant_key=tenant_key,
+            request, tenant_key=tenant_key, cancellation_token=cancellation_token,
         ):
             yield chunk
     finally:
@@ -45,6 +45,7 @@ async def _generate_next_question_progress_inner(
     request: NextQuestionRequest,
     *,
     tenant_key: str | None = None,
+    cancellation_token: CancellationTokenLike | None = None,
 ) -> AsyncGenerator[str, None]:
     original_streamer = _stream_service.call_llm_streaming_fields
     patched_streamer = call_llm_streaming_fields
@@ -53,6 +54,7 @@ async def _generate_next_question_progress_inner(
         async for chunk in _stream_service._generate_next_question_progress(
             request,
             tenant_key=tenant_key,
+            cancellation_token=cancellation_token,
         ):
             yield chunk
         return
@@ -62,6 +64,7 @@ async def _generate_next_question_progress_inner(
         async for chunk in _stream_service._generate_next_question_progress(
             request,
             tenant_key=tenant_key,
+            cancellation_token=cancellation_token,
         ):
             yield chunk
     finally:

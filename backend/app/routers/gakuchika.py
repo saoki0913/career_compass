@@ -758,7 +758,9 @@ async def _generate_next_question_progress(
 ) -> AsyncGenerator[str, None]:
     set_request_llm_call_budget(FEATURE_LLM_CALL_BUDGETS.get("gakuchika"))
     try:
-        async for chunk in _generate_next_question_progress_pipeline(request):
+        async for chunk in _generate_next_question_progress_pipeline(
+            request, cancellation_token=cancellation_token
+        ):
             yield chunk
     finally:
         reset_request_llm_call_budget()
