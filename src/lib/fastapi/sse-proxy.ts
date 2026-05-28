@@ -50,6 +50,15 @@ export interface SSEProxyOptions {
   onErrorEvent?: (data: Record<string, unknown>) => Record<string, unknown>;
   onCostTelemetry?: (telemetry: InternalCostTelemetry | null) => void;
   onFinally?: (summary: { success: boolean }) => void | Promise<void>;
+  /**
+   * Abort the upstream FastAPI fetch when the browser disconnects. The proxy's
+   * `ReadableStream.cancel()` only releases the local read lock — it does NOT
+   * stop the upstream connection — so we call this to propagate the disconnect
+   * to FastAPI (which lets its SseLease cancel the in-flight LLM). Skipped once
+   * the stream has completed normally (`completedNormally`), since the upstream
+   * has already finished and a late cancel must not look like a disconnect.
+   */
+  abortUpstream?: (reason?: string) => void;
 }
 
 export interface SSEDataEvent {
@@ -163,11 +172,18 @@ export function createSSEProxyStream(
     onErrorEvent,
     onCostTelemetry,
     onFinally,
+    abortUpstream,
   } = options;
   const logPrefix = `[sse-proxy:${feature}:${requestId}]`;
 
   const upstreamBody = upstreamResponse.body;
   let runFinallyFromCancel: ((success: boolean) => Promise<void>) | null = null;
+  // Tracks whether the stream finished via a normal `complete` (success). When
+  // true, a subsequent `cancel()` must NOT abort the upstream — the upstream has
+  // already finished and reporting a disconnect would be misleading. When false
+  // (mid-stream browser disconnect), `cancel()` aborts the upstream fetch so
+  // FastAPI stops the in-flight LLM.
+  let completedNormally = false;
   if (!upstreamBody) {
     // Degenerate case — produce a stream that emits a single error event and closes.
     return new ReadableStream<Uint8Array>({
@@ -286,9 +302,15 @@ export function createSSEProxyStream(
           // the hook forgot `cancel: true`. This guarantees onFinally runs with
           // success=false so the caller refunds (e.g. interview persistence
           // failure replacing complete with INTERVIEW_PERSISTENCE_UNAVAILABLE).
+          // It also leaves `completedNormally` false so a later cancel still
+          // aborts the upstream.
           if (toForward.type === "error") {
             return true;
           }
+          // A non-error complete (whether cancel:true or a normal finish) means
+          // the stream completed successfully — mark it so a late `cancel()`
+          // does NOT abort the (already-finished) upstream.
+          completedNormally = true;
           if (!completeResult?.cancel) {
             sawSuccess = true;
           }
@@ -371,6 +393,18 @@ export function createSSEProxyStream(
       }
     },
     async cancel() {
+      // Browser disconnected (or downstream consumer cancelled) before the
+      // stream finished. Abort the upstream fetch so FastAPI receives the
+      // disconnect and cancels the in-flight LLM (Phase 6 cost control). Skip
+      // when the stream already completed normally — the upstream is done and a
+      // late cancel must not be reported as a disconnect.
+      if (!completedNormally) {
+        try {
+          abortUpstream?.("client_disconnect");
+        } catch (abortErr) {
+          console.error(`${logPrefix} abortUpstream failed:`, abortErr);
+        }
+      }
       await runFinallyFromCancel?.(false);
       await reader.cancel().catch(() => undefined);
     },

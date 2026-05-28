@@ -257,6 +257,83 @@ describe("createSSEProxyStream", () => {
     expect(onFinally).toHaveBeenCalledWith({ success: false });
   });
 
+  it("aborts upstream when the browser cancels before completion", async () => {
+    // A never-ending upstream body simulates an in-flight LLM stream the client
+    // disconnects from. cancel() must propagate to the upstream fetch so FastAPI
+    // receives GeneratorExit and stops the LLM (Phase 6 cost control).
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "progress", step: 1 })}\n\n`));
+      },
+    });
+    const abortUpstream = vi.fn();
+
+    const stream = createSSEProxyStream(new Response(body), { ...baseOpts, abortUpstream });
+    const reader = stream.getReader();
+    await reader.read();
+    await reader.cancel();
+
+    expect(abortUpstream).toHaveBeenCalledOnce();
+    expect(abortUpstream).toHaveBeenCalledWith("client_disconnect");
+  });
+
+  it("does NOT abort upstream when the stream completed normally", async () => {
+    // After a normal complete event the upstream has already finished, so a late
+    // browser cancel of the (already-closed) stream must not fire abortUpstream
+    // and risk reporting a spurious cancellation to FastAPI.
+    const upstream = fakeResponse([{ type: "complete", data: { ok: true } }]);
+    const abortUpstream = vi.fn();
+    const onComplete = vi.fn().mockResolvedValue(undefined);
+
+    const stream = createSSEProxyStream(upstream, { ...baseOpts, abortUpstream, onComplete });
+    const reader = stream.getReader();
+    // Drain to completion.
+    while (true) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
+    // A late cancel after normal completion must be a no-op for abortUpstream.
+    await reader.cancel();
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(abortUpstream).not.toHaveBeenCalled();
+  });
+
+  it("does NOT abort upstream after an onComplete-driven cancel:true success", async () => {
+    // cancel:true on a successful complete (e.g. interview/gakuchika) stops the
+    // proxy intentionally; this is a normal completion, not a client disconnect,
+    // so abortUpstream must not fire.
+    const upstream = fakeResponse([
+      { type: "complete", data: { ok: true } },
+      { type: "complete", data: { shouldNotBeRead: true } },
+    ]);
+    const abortUpstream = vi.fn();
+    const onComplete = vi.fn().mockResolvedValue({ cancel: true });
+
+    const stream = createSSEProxyStream(upstream, { ...baseOpts, abortUpstream, onComplete });
+    await collectEvents(stream);
+
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(abortUpstream).not.toHaveBeenCalled();
+  });
+
+  it("aborts upstream when the browser cancels even if abortUpstream is the only hook", async () => {
+    // Guard: abortUpstream must run independently of onFinally being supplied.
+    const body = new ReadableStream<Uint8Array>({
+      start() {
+        // emit nothing, keep open
+      },
+    });
+    const abortUpstream = vi.fn();
+
+    const stream = createSSEProxyStream(new Response(body), { ...baseOpts, abortUpstream });
+    const reader = stream.getReader();
+    await reader.cancel();
+
+    expect(abortUpstream).toHaveBeenCalledWith("client_disconnect");
+  });
+
   it("emits error event to client when upstream body is null", async () => {
     const response = { body: null } as unknown as Response;
     const onFinally = vi.fn();

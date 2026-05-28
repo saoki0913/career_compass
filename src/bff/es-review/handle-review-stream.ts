@@ -114,6 +114,9 @@ export async function handleReviewStream(
         requestId,
         principal: prepared.principal,
         payload: prepared.payload,
+        // Propagate browser disconnect to the upstream fetch so FastAPI can
+        // cancel the in-flight LLM (Phase 6 cost control).
+        clientSignal: request.signal,
       });
     } catch (fetchError) {
       await esReviewStreamPolicy.cancel(billingContext, reservationId, "fastapi_fetch_exception");
@@ -171,6 +174,7 @@ export async function handleReviewStream(
       config: streamConfig,
       upstreamResponse: upstream.response,
       clearUpstreamTimeout: upstream.clearTimeout,
+      abortUpstream: upstream.abortUpstream,
       requestId,
       onCostTelemetry: (telemetry) => { latestTelemetry = telemetry ?? latestTelemetry; },
       onProgress: sanitizePublicESReviewProgressEvent,

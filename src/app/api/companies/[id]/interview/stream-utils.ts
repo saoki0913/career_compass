@@ -54,6 +54,7 @@ export async function createInterviewUpstreamStream(options: {
   const principalPlan = await getViewerPlan(options.identity ?? { userId: null, guestId: null });
   let upstreamResponse: Response;
   let clearUpstreamTimeout: () => void;
+  let abortUpstream: (reason?: string) => void;
   try {
     const result = await fetchConfiguredUpstreamSSE({
       config: STREAM_FEATURE_CONFIGS.interview,
@@ -67,9 +68,14 @@ export async function createInterviewUpstreamStream(options: {
         companyId: options.companyId ?? null,
         plan: principalPlan,
       },
+      // Propagate browser disconnect to the upstream fetch so FastAPI can cancel
+      // the in-flight LLM (Phase 6 cost control). On disconnect this also drives
+      // sse-proxy.cancel() → onAbort → reservation refund.
+      clientSignal: options.request.signal,
     });
     upstreamResponse = result.response;
     clearUpstreamTimeout = result.clearTimeout;
+    abortUpstream = result.abortUpstream;
   } catch (fetchError) {
     await options.onError?.();
     if (isSecretMissingError(fetchError)) {
@@ -112,6 +118,7 @@ export async function createInterviewUpstreamStream(options: {
     config: STREAM_FEATURE_CONFIGS.interview,
     upstreamResponse,
     clearUpstreamTimeout,
+    abortUpstream,
     requestId: options.request.headers.get("x-request-id") ?? "",
     onComplete: async (event) => {
       // Interview complete events nest telemetry inside `data`, not at top level.

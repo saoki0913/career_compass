@@ -174,6 +174,7 @@ describe("createConversationStreamHandler", () => {
     mockFetchUpstream.mockResolvedValue({
       response: new Response("ok", { status: 200 }),
       clearTimeout: vi.fn(),
+      abortUpstream: vi.fn(),
     });
     mockCreateProxy.mockReturnValue(
       new Response("stream", { status: 200 }),
@@ -194,11 +195,37 @@ describe("createConversationStreamHandler", () => {
     );
   });
 
+  it("forwards the request signal to the upstream and abortUpstream to the proxy", async () => {
+    mockGetRequestIdentity.mockResolvedValue(activeUser);
+    const abortUpstream = vi.fn();
+    mockFetchUpstream.mockResolvedValue({
+      response: new Response("ok", { status: 200 }),
+      clearTimeout: vi.fn(),
+      abortUpstream,
+    });
+    mockCreateProxy.mockReturnValue(new Response("stream", { status: 200 }));
+
+    const request = makeRequest();
+    const handler = createConversationStreamHandler(makeConfig());
+    await handler(request, { params: Promise.resolve({ id: "abc" }) });
+
+    // clientSignal must be the NextRequest abort signal (client disconnect).
+    expect(mockFetchUpstream).toHaveBeenCalledWith(
+      expect.objectContaining({ clientSignal: request.signal }),
+    );
+    // The upstream-abort callback must be handed to the proxy so cancel() can
+    // propagate a browser disconnect to FastAPI.
+    expect(mockCreateProxy).toHaveBeenCalledWith(
+      expect.objectContaining({ abortUpstream }),
+    );
+  });
+
   it("passes paramId extracted from route params", async () => {
     mockGetRequestIdentity.mockResolvedValue(activeUser);
     mockFetchUpstream.mockResolvedValue({
       response: new Response("ok", { status: 200 }),
       clearTimeout: vi.fn(),
+      abortUpstream: vi.fn(),
     });
     mockCreateProxy.mockReturnValue(
       new Response("stream", { status: 200 }),
@@ -222,6 +249,7 @@ describe("createConversationStreamHandler", () => {
     mockFetchUpstream.mockResolvedValue({
       response: new Response("ok", { status: 200 }),
       clearTimeout: vi.fn(),
+      abortUpstream: vi.fn(),
     });
     mockCreateProxy.mockReturnValue(
       new Response("stream", { status: 200 }),
@@ -278,6 +306,7 @@ describe("createConversationStreamHandler", () => {
         status: 500,
       }),
       clearTimeout: vi.fn(),
+      abortUpstream: vi.fn(),
     });
 
     const handler = createConversationStreamHandler(

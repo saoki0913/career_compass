@@ -168,6 +168,35 @@ describe("interview stream utils", () => {
     );
   });
 
+  it("forwards the request signal to the upstream and abortUpstream to the proxy", async () => {
+    const abortUpstream = vi.fn();
+    fetchConfiguredUpstreamSSEMock.mockResolvedValue({
+      response: new Response("ok", { status: 200 }),
+      clearTimeout: vi.fn(),
+      abortUpstream,
+    });
+    createConfiguredSSEProxyResponseMock.mockReturnValue(new Response("stream", { status: 200 }));
+
+    const request = new NextRequest("http://localhost/api/interview");
+    await createInterviewUpstreamStream({
+      request,
+      identity: { userId: "user-1", guestId: null },
+      companyId: "company-1",
+      upstreamPath: "/api/interview/turn",
+      upstreamPayload: {},
+      onComplete: async () => {
+        throw new Error("not reached");
+      },
+    });
+
+    expect(fetchConfiguredUpstreamSSEMock).toHaveBeenCalledWith(
+      expect.objectContaining({ clientSignal: request.signal }),
+    );
+    expect(createConfiguredSSEProxyResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({ abortUpstream }),
+    );
+  });
+
   it("replaces complete with a cancel:true persistence error so the proxy refunds", async () => {
     const clearTimeout = vi.fn();
     fetchConfiguredUpstreamSSEMock.mockResolvedValue({

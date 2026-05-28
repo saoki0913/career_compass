@@ -168,6 +168,9 @@ export function createConversationStreamHandler<TContext>(
           principal: upstream.principal,
           payload: upstream.payload,
           endpointPath: upstream.endpointPath,
+          // Propagate browser disconnect to the upstream fetch so FastAPI can
+          // cancel the in-flight LLM (Phase 6 cost control).
+          clientSignal: request.signal,
         });
       } catch (fetchError) {
         logAiCreditCostSummary({
@@ -246,6 +249,7 @@ export function createConversationStreamHandler<TContext>(
         config: streamConfig,
         upstreamResponse: upstreamResult.response,
         clearUpstreamTimeout: upstreamResult.clearTimeout,
+        abortUpstream: upstreamResult.abortUpstream,
         requestId,
         onCostTelemetry: (t) => {
           latestTelemetry = t ?? latestTelemetry;

@@ -217,6 +217,51 @@ describe("handleReviewStream", () => {
     );
   });
 
+  it("propagates client disconnect (request abort) to the upstream fetch signal", async () => {
+    const { handleReviewStream } = await import("./handle-review-stream");
+
+    let upstreamSignal: AbortSignal | undefined;
+    fetchFastApiWithPrincipalMock.mockImplementation((_path: string, init: RequestInit) => {
+      upstreamSignal = init.signal ?? undefined;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        { status: 200 },
+      );
+    });
+
+    const controller = new AbortController();
+    const request = new NextRequest(
+      "http://localhost:3000/api/documents/doc-1/review/stream",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content: "志望理由です",
+          sectionTitle: "志望動機",
+          sectionCharLimit: 400,
+        }),
+        headers: { "content-type": "application/json" },
+        signal: controller.signal,
+      },
+    );
+
+    await handleReviewStream(
+      request,
+      { params: Promise.resolve({ id: "doc-1" }) },
+      "/api/es/review/stream",
+    );
+
+    expect(upstreamSignal).toBeInstanceOf(AbortSignal);
+    expect(upstreamSignal!.aborted).toBe(false);
+    // A client disconnect aborts NextRequest.signal; the combined upstream signal
+    // must abort with it so FastAPI receives the disconnect.
+    controller.abort();
+    expect(upstreamSignal!.aborted).toBe(true);
+  });
+
   it("rejects invalid content before reserving credits", async () => {
     const { handleReviewStream } = await import("./handle-review-stream");
 

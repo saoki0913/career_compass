@@ -14,6 +14,12 @@ export interface ConfiguredUpstreamSSERequest {
   principal: CreateCareerPrincipalInput;
   requestId?: string;
   endpointPath?: string;
+  /**
+   * Client-disconnect signal (typically `NextRequest.signal`). Forwarded to the
+   * upstream fetch so a browser disconnect aborts the FastAPI connection. See
+   * `fetchUpstreamSSE` for the full contract.
+   */
+  clientSignal?: AbortSignal;
 }
 
 export function createSSEProxyOptionsFromConfig(
@@ -35,6 +41,7 @@ export async function fetchConfiguredUpstreamSSE(
     principal: request.principal,
     requestId: request.requestId,
     timeoutMs: request.config.timeoutMs,
+    clientSignal: request.clientSignal,
   });
 }
 
