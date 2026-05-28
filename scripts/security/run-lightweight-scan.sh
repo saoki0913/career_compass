@@ -98,13 +98,29 @@ for (let index = 0; index < files.length; index += chunkSize) {
   }
 
   function parseNdjson(text) {
+    // trace-check emits one JSON object per invocation; treat output as a single
+    // JSON document first. Fall back to true NDJSON only if the whole-output
+    // parse fails (handles future multi-object outputs).
+    //
+    // Why not the depth-counting parser: it counted '{' / '}' inside JSON string
+    // values (e.g. the rawCode field showing source snippets containing '}'),
+    // which broke alignment and made parseNdjson return [] for valid output.
+    // That falsely tripped the `result.status !== 0 && payloads.length === 0`
+    // branch below into `scanner = true` and surfaced as scanner_error.
     const objects = [];
-    let depth = 0, start = -1;
-    for (let i = 0; i < text.length; i++) {
-      if (text[i] === "{") { if (depth === 0) start = i; depth++; }
-      else if (text[i] === "}") { depth--; if (depth === 0 && start >= 0) { try { objects.push(JSON.parse(text.slice(start, i + 1))); } catch {} start = -1; } }
+    const trimmed = text.trim();
+    if (!trimmed) return objects;
+    try {
+      const parsed = JSON.parse(trimmed);
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      for (const line of trimmed.split(/\r?\n/u)) {
+        const s = line.trim();
+        if (!s) continue;
+        try { objects.push(JSON.parse(s)); } catch {}
+      }
+      return objects;
     }
-    return objects;
   }
 
   const payloads = parseNdjson(output);
